@@ -1,0 +1,7 @@
+[
+  {
+    "slug": "gtk-css-empty-colors-transparent-nautilus",
+    "category": "omarchy-theming",
+    "reason": "The stated cause is fabricated. There is no `10-gtk.sh` theme hook in Omarchy: config/omarchy/hooks/theme-set.d contains only show-theme-notification.sample, and Omarchy generates no GTK CSS at all - a repo-wide search for @define-color returns exactly one hit (default/themed/hyprland-preview-share-picker.css.tpl) and there is no gtk-3.0 or gtk-4.0 directory in config/. This also directly contradicts record 5, which cites the same issue (8380) and correctly states that stock Omarchy never writes gtk.css. The fix is actively harmful on top of that: it appends rules referencing @window_bg_color, @popover_bg_color, @headerbar_bg_color, @sidebar_bg_color and @bright_black, none of which are ever defined (it even defines @borders in terms of the undefined @bright_black) - GTK drops a stylesheet on unresolved color references, so this can blank the theming it claims to fix. It also uses `cat >>` inside a theme-set hook, so the file grows without bound on every theme change, and `pkill nautilus; nautilus &` from a hook detaches a GUI process from the hook's shell. Record 5 is the accurate treatment of this symptom."
+  }
+]

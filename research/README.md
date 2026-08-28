@@ -1,0 +1,187 @@
+# Omarchy / Arch troubleshooting research
+
+A corpus of real, reported problems that Omarchy and Arch-based desktop/laptop users
+hit, each paired with a concrete fix and the source it came from.
+
+The goal is practical coverage, not a headcount. A record only earns its place if the
+`fix` field is something you could paste into a shell or a config file.
+
+## What's in here now
+
+**457 problems across 12 categories**, drawn from 769 distinct sources. Every record
+carries at least one real, fetched source URL, and no two records share a slug.
+
+| audit status | count | meaning |
+| --- | --- | --- |
+| `ok` | 228 | audited and confirmed accurate |
+| `corrected` | 197 | problem real, fix (and sometimes cause) rewritten by the audit |
+| `gapfill-unaudited` | 28 | harvested but never reviewed — `wayland-compat` and `network` gap-fill |
+| `unaudited` | 4 | audit returned no verdict for these slugs |
+
+So 425 of 457 records (93%) have been through an adversarial audit.
+
+This was built in two passes. The first harvested 314 records but hit the account spend
+limit, which killed the gap-fill stage and left `apps-services` unaudited. The second
+pass closed both: it audited those 26 records and filled 143 new records against the 117
+gaps the first pass's auditors had named. Only two of the second pass's audits failed
+(`wayland-compat`, `network` — API errors, not budget), which is the remaining 28.
+
+The second pass also fixed a flaw in the first: its auditors could return a
+`corrected_cause`, not just a corrected fix. **20 records had a disproved cause
+replaced** rather than left standing.
+
+## Datastore design
+
+You asked whether SQLite fits. It does, but only for one job — so it isn't the source
+of truth:
+
+- **`data/problems.jsonl` is authoritative.** One JSON object per line. It diffs
+  cleanly in git, appends without rewriting, and stays readable when the tooling
+  isn't around. Hand-edit this.
+- **`data/problems.db` is a derived index.** Delete it any time; `build_db.py`
+  rebuilds it. SQLite earns its keep because the real access pattern is *"a user
+  describes a symptom in their own words → find the matching record"*, which is a
+  ranked full-text query. FTS5 + bm25 does that in one statement, and the relational
+  tables handle the tag/source fan-out that flat JSONL can't query.
+- **`docs/*.md` is derived too.** One page per category, sorted by severity. This is
+  what a human or an agent reads directly, with no tooling required.
+
+So: JSONL for truth and diffs, SQLite for search, markdown for reading. Anything
+generated can be thrown away and rebuilt.
+
+## Layout
+
+```
+research/
+  data/problems.jsonl     source of truth — edit this
+  data/categories.json    category key -> display label
+  data/problems.db        generated FTS5 index
+  docs/                   generated markdown, one page per category
+  raw/                    unprocessed workflow output, kept for provenance
+  tools/build_db.py       JSONL -> DB + markdown
+  tools/ask.py            symptom search
+  tools/schema.sql        DB schema
+  tools/harvest-workflow.js   the agent workflow that produced the corpus
+```
+
+## Usage
+
+```sh
+python tools/build_db.py                              # rebuild after editing JSONL
+
+python tools/ask.py "screen share is black in zoom"   # search by symptom
+python tools/ask.py "wifi keeps dropping" -v          # include verify steps + sources
+python tools/ask.py --tag nvidia --tag laptop --list  # filter by tags
+python tools/ask.py --slug some-problem-slug          # exact lookup
+```
+
+Search is deliberately forgiving: query text is tokenised and OR-matched, so a user's
+phrasing finds a record even when it shares no exact wording. Any FTS5 operators in
+the query are quoted into literals rather than parsed.
+
+## Record shape
+
+```jsonc
+{
+  "slug": "nvidia-black-screen-after-suspend",   // unique, kebab-case
+  "title": "Black screen after resume on NVIDIA",
+  "category": "gpu-drivers",
+  "symptom": "...",          // as a USER would describe it, incl. literal error text
+  "cause": "...",
+  "fix": "...",              // copy-pasteable commands / config, markdown fenced
+  "verify": "...",           // how to confirm it worked
+  "applies_to": ["arch", "omarchy", "nvidia", "laptop"],
+  "severity": "critical|high|medium|low",
+  "frequency": "very-common|common|occasional|rare",
+  "danger": "",              // non-empty when the fix risks data loss or boot
+  "audit_status": "ok|corrected|unaudited|gapfill-unaudited",
+  "audit_confidence": "high|medium|low",
+  "sources": ["https://..."]
+}
+```
+
+## Trust model — read this before running anything
+
+These fixes were gathered by agents from wikis, issue trackers, and forums, then put
+through a second adversarial audit pass against the Arch and Hyprland wikis. The audit
+rejects fixes that are wrong, obsolete, dangerous, or citing sources that don't hold
+up, and corrects ones that are salvageable. Every record carries what it survived:
+
+| `audit_status` | meaning |
+| --- | --- |
+| `ok` | audited and confirmed accurate |
+| `corrected` | problem was real, fix was wrong — the audited version is stored |
+| `unaudited` | the auditor never returned a verdict for it |
+| `gapfill-unaudited` | added in a later gap-fill pass, never audited |
+
+`unaudited` and `gapfill-unaudited` records are flagged in both `ask.py` output and the
+generated markdown. Treat them as leads, not instructions.
+
+**One limitation of `corrected` records from the first pass.** Those audits rewrote only
+the `fix` field. Where the auditor's objection was really about the `cause` — a wrong
+mechanism, an outdated architecture claim — that stale text is still sitting in `cause`.
+The `omarchy-update-aborted-midway` record, for instance, still describes a `git pull`
+into `~/.local/share/omarchy` that Omarchy 4 no longer does.
+
+The second pass fixed this going forward (its auditors supply `corrected_cause`, and 20
+causes were replaced), but the first pass's ~130 corrected records were not revisited.
+So both `ask.py` and the generated markdown print the full audit note directly beneath
+the cause, with a line saying the cause may not have been rewritten. Read that note
+before trusting the cause on any corrected record; the fix itself is always the audited
+version.
+
+This is a research corpus, not a warranty. It is worth reading `danger` and confirming
+against the cited source before running anything as root — particularly for anything
+touching pacman, the bootloader, initramfs, or partitions.
+
+## What is tracked, and what you build
+
+`data/problems.jsonl` is the source of truth and is tracked. `docs/*.md` is generated and
+is *also* tracked, because the reason that directory exists is that someone can read a
+category page straight out of a clone without running anything. `data/problems.db` is
+generated and is **not** tracked: it is a 4 MB binary rewritten in full on every build, so
+each commit of it would add another blob that size to history.
+
+So a fresh clone has the corpus and the reading copy, but no search index. Build it once:
+
+```sh
+cd research && python tools/build_db.py
+```
+
+`ask.py` refuses to run without it and prints that exact command, so the failure is loud.
+
+The rule that follows: **any commit touching `data/problems.jsonl` must carry the
+regenerated `docs/` with it.** Build, then confirm nothing is left unstaged:
+
+```sh
+python tools/build_db.py
+git diff --exit-code docs/
+```
+
+## Refreshing the corpus
+
+Two workflows built this, and either can be re-run with the `Workflow` tool pointed at
+its script path:
+
+```sh
+# full harvest from scratch: one harvester per category, each audited
+python tools/ingest.py raw/harvest-result.json        # after tools/harvest-workflow.js
+python tools/build_db.py
+
+# extend an existing corpus: audit unaudited categories, fill named gaps
+python tools/merge_gapfill.py raw/gapfill-result.json # after tools/gapfill-workflow.js
+python tools/build_db.py
+```
+
+`ingest.py` replaces the corpus; `merge_gapfill.py` extends it in place and is the one to
+use for incremental work. To close the remaining 28 unaudited records, run
+`gapfill-workflow.js` with `GAP_CATEGORIES` cut down to `wayland-compat` and `network`.
+
+A note on resuming: `resumeFromRunId` did **not** cleanly replay only the failed agents
+here — stalled-agent retries caused it to re-run work and burn budget, and it had to be
+stopped. Prefer editing the script to target just the failing categories over resuming.
+
+`raw/deep-research-report.json` is a separate, more heavily verified pass over the same
+territory: 13 findings that each survived 3-vote adversarial verification, plus 12
+refuted claims. The refuted list is worth reading on its own — it is mostly widely
+repeated folk fixes that primary sources actually contradict.

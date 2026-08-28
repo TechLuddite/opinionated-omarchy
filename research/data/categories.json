@@ -1,0 +1,14 @@
+{
+  "omarchy-core": "Omarchy core",
+  "omarchy-theming": "Omarchy theming & bar",
+  "hyprland-config": "Hyprland configuration",
+  "display-monitors": "Displays & monitors",
+  "wayland-compat": "Wayland app compatibility",
+  "pacman-aur": "pacman & AUR",
+  "boot-kernel": "Boot, kernel & initramfs",
+  "gpu-drivers": "GPU & drivers",
+  "power-suspend": "Power, suspend & thermal",
+  "audio-input": "Audio & input devices",
+  "network": "Networking",
+  "apps-services": "Apps, containers & services"
+}

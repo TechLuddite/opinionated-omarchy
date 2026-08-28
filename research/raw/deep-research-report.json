@@ -1,0 +1,398 @@
+{
+  "question": "Research the most common real-world problems that users of Omarchy Linux (DHH's opinionated Arch + Hyprland distro) and Arch-based distros (Arch, EndeavourOS, Manjaro, CachyOS) experience on desktops and laptops — and the actual working solutions for each.\n\nFocus areas to decompose into search angles:\n1. Omarchy-specific issues: installation/first-boot failures, omarchy-update breakage, theming/waybar/walker problems, omarchy-shell, migrations, Hyprland config conflicts, plugin issues.\n2. Hyprland/Wayland desktop issues: multi-monitor and scaling, display/refresh-rate, screen sharing and screencast (xdg-desktop-portal), XWayland app problems, cursor/GPU glitches, idle/lock/suspend (hypridle, hyprlock), clipboard, keybinding conflicts.\n3. Arch system-level breakage: pacman/AUR failures, keyring and signature errors, partial upgrades, kernel/initramfs and mkinitcpio problems, systemd-boot/GRUB/UEFI boot failures, disk-full /boot, downgrade and rollback procedures.\n4. Laptop hardware issues on Arch: NVIDIA (and hybrid/Optimus) drivers, AMD/Intel GPU, suspend/resume and hibernation, battery life and TLP/power-profiles-daemon, Wi-Fi and Bluetooth chipsets, audio (PipeWire/WirePlumber), touchpad gestures, fingerprint readers, external displays over USB-C/DisplayPort, fractional scaling.\n5. Application/environment issues: Flatpak vs native theming and portals, Electron/Chromium/browser Wayland flags, input methods and fonts/emoji, docker/virtualization, VPN and DNS (systemd-resolved), NFS/Samba mounts, printing (CUPS).\n\nFor EVERY problem found, capture concretely: the symptom as a user would describe it, root cause, the exact fix (commands, config file paths, config snippets), which distro/hardware it applies to, and the source URL. Prefer sources with verified working fixes: the Arch Wiki, Omarchy manual and GitHub issues/discussions (basecamp/omarchy), Hyprland wiki and GitHub issues, r/archlinux, r/omarchy, r/hyprland, Arch forums (bbs.archlinux.org), EndeavourOS forum, and Arch bug tracker.\n\nOutput priority: breadth of DISTINCT, real, reproducible problems with actionable fixes — practical value over volume. Structure results so each problem is a discrete record (symptom, cause, fix, applies-to, source) suitable for loading into a database, not prose.",
+  "summary": "Verified, source-backed problem records cluster into four practical areas. (1) Omarchy-specific recovery: the official escalation ladder for a broken `omarchy-update` is snapshot rollback → `omarchy-debug` → `omarchy-reinstall`, and a very common PAM faillock lockout at the hyprlock screen is fixed from a TTY with `faillock --reset --user <you>`. (2) Hyprland startup and ABI breakage: Hyprland fails to start at all without polkit or a running `seatd.service`, and AUR `hypr*-git` stacks produce `symbol lookup error` / missing `.so` crashes fixable only by clean-rebuilding the whole stack in upstream's mandated order — never by symlinking `.so` versions. (3) Display scaling and multi-monitor: Hyprland only accepts scales that divide the panel resolution into integer logical pixels (1.4 on 1080p is rejected, 1.5 is fine), auto-scale detection fails on multi-monitor and hybrid-GPU laptops producing the \"everything is huge\" symptom, fixed by `hyprctl monitors` plus a pinned monitor rule, with an empty-output catch-all for hotplugged externals and a scale-2 + `GDK_SCALE`/`XCURSOR_SIZE` recipe for XWayland. (4) Portals: slow app launches (~20-25s) and failed screensharing trace to a D-Bus activation environment missing `WAYLAND_DISPLAY`/`XDG_CURRENT_DESKTOP` or to multiple/failing portal implementations, diagnosed with `systemctl --user status xdg-desktop-portal-hyprland` (crash ⇒ missing `qt6-wayland`; no logs at all ⇒ broken XDG env), with `force_shm = true` in `~/.config/hypr/xdph.conf` as the multi-GPU DMA-BUF workaround. Nearly all surviving evidence is upstream primary documentation cross-checked against source code and GitHub issues; twelve plausible-sounding claims were refuted, most of them widely repeated folk fixes that the primary sources actually contradict.",
+  "findings": [
+    {
+      "claim": "Omarchy's official recovery ladder for a system broken by omarchy-update is: (1) roll back to the automatically-created pre-update system snapshot, (2) run `omarchy-debug` and share output in #omarchy-help on Discord, (3) run `omarchy-reinstall` to restore default configs and packages.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting",
+        "https://omarchy.org/manual/troubleshooting/",
+        "https://omarchy.org/manual/system-snapshots/",
+        "https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-reinstall"
+      ],
+      "evidence": "SYMPTOM: 'I broke my system with an update' - desktop unusable or components missing after `omarchy-update`. CAUSE: incomplete/failed update or clobbered default configs. FIX: (1) reboot and pick the pre-update snapshot in the Limine boot menu (Omarchy version shown bottom-left) or run `omarchy-snapshot restore`; snapshots are created automatically on every Omarchy update, and `omarchy-snapshot create` makes ad-hoc ones. Restore reverts the root filesystem only, NOT /home. (2) `omarchy-debug` collects diagnostics for #omarchy-help. (3) `sudo omarchy-reinstall` - a bash script in basecamp/omarchy/bin that reinstalls all default Omarchy packages and resets all default configs (git-package, system-package, config reinstall, then offers a reboot). APPLIES TO: Omarchy 3 and 4 ('Quattro'). Verified live on the current manual and against the master-branch script; a search snippet claiming `omarchy-reinstall` was replaced by an `omarchy reinstall` subcommand was disproven by direct raw fetch. CAVEAT: this is the documented path, not a guarantee - users exist for whom it did not resolve their issue."
+    },
+    {
+      "claim": "Repeated failed password entries at the Omarchy lock screen trigger a PAM faillock lockout that also blocks sudo; fix from a TTY (CTRL+ALT+F2, or F3-F6 if F2 is blank) by logging in as root and running `faillock --reset --user <username>`.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting",
+        "https://github.com/basecamp/omarchy/discussions/1469",
+        "https://github.com/basecamp/omarchy/issues/1571",
+        "https://github.com/basecamp/omarchy/discussions/3648"
+      ],
+      "evidence": "SYMPTOM: 'my correct password is rejected at the hyprlock screen' / 'can't become sudo sometimes, password not accepted'. CAUSE: Arch enables pam_faillock in /etc/pam.d/system-auth with /etc/security/faillock.conf defaults deny=3, fail_interval=900, unlock_time=600; the tally is per-user across services, so a lock-screen lockout also breaks sudo. Frequently triggered accidentally by stray keypresses waking the lock screen, by kb_options remaps such as `compose:caps`, or by waybar scripts calling sudo in a loop. FIX: CTRL+ALT+F2 to a TTY, log in as root (Omarchy's installer sets the same password for the user account, root and LUKS, so root TTY login works on a stock install), then `faillock --reset --user <username>` (argument order irrelevant). If TTY2 is blank because the login/display manager occupies it, use CTRL+ALT+F3..F6 - discussion #3648 disputes only the TTY number, not the diagnosis or command. Alternatively wait out unlock_time (600s default). MITIGATION: set `ignore_empty_input = true` in the input-field block of ~/.config/hypr/hyprlock.conf. APPLIES TO: Omarchy; the same faillock mechanism applies to any Arch install with a Wayland lock screen."
+    },
+    {
+      "claim": "After an Omarchy update Waybar disappears; running `waybar` manually shows `[error] style.css:1:46 Failed to import: Error opening file /home/<user>/.config/omarchy/current/theme/waybar.css: No such file or directory`. Root cause per the maintainer is an incomplete update whose migrations never ran - NOT themes ceasing to ship waybar.css.",
+      "confidence": "medium",
+      "vote": "3-0",
+      "sources": [
+        "https://github.com/basecamp/omarchy/issues/4327",
+        "https://github.com/basecamp/omarchy/issues/1363",
+        "https://github.com/basecamp/omarchy/issues/1164",
+        "https://github.com/basecamp/omarchy/issues/2703"
+      ],
+      "evidence": "SYMPTOM (passive): top bar vanishes after `omarchy update`; Waybar does not start. SYMPTOM (diagnostic, only visible if the user launches `waybar` from a terminal): the CSS @import error naming ~/.config/omarchy/current/theme/waybar.css. CAUSE: Omarchy's ~/.config/waybar/style.css @imports the active theme's waybar.css through the `current/theme` symlink; when an update aborts before its migrations run, that target is missing. FIX (maintainer dhh, closing comment): ensure `omarchy-update` finishes fully; if something blocks it, run `omarchy-migrate`; then `omarchy-theme-set \"Tokyo Night\"` to re-point the theme symlink. EXPLICITLY REFUTED FIX: deleting the `@import \"../omarchy/current/theme/waybar.css\";` line from ~/.config/waybar/style.css - the reporter's workaround, which the maintainer's diagnosis contradicts and which leaves the bar unthemed / gets clobbered. APPLIES TO: Omarchy 3.3.x era (issue opened 2026-01-20, closed 2026-02-01); the style.css to theme-waybar.css layering is still the live design. Sibling issues #1363/#1164/#2703 are titled around 'Waybar disappears', so most users search the visual symptom rather than the error string. MEDIUM confidence: symptom text and maintainer fix are verbatim-verified, but the version attribution (3.3.3) and the delete-the-import fix were both refuted 0-3."
+    },
+    {
+      "claim": "Omarchy 3.1 on a Lenovo Yoga C940 (Intel i7 / Iris) hangs with a black unresponsive screen immediately after the login loading bar completes; the resolution reported by both the user and a maintainer is installing and booting the linux-lts kernel.",
+      "confidence": "low",
+      "vote": "3-0",
+      "sources": [
+        "https://github.com/basecamp/omarchy/issues/2693",
+        "https://github.com/basecamp/omarchy/issues/2545",
+        "https://github.com/basecamp/omarchy/issues/5200"
+      ],
+      "evidence": "SYMPTOM: setup wizard completes, Omarchy ASCII art shows, password accepted, loading bar completes, then blank screen with no response; persists across reboots and an hour of waiting. OMITTED CONTEXT THAT MATTERS: the system was booted from an EXTERNAL SSD; the same SSD booted Omarchy fine on a different device and different USB ports were tried - this is what localizes the fault to kernel-vs-C940 rather than a bad image or disk. CAUSE: maintainer ryanrhughes (2025-10-25) called it 'an issue with the latest Kernel and this device'. FIX: reporter confirmed 'I was able to get into Omarchy on my Lenovo by installing a LTS Linux Kernel version' - i.e. `pacman -S linux-lts linux-lts-headers` and boot that entry. APPLIES TO: n=1, labelled 'Bug; Device Specific', Omarchy 3.1, Oct 2025. LOW confidence / scope warning: a single device-specific report, NOT evidence of a widespread first-boot failure mode; the sub-claim that the LTS fix proves a mainline-kernel/hardware incompatibility rather than an Omarchy config fault was split-refuted 1-2. Also the 'Caps Lock LED won't illuminate' liveness test is unreliable on Omarchy specifically: issues #2545, #3238 and #5200 report Caps Lock/its LED non-functional on WORKING Omarchy 3.1 installs because Caps Lock is repurposed."
+    },
+    {
+      "claim": "Hyprland fails to start entirely unless a polkit package is installed or seatd.service is started and enabled - a common first-boot 'Hyprland won't launch' cause, historically surfacing as a `logind missing permissions` error.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.archlinux.org/title/Hyprland",
+        "https://wiki.archlinux.jp/index.php/Hyprland",
+        "https://git.sr.ht/~kennylevinsen/seatd/blob/master/README.md",
+        "https://archlinux.org/packages/extra/x86_64/aquamarine/"
+      ],
+      "evidence": "SYMPTOM: Hyprland refuses to launch on a fresh minimal install; an older revision of the doc records the concrete error `logind missing permissions`. CAUSE: Hyprland's backend aquamarine depends on libseat.so=1-64 (package `seatd`); libseat auto-detects a seat backend (seatd / (e)logind / builtin, overridable via LIBSEAT_BACKEND). Polkit makes the logind backend usable; running seatd.service supplies the seatd backend instead. Hyprland v0.56.2 does not hard-depend on polkit, which is exactly why the gap exists on minimal installs. FIX: `pacman -S polkit` OR `systemctl enable --now seatd.service` (adding your user to the `seat` group for the seatd path). APPLIES TO: Arch and Arch-based minimal installs (Arch, EndeavourOS netinstall, CachyOS minimal) running Hyprland; not usually Omarchy, which installs the full stack. Verified live 2026-08-27 against the Arch Wiki raw wikitext (line 20, Note box under '== Installation ==', same block as the NVIDIA and VMware/VirtualBox warnings)."
+    },
+    {
+      "claim": "Installing AUR `hypr*-git` packages counts as building Hyprland yourself; after ABI-breaking updates this produces `symbol lookup error: undefined symbol` or `error while loading shared libraries: <lib>: cannot open shared object file` (or silent crashes at start). Fix: remove all hypr*-git packages and clean-rebuild the whole stack in upstream's mandated order; never symlink different .so versions together.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.hypr.land/FAQ/",
+        "https://github.com/hyprwm/hyprland-wiki/blob/main/content/FAQ/_index.md",
+        "https://github.com/hyprwm/Hyprland/discussions/12470",
+        "https://github.com/hyprwm/Hyprland/discussions/12622",
+        "https://github.com/hyprwm/Hyprland/discussions/13868"
+      ],
+      "evidence": "SYMPTOM: `<app>: symbol lookup error: <app>: undefined symbol: <symbol>`; `<app>: error while loading shared libraries: libaquamarine.so.9 / libhyprutils.so.9: cannot open shared object file: No such file or directory`; or Hyprland crashing at start with no error, sometimes an SDDM login loop. CAUSE: each hypr* app links a set of hypr* libraries; updating the libraries without rebuilding the dependents mismatches the ABI. FIX: find every installed hypr* `-git` package, remove them (and their dependencies where needed), then reinstall, building in this MANDATORY order: hyprland-protocols, hyprwayland-scanner, hyprutils, hyprgraphics, hyprlang, hyprcursor, aquamarine, xdg-desktop-portal-hyprland, hyprwire, hyprtoolkit, hyprland. With yay use `CleanBuild` on every package; with paru manually delete the hypr* caches in ~/.cache/paru. NEVER symlink different .so versions together - upstream: 'this will lead to memory bugs and crashes'. SCOPE (important): applies only to AUR -git / self-built stacks. On the official extra-repo packages pacman soname deps handle rebuilds, and the wiki says a .so error there 'is a mistake in your distro's packaging and should be solved there'. ADDITIVE ALTERNATIVES: Chaotic-AUR prebuilt binaries, or the `hyprland-meta` package. Presence of hyprwire/hyprtoolkit confirms this is the current 2025/2026 stack; read from live main branch."
+    },
+    {
+      "claim": "Apps taking a very long time to open (~20-25s) and screensharing failing under Hyprland are typically caused by the D-Bus activation environment missing WAYLAND_DISPLAY/XDG_CURRENT_DESKTOP, or by multiple/failing xdg-desktop-portal implementations; fix by running `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP` at compositor start before portals launch, with a kill-and-relaunch script as the nuclear option.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.hypr.land/FAQ/",
+        "https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/FAQ/_index.md",
+        "https://github.com/hyprwm/hyprland-wiki/blob/main/content/Hypr%20Ecosystem/xdg-desktop-portal-hyprland.md",
+        "https://github.com/hyprwm/Hyprland/issues/1376",
+        "https://github.com/hyprwm/Hyprland/issues/415",
+        "https://bbs.archlinux.org/viewtopic.php?id=299875"
+      ],
+      "evidence": "SYMPTOM: 'some of my apps take a really long time to open' (roughly 20-25s, matching the D-Bus call timeout); screenshare/screencast unavailable or black. CAUSE: portals are D-Bus-activated in an environment lacking WAYLAND_DISPLAY/XDG_CURRENT_DESKTOP, so the portal starts without a usable Wayland session and portal calls hit the 25s D-Bus timeout; or multiple portal implementations are installed and one fails to launch. FIX (current Lua config, Hyprland 0.53+, ~/.config/hypr/hyprland.lua): `hl.on(\"hyprland.start\", function() hl.exec_cmd(\"dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP\") end)` - and ensure portals launch AFTER it. Hyprlang equivalent: `exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP`. NUCLEAR OPTION (upstream's own script, run at start, sleeps adjustable to taste): `#!/usr/bin/env bash` / `sleep 4` / `killall -e xdg-desktop-portal-hyprland` / `killall xdg-desktop-portal` / `/usr/lib/xdg-desktop-portal-hyprland &` / `sleep 4` / `/usr/lib/xdg-desktop-portal &`. RELATED: `dbus-update-activation-environment --systemd --all` and `systemctl --user import-environment QT_QPA_PLATFORMTHEME`. APPLIES TO: any Hyprland desktop on Arch-based distros including Omarchy."
+    },
+    {
+      "claim": "Diagnose portal failures with `systemctl --user status xdg-desktop-portal-hyprland`: a crash is most likely a missing qt6-wayland (qt5-wayland is legacy; current XDPH is Qt6-only), while a portal that does not autostart, does not work when started manually, AND produces no error logs indicates broken XDG environment variables.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/",
+        "https://github.com/hyprwm/hyprland-wiki/blob/main/content/Hypr%20Ecosystem/xdg-desktop-portal-hyprland.md",
+        "https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/contrib/systemd/xdg-desktop-portal-hyprland.service.in",
+        "https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/hyprland-share-picker/CMakeLists.txt"
+      ],
+      "evidence": "SYMPTOM: long app launch times or screensharing not working; share picker never appears. DIAGNOSTIC: `systemctl --user status xdg-desktop-portal-hyprland`. CAUSE A (crash): hyprland-share-picker does `find_package(Qt6 REQUIRED COMPONENTS Widgets)` but the Arch PKGBUILD depends on qt6-base and NOT qt6-wayland, so the Qt Wayland QPA plugin can genuinely be absent and the picker fails to create a window. FIX A: `pacman -S qt6-wayland`. CAUSE B (no logs at all): the unit is Type=dbus with BusName=org.freedesktop.impl.portal.desktop.hyprland, PartOf=graphical-session.target and ConditionEnvironment=WAYLAND_DISPLAY - if the compositor environment was never imported into the systemd user manager, the condition fails, the unit silently never starts and emits no error logs. FIX B: import the environment (see the dbus-update-activation-environment record). PRECISION NOTE: the wiki requires all three co-conditions for diagnosis B (no autostart AND no function when started manually AND no error logs); a crash-with-logs is cause A. Wiki page last touched 2026-08-22, actively maintained. APPLIES TO: Hyprland on Arch, Omarchy, EndeavourOS, CachyOS. METHOD CAVEAT: verified against source and PKGBUILD rather than a third-party dissent sweep (search budget exhausted)."
+    },
+    {
+      "claim": "Screencast/screenshare failures on multi-GPU (e.g. hybrid NVIDIA + Intel/AMD) laptops caused by DMA-BUF allocation failures can be worked around by setting `force_shm = true` inside the `screencopy` block of ~/.config/hypr/xdph.conf, at a performance cost.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/",
+        "https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/core/PortalManager.cpp",
+        "https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/portals/Screencopy.cpp",
+        "https://github.com/hyprwm/xdg-desktop-portal-hyprland/commit/906d0ac1"
+      ],
+      "evidence": "SYMPTOM: screenshare produces a black/failed stream on a hybrid-GPU laptop. CAUSE: DMA-BUF buffer allocation fails across GPUs. FIX: create/edit ~/.config/hypr/xdph.conf (or $XDG_CONFIG_HOME/hypr/xdph.conf) with `screencopy { force_shm = true }`. Default is false. Verified in source: PortalManager.cpp:70 builds that exact config path; line 78 registers `screencopy:force_shm` as Hyprlang::INT{0L}; Screencopy.cpp:1144-1167 computes `const bool forceSHM = **PFORCESHM || stream->dmaBufFailed;` and when true offers only the SHM format, logging '[pw] DMA-BUF disabled (force_shm), using SHM only' / '[pw] DMA-BUF allocation failed, falling back to SHM'. COST: SHM is slower than DMA-BUF, especially at high resolutions. NOTES: XDPH already auto-falls-back to SHM when an allocation demonstrably fails, so force_shm is the preemptive override for cases the detection misses; the value parses as INT so `true` and `1` are equivalent. Landed 2026-03-05 (commit 906d0ac1, 'screencopy: add DMA-BUF to SHM fallback (#379)') and ships in v1.3.12, v1.4.0, v1.4.1. The wiki says 'multi-GPU systems' generally - NVIDIA/Intel/AMD hybrid is an illustrative example, not a vendor-specific source claim. METHOD CAVEAT: no adversarial forum sweep (search budget exhausted)."
+    },
+    {
+      "claim": "Hyprland rejects fractional monitor scales that do not produce integer logical pixels - the scale must divide the resolution cleanly. On 1920x1080, 1.5 is valid (1280x720) but 1.4 is not (1371.4286x771.42857). Hyprland warns and substitutes the nearest valid scale; `debug:disable_scale_checks = true` bypasses the check.",
+      "confidence": "high",
+      "vote": "2-1",
+      "sources": [
+        "https://wiki.hypr.land/Configuring/Basics/Monitors/",
+        "https://github.com/hyprwm/Hyprland/discussions/5492",
+        "https://github.com/hyprwm/Hyprland/discussions/14328",
+        "https://github.com/hyprwm/Hyprland/issues/4349"
+      ],
+      "evidence": "SYMPTOM: log line `Invalid scale passed to monitor DP-1, failed to find a clean divisor. Suggested nearest scale: 1.200000` after setting e.g. scale 1.1 or 1.4; the display comes up at a different scale than configured. CAUSE: by design, Hyprland requires resolution / scale to be integral in both axes. FIX: pick a scale that divides cleanly (use the 'suggested nearest scale' from the log), or set `debug:disable_scale_checks = true` (maintainer-suggested escape hatch; may produce artifacts). Confirmed across three resolutions: 1920x1080 @1.4 invalid; 3840x2160 @1.88 -> 2042.55 invalid vs @1.875 -> 2048x1152 valid (discussion #14328, 2026-05-07); 1366x768 @0.85 invalid (issue #4349, CLOSED AS NOT PLANNED - intended design, not a bug). TWO CORRECTIONS TO THE ORIGINAL CLAIM, both reflected here: (a) the cited URL /Configuring/Monitors/ is a 404 - canonical page is /Configuring/Basics/Monitors/; (b) 1.25 must NOT be listed as invalid on 1920x1080 (1536x864, both integers) - it is only invalid on other laptop panels such as 1366x768 (1092.8) and 2256x1504 (1804.8x1203.2). 'Rejects' overstates: Hyprland warns and substitutes rather than failing outright. The 2-1 vote reflects those imprecisions, not the mechanism."
+    },
+    {
+      "claim": "Hyprland's automatic 1x/1.5x/2x scale detection fails on multi-monitor and hybrid-GPU laptops, falling back to a fail-safe that makes 'everything on screen huge'; the fix is `hyprctl monitors` to find the output name, then pinning output/mode/position/scale explicitly in the config.",
+      "confidence": "high",
+      "vote": "2-1",
+      "sources": [
+        "https://wiki.archlinux.org/title/Hyprland",
+        "https://wiki.hypr.land/Configuring/Basics/Monitors/"
+      ],
+      "evidence": "SYMPTOM: after first login everything on screen is oversized. CAUSE: automatic scale detection falls back to a fail-safe, 'usually if there are multiple screens present or if you have a hybrid laptop'. FIX (Hyprland 0.55+, ~/.config/hypr/hyprland.lua): run `hyprctl monitors`, then add `hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x0\", scale = 1 })`. FIX (pre-0.55 / hyprlang, ~/.config/hypr/hyprland.conf - still the syntax for Omarchy releases pinned below 0.55): `monitor=eDP-1,1920x1080@144,0x0,1`. THE VERSION BOUNDARY IS LOAD-BEARING: a database record must carry both syntaxes or the fix will be wrong for a large installed base. The Arch Wiki article was fully migrated to Lua by four editors between 2026-05-05 and 2026-08-25 (revision 883935, 2026-08-27); raw wikitext now has 35 occurrences of hyprland.lua, 93 of 'hl.', and zero of hyprland.conf or 'monitor='. QUALIFICATION: the wiki hedges ('in some cases... usually if'), so record this as a known failure mode triggered by multi-monitor/hybrid-GPU setups, not a universal failure on all such hardware. The upstream detail page returned 403 during verification and remains un-cross-checked."
+    },
+    {
+      "claim": "A catch-all monitor rule with an empty output name, preferred mode and auto position gives sane defaults for hotplugged/unknown external displays: any monitor without an explicit rule is placed to the right of the others at its preferred resolution.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.hypr.land/Configuring/Basics/Monitors/",
+        "https://github.com/hyprwm/Hyprland/blob/main/example/hyprland.lua",
+        "https://github.com/hyprwm/Hyprland/issues/8992",
+        "https://github.com/hyprwm/Hyprland/issues/7431",
+        "https://github.com/hyprwm/Hyprland/issues/1719"
+      ],
+      "evidence": "SYMPTOM: plugging in an unfamiliar external monitor or projector yields nothing, a wrong resolution, or an overlapping position. FIX (Lua): `hl.monitor({ output = \"\", mode = \"preferred\", position = \"auto\", scale = 1 })` - empty output defines the fallback rule for unmatched monitors, `auto` places right of the existing ones, `preferred` uses the panel's preferred mode. Hyprlang equivalent: `monitor = ,preferred,auto,1` (or `,preferred,auto,auto`). RECOMMENDED VARIANT: use `scale = \"auto\"` instead of `scale = 1` - scale 1 is a poor default on HiDPI panels, and hyprwm/Hyprland's own example/hyprland.lua ships `scale = \"auto\"`. QUALIFICATIONS: `auto` is relative, not absolute - direction on the first monitor does nothing (it lands at 0,0) and direction is computed center-out, so auto-up then auto-left yields monitors left of and above the origin; issue #8992 (closed not-planned) shows auto positions do not re-resolve when only the position keyword changes in config. SCOPE: the wiki frames this as a convenience default ('the recommended rule for quickly plugging in random monitors'), so scope it to placement/resolution - it does NOT fix known hotplug workspace-reassignment bugs (#7431, #1719, which spawned third-party tools like hyprhot). URL correction: /Configuring/Monitors/ is a 404; use /Configuring/Basics/Monitors/."
+    },
+    {
+      "claim": "Enabling xwayland force_zero_scaling alone leaves XWayland apps rendering at the wrong (tiny) size on a scaled monitor - per-toolkit environment variables must also be set. The wiki's working recipe is monitor scale 2 plus GDK_SCALE=2 and XCURSOR_SIZE=32.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/",
+        "https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Advanced%20and%20Cool/XWayland.md",
+        "https://github.com/hyprwm/Hyprland/issues/2985",
+        "https://github.com/hyprwm/Hyprland/discussions/8539"
+      ],
+      "evidence": "SYMPTOM: X11/XWayland apps on a HiDPI panel look pixelated; after enabling force_zero_scaling they become crisp but render at half size, with tiny or oversized cursors. CAUSE: force_zero_scaling stops Hyprland upscaling XWayland surfaces - 'This will get rid of the pixelated look, but will not scale applications properly. To do this, each toolkit has its own mechanism.' FIX (Lua, Hyprland 0.55+): `hl.monitor({ output = \"\", mode = \"highres\", position = \"auto\", scale = \"2\" })` + `hl.config({ xwayland = { force_zero_scaling = true } })` + `hl.env(\"GDK_SCALE\", \"2\")` + `hl.env(\"XCURSOR_SIZE\", \"32\")`. Hyprlang equivalent: `xwayland { force_zero_scaling = true }`, `env = GDK_SCALE,2`, `env = XCURSOR_SIZE,32`. SCOPE LIMIT: GDK_SCALE covers GTK only - Qt, Electron and raw X11 apps need their own variables (QT_SCALE_FACTOR etc.), so this is one toolkit's recipe, not a universal fix. XCURSOR_SIZE=32 matters because Hyprland exports XCURSOR_SIZE=24 by default and X11/XWayland cursors do not follow Wayland cursor scaling - accurate in effect, but this explanation is a gloss, NOT text on that wiki page. QUALIFICATIONS: issue #2985 ('force_zero_scaling actually does scale, just very slightly') is confined to non-integer scales (scale 1.3 on 2560x1600 renders 2559x1598) and is closed; discussion #8539 reports GTK2 apps ignoring GDK_SCALE. URL correction: /Configuring/XWayland/ is a 404; canonical is /Configuring/Advanced-and-Cool/XWayland/. The page header states 'Since Hyprland 0.55, hyprlang is deprecated in favor of lua', so this is current-generation documentation."
+    }
+  ],
+  "caveats": "COVERAGE IS HEAVILY SKEWED. Of the five requested focus areas, only areas 1 (Omarchy) and 2 (Hyprland/Wayland) produced surviving verified records. Area 3 (pacman/AUR keyring and signature failures, partial upgrades, mkinitcpio, systemd-boot/GRUB/Limine/UEFI, full /boot, downgrade and rollback procedures), area 4 (NVIDIA/Optimus, suspend/hibernate, TLP vs power-profiles-daemon, Wi-Fi/Bluetooth chipsets, PipeWire/WirePlumber, touchpad gestures, fingerprint readers, USB-C/DisplayPort) and area 5 (Flatpak theming/portals, Electron/Chromium Wayland flags, input methods and fonts, Docker, VPN/systemd-resolved, NFS/Samba, CUPS) are essentially UNCOVERED by this batch. Do not read the absence of records there as evidence those problems are rare - a second targeted pass at bbs.archlinux.org, the EndeavourOS forum and the Arch bug tracker is required.\n\nURL ERRORS IN THE UPSTREAM CLAIMS. Three cited Hyprland wiki URLs return HTTP 404 and were corrected during verification: /Configuring/Monitors/ -> /Configuring/Basics/Monitors/; /Configuring/XWayland/ -> /Configuring/Advanced-and-Cool/XWayland/. Any database load must use the corrected paths.\n\nCONFIG-SYNTAX TIME BOMB. Hyprland 0.55 deprecated hyprlang in favor of Lua (~/.config/hypr/hyprland.lua; hl.monitor(), hl.env(), hl.config(), hl.on()). Both the Arch Wiki and the Hyprland wiki have fully migrated. Almost every tutorial, forum answer, dotfile repo and older Omarchy config still uses hyprland.conf syntax. Every config-snippet record must carry BOTH syntaxes plus the version boundary, or a large share of users will apply a \"fix\" that silently does nothing. (The related claim that this migration is itself a likely source of post-update config breakage was split-refuted 1-2: the deprecation is documented fact, the causal breakage attribution is not established.)\n\nTWELVE CLAIMS WERE REFUTED, several of them widely repeated folk fixes that should be actively flagged as WRONG rather than merely omitted: (a) Omarchy defaulting GDK_SCALE=2 as the cause of giant windows (0-3); (b) deleting the @import line from ~/.config/waybar/style.css as the Waybar fix (0-3, contradicted by the maintainer); (c) AQ_NO_MODIFIERS=1 / AQ_DRM_DEVICES as the blank-external-monitor fix (0-3); (d) \"XDPH has no file picker portal, so file dialogs break without xdg-desktop-portal-gtk\" (0-3); (e) \"NVIDIA GPUs are officially unsupported by Hyprland\" (0-3); (f) \"XWayland apps can only capture other XWayland windows\" as the Discord black-screen explanation (0-3); (g) the pipewire + wireplumber + xdph-must-be-running baseline for screenshare (0-3); (h) \"blurry apps are caused by XWayland's inability to scale fractionally, fixed by forcing native Wayland\" (1-2).\n\nSOURCE-QUALITY NOTES. Evidence is strongest where upstream primary documentation was cross-checked against source code (force_shm in Screencopy.cpp, seatd/libseat backends, share-picker Qt6 vs the Arch PKGBUILD). It is weakest for the single-device Omarchy reports (n=1 GitHub issues) and for the Waybar record, where the symptom string is verbatim-verified but the version attribution and the popular workaround were both refuted. Two verifications ran with the WebSearch budget exhausted (the qt6-wayland diagnosis and force_shm), so no adversarial third-party dissent sweep was possible on those - they rest on primary docs plus code inspection, which is stronger on mechanism but blind to real-world failure reports.\n\nTIME SENSITIVITY. All records were verified on or shortly before 2026-08-27 against Hyprland ~0.55/0.56, XDPH 1.4.x, and Omarchy 3.x/4.x. Omarchy ships fast-moving migrations; the command names (omarchy-update, omarchy-migrate, omarchy-reinstall, omarchy-snapshot, omarchy-theme-set, omarchy-debug) were confirmed at master but are the fields most likely to go stale.",
+  "openQuestions": [
+    "What are the verified, current fixes for the entirely uncovered areas - Arch system-level breakage (keyring/signature errors, partial upgrades, mkinitcpio and a full /boot, GRUB/systemd-boot/Limine failures, the downgrade procedure) and laptop hardware (NVIDIA hybrid/Optimus under Hyprland, suspend/resume, PipeWire/WirePlumber audio, Bluetooth, fingerprint readers)? These need a dedicated second pass.",
+    "Since Omarchy uses Limine plus automatic snapshots rather than GRUB, what is the exact working recovery procedure when the machine never reaches the Limine menu (unbootable initramfs, LUKS unlock failure, full /boot) - and does `omarchy-snapshot restore` work from a live-USB chroot?",
+    "What actually causes the recurring 'Waybar disappears after update' class of issues (#1164, #1363, #2703, #4327) at the mechanism level - is it always an aborted migration, and is there a pre-flight check or a way to make omarchy-update fail loudly instead of leaving a half-migrated theme symlink?",
+    "For the Lua migration: which Omarchy releases ship Hyprland <0.55 versus >=0.55, and does omarchy-update translate or shim a user's customized hyprland.conf - i.e. what should a user with heavy hyprland.conf customizations do before updating?"
+  ],
+  "refuted": [
+    {
+      "claim": "Oversized/giant application windows in Omarchy are caused by Omarchy defaulting to GDK_SCALE=2 (it assumes a 2x HiDPI display); the fix on a 1x display is to edit ~/.config/hypr/hyprland.conf and set GDK_SCALE to 1, then restart the affected apps.",
+      "vote": "0-3",
+      "source": "https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting"
+    },
+    {
+      "claim": "Upgrading to Omarchy 3.3.3 via `omarchy update` breaks Waybar: it fails to start and the top bar disappears, because the theme directory no longer provides `waybar.css` while the default Waybar stylesheet still imports it.",
+      "vote": "0-3",
+      "source": "https://github.com/basecamp/omarchy/issues/4327"
+    },
+    {
+      "claim": "The working fix is to delete the line `@import \"../omarchy/current/theme/waybar.css\";` from ~/.config/waybar/style.css, after which Waybar starts again.",
+      "vote": "0-3",
+      "source": "https://github.com/basecamp/omarchy/issues/4327"
+    },
+    {
+      "claim": "The working fix for this first-boot black screen was to install and boot the LTS Linux kernel instead of the default mainline kernel shipped by Omarchy, indicating a mainline-kernel/hardware incompatibility rather than an Omarchy configuration fault.",
+      "vote": "1-2",
+      "source": "https://github.com/basecamp/omarchy/issues/2693"
+    },
+    {
+      "claim": "Blurry/pixelated apps under Hyprland are caused by the app running through XWayland, which cannot scale by fractional amounts; the fix is forcing the app into native Wayland mode (or applying XWayland-specific workarounds).",
+      "vote": "1-2",
+      "source": "https://wiki.hypr.land/FAQ/"
+    },
+    {
+      "claim": "A blank/no-signal external monitor on a laptop under Hyprland can be fixed by setting the environment variable AQ_NO_MODIFIERS=1 (for iGPU/USB-C/USB-hub setups hitting 'Requested display configuration exceeds system DDB limitations' in the DRM log), or by forcing a single GPU with AQ_DRM_DEVICES=/dev/dri/card1; on NVIDIA the issue is resolved by driver 525.60.11 or later.",
+      "vote": "0-3",
+      "source": "https://wiki.hypr.land/FAQ/"
+    },
+    {
+      "claim": "Working screen sharing on Hyprland requires pipewire, wireplumber, and xdg-desktop-portal-hyprland to be installed AND enabled/running — a missing or non-running portal/PipeWire service is the baseline cause of screencast failure on Hyprland-based systems including Omarchy.",
+      "vote": "0-3",
+      "source": "https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/"
+    },
+    {
+      "claim": "Applications running under XWayland (e.g. Discord, Skype) cannot share an entire screen or any native Wayland window — they can only capture other XWayland windows, which explains the common 'Discord screen share shows a black screen / only lists a few windows' symptom; the fix is to run the app natively under Wayland.",
+      "vote": "0-3",
+      "source": "https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/"
+    },
+    {
+      "claim": "XWayland (Xorg) apps render pixelated/blurry on HiDPI screens under Hyprland because Xorg cannot scale; the fix is the xwayland force_zero_scaling option, which stops Hyprland from scaling XWayland surfaces. Applies to any Hyprland-based desktop (Omarchy, Arch, EndeavourOS) on a scaled monitor.",
+      "vote": "1-2",
+      "source": "https://wiki.hypr.land/Configuring/XWayland/"
+    },
+    {
+      "claim": "Hyprland 0.55 deprecated the hyprlang config syntax in favor of Lua, so hyprland.conf-style snippets from tutorials, older Omarchy configs and forum posts target the archived 0.54 docs and are a likely source of post-update config breakage.",
+      "vote": "1-2",
+      "source": "https://wiki.hypr.land/Configuring/XWayland/"
+    },
+    {
+      "claim": "xdg-desktop-portal-hyprland (XDPH) does not implement a file picker portal at all, so file-open/save dialogs in apps break unless xdg-desktop-portal-gtk is installed alongside it — a concrete root cause for 'file dialogs don't open' on Hyprland/Omarchy.",
+      "vote": "0-3",
+      "source": "https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/"
+    },
+    {
+      "claim": "NVIDIA GPUs are officially unsupported by Hyprland; skipping the upstream NVIDIA setup steps produces specific symptoms: inability to log in, flashing windows, and high CPU usage.",
+      "vote": "0-3",
+      "source": "https://wiki.archlinux.org/title/Hyprland"
+    }
+  ],
+  "unverified": [],
+  "sources": [
+    {
+      "url": "https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting",
+      "quality": "primary",
+      "angle": "Omarchy-specific tooling and update breakage",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/basecamp/omarchy/issues/4327",
+      "quality": "primary",
+      "angle": "Omarchy-specific tooling and update breakage",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/basecamp/omarchy/issues/3136",
+      "quality": "forum",
+      "angle": "Omarchy-specific tooling and update breakage",
+      "claimCount": 4
+    },
+    {
+      "url": "https://github.com/basecamp/omarchy/issues/2794",
+      "quality": "forum",
+      "angle": "Omarchy-specific tooling and update breakage",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/basecamp/omarchy/issues/2693",
+      "quality": "primary",
+      "angle": "Omarchy-specific tooling and update breakage",
+      "claimCount": 4
+    },
+    {
+      "url": "https://github.com/basecamp/omarchy/issues/1738",
+      "quality": "forum",
+      "angle": "Omarchy-specific tooling and update breakage",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.hypr.land/FAQ/",
+      "quality": "primary",
+      "angle": "Hyprland / Wayland compositor and portal failures",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/",
+      "quality": "primary",
+      "angle": "Hyprland / Wayland compositor and portal failures",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.hypr.land/Configuring/Monitors/",
+      "quality": "primary",
+      "angle": "Hyprland / Wayland compositor and portal failures",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.hypr.land/Configuring/XWayland/",
+      "quality": "primary",
+      "angle": "Hyprland / Wayland compositor and portal failures",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/",
+      "quality": "primary",
+      "angle": "Hyprland / Wayland compositor and portal failures",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/Hyprland",
+      "quality": "primary",
+      "angle": "Hyprland / Wayland compositor and portal failures",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/Pacman/Package_signing",
+      "quality": "primary",
+      "angle": "Arch base-system breakage and recovery",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/Pacman",
+      "quality": "primary",
+      "angle": "Arch base-system breakage and recovery",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/Downgrading_packages",
+      "quality": "primary",
+      "angle": "Arch base-system breakage and recovery",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/Mkinitcpio",
+      "quality": "primary",
+      "angle": "Arch base-system breakage and recovery",
+      "claimCount": 5
+    },
+    {
+      "url": "https://bbs.archlinux.org/viewtopic.php?id=273760",
+      "quality": "forum",
+      "angle": "Arch base-system breakage and recovery",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.hypr.land/Nvidia/",
+      "quality": "primary",
+      "angle": "Laptop hardware enablement on Arch",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/NVIDIA/Troubleshooting",
+      "quality": "primary",
+      "angle": "Laptop hardware enablement on Arch",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate",
+      "quality": "primary",
+      "angle": "Laptop hardware enablement on Arch",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/basecamp/omarchy/discussions/3907",
+      "quality": "forum",
+      "angle": "Laptop hardware enablement on Arch",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/XDG_Desktop_Portal",
+      "quality": "primary",
+      "angle": "Applications, portals, and network/service integration",
+      "claimCount": 5
+    },
+    {
+      "url": "https://blogs.gnome.org/mcatanzaro/2020/12/17/understanding-systemd-resolved-split-dns-and-vpn-configuration/",
+      "quality": "blog",
+      "angle": "Applications, portals, and network/service integration",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wiki.archlinux.org/title/CUPS/Troubleshooting",
+      "quality": "primary",
+      "angle": "Applications, portals, and network/service integration",
+      "claimCount": 5
+    },
+    {
+      "url": "https://forum.hypr.land/t/still-having-blurry-electron-apps-despite-electron-ozone-platform-hint-wayland/624",
+      "quality": "forum",
+      "angle": "Applications, portals, and network/service integration",
+      "claimCount": 5
+    }
+  ],
+  "stats": {
+    "angles": 5,
+    "sourcesFetched": 25,
+    "claimsExtracted": 123,
+    "claimsVerified": 25,
+    "confirmed": 13,
+    "killed": 12,
+    "unverified": 0,
+    "afterSynthesis": 13,
+    "urlDupes": 1,
+    "budgetDropped": 4,
+    "agentCalls": 107
+  }
+}

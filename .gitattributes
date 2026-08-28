@@ -1,0 +1,15 @@
+# Line endings are normalised to LF in the repository. Work happens on Windows,
+# so without this the generated markdown under research/docs/ flips to CRLF on
+# every rebuild and produces a whitespace-only diff across ~1.5 MB of files.
+* text=auto eol=lf
+
+# Provenance is kept byte-for-byte. research/raw/ is unprocessed workflow output
+# and the loose .txt/.html at the root of research/ are downloaded wiki pages.
+# Neither is authored here, so neither gets rewritten.
+research/raw/**  -text
+research/*.txt   -text
+research/*.html  -text
+
+# The FTS index is binary. Gitignored, but declared so an accidental `git add -f`
+# does not try to diff or normalise it.
+*.db binary
