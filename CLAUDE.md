@@ -34,6 +34,9 @@ research/                the troubleshooting corpus + its tooling
   raw/                   unprocessed workflow output, kept for provenance
   tools/                 build/search/ingest scripts + the two workflow scripts
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
+tools/                   host-side scripts, not part of the corpus
+  make-test-vm.sh        build/rebuild a test VM, installed unattended
+  view-test-vms.sh       open a VNC window per test VM
 JOURNAL.md               where we stopped, what's left
 ```
 
@@ -73,20 +76,112 @@ nothing requires it; query through Python so the tooling stays self-contained.
 
 ### Verifying against a real install
 
-Fixes can now be *checked*, not only cited. The plan is throwaway Omarchy VMs rather than
-the development machine, so a fix that breaks boot or eats a partition costs a snapshot
-rollback instead of a workstation. **Not built yet** — `/dev/kvm` is present but no
-qemu/libvirt/virt-manager is installed, and the install ISO
-(`omarchy-4.0.1.iso`) is sitting in `~/Downloads`.
+Fixes can now be *checked*, not only cited. That happens in the throwaway VMs described
+under "Test VMs" below, never on this workstation, so a fix that breaks boot or eats a
+partition costs a rebuild instead of a machine.
 
-Note the version skew when that happens: the ISO is **4.0.1** and this workstation is
-**4.0.0.alpha**, so a VM is not a mirror of the dev box and a behavioural difference
-between them may be a release change rather than a bug.
+Mind the version skew: `pacman -Q omarchy` reports **4.0.1-1** in the VMs and **4.0.0-1**
+on this workstation, so a VM is not a mirror of the dev box and a difference between them
+may be a release change rather than a bug. Read that from pacman, not from
+`/usr/share/omarchy/version` — that file says `4.0.0.alpha` on *both* and is branding, not
+the package version.
 
 It does not change the corpus's trust model. `audit_status` records how a record was
 verified **against its sources**, and one VM agreeing is not the same as a source
 confirming — a fix can work by accident, or work only on that hardware. If you validate a
 record live, say so explicitly in the record rather than silently upgrading its status.
+
+## Test VMs
+
+Two throwaway libvirt VMs for verifying corpus fixes against a real Omarchy install
+without risking the workstation. They are **disposable by design** — break one, delete it
+and rebuild with `tools/make-test-vm.sh`.
+
+| | |
+| --- | --- |
+| Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
+| Version | omarchy `4.0.1-1` (workstation is `4.0.0-1`) |
+| Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
+| Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
+| Console | VNC on `127.0.0.1:5901` / `:5902` |
+| Disk encryption | **off**, deliberately: LUKS would prompt for a passphrase on every boot and make headless use impossible |
+
+### Credentials
+
+These are **test-VM credentials committed in plain text on purpose.** They guard nothing:
+the VMs are NAT-only, the VNC servers listen on loopback, and there is no real data on
+them. Do not reuse this password anywhere, and change it before giving these machines a
+routable address.
+
+```
+user / password : techluddite / omarchytest      (sudo via wheel, password required)
+root password   : omarchytest
+VNC password    : omarchy1                       (VNC truncates to 8 characters)
+```
+
+SSH is key-only-ready and works out of the box for `~/.ssh/id_ed25519` on this
+workstation; password auth is still enabled as a fallback.
+
+```sh
+sudo virsh list --all                     # what exists
+sudo virsh net-dhcp-leases default        # current IPs — DHCP, they change
+ssh techluddite@<ip>
+tools/view-test-vms.sh                    # open a VNC window for each
+```
+
+### The host firewall has to allow the VM bridge
+
+Omarchy runs `ufw` with default-deny incoming and an `INPUT` policy of `DROP`. libvirt's
+nftables table only manages the `forward` hook, so **nothing opens DHCP on the host** and
+guests sit there retrying DHCP forever with no lease and no IP. Three rules fix it, and
+they are scoped to `virbr0` so nothing is opened on the real network:
+
+```sh
+sudo ufw allow in on virbr0 to any port 67 proto udp   # DHCP
+sudo ufw allow in on virbr0 to any port 53             # DNS
+sudo ufw route allow in on virbr0 out on <wan-iface>   # NAT egress
+```
+
+This bites *after* a successful install rather than during one, which is confusing: the
+5.9 GB ISO carries an offline package set, so the install completes perfectly with no
+network at all and the machine only looks broken once it boots.
+
+### The VMs have no pacman sync databases
+
+A consequence of that offline install: `pacman -Q` works but `pacman -S` cannot resolve
+anything until the databases are fetched. Run `omarchy update` in the VM first. Do not
+reach for `pacman -Sy` — see "Domain facts" below.
+
+### How they were built
+
+Not by hand. The Omarchy ISO supports unattended install from a drive labelled `cidata`
+(the cloud-init NoCloud convention). `/usr/local/bin/omarchy-cidata-load` on the ISO looks
+for one and, finding it, skips the `gum` configurator entirely and installs from the files
+it carries — the same files the wizard would have written:
+
+```
+user_configuration.json     archinstall config + an omarchy_install section
+user_credentials.json       username + SHA-512 password hashes
+user_full_name.txt          \
+user_email_address.txt       > optional, wizard-equivalent
+user_encrypt_installation.txt/
+authorized_keys             public keys; the installer writes them, runs
+                            `systemctl enable sshd.service`, AND opens port 22
+                            in the target's ufw — which is default-deny, so
+                            without that last step sshd would be unreachable
+```
+
+`tools/make-test-vm.sh` generates that drive and defines the domain. Rebuild through it
+rather than clicking the installer: the schema is unforgiving — partition sizes are
+**bytes**, and the layout must match what the ISO's own configurator emits or archinstall
+fails late with an unhelpful error.
+
+Two notes on the domain definition. Boot order is HD-then-CD, so the empty disk falls
+through to the installer on first boot and boots the installed system afterwards with no
+need to eject anything. And the VMs were converted from SPICE to VNC afterwards — if you
+do that yourself, `<channel type='spicevmc'>`, the USB `<redirdev>`s and
+`<audio type='spice'>` all have to go at the same time, because libvirt refuses a domain
+that keeps any of them without SPICE graphics.
 
 ## Working with the corpus
 
