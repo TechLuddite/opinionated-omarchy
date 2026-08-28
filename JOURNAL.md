@@ -73,17 +73,20 @@ you validate it live.
 Two commits sit unpushed on `chore/linux-native-toolchain`. Nothing downstream depends on
 that decision, but leaving them local means the VM tooling exists on exactly one machine.
 
-### 2. Get onto the lab host
+### 2. The lab host is reachable, and untouched
 
-`skywalker@techluddite-nexus1.opsvibe.systems` (172.20.20.127) resolves and has port 22
-open, offering `publickey,password`. The workstation's new key is **not** installed there
-yet, so key auth is denied. Install it with:
+`skywalker@techluddite-nexus1.opsvibe.systems` (172.20.20.127). **Key auth works** from this
+workstation — `ssh skywalker@techluddite-nexus1.opsvibe.systems` connects with no prompt,
+verified under `BatchMode=yes`, so nothing interactive is hiding in the path.
 
-```sh
-ssh-copy-id -i ~/.ssh/id_ed25519.pub skywalker@techluddite-nexus1.opsvibe.systems
-```
+The workstation's public key was appended to `~/.ssh/authorized_keys` there by hand. Note
+the direction if this comes up again: `ssh-copy-id` copies a *local* key to a *remote* host,
+so it must run **on the workstation**, not on the lab. Running it on the lab makes it look
+for a key in the lab's own `~/.ssh` and fail.
 
-Nothing about the lab has been explored beyond that — deliberately.
+Deliberately unexplored: connection and one `ls ~` and nothing more. That home directory has
+`workspace/`, `.claude/`, `.claude.json`, `.docker/` and `.git-credentials` in it, so
+whatever the lab is for, it is already set up — do not assume it is a blank machine.
 
 ### 3. Finish auditing 28 records  (the oldest real loose end)
 
