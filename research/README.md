@@ -67,17 +67,25 @@ research/
 ## Usage
 
 ```sh
-python tools/build_db.py                              # rebuild after editing JSONL
+python3 tools/build_db.py                              # rebuild after editing JSONL
 
-python tools/ask.py "screen share is black in zoom"   # search by symptom
-python tools/ask.py "wifi keeps dropping" -v          # include verify steps + sources
-python tools/ask.py --tag nvidia --tag laptop --list  # filter by tags
-python tools/ask.py --slug some-problem-slug          # exact lookup
+python3 tools/ask.py "screen share is black in zoom"   # search by symptom
+python3 tools/ask.py "wifi keeps dropping" -v          # include verify steps + sources
+python3 tools/ask.py --tag nvidia --tag laptop --list  # filter by tags
+python3 tools/ask.py --slug some-problem-slug          # exact lookup
 ```
+
+The scripts are executable and carry a `python3` shebang, so `./tools/ask.py ...` works
+too.
 
 Search is deliberately forgiving: query text is tokenised and OR-matched, so a user's
 phrasing finds a record even when it shares no exact wording. Any FTS5 operators in
 the query are quoted into literals rather than parsed.
+
+Colour is emitted only when stdout is a terminal, and suppressed by `NO_COLOR` or
+`TERM=dumb`. Redirecting to a file gives clean text; the `!! RISK` and `!! NOT
+INDEPENDENTLY AUDITED` markers are ASCII prefixes, so a warning is never carried by
+colour alone.
 
 ## Record shape
 
@@ -145,7 +153,7 @@ each commit of it would add another blob that size to history.
 So a fresh clone has the corpus and the reading copy, but no search index. Build it once:
 
 ```sh
-cd research && python tools/build_db.py
+cd research && python3 tools/build_db.py
 ```
 
 `ask.py` refuses to run without it and prints that exact command, so the failure is loud.
@@ -154,7 +162,7 @@ The rule that follows: **any commit touching `data/problems.jsonl` must carry th
 regenerated `docs/` with it.** Build, then confirm nothing is left unstaged:
 
 ```sh
-python tools/build_db.py
+python3 tools/build_db.py
 git diff --exit-code docs/
 ```
 
@@ -165,12 +173,12 @@ its script path:
 
 ```sh
 # full harvest from scratch: one harvester per category, each audited
-python tools/ingest.py raw/harvest-result.json        # after tools/harvest-workflow.js
-python tools/build_db.py
+python3 tools/ingest.py raw/harvest-result.json        # after tools/harvest-workflow.js
+python3 tools/build_db.py
 
 # extend an existing corpus: audit unaudited categories, fill named gaps
-python tools/merge_gapfill.py raw/gapfill-result.json # after tools/gapfill-workflow.js
-python tools/build_db.py
+python3 tools/merge_gapfill.py raw/gapfill-result.json # after tools/gapfill-workflow.js
+python3 tools/build_db.py
 ```
 
 `ingest.py` replaces the corpus; `merge_gapfill.py` extends it in place and is the one to

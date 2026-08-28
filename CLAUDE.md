@@ -44,27 +44,58 @@ content lands.
 
 ## Environment
 
-- **Windows 11.** PowerShell is primary; a Bash tool is available and takes POSIX syntax.
-- **Python 3.13** is available and is what all tooling uses. Its bundled `sqlite3` has
-  FTS5. There is **no `node`**, and **no standalone `sqlite3` CLI** — query through Python.
-- **The console is cp1252.** Non-ASCII in stdout renders as `?`. Tooling deliberately
-  prints ASCII only; generated files are written UTF-8 and keep their typography. Keep it
-  that way when editing the scripts.
+**Omarchy 4.0.0.alpha, Hyprland 0.56.2, bash, Python 3.14, UTF-8 throughout.** The
+machine this repo is developed on *is* the system the corpus is about: `/usr/share/omarchy`
+is present, so the Omarchy 4 layout described under "Domain facts" can be read directly
+rather than inferred.
+
+This repository was previously developed on Windows and has been converted. Nothing here
+targets Windows any more, and the concessions it required — ASCII-only stdout, a cp1252
+console, `python` rather than `python3` — are gone. Two habits from that era were kept
+because they are good practice independent of platform, and both are load-bearing:
+
 - **Generated files are written LF, explicitly.** Every `write_text` / `open("w")` in
-  `research/tools/` passes `newline="\n"`. Without it Python translates to CRLF on
-  Windows, and since `research/docs/` is tracked that turns a rebuild into a 1.5 MB
-  whitespace-only diff. `.gitattributes` normalises on top of that. Do not drop either.
-- The repository also gets worked on in Linux containers, where `python3` is 3.11. Both
-  3.11 and 3.13 run the tooling and both ship FTS5, so nothing here is version-pinned.
+  `research/tools/` passes `newline="\n"`, and `.gitattributes` normalises on top. Since
+  `research/docs/` is tracked *and* fully regenerated on every build, anything that writes
+  native line endings turns a rebuild into a ~1.5 MB whitespace-only diff.
+- **Every read and write pins `encoding="utf-8"`.** Never rely on the ambient locale; the
+  corpus contains typography, box drawing, arrows and a Nerd Font glyph, and a build that
+  silently depended on `LANG` would be reproducible only by accident.
+
+Scripts in `research/tools/` carry `#!/usr/bin/env python3` and are executable, so both
+`./tools/ask.py …` and `python3 tools/ask.py …` work. Prefer `python3` over `python` in
+anything written here: on Arch they are the same binary, but on a bare container often
+only `python3` exists.
+
+Python is not version-pinned — 3.11 through 3.14 all run the tooling, and every one of
+them bundles a `sqlite3` with FTS5. A standalone `sqlite3` CLI exists on this machine but
+nothing requires it; query through Python so the tooling stays self-contained.
+
+### Verifying against a real install
+
+Fixes can now be *checked*, not only cited. The plan is throwaway Omarchy VMs rather than
+the development machine, so a fix that breaks boot or eats a partition costs a snapshot
+rollback instead of a workstation. **Not built yet** — `/dev/kvm` is present but no
+qemu/libvirt/virt-manager is installed, and the install ISO
+(`omarchy-4.0.1.iso`) is sitting in `~/Downloads`.
+
+Note the version skew when that happens: the ISO is **4.0.1** and this workstation is
+**4.0.0.alpha**, so a VM is not a mirror of the dev box and a behavioural difference
+between them may be a release change rather than a bug.
+
+It does not change the corpus's trust model. `audit_status` records how a record was
+verified **against its sources**, and one VM agreeing is not the same as a source
+confirming — a fix can work by accident, or work only on that hardware. If you validate a
+record live, say so explicitly in the record rather than silently upgrading its status.
 
 ## Working with the corpus
 
 ```sh
 cd research
-python tools/ask.py "zoom screen share is a black rectangle"   # search by symptom
-python tools/ask.py --tag nvidia --tag laptop --list           # filter by tag
-python tools/ask.py --slug some-problem-slug -v                # exact lookup + sources
-python tools/build_db.py                                       # rebuild DB + docs from JSONL
+python3 tools/ask.py "zoom screen share is a black rectangle"   # search by symptom
+python3 tools/ask.py --tag nvidia --tag laptop --list           # filter by tag
+python3 tools/ask.py --slug some-problem-slug -v                # exact lookup + sources
+python3 tools/build_db.py                                       # rebuild DB + docs from JSONL
 ```
 
 **The JSONL is authoritative; the `.db` and `docs/` are derived.** Edit the JSONL, then
@@ -87,7 +118,7 @@ Which gives one rule: **a commit that changes `data/problems.jsonl` must change
 that nothing is left over:
 
 ```sh
-cd research && python tools/build_db.py
+cd research && python3 tools/build_db.py
 git diff --exit-code research/docs/     # must be clean once the build output is staged
 ```
 

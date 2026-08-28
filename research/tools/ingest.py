@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn raw harvest-workflow output into the JSONL corpus.
 
-    python tools/ingest.py raw/harvest-result.json
+    python3 tools/ingest.py raw/harvest-result.json
 
 Writes  data/problems.jsonl     one record per line (source of truth)
         data/categories.json     category key -> display label

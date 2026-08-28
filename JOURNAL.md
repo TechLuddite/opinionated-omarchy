@@ -10,7 +10,7 @@ Three things happened in this project so far:
    `TechLuddite/opinionated-omarchy`, on branch `claude/greenfield-repo-setup-l5fzae`.
    Nothing about the corpus changed. What changed around it:
    - `research/data/problems.db` is no longer tracked, because it is a 4 MB binary
-     rewritten in full on every build. **Run `python tools/build_db.py` after cloning**
+     rewritten in full on every build. **Run `python3 tools/build_db.py` after cloning**
      or `ask.py` will not have an index. `research/docs/` stays tracked so a clone is
      readable without running anything. The rule that follows is in
      [CLAUDE.md](CLAUDE.md): a commit touching `problems.jsonl` carries the regenerated
@@ -51,8 +51,8 @@ down to those two categories, run it, then:
 
 ```sh
 cd research
-python tools/merge_gapfill.py raw/gapfill-result.json
-python tools/build_db.py
+python3 tools/merge_gapfill.py raw/gapfill-result.json
+python3 tools/build_db.py
 ```
 
 **Do not use `resumeFromRunId` for this.** It was tried and did not cleanly replay only

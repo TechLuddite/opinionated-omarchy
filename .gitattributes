@@ -1,11 +1,13 @@
-# Line endings are normalised to LF in the repository. Work happens on Windows,
-# so without this the generated markdown under research/docs/ flips to CRLF on
-# every rebuild and produces a whitespace-only diff across ~1.5 MB of files.
+# Line endings are normalised to LF in the repository. research/docs/ is tracked
+# and fully regenerated on every build, so any tool or editor that writes native
+# line endings would turn a rebuild into a whitespace-only diff across ~1.5 MB.
+# The build itself also pins newline="\n"; this is the second line of defence.
 * text=auto eol=lf
 
 # Provenance is kept byte-for-byte. research/raw/ is unprocessed workflow output
 # and the loose .txt/.html at the root of research/ are downloaded wiki pages.
-# Neither is authored here, so neither gets rewritten.
+# Neither is authored here, so neither gets rewritten — several legitimately
+# carry CRLF exactly as harvested.
 research/raw/**  -text
 research/*.txt   -text
 research/*.html  -text
