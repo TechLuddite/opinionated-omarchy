@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge a gapfill-workflow result back into the JSONL corpus.
 
-    python tools/merge_gapfill.py raw/gapfill-result.json
+    python3 tools/merge_gapfill.py raw/gapfill-result.json
 
 Does two things:
   1. Applies the apps-services audit verdicts to records already in the corpus
@@ -126,7 +126,7 @@ def main():
     print("  verdicts applied: " + ", ".join(f"{k}={v}" for k, v in sorted(stats.items())))
     still = Counter(r.get("audit_status") for r in merged)
     print("  audit status now: " + ", ".join(f"{k}={v}" for k, v in sorted(still.items(), key=lambda x: str(x[0]))))
-    print("\nnext: python tools/build_db.py")
+    print("\nnext: python3 tools/build_db.py")
 
 
 if __name__ == "__main__":

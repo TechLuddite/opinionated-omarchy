@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the searchable troubleshooting DB from the JSONL corpus.
 
-    python tools/build_db.py
+    python3 tools/build_db.py
 
 Reads   data/problems.jsonl   (source of truth, git-diffable)
 Writes  data/problems.db      (derived FTS5 index — safe to delete and rebuild)
@@ -262,8 +262,8 @@ def main():
     ).fetchone()[0]
 
     print(f"built {DB.relative_to(ROOT)}")
-    # ASCII only on stdout — the Windows console is cp1252 and mangles non-ASCII.
-    # (Generated markdown is written UTF-8 and keeps its typography.)
+    # This summary is plain ASCII so it stays legible in a bare console or a
+    # CI log. The generated markdown is written UTF-8 and keeps its typography.
     print(f"  {n} problems | {n_tags} distinct tags | {n_src} distinct sources")
     for cat in sorted(by_cat):
         print(f"    {cat:<20} {len(by_cat[cat]):>4}")

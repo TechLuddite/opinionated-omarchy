@@ -1,5 +1,5 @@
 # Generated FTS5 search index. Rebuild from the JSONL:
-#   cd research && python tools/build_db.py
+#   cd research && python3 tools/build_db.py
 research/data/problems.db
 research/data/problems.db-shm
 research/data/problems.db-wal
@@ -14,6 +14,5 @@ venv/
 .vscode/
 .idea/
 *.swp
-Thumbs.db
-desktop.ini
+*~
 .DS_Store

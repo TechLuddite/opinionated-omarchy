@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Search the troubleshooting corpus the way a user would describe the problem.
 
-    python tools/ask.py "screen share is a black window in zoom"
-    python tools/ask.py "wifi keeps dropping" --tag laptop --limit 3
-    python tools/ask.py --tag omarchy --list
-    python tools/ask.py --slug nvidia-black-screen-after-suspend
+    python3 tools/ask.py "screen share is a black window in zoom"
+    python3 tools/ask.py "wifi keeps dropping" --tag laptop --limit 3
+    python3 tools/ask.py --tag omarchy --list
+    python3 tools/ask.py --slug nvidia-black-screen-after-suspend
 
 This is the point of keeping a database rather than only markdown: symptom text
 is matched with FTS5 + bm25 ranking, so a user's own wording finds the record.
 """
 
 import argparse
+import os
 import re
 import sqlite3
 import sys
@@ -18,6 +19,27 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "data" / "problems.db"
+
+def _colour_enabled():
+    """ANSI only when stdout is a terminal and the user has not opted out.
+
+    Redirecting to a file or piping into a pager should produce clean text. The
+    `!!` and `~~` prefixes below carry the same meaning as the colours, so a
+    stripped-down render loses emphasis but never a warning.
+    """
+    if os.environ.get("NO_COLOR"):          # https://no-color.org
+        return False
+    if os.environ.get("TERM") == "dumb":
+        return False
+    return sys.stdout.isatty()
+
+
+_C = _colour_enabled()
+BOLD = "\033[1m" if _C else ""
+CYAN = "\033[36m" if _C else ""
+YELLOW = "\033[33m" if _C else ""
+RESET = "\033[0m" if _C else ""
+
 
 # bm25 weights, positional against the FTS column order in schema.sql:
 # symptom, title, cause, fix, tags. Symptom dominates because that is what the
@@ -28,7 +50,7 @@ WEIGHTS = (10.0, 6.0, 3.0, 0.7, 2.0)
 
 def connect():
     if not DB.exists():
-        sys.exit(f"no database at {DB}\nRun: python tools/build_db.py")
+        sys.exit(f"no database at {DB}\nRun: python3 tools/build_db.py")
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
@@ -59,8 +81,10 @@ def show(conn, row, verbose):
     tags, srcs = fetch_related(conn, row["id"])
     head = row["title"] or row["slug"]
     bits = [b for b in (row["severity"], row["frequency"], row["category"]) if b]
-    print(f"\n\033[1m{head}\033[0m")
-    # ASCII separator: the Windows console is cp1252 and mangles non-ASCII.
+    print(f"\n{BOLD}{head}{RESET}")
+    # The framing this script adds (labels, separators) is plain ASCII so the
+    # record's own text is the only thing that varies. Record text is printed
+    # verbatim and does contain typography and glyphs; the terminal is UTF-8.
     print(f"  {row['slug']}" + (f"  [{' | '.join(bits)}]" if bits else ""))
     if tags:
         print(f"  applies to: {', '.join(tags)}")
@@ -70,12 +94,12 @@ def show(conn, row, verbose):
     # The audit rewrote `fix` only, so a corrected record's `cause` may still be
     # wrong in exactly the way the note describes. Show it right beside the cause.
     if row["audit_status"] == "corrected" and row["audit_note"]:
-        print(f"  \033[36m~~ AUDIT  {row['audit_note']}\033[0m")
-        print("  \033[36m          (CAUSE above was not rewritten; FIX below is corrected)\033[0m")
+        print(f"  {CYAN}~~ AUDIT  {row['audit_note']}{RESET}")
+        print(f"  {CYAN}          (CAUSE above was not rewritten; FIX below is corrected){RESET}")
     if row["danger"]:
-        print(f"  \033[33m!! RISK  {row['danger']}\033[0m")
+        print(f"  {YELLOW}!! RISK  {row['danger']}{RESET}")
     if row["audit_status"] in ("unaudited", "gapfill-unaudited"):
-        print("  \033[33m!! NOT INDEPENDENTLY AUDITED — verify before running\033[0m")
+        print(f"  {YELLOW}!! NOT INDEPENDENTLY AUDITED — verify before running{RESET}")
     print("\n  FIX")
     for line in (row["fix"] or "").splitlines():
         print(f"    {line}")
