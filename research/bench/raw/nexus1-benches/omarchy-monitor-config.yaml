@@ -1,0 +1,30 @@
+# Omarchy 4 is Hyprland-on-Wayland: the fix is a Lua file under ~/.config/hypr/ and the
+# change is validated with `hyprctl reload` + `hyprctl configerrors`. Bare models reach for
+# xrandr (an X11 tool that does nothing under Wayland) and skip the validation step entirely.
+name: omarchy-monitor-config
+description: External display config on Omarchy/Hyprland — hyprctl over xrandr, user config tree, validate after edit.
+skills: [omarchy]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: dark-external
+    prompt: |
+      On an Omarchy laptop (Arch + Hyprland), an external monitor plugged into HDMI
+      stays black while the built-in screen works. Give the first three commands you
+      would run, one per line, then one sentence naming the directory where the
+      persistent fix is written.
+    checks:
+      - { type: regex_required, pattern: '(?i)hyprctl' }
+      - { type: regex_required, pattern: '(?i)~/\.config/hypr|\$HOME/\.config/hypr' }
+      - { type: regex_forbidden, pattern: '(?i)\bxrandr\s+--' }
+      - { type: max_words, value: 130 }
+  - id: validate-edit
+    prompt: |
+      You have just edited the Hyprland display configuration on an Omarchy system.
+      Which two `hyprctl` invocations do you run to apply the change and confirm it
+      parsed cleanly? Name both commands, nothing else.
+    checks:
+      - { type: regex_required, pattern: '(?i)hyprctl\s+reload' }
+      - { type: regex_required, pattern: '(?i)hyprctl\s+configerrors' }
+      - { type: max_words, value: 60 }

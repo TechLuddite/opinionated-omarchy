@@ -1,0 +1,33 @@
+# CONTROL BENCH. This is general Linux, not Omarchy, and the skill under test says
+# nothing about it. A bare model should already score well here, and the skill should
+# move it barely at all. That null result is the evidence that a lift on the Omarchy
+# benches is real rather than an artifact of the skill making answers longer.
+# The dangerous shortcut here is deleting kernels indiscriminately — including the one that
+# is currently running, which leaves an unbootable machine. `uname -r` first is the marker
+# that separates a safe cleanup from a brick.
+name: linux-boot-partition-full
+control: true
+description: /boot full during a kernel upgrade — identify the running kernel before removing any.
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: safe-cleanup
+    prompt: |
+      A kernel upgrade fails because /boot is full. Give the first three commands you run,
+      one per line, and then one sentence stating which kernel must never be removed and how
+      you identify it.
+    checks:
+      - { type: regex_required, pattern: '(?i)uname\s+-r' }
+      - { type: regex_required, pattern: '(?i)/boot' }
+      - { type: regex_required, pattern: '(?i)running|current|in use|active' }
+      - { type: regex_forbidden, pattern: '(?im)^\s*(sudo\s+)?rm\s+-rf\s+/boot' }
+      - { type: max_words, value: 130 }
+  - id: arch-kernels
+    prompt: |
+      On an Arch-based system, which command lists the installed kernel packages so you can
+      see what is occupying /boot? Command only, one line.
+    checks:
+      - { type: regex_required, pattern: '(?i)pacman\s+-Q' }
+      - { type: max_words, value: 50 }

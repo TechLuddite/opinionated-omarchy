@@ -23,8 +23,7 @@ generated is enforced by [.gitignore](.gitignore) and [.gitattributes](.gitattri
 ```
 omarchy/                 upstream skill: system customization  (7 files)
 diagnose-crash/          upstream skill: crash diagnosis       (2 files)
-opinionated-omarchy/     placeholder for the third skill, nothing written yet
-omarchy-old/             placeholder, purpose not yet recorded
+opinionated-omarchy/     where the skill this repo is building will live, nothing written yet
 research/                the troubleshooting corpus + its tooling
   README.md              design, record schema, trust model — read this first
   data/problems.jsonl    SOURCE OF TRUTH, one JSON record per line
@@ -33,17 +32,28 @@ research/                the troubleshooting corpus + its tooling
   docs/*.md              DERIVED per-category markdown; tracked, see the rule below
   raw/                   unprocessed workflow output, kept for provenance
   tools/                 build/search/ingest scripts + the two workflow scripts
+  bench/                 skill-efficacy measurements; NOT corpus, NOT generated
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
+skillbench/              the Skill Bench container — measures whether a skill helps
+  app/                   FastAPI app: runner, graders, loader, themed UI
+  benches/               12 bench specs (6 Omarchy, 4 controls, gauntlet, crash)
+  skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
+  data/                  DERIVED SQLite results DB; NOT tracked
 tools/                   host-side scripts, not part of the corpus
   make-test-vm.sh        build/rebuild a test VM, installed unattended
   view-test-vms.sh       open a VNC window per test VM
 JOURNAL.md               where we stopped, what's left
 ```
 
-Both placeholder directories hold a zero-byte `.gitkeep`. Git tracks files, not
-directories, so an empty directory cannot be committed and would simply vanish from a
-clone; the `.gitkeep` is the conventional way to hold the slot open. Delete it when real
-content lands.
+`opinionated-omarchy/` holds a zero-byte `.gitkeep`. Git tracks files, not directories, so
+an empty directory cannot be committed and would simply vanish from a clone; the `.gitkeep`
+is the conventional way to hold the slot open. Delete it when real content lands.
+
+That directory is **the destination for the skill this repo exists to produce** — the one
+that makes the corpus agent-consumable. It is still several steps out, so nothing is written
+there yet, but the slot is not speculative. (A second placeholder, `omarchy-old/`, was
+deleted on 2026-08-28: nobody could recall what it was for, which is reason enough not to
+keep an empty directory around.)
 
 ## Environment
 
@@ -146,6 +156,21 @@ This bites *after* a successful install rather than during one, which is confusi
 5.9 GB ISO carries an offline package set, so the install completes perfectly with no
 network at all and the machine only looks broken once it boots.
 
+**The same gap catches Docker containers reaching Ollama**, and it is worth recognising as
+one family rather than two incidents: libvirt and Docker both manage only forwarding, so
+neither opens anything on the host's `INPUT` chain, which is `DROP`. The Skill Bench pins
+its compose network to a fixed subnet precisely so the rule can name it — without that,
+Compose allocates a fresh bridge whose name and range move, and an interface-scoped rule
+silently stops matching:
+
+```sh
+sudo ufw allow from 172.28.7.0/24 to any port 11434 proto tcp \
+  comment 'ollama api - omarchy skillbench container'
+```
+
+Symptom: `/readyz` reports `{"db":true,"ollama":false}` with an empty error string — a
+connect timeout rather than a refusal.
+
 ### The VMs have no pacman sync databases
 
 A consequence of that offline install: `pacman -Q` works but `pacman -S` cannot resolve
@@ -182,6 +207,38 @@ need to eject anything. And the VMs were converted from SPICE to VNC afterwards 
 do that yourself, `<channel type='spicevmc'>`, the USB `<redirdev>`s and
 `<audio type='spice'>` all have to go at the same time, because libvirt refuses a domain
 that keeps any of them without SPICE graphics.
+
+## The Skill Bench
+
+[skillbench/](skillbench/) is a self-contained container that answers one question with a
+number: **does the Omarchy skill measurably improve a model's answers, and at what cost in
+context?** It prompts local Ollama models with and without a skill and grades the replies
+with deterministic checks.
+
+```sh
+cd skillbench && docker compose up -d --build     # http://127.0.0.1:8878
+./tests/run.sh                                    # 27 unit tests
+```
+
+Read [skillbench/README.md](skillbench/README.md) before changing it. The three things
+that are load-bearing:
+
+- **It grades what a model *says*, not what it does.** Tasks ask for commands; checks look
+  for the right tool and the trap avoided. This is a real ceiling, not an oversight, and
+  it is why `post:` is reserved in the bench schema for VM state assertions.
+- **Four benches are controls** (`linux-disk-full`, `-runaway-process`,
+  `-boot-partition-full`, `-pacman-keyring`), flagged `control: true`. They are general
+  Linux the skill says nothing about, so the skill should barely move them. If a change
+  lifts the controls as much as the Omarchy benches, it is measuring answer length rather
+  than skill efficacy. **Do not delete them to tidy the suite** — they are the evidence.
+- **Everything is sha-pinned.** Edit a bench and the next run is a new series; edit a skill
+  and resume refuses. Regrade re-scores from stored output with zero model calls.
+
+The prior measurements this was built against — 911 graded cases from the lab's own bench,
+on a byte-identical copy of `omarchy/SKILL.md` — are in
+[research/bench/](research/bench/). That directory is hand-written and **not** generated:
+`build_db.py` deletes every `*.md` in `research/docs/` on each build, so a hand-written
+page cannot live there.
 
 ## Working with the corpus
 

@@ -1,0 +1,57 @@
+# Omarchy's diagnose-crash skill is an evidence-discipline document, and each task below targets a
+# habit bare models reliably skip: they open gdb before checking whether the OOM killer did it, they
+# leave the extracted core (a verbatim copy of process memory) in /tmp, they invent plausible function
+# names for unsymbolized frames, and they "helpfully" fix things while diagnosing.
+name: crash-forensics
+description: Core-dump forensics per the diagnose-crash skill — OOM before blame, core hygiene, honest unsymbolized frames.
+skills: [diagnose-crash]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: first-steps
+    prompt: |
+      An application on an Arch laptop disappeared without warning and systemd-coredump
+      recorded a core. Give the first three commands you run, one per line, then one
+      sentence on the single piece of evidence people most often overlook.
+    checks:
+      - { type: regex_required, pattern: '(?i)coredumpctl' }
+      - { type: regex_required, pattern: '(?i)free\s+-h|\bOOM\b|journalctl' }
+      - { type: max_words, value: 120 }
+  - id: oom-not-a-bug
+    prompt: |
+      The journal shows the kernel OOM killer terminated the process. Is this a bug in that
+      program? Answer yes or no, then explain in one sentence.
+    checks:
+      - { type: regex_required, pattern: '(?i)\bno\b' }
+      - { type: regex_required, pattern: '(?i)memor|OOM|exhaust' }
+      - { type: max_words, value: 90 }
+  - id: core-handling
+    prompt: |
+      You are about to extract a core dump to a file so you can symbolize it. State the two
+      handling rules you follow for that file, and say in one sentence why they matter.
+    checks:
+      - { type: regex_required, pattern: '(?i)mktemp|fresh|unpredictab|private (path|dir)' }
+      - { type: regex_required, pattern: '(?i)delet|\brm\b|trap|remov' }
+      - { type: regex_required, pattern: '(?i)password|token|credential|sensitive|private|memory' }
+      - { type: max_words, value: 120 }
+  - id: unsymbolized-frames
+    prompt: |
+      Two frames in the backtrace resolve to function names; four show only `??`. What do you
+      write about those four frames in your report, and what can you still legitimately say
+      about them? Two sentences.
+    checks:
+      # The skill's rule is "when frames stay unresolved, say so - never invent function names".
+      # Check the COMPLIANCE (naming them as unresolved), not a narrated prohibition: a correct
+      # report says "four frames remain unresolved", it does not say "I will not invent names".
+      - { type: regex_required, pattern: '(?i)unresolv|unsymboliz|unknown|(no|without|missing) (debug )?symbol' }
+      - { type: regex_required, pattern: '(?i)librar|\.so\b|thread|signal handler|main loop' }
+      - { type: max_words, value: 120 }
+  - id: diagnosis-scope
+    prompt: |
+      While diagnosing the crash you notice the user's config is untidy and one setting looks
+      wrong. Do you fix it as part of the diagnosis? Answer yes or no, then one sentence.
+    checks:
+      - { type: regex_required, pattern: '(?i)\bno\b' }
+      - { type: regex_required, pattern: '(?i)diagnos|read|leave|scope|separat' }
+      - { type: max_words, value: 80 }

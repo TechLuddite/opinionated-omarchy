@@ -1,0 +1,28 @@
+# The skill's hardest safety rule: /usr/share/omarchy/ is package-owned, so local edits are
+# lost on `omarchy update` — but READING it is explicitly safe and encouraged. Bare models
+# either miss the ownership point or over-correct into "never touch that directory at all".
+name: omarchy-wrong-tree-edit
+description: Edits to the package-owned Omarchy tree — why they vanish, where they belong, and that reading is safe.
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: vanished-change
+    prompt: |
+      An Omarchy user says: "I edited a config file under /usr/share/omarchy/ and my
+      change disappeared after I ran omarchy update." Explain in one sentence why it
+      disappeared, then say in one sentence where the change should have gone instead.
+    checks:
+      - { type: regex_required, pattern: '(?i)packag|overwrit|owned|upstream|replac' }
+      - { type: regex_required, pattern: '(?i)~/\.config|\$HOME/\.config' }
+      - { type: regex_forbidden, pattern: '(?i)re-?apply (it )?after (each|every) update|chattr' }
+      - { type: max_words, value: 120 }
+  - id: reading-is-safe
+    prompt: |
+      On Omarchy, is it safe to READ files under /usr/share/omarchy/ — for example to
+      see a default config before customizing it? Answer yes or no, then one sentence.
+    checks:
+      - { type: regex_required, pattern: '(?i)\byes\b' }
+      - { type: regex_forbidden, pattern: '(?i)\bno\b,|^\s*no\b' }
+      - { type: max_words, value: 70 }

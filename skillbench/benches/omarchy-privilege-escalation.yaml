@@ -1,0 +1,35 @@
+# The skill draws a line most models do not know: `sudo` when a terminal is attached to take
+# the password, `pkexec` when the caller is an agent or background process that cannot answer
+# a prompt — plus the `omarchy debug --no-sudo --print` flags that stop a debug run hanging.
+name: omarchy-privilege-escalation
+description: sudo vs pkexec on Omarchy by caller context, and the non-interactive omarchy debug flags.
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: background-agent
+    prompt: |
+      A background agent on an Omarchy box, with no terminal attached and no way to answer
+      a password prompt, must run a privileged command. Which escalation tool does it use?
+      Name the command and give one sentence of justification.
+    checks:
+      - { type: regex_required, pattern: '(?i)pkexec' }
+      - { type: max_words, value: 90 }
+  - id: interactive-terminal
+    prompt: |
+      The same privileged command is being run by a person sitting at a visible terminal on
+      Omarchy, who can type a password. Which escalation tool is correct here? Name it and
+      give one sentence of justification.
+    checks:
+      - { type: regex_required, pattern: '(?i)\bsudo\b' }
+      - { type: max_words, value: 90 }
+  - id: debug-flags
+    prompt: |
+      Give the exact `omarchy debug` invocation that collects diagnostics without hanging on
+      an interactive sudo prompt. Command only, one line.
+    checks:
+      - { type: regex_required, pattern: '(?i)omarchy\s+debug' }
+      - { type: regex_required, pattern: '(?i)--no-sudo' }
+      - { type: regex_required, pattern: '(?i)--print' }
+      - { type: max_words, value: 50 }

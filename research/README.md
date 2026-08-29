@@ -58,6 +58,7 @@ research/
   data/problems.db        generated FTS5 index
   docs/                   generated markdown, one page per category
   raw/                    unprocessed workflow output, kept for provenance
+  bench/                  skill-efficacy measurements — hand-written, NOT generated
   tools/build_db.py       JSONL -> DB + markdown
   tools/ask.py            symptom search
   tools/schema.sql        DB schema
@@ -165,6 +166,17 @@ regenerated `docs/` with it.** Build, then confirm nothing is left unstaged:
 python3 tools/build_db.py
 git diff --exit-code docs/
 ```
+
+### Nothing hand-written may live in `docs/`
+
+`write_docs()` begins with `for old in DOCS.glob("*.md"): old.unlink()` — it deletes
+**every** markdown file in `docs/`, including `docs/README.md`, before regenerating from
+the JSONL. Anything hand-written there survives exactly until the next build, silently.
+
+That is why [`bench/`](bench/) is a sibling of `docs/` rather than a page inside it. It
+holds skill-efficacy measurements — whether giving a model the Omarchy skill measurably
+improves its answers — which is research, but **not corpus**: no `audit_status`, no slug,
+no source list, and no tooling reads it. It is hand-written and stays that way.
 
 ## Refreshing the corpus
 

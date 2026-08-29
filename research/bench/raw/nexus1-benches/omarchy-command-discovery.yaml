@@ -1,0 +1,32 @@
+# Omarchy dispatches everything through one self-documenting `omarchy <group> <action>` CLI.
+# The skill says: when unsure a command exists, run `omarchy commands` rather than guessing —
+# and use `omarchy pkg add` over raw pacman. Bare models invent plausible-but-absent commands.
+name: omarchy-command-discovery
+description: Discovering omarchy commands instead of guessing, plus pkg install and reminders through the CLI.
+skills: [omarchy]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: unsure-command
+    prompt: |
+      You are working on an Omarchy system and are not sure whether a command exists for
+      what the user asked. What do you run to find out, before writing any config by hand?
+      Give the command, then one sentence.
+    checks:
+      - { type: regex_required, pattern: '(?i)omarchy\s+commands|omarchy\s+[a-z]+\s+--help|omarchy\s+--help' }
+      - { type: max_words, value: 80 }
+  - id: install-package
+    prompt: |
+      On Omarchy, install the package `ripgrep` the way the distro intends. Give the
+      command, one line.
+    checks:
+      - { type: regex_required, pattern: '(?i)omarchy\s+pkg\s+add' }
+      - { type: max_words, value: 60 }
+  - id: set-reminder
+    prompt: |
+      An Omarchy user says: "remind me to pick up Jack in 15 minutes." Give the exact
+      command, one line.
+    checks:
+      - { type: regex_required, pattern: '(?i)omarchy\s+reminder\s+15' }
+      - { type: max_words, value: 50 }

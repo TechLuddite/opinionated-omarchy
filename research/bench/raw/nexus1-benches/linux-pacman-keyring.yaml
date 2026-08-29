@@ -1,0 +1,29 @@
+# Two Arch-specific traps: the keyring must be refreshed via archlinux-keyring / pacman-key
+# rather than by disabling signature checking, and `pacman -Sy <pkg>` creates a partial
+# upgrade — the single most common way users break an Arch install.
+name: linux-pacman-keyring
+description: pacman signature failures — refresh the keyring, never disable SigLevel, never partial-upgrade.
+skills: [omarchy]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: signature-error
+    prompt: |
+      On an Arch-based laptop, `pacman -Syu` aborts with "signature from ... is marginal
+      trust" / "invalid or corrupted package (PGP signature)". Give the commands you run to
+      fix this properly, one per line, then one sentence on what you must NOT do.
+    checks:
+      - { type: regex_required, pattern: '(?i)archlinux-keyring' }
+      - { type: regex_required, pattern: '(?i)pacman-key' }
+      - { type: regex_forbidden, pattern: '(?i)SigLevel\s*=\s*Never' }
+      - { type: max_words, value: 140 }
+  - id: partial-upgrade
+    prompt: |
+      An Arch user wants just one package updated and asks whether `pacman -Sy firefox` is
+      safe. Answer yes or no, give the correct command, and explain the risk in one sentence.
+    checks:
+      - { type: regex_required, pattern: '(?i)\bno\b' }
+      - { type: regex_required, pattern: '(?i)pacman\s+-Syu' }
+      - { type: regex_required, pattern: '(?i)partial' }
+      - { type: max_words, value: 110 }

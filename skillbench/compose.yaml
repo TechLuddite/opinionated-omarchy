@@ -1,0 +1,60 @@
+name: omarchy-skillbench
+
+# Omarchy Skill Bench -- does a skill measurably improve a model on Omarchy tasks?
+#
+# Local-only by construction: the port is published on 127.0.0.1, so nothing on the LAN
+# can reach it, and the app holds no credential of any kind. Ollama runs on the host.
+
+services:
+  skillbench:
+    build:
+      context: .
+      pull: true              # always refresh the base image; see Dockerfile
+    image: opinionated-omarchy/skillbench
+    container_name: omarchy-skillbench
+    restart: unless-stopped
+    # Run as the host user, so ./data/skillbench.db stays readable and deletable from
+    # the desktop. The image's own non-root user (uid 10001) is the fallback when the
+    # bench is run without this compose file.
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8878:8080"   # loopback only - do not change without reading the README
+    environment:
+      OLLAMA_BASE: http://host.docker.internal:11434
+      SB_BENCHES: /benches
+      SB_SKILLS: /app/skills.yaml
+      SB_THEMES: /themes
+      SB_THEME: gruvbox
+      SB_DB: /data/skillbench.db
+      # Parallel cases WITHIN the current model. Models are never interleaved: Ollama
+      # here runs OLLAMA_MAX_LOADED_MODELS=1, so the runner finishes one model's whole
+      # suite before loading the next.
+      SB_CONCURRENCY: "2"
+      SB_TIMEOUT: "300"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./benches:/benches:ro
+      - ./data:/data
+      # The skills under test are the real bundles in this repo, not copies.
+      - ../omarchy:/skills/omarchy:ro
+      - ../diagnose-crash:/skills/diagnose-crash:ro
+      # Live theme palettes.
+      - /usr/share/omarchy/themes:/themes:ro
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    pids_limit: 256
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+    networks: [bench]
+
+networks:
+  bench:
+    # A PINNED subnet, so the host firewall rule that lets this container reach Ollama can
+    # name it exactly. Compose would otherwise allocate a fresh bridge with a generated name
+    # and a subnet that moves, and an interface- or subnet-scoped ufw rule would silently
+    # stop matching. See README 'The host firewall has to allow the bench subnet'.
+    ipam:
+      config:
+        - subnet: 172.28.7.0/24

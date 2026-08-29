@@ -1,0 +1,30 @@
+# Omarchy 4 "Quattro" replaced waybar with its own Quickshell bar, configured in
+# ~/.config/omarchy/shell.json and driven by `omarchy restart/refresh shell` +
+# `omarchy bar`. Bare models answer "waybar" from memory — the single sharpest
+# differential marker in this suite.
+name: omarchy-shell-bar
+description: Omarchy status bar recovery and layout — shell.json + omarchy refresh/restart/bar, not waybar.
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: bar-blank
+    prompt: |
+      On Omarchy, a user edited their status bar configuration and now the bar renders
+      blank after login. Name the config file they most likely broke, the command that
+      restores it to stock, and the command that restarts the bar. Three lines.
+    checks:
+      - { type: contains, value: "shell.json" }
+      - { type: regex_required, pattern: '(?i)omarchy\s+refresh\s+shell' }
+      - { type: regex_required, pattern: '(?i)omarchy\s+restart\s+shell' }
+      - { type: regex_forbidden, pattern: '(?i)~/\.config/waybar|waybar\.jsonc|restart\s+waybar' }
+      - { type: max_words, value: 120 }
+  - id: move-widget
+    prompt: |
+      On Omarchy, move the clock widget to the right-hand section of the status bar.
+      Give the command. One line.
+    checks:
+      - { type: regex_required, pattern: '(?i)omarchy\s+bar\b' }
+      - { type: regex_forbidden, pattern: '(?i)~/\.config/waybar|waybar\.jsonc' }
+      - { type: max_words, value: 70 }
