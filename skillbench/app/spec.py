@@ -12,9 +12,11 @@ Everything is content-pinned by sha. A run records the bench's spec_sha and the 
 every skill it used, so an edited bench starts a new series instead of silently
 polluting the old one, and an edited skill makes resume refuse.
 
-Tasks may carry a `post:` block. It is loaded, pinned and ignored: it is where VM
-state assertions will live when the agentic lane lands, and reserving it now means
-that lane needs no schema migration.
+A bench declares a LANE. `lane: chat` (the default) prompts a model and grades the
+reply. `lane: agentic` runs a real agent harness on a test VM and grades the machine
+afterwards, via each task's `post:` block. The field lives inside the yaml, so the lane
+is covered by spec_sha like everything else: changing it starts a new series rather
+than quietly redefining an existing one.
 """
 import hashlib
 import os
@@ -23,6 +25,7 @@ import re
 import yaml
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")  # no '/', no '+', no leading dot
+LANES = {"chat", "agentic"}
 
 BENCH_DIR = os.environ.get("SB_BENCHES", "/benches")
 SKILL_MANIFEST = os.environ.get("SB_SKILLS", "/app/skills.yaml")
@@ -86,6 +89,10 @@ def load_bench(name):
     if not spec.get("tasks"):
         raise SpecError(f"bench {name!r} has no tasks")
 
+    lane = spec.get("lane", "chat")
+    if lane not in LANES:
+        raise SpecError(f"bench {name!r} declares lane={lane!r}; want one of {sorted(LANES)}")
+
     seen = set()
     for task in spec["tasks"]:
         tid = task.get("id")
@@ -96,8 +103,18 @@ def load_bench(name):
         seen.add(tid)
         if not task.get("prompt"):
             raise SpecError(f"bench {name!r} task {tid!r} has no prompt")
+        # A task id becomes a tmux window name and a directory under /tmp on the VM.
+        if lane == "agentic" and not NAME_RE.match(tid):
+            raise SpecError(f"bench {name!r} task id {tid!r} is not usable as a VM path")
+
+    # An agentic bench that asserts nothing about the machine is a chat bench wearing a
+    # costume: it would run an agent for minutes and grade only its prose. Refuse it,
+    # because the whole claim of this lane is that it measures what the agent DID.
+    if lane == "agentic" and not any(t.get("post") for t in spec["tasks"]):
+        raise SpecError(f"bench {name!r} is agentic but no task has a `post:` block")
 
     spec["spec_sha"] = _sha(raw)
+    spec["lane"] = lane
     spec.setdefault("defaults", {})
     spec.setdefault("skills", [])
     spec.setdefault("control", False)
@@ -165,6 +182,32 @@ def parse_variant(variant):
     for n in names:
         _safe(n, "skill")
     return names
+
+
+def skill_files_for(variant):
+    """-> ([(filename, raw_text), ...], {skill: sha}) for the agentic lane.
+
+    Deliberately NOT the same bytes as system_prompt_for(). There, a skill is a system
+    prompt and the frontmatter is stripped, because in a real harness the frontmatter is
+    triggering metadata the harness consumes rather than prompt text. Here pi IS that
+    harness: it reads the frontmatter itself, so the files go over intact.
+
+    The recorded sha is still the stripped-body one from load_skill(), so a skill has a
+    single identity across both lanes and the resume guard keeps working unchanged. Any
+    edit to a file changes the stripped body too, so nothing escapes the pin.
+    """
+    names = parse_variant(variant)
+    files, revs = [], {}
+    for n in names:
+        _, sha, used = load_skill(n)
+        revs[n] = sha
+        root = _manifest()[n]["root"]
+        for fn in used:
+            with open(os.path.join(root, fn), encoding="utf-8") as fh:
+                # Prefix with the skill name so two bundles in one variant cannot
+                # collide on a shared filename (both ship a SKILL.md).
+                files.append((f"{n}/{fn}" if len(names) > 1 else fn, fh.read()))
+    return files, revs
 
 
 def system_prompt_for(variant):

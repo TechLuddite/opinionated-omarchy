@@ -42,6 +42,9 @@ skillbench/              the Skill Bench container — measures whether a skill 
 tools/                   host-side scripts, not part of the corpus
   make-test-vm.sh        build/rebuild a test VM, installed unattended
   view-test-vms.sh       open a VNC window per test VM
+  provision-bench-vm.sh  make a VM an agentic bench target (autologin, no lock, mirror)
+  install-bench-key.sh   generate + install the bench's own ssh key on a VM
+  golden-test-vm.sh      save/reset a VM's disk as a golden image (btrfs reflink, ~1s)
 JOURNAL.md               where we stopped, what's left
 ```
 
@@ -103,9 +106,20 @@ record live, say so explicitly in the record rather than silently upgrading its 
 
 ## Test VMs
 
-Two throwaway libvirt VMs for verifying corpus fixes against a real Omarchy install
-without risking the workstation. They are **disposable by design** — break one, delete it
-and rebuild with `tools/make-test-vm.sh`.
+Two throwaway libvirt VMs. They do two jobs: verifying corpus fixes against a real
+Omarchy install without risking the workstation, and serving as the targets the Skill
+Bench's **agentic lane** drives. They are **disposable by design** — break one, delete it
+and rebuild with `tools/make-test-vm.sh`, then re-provision:
+
+```sh
+tools/install-bench-key.sh 1 2     # the bench's own ssh key (never your ~/.ssh key)
+tools/provision-bench-vm.sh 1 2    # autologin, never lock/blank/suspend, tmux mirror,
+                                   # and pi pointed at the host's Ollama
+tools/golden-test-vm.sh save 1 2   # capture that good state (VM must be shut off)
+```
+
+Both are **provisioned to autologin and never lock**, which is not cosmetic — see the
+lock trap under "Domain facts".
 
 | | |
 | --- | --- |
@@ -138,6 +152,19 @@ sudo virsh net-dhcp-leases default        # current IPs — DHCP, they change
 ssh techluddite@<ip>
 tools/view-test-vms.sh                    # open a VNC window for each
 ```
+
+### Golden disk images beat snapshots here
+
+`/var/lib/libvirt/images` is btrfs with no `NOCOW` flag, so `cp --reflink=always` shares
+extents instead of copying bytes: capturing or restoring a 6.8 GiB VM disk takes **about a
+second and charges no additional space** until one side is written. That is why
+`tools/golden-test-vm.sh` exists and why libvirt snapshots — awkward on these UEFI/pflash
+domains — were dropped rather than fought.
+
+Measured, with a marker file to prove the reset was real: reset 1 s, boot to ssh 14 s, a
+full cycle about 30 s, against *minutes* for a rebuild from the 5.9 GB ISO. The VM must be
+**shut off** for both save and reset; a copy from a running domain is only crash-consistent.
+`virsh shutdown` (ACPI) is ignored by these VMs — use `ssh <vm> 'sudo systemctl poweroff'`.
 
 ### The host firewall has to allow the VM bridge
 
@@ -211,21 +238,29 @@ that keeps any of them without SPICE graphics.
 ## The Skill Bench
 
 [skillbench/](skillbench/) is a self-contained container that answers one question with a
-number: **does the Omarchy skill measurably improve a model's answers, and at what cost in
-context?** It prompts local Ollama models with and without a skill and grades the replies
-with deterministic checks.
+number: **does the Omarchy skill measurably improve a model, and at what cost in
+context?** It has **two lanes**, and a bench declares which with `lane:`.
 
 ```sh
 cd skillbench && docker compose up -d --build     # http://127.0.0.1:8878
-./tests/run.sh                                    # 27 unit tests
+./tests/run.sh                                    # 39 unit tests
 ```
 
-Read [skillbench/README.md](skillbench/README.md) before changing it. The three things
-that are load-bearing:
+Read [skillbench/README.md](skillbench/README.md) before changing it. The things that are
+load-bearing:
 
-- **It grades what a model *says*, not what it does.** Tasks ask for commands; checks look
-  for the right tool and the trap avoided. This is a real ceiling, not an oversight, and
-  it is why `post:` is reserved in the bench schema for VM state assertions.
+- **The chat lane grades what a model *says*.** Tasks ask for commands; checks look for
+  the right tool and the trap avoided. A real ceiling, not an oversight.
+- **The agentic lane grades what an agent *does*.** It runs `pi` on a real test VM, lets
+  it act, then asserts on the machine via each task's `post:` block. Concurrency there is
+  the size of the VM pool, not `SB_CONCURRENCY`, because a case owns the machine it runs
+  on. The UI keeps the two graders apart as QUALITY (transcript) and STATE (the VM):
+  collapsing them would hide a model that describes the right edit and never makes it.
+- **It runs on the HOST network** (`network_mode: host`). libvirt rejects every new
+  forwarded connection into `192.168.122.0/24`, so a bridged container cannot reach the
+  test VMs at all — and nothing in ufw can override it, because in nftables only
+  `reject`/`drop` are terminal. This also removed the old pinned-subnet ufw rule for
+  Ollama entirely; the app binds `127.0.0.1:8878` itself.
 - **Four benches are controls** (`linux-disk-full`, `-runaway-process`,
   `-boot-partition-full`, `-pacman-keyring`), flagged `control: true`. They are general
   Linux the skill says nothing about, so the skill should barely move them. If a change
@@ -307,6 +342,24 @@ against primary sources during the research and repeatedly caught stale advice.
 - **`pacman -Sy <pkg>` alone is a partial upgrade** and a classic way to break a system.
   Always `-Syu`. Treat any fix containing bare `-Sy` as a defect.
 - The Omarchy menu is **Super+Space**; Super+Alt+Space is the Apps menu.
+- **`hyprctl dispatch` takes Lua now, not a bare dispatcher name.** `hyprctl dispatch exec
+  foo` fails on 0.56 with `')' expected near 'foo'`; the input is evaluated as
+  `hl.dispatch(<your text>)`. Correct forms are `hl.dsp.exec_cmd("foo")` and
+  `hl.dsp.dpms({ action = "on" })`. To launch a GUI app on a VM's session from ssh it is
+  simpler to skip hyprctl entirely and set `WAYLAND_DISPLAY=wayland-1`.
+- **`OMARCHY_PATH` is exported from `~/.bashrc`, so it is unset in a non-interactive ssh.**
+  Every `omarchy` subcommand then fails with `find: '/themes/': No such file or directory`.
+  Anything driving a VM over ssh must use a **login shell** (`bash -lc`). This also catches
+  tmux: a window inherits the tmux *server's* environment, and a server started by a
+  systemd user unit has no profile sourced at all.
+- **Omarchy 4's lock screen cannot be released headlessly, and it outlives its client.**
+  It is an `ext-session-lock` surface drawn by `omarchy-shell` (Quickshell) — `hyprlock` is
+  not even installed. Its IPC exposes `lock()`, `status()`, `isLocked()` and deliberately
+  **no `unlock()`**, so the only ways back in are typing the password (`virsh send-key`) or
+  a rebuild. `pkill`ing the lock client makes it worse: the compositor stays locked with a
+  stale frame, which `omarchy-hyprland-session-locked` documents as the case worth
+  detecting (`LOCK` in `solitaryBlockedBy`). Prevention is the only real fix —
+  `omarchy-toggle-idle stay-awake`, as `tools/provision-bench-vm.sh` does.
 
 ## Fetching sources
 

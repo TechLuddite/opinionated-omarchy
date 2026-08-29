@@ -151,13 +151,23 @@ def record_case(run_id, task_id, model, variant, repeat_idx, status, request,
     return cur.lastrowid
 
 
-def record_grades(case_id, grades):
+def record_grades(case_id, grades, post_grades=None):
+    """Store a case's grades.
+
+    Two graders share the table. 'check' grades a transcript; 'post' grades the VM the
+    agent acted on. They are stored separately so the UI can show that a model said the
+    right thing and still left the machine broken -- which is the entire reason the
+    agentic lane exists, and would be invisible if both collapsed into one number.
+    """
     c = conn()
     c.execute("DELETE FROM grade WHERE case_id=?", (case_id,))
+    rows = [(case_id, "check", g["criterion"], g["score"], 1 if g["passed"] else 0, g["note"])
+            for g in grades or []]
+    rows += [(case_id, "post", g["criterion"], g["score"], 1 if g["passed"] else 0, g["note"])
+             for g in post_grades or []]
     c.executemany(
         "INSERT INTO grade (case_id, grader, criterion, score, passed, note)"
-        " VALUES (?,'check',?,?,?,?)",
-        [(case_id, g["criterion"], g["score"], 1 if g["passed"] else 0, g["note"]) for g in grades])
+        " VALUES (?,?,?,?,?,?)", rows)
     c.commit()
 
 

@@ -2,6 +2,147 @@
 
 Last updated: 2026-08-29
 
+## Session of 2026-08-29 — the agentic lane
+
+The Skill Bench now grades what an agent **does** on a real machine, not only what a model
+says. This was the top item on "what's left" and it is built, running and documented.
+
+### 1. How it works
+
+A bench declares `lane: agentic`. Each case then: acquires a VM from a pool, restores the
+paths the bench declares, applies a `seed:` (the breakage), runs `pi --print --skill <dir>`
+in a **tmux window**, and evaluates the task's `post:` block over ssh.
+
+Two graders, kept apart in the UI on purpose — QUALITY (transcript) and STATE (the VM).
+Collapsing them would hide a model that describes the right edit and never makes it.
+
+`omarchy-agentic-config` is the first bench: add a keybinding, switch a theme, configure a
+monitor. Every task also asserts `pacman -Qkk omarchy` reports **0 altered files**, which
+is a hard statement that the agent stayed out of `/usr/share/omarchy` — the exact place
+Omarchy-3-era advice sends it. A chat bench can only ask whether a model *mentions* the
+right directory.
+
+### 2. What the first runs actually showed — no skill signal yet
+
+Three runs, n=1, and they **disagree**:
+
+| run | model | none | skill | 
+| --- | --- | ---: | ---: |
+| 9 | qwen2.5 | theme task failed | theme task **passed** |
+| 10 | devstral-small-2:24b | STATE 0.75 | STATE 0.625 |
+| 11 | qwen2.5 | STATE 0.625 | STATE 0.5 |
+
+**There is no measurable skill effect here yet, and one run points the wrong way.** At one
+repeat over three tasks that is noise, not a finding. Getting a real number needs repeats
+and more tasks — which is exactly what the chat lane needed too.
+
+One hypothesis worth testing rather than believing: in run 10 the `skill:omarchy-full`
+theme case ran 199 s and returned an EMPTY transcript having done nothing, while `none`
+finished in 21 s. The full bundle is ~6.6k tokens. Local models in an agentic loop may be
+hitting context pressure, in which case `-full` measures exhaustion rather than skill.
+
+### 3. The lesson that changed the bench: good agents do not narrate
+
+devstral scored **3/3 on the monitor task while its entire transcript was "Task
+completed."** The chat lane's `checks:` were therefore scoring *verbosity* and marking the
+best-performing agent down for being terse. Forbidden-pattern checks are no better — a
+silent agent passes them all and reads as 100%.
+
+So the agentic bench now carries **no transcript checks at all**. In this lane the machine
+is the measurement.
+
+### 4. Four things that cost real time, all now written down in CLAUDE.md
+
+- **libvirt rejects every new forwarded connection into `192.168.122.0/24`.** A bridged
+  container cannot reach the test VMs, and no ufw rule can override it — in nftables an
+  `accept` in one base chain does not stop another base chain rejecting, and only
+  `reject`/`drop` are terminal. The bench moved to `network_mode: host`, which also
+  **deleted** the old pinned-subnet ufw rule for Ollama. One less invisible host-level
+  dependency, in a repo where that class of trap has now bitten three times.
+- **`OMARCHY_PATH` comes from `~/.bashrc`**, so a non-interactive ssh has it unset and every
+  `omarchy` subcommand fails with `find: '/themes/'`. Everything on the VM runs under
+  `bash -l`. It matters twice: a tmux window inherits the *tmux server's* environment, and
+  that server is a systemd user unit with no profile sourced — without this the **agent**
+  is the thing running without `OMARCHY_PATH`.
+- **Omarchy 4's lock cannot be released headlessly.** It is an `ext-session-lock` surface
+  drawn by `omarchy-shell` (`hyprlock` is not installed); the IPC has `lock()` but
+  deliberately no `unlock()`, and it outlives its client. Recovery was typing the password
+  through `virsh send-key`. Prevention is the only fix.
+- **`hyprctl dispatch` takes Lua on 0.56**: `hl.dsp.exec_cmd("...")`, not `dispatch exec ...`.
+
+### 5. Golden disk images replaced snapshots
+
+`/var/lib/libvirt/images` is btrfs with no NOCOW flag, so `cp --reflink=always` shares
+extents: **reset 1 s, boot to ssh 14 s, full cycle ~30 s**, verified with a marker file,
+against minutes for an ISO rebuild. `tools/golden-test-vm.sh save|reset|status`.
+
+Note `virsh shutdown` (ACPI) is ignored by these VMs; use `ssh <vm> 'sudo systemctl poweroff'`.
+
+### 6. The VMs are now provisioned, and mirrored to their consoles
+
+`tools/provision-bench-vm.sh` makes a VM a bench target, idempotently: SDDM autologin,
+never lock/blank/suspend, a systemd **user unit** holding a long-lived tmux session, a
+second unit attaching a `foot` terminal to it **read-only** on the console, and pi pointed
+at the host's Ollama. `tools/install-bench-key.sh` gives the bench its **own** ssh key —
+never the operator's — gitignored under `skillbench/secrets/`.
+
+Read-only is load-bearing both ways: a watcher cannot type into a running case, and the
+runner therefore must never use `tmux send-keys` (tmux refuses it outright). Launching each
+case *as* a window is the supported path.
+
+### 7. Isolation: what it is, and what it is not
+
+Before every case the VM is restored from a tar of the paths the bench declares. **Anything
+outside those paths persists.** Verified working — an agent invented
+`~/.config/omarchy/keybinds.conf` and the next case's restore removed it.
+
+It is not a disk rollback, deliberately: the container runs `cap_drop: ALL`,
+`no-new-privileges` and has no libvirt socket, and handing it the hypervisor would trade a
+real security property for convenience. The disk reset stays an operator action between
+runs.
+
+## What's left
+
+### 1. Get an actual number out of the agentic lane
+
+The lane runs; the measurement does not exist yet. Needs repeats (n>=3), more tasks, and a
+decision about whether `-full` is even loadable by a 24B model in an agentic loop. Consider
+adding an agentic **control** task — something general-Linux the skill says nothing about —
+so the null case is visible here as it is in the chat lane.
+
+### 2. Finish auditing 28 records  (the oldest real loose end)
+
+Unchanged from before. `wayland-compat` (12) and `network` (16) gap-fill records are
+harvested but never audited; their audit agents died on API streaming errors. They are
+flagged `gapfill-unaudited` and warn in both `ask.py` and the generated markdown.
+
+To close: edit `GAP_CATEGORIES` in [research/tools/gapfill-workflow.js](research/tools/gapfill-workflow.js)
+down to those two categories, run it, then:
+
+```sh
+cd research
+python3 tools/merge_gapfill.py raw/gapfill-result.json
+python3 tools/build_db.py
+```
+
+**Do not use `resumeFromRunId` for this.** It was tried and re-ran completed work.
+
+### 3. Stale `cause` fields on first-pass corrected records  (known, mitigated)
+
+Roughly 130 `corrected` records may still carry a `cause` the auditor disproved; the first
+harvest's audits rewrote only `fix`. The audit note prints directly beneath the cause with a
+warning, so a reader is never misled, but a re-audit pass would be a genuine improvement.
+
+### 4. Optional / not started
+
+- `opinionated-omarchy/` is still empty, held open by a `.gitkeep`. Settled: this is where
+  the skill goes — the one that turns the corpus into something an agent can consume.
+  Nothing written there yet.
+- Now that the VMs exist and can be reset in a second, the corpus could be spot-checked
+  against a real install. Nobody has done any of that.
+- `research/` root holds ~17 loose Hyprland wiki pages. Not corpus, no tooling reads them.
+  Left in place deliberately.
+
 ## Session of 2026-08-28/29 — the Skill Bench landed
 
 Two things happened: the lab's skill-efficacy data was brought into this repo, and a
@@ -88,160 +229,6 @@ pins the network to `172.28.7.0/24` so the rule can name it.
 
 `omarchy-old/` deleted — its purpose was never recorded and could not be reconstructed.
 `opinionated-omarchy/` is confirmed as the destination for the skill this repo is building.
-
-## Where we stopped
-
-The repo now lives on the machine it is about. It was cloned to
-`/home/techluddite/Projects/opinionated-omarchy` on an **Omarchy 4 workstation**, and two
-sessions of work happened there. Read [CLAUDE.md](CLAUDE.md) first — the environment and
-Test VM sections were both rewritten and are current.
-
-**Branch state: resolved.** Those two commits went in through PR #1 and
-`claude/greenfield-repo-setup-l5fzae` — the repo's default branch on GitHub, there is no
-`main` or `master` — is clean and in sync with origin.
-
-```
-b6ddc60  Merge pull request #1 from TechLuddite/chore/linux-native-toolchain
-d4291dd  Add two unattended Omarchy test VMs, with VNC consoles
-69f632f  Convert repo from Windows to Linux-native
-8be248c  Initial import: Omarchy skills and troubleshooting corpus
-```
-
-### 1. The repo was converted from Windows to Linux-native
-
-The project used to be developed on Windows 11. It is not any more, and the concessions
-that required are gone: `python` → `python3` in 28 places, the four `research/tools/*.py`
-scripts made executable (they already carried a `python3` shebang but were mode 644, so it
-was inert), and the comments citing a cp1252 console replaced. One of those comments was
-already false — it claimed ASCII-only output directly above code printing record text
-containing arrows, box drawing and a Nerd Font glyph.
-
-`ask.py` also emitted ANSI unconditionally, so redirecting to a file embedded escape
-codes. It now gates on `stdout.isatty()` and honours `NO_COLOR` / `TERM=dumb`. The `!!` and
-`~~` prefixes already carried the warnings, so uncoloured output loses emphasis but never a
-risk marker.
-
-**Kept deliberately, with better reasoning:** `eol=lf` and the explicit `newline="\n"` pins.
-They are not Windows compatibility — they are what stops a rebuild of the tracked,
-fully-regenerated `research/docs/` from producing a 1.5 MB whitespace diff. `research/raw/**`
-stays `-text`; several of those files legitimately carry CRLF exactly as harvested.
-
-### 2. Two test VMs exist and work
-
-`opinionated-omarchy-test1` and `-test2`: Omarchy 4.0.1, libvirt/KVM, NAT on `virbr0`,
-VNC consoles on `127.0.0.1:5901` / `:5902`. Full details, credentials and gotchas are in
-[CLAUDE.md](CLAUDE.md) under "Test VMs".
-
-They install **unattended** — the Omarchy ISO supports a `cidata` drive (cloud-init
-NoCloud), and `omarchy-cidata-load` on the ISO skips the `gum` configurator when it finds
-one. `tools/make-test-vm.sh` builds that drive and defines the domain, so rebuilding is one
-command. Rebuild through the script; the archinstall schema is unforgiving and the sizes are
-in bytes.
-
-This is what changes the corpus's possibilities: fixes can now be *checked* rather than only
-cited. It does **not** change the trust model — `audit_status` records verification against
-sources, and one VM agreeing is not a source confirming. Say so explicitly in a record if
-you validate it live.
-
-### 3. Housekeeping done along the way
-
-- An ed25519 keypair was generated at `~/.ssh/id_ed25519` — there was **no `~/.ssh` at all**
-  on this machine before. Its public half is installed on both test VMs.
-- The virtualization stack was installed via `omarchy pkg add` (a thin `pacman -S --needed`
-  with no `-y`, so no partial-upgrade risk), `libvirtd`/`virtlogd` enabled, the `default`
-  network started and set to autostart, and the user added to `libvirt`/`kvm`.
-- Three `ufw` rules were added on the **host**, scoped to `virbr0` only. Without them the
-  VMs get no network at all — see the gotchas below.
-
-## What's left
-
-### 1. The agentic lane — the bench's real payoff  (decided, not built)
-
-The current bench grades what a model **says**. The agreed next block is grading what it
-**does**: drive `omarchy agent` inside the test VMs and assert on the machine's end state.
-Groundwork already surveyed:
-
-- **`omarchy-agent` is the abstraction.** `/usr/share/omarchy/bin/omarchy-default-agent`
-  supports nine harnesses (`pi, omp, opencode, claude, codex, grok, gemini, copilot,
-  crush`), and `omarchy-agent` already encodes each one's non-interactive flags.
-  `--inline` execs directly instead of spawning a terminal, which is what headless driving
-  needs. The harness becomes a bench dimension, exactly as models are today.
-- **`pi --skill <path>` loads a file *or a directory*.** The multi-file ceiling disappears
-  entirely in agentic mode — pi loads the real bundle the way the real harness does.
-  `pi --print --mode json --no-session` is non-interactive with structured output.
-- **pi reaches local Ollama** via a custom provider in `~/.pi/agent/models.json`
-  (`api: openai-completions`, dummy `apiKey`). Ollama is the documented example. Set
-  `compat.supportsDeveloperRole: false` or pi sends a role the server rejects.
-- Both VMs already have `pi`, `opencode`, `claude`, `codex`, `crush` and `mise`.
-- **Decided: snapshot and revert per case**, so cases cannot contaminate each other.
-- **Prove first:** these domains are UEFI, and libvirt has historically refused *internal*
-  snapshots on pflash domains. If that bites, go external or disk-only. The disks are
-  qcow2, so snapshots are available in principle; no snapshots exist yet.
-- **Expect the matrix to collapse.** Chat mode is ~7s/case; agentic is minutes plus revert,
-  with concurrency 2. Agentic runs must be narrow by design.
-- The VMs will need Ollama reachable at `192.168.122.1:11434` — a fourth `virbr0`-scoped
-  ufw rule, same shape as the three already documented.
-- `post:` is already reserved in the bench schema, so this needs no migration.
-
-### 2. The lab host is reachable, and untouched
-
-`skywalker@techluddite-nexus1.opsvibe.systems` (172.20.20.127). **Key auth works** from this
-workstation — `ssh skywalker@techluddite-nexus1.opsvibe.systems` connects with no prompt,
-verified under `BatchMode=yes`, so nothing interactive is hiding in the path.
-
-The workstation's public key was appended to `~/.ssh/authorized_keys` there by hand. Note
-the direction if this comes up again: `ssh-copy-id` copies a *local* key to a *remote* host,
-so it must run **on the workstation**, not on the lab. Running it on the lab makes it look
-for a key in the lab's own `~/.ssh` and fail.
-
-Deliberately unexplored: connection and one `ls ~` and nothing more. That home directory has
-`workspace/`, `.claude/`, `.claude.json`, `.docker/` and `.git-credentials` in it, so
-whatever the lab is for, it is already set up — do not assume it is a blank machine.
-
-### 3. Finish auditing 28 records  (the oldest real loose end)
-
-`wayland-compat` (12) and `network` (16) gap-fill records are harvested but never audited —
-their two audit agents died on API streaming errors. They are flagged `gapfill-unaudited`
-and warn in both `ask.py` and the generated markdown, so nothing is silently untrustworthy;
-they just haven't been checked.
-
-To close: edit `GAP_CATEGORIES` in [research/tools/gapfill-workflow.js](research/tools/gapfill-workflow.js)
-down to those two categories, run it, then:
-
-```sh
-cd research
-python3 tools/merge_gapfill.py raw/gapfill-result.json
-python3 tools/build_db.py
-```
-
-**Do not use `resumeFromRunId` for this.** It was tried and did not cleanly replay only the
-failed agents — stalled-agent retries re-ran completed work and consumed budget, and it had
-to be killed. Editing the category list is cheaper and predictable.
-
-### 4. Stale `cause` fields on first-pass corrected records  (known, mitigated)
-
-The first harvest's audits rewrote only `fix`, so roughly 130 `corrected` records may still
-carry a `cause` the auditor disproved. The second pass added `corrected_cause` (20 causes
-replaced), but first-pass records were not revisited. The audit note prints directly beneath
-the cause everywhere, with a warning, so a reader is never misled — but a re-audit pass over
-first-pass records would be a genuine improvement.
-
-### 5. Optional / not started
-
-- `opinionated-omarchy/` at the root is still empty, held open by a `.gitkeep`. **Settled
-  2026-08-28: this is where the skill goes** — the one that turns the corpus into something
-  an agent can consume. Still several steps out, nothing written there yet.
-- `omarchy-old/` **deleted 2026-08-28.** Its purpose was never recorded and nobody could
-  reconstruct it, so it was an empty directory kept alive by a `.gitkeep` for no stated
-  reason.
-- Nothing turns the corpus into an actual Claude skill yet. Still the obvious next step if
-  the goal is agent-consumable troubleshooting: a `SKILL.md` telling an agent to query
-  `research/tools/ask.py` by symptom.
-- Now that the VMs exist, the corpus could be spot-checked against a real install. Nobody
-  has done any of that yet.
-- `research/` root holds ~17 loose Hyprland wiki pages (`binds.md`, `anim.md`, `lua.html`,
-  `hyprctl.md`, `hc.cpp`, …). **Not** part of the corpus and no tooling reads them. Left in
-  place deliberately; could move to a `reference/` subfolder.
 
 ## Where the references are
 

@@ -2,3 +2,8 @@
 data/
 __pycache__/
 *.pyc
+
+# The agentic lane's ssh keypair. Generated per checkout by
+# tools/install-bench-key.sh; it authenticates to disposable test VMs only, but a
+# private key still has no business in git.
+secrets/
