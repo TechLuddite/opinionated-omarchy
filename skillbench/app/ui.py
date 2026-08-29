@@ -103,7 +103,7 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const pct=v=>v==null?'--':(v*100).toFixed(1)+'%';
 const num=v=>v==null?'--':v.toLocaleString();
 
-let BENCHES=[],SKILLS=[],MODELS=[],RUN=null,SELMODELS=new Set(),A=[],B=[],POLL=null;
+let BENCHES=[],SKILLS=[],MODELS=[],RUN=null,SELMODELS=new Set(),A=[],B=[],POLL=null,VMS=null;
 
 function meter(v,color){if(v==null)return'<span class="dim">--</span>';
   const n=Math.round(v*12);let s=`<span class="meter" style="--m:${color}">`;
@@ -144,7 +144,25 @@ function drawLaunch(){
   if(b){const d=b.defaults||{};$('reps').value=$('reps').value||d.repeats||1;
     $('bsha').textContent=b.spec_sha;
     $('bdesc').textContent=b.description||'';
-    $('bctl').className='badge ctl'+(b.control?'':' hide')}
+    $('bctl').className='badge ctl'+(b.control?'':' hide');
+    const ag=b.lane==='agentic';
+    $('blane').textContent=b.lane||'chat';
+    $('blane').className='badge '+(ag?'run':'ctl');
+    /* An agentic bench is only runnable if a VM is actually up. Say so before the
+       Run button is pressed, not four cases into a wall of ssh errors. */
+    let vmWarn='';
+    if(ag){
+      if(!VMS||!VMS.configured) vmWarn='agentic bench: no VMs configured (SB_VMS)';
+      else{const up=VMS.vms.filter(v=>v.ready&&v.tmux).length;
+        if(!up) vmWarn='agentic bench: no VM is reachable with a bench tmux session';
+        else vmWarn='';}
+    }
+    $('vmnote').textContent=ag?(vmWarn||
+      `${VMS.vms.filter(v=>v.ready&&v.tmux).length}/${VMS.vms.length} VM(s) ready `+
+      `- each case runs on a real machine and is graded on its end state`):'';
+    $('vmnote').className=vmWarn?'err':'dim';
+    if(vmWarn){$('go').disabled=true}
+  }
 }
 
 /* ---------------------------------------------------------------- charts */
@@ -215,6 +233,21 @@ async function showRun(id){
     vars.map((v,i)=>ti[v]==null?'':`<div class="tile"><div class="k">${esc(v)} prompt tokens</div>`+
       `<div class="v">${num(ti[v])}</div><div class="k">mean per case</div></div>`).join('');
 
+  /* An agentic run has a second, harder number: did the MACHINE end up fixed. Shown
+     separately because a model can describe the right edit and still not make it. */
+  const st={};vars.forEach(v=>{const rs=d.results.filter(x=>x.variant===v);
+    const n=rs.reduce((a,x)=>a+(x.post||0),0),p=rs.reduce((a,x)=>a+(x.post_passed||0),0);
+    st[v]=n?p/n:null});
+  if(vars.some(v=>st[v]!=null)){
+    $('tiles').innerHTML+=vars.map((v,i)=>{
+      const ds=(st[v]!=null&&st[ref]!=null&&v!==ref)?(st[v]-st[ref])*100:null;
+      return `<div class="tile" style="border-color:var(--accent)">`+
+        `<div class="k">${esc(v)} &mdash; vm state</div>`+
+        `<div class="v" style="color:${seriesColor(i)}">${pct(st[v])}</div>`+
+        (ds==null?`<div class="k">reference</div>`:
+          `<div class="k ${ds>=0?'up':'down'}">${ds>=0?'+':''}${ds.toFixed(1)} pt vs ${esc(ref)}</div>`)+
+        `</div>`}).join('')}
+
   /* chart 1: quality by model */
   legend($('leg1'),vars);
   barChart($('chart1'),r.models.map(m=>({label:m,groups:vars.map((v,i)=>{
@@ -230,17 +263,26 @@ async function showRun(id){
     return{name:v,value:ck?ps/ck:null,color:seriesColor(i)}})})),{});
 
   /* results table */
-  let h='<caption>Results - the same numbers as the charts above</caption><thead><tr>'+
-    '<th class="l">Model</th><th class="l">Variant</th><th>Quality</th><th>Checks</th>'+
+  const hasPost=d.results.some(x=>(x.post||0)>0);
+  let h='<caption>Results - the same numbers as the charts above'+
+    (hasPost?'. STATE grades the VM after the agent stopped; QUALITY grades what it said'
+            :'')+'</caption><thead><tr>'+
+    '<th class="l">Model</th><th class="l">Variant</th><th>Quality</th>'+
+    (hasPost?'<th>State</th>':'')+'<th>Checks</th>'+
     '<th>Cases</th><th>Errors</th><th>Tok in</th><th>Tok out</th><th>Lat mean</th>'+
     '<th>Lat p95</th></tr></thead><tbody>';
   r.models.forEach(m=>{
     const peer=vars.map(v=>{const x=d.results.find(y=>y.model===m&&y.variant===v);
       return x?x.quality:null}).filter(x=>x!=null);
+    const peerState=vars.map(v=>{const x=d.results.find(y=>y.model===m&&y.variant===v);
+      return x?x.state:null}).filter(x=>x!=null);
     vars.forEach((v,i)=>{const x=d.results.find(y=>y.model===m&&y.variant===v);if(!x)return;
       h+=`<tr data-m="${esc(m)}" data-v="${esc(v)}"><td class="l">${esc(m)}</td>`+
         `<td class="l"><b style="color:${seriesColor(i)}">&#9632;</b> ${esc(v)}</td>`+
         `<td class="${verdict(x.quality,peer)}">${meter(x.quality,seriesColor(i))} ${pct(x.quality)}</td>`+
+        (hasPost?`<td class="${verdict(x.state,peerState)}">`+
+          `${meter(x.state,seriesColor(i))} ${pct(x.state)}`+
+          `<span class="dim"> ${x.post_passed||0}/${x.post||0}</span></td>`:'')+
         `<td>${x.passed}/${x.checks}</td><td>${x.cases}</td>`+
         `<td class="${x.errors?'err':''}">${x.errors}</td>`+
         `<td>${num(x.tokens_in)}</td><td>${num(x.tokens_out)}</td>`+
@@ -312,9 +354,10 @@ function say(m,ok){const e=$('say');e.className='msg'+(ok?' ok':'');e.textConten
 
 async function boot(){
   try{
-    const [b,s,m]=await Promise.all([api('/api/benches'),api('/api/skills'),
-      api('/api/models').catch(e=>{say('Ollama unreachable: '+e.message);return{models:[]}})]);
-    BENCHES=b.benches;SKILLS=s.skills;MODELS=m.models;
+    const [b,s,m,v]=await Promise.all([api('/api/benches'),api('/api/skills'),
+      api('/api/models').catch(e=>{say('Ollama unreachable: '+e.message);return{models:[]}}),
+      api('/api/vms').catch(()=>({vms:[],configured:false}))]);
+    BENCHES=b.benches;SKILLS=s.skills;MODELS=m.models;VMS=v;
     $('bench').innerHTML=BENCHES.map(x=>`<option value="${esc(x.name)}">${esc(x.name)}`+
       (x.control?' (control)':'')+`</option>`).join('');
     $('bench').onchange=()=>{A=[];B=[];defaultB();drawLaunch()};
@@ -371,9 +414,11 @@ def page(colors, themes):
         <input id="reps" type="number" min="1" max="10" value="1"></div>
       <div class="col"><label>Spec sha</label>
         <div class="dim" id="bsha">--</div>
-        <span id="bctl" class="badge ctl hide">control</span></div>
+        <span id="bctl" class="badge ctl hide">control</span>
+        <span id="blane" class="badge ctl">chat</span></div>
     </div>
-    <p class="dim" id="bdesc" style="margin-bottom:10px"></p>
+    <p class="dim" id="bdesc" style="margin-bottom:4px"></p>
+    <p id="vmnote" class="dim" style="margin-bottom:10px;font-size:11px"></p>
     <div class="row">
       <div class="col" style="flex:2"><label>Models &mdash; local Ollama</label>
         <div class="chips" id="models"></div></div>

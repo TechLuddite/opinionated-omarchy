@@ -17,10 +17,26 @@ services:
     # the desktop. The image's own non-root user (uid 10001) is the fallback when the
     # bench is run without this compose file.
     user: "1000:1000"
-    ports:
-      - "127.0.0.1:8878:8080"   # loopback only - do not change without reading the README
+    # HOST NETWORKING, and the agentic lane is the reason.
+    #
+    # libvirt's own forward chain rejects every NEW connection into 192.168.122.0/24
+    # that does not come from virbr0 itself:
+    #     oif "virbr0" ... ct state established,related   accept
+    #     oif "virbr0"                                    reject
+    # No firewall rule elsewhere can undo that -- in nftables an accept in one base
+    # chain does not stop another base chain at the same hook from rejecting, and only
+    # reject/drop are terminal. A bridged container therefore cannot reach the test VMs
+    # at all. Traffic from the host namespace never hits the forward hook, so it can.
+    #
+    # This also DELETES a whole class of trap rather than adding to it: on the host
+    # network the bench reaches Ollama on 127.0.0.1, so the pinned-subnet ufw rule that
+    # bridged networking needed is no longer part of the story. Exposure is unchanged --
+    # the app binds 127.0.0.1 itself instead of relying on a loopback port publish.
+    network_mode: host
     environment:
-      OLLAMA_BASE: http://host.docker.internal:11434
+      OLLAMA_BASE: http://127.0.0.1:11434
+      SB_HOST: 127.0.0.1        # loopback only - do not widen without reading the README
+      SB_PORT: "8878"
       SB_BENCHES: /benches
       SB_SKILLS: /app/skills.yaml
       SB_THEMES: /themes
@@ -31,8 +47,19 @@ services:
       # suite before loading the next.
       SB_CONCURRENCY: "2"
       SB_TIMEOUT: "300"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # ---- agentic lane -------------------------------------------------------
+      # The VM pool. Concurrency in that lane is the SIZE OF THIS LIST, not
+      # SB_CONCURRENCY: a case is allowed to edit the machine it runs on, so two cases
+      # can never share one. Addresses come from libvirt DHCP and can move after a
+      # rebuild -- `sudo virsh net-dhcp-leases default` is the source of truth.
+      SB_VMS: "test1=192.168.122.177,test2=192.168.122.112"
+      SB_VM_USER: techluddite
+      SB_SSH_KEY: /secrets/bench_ed25519
+      SB_TMUX_SESSION: bench
+      # uid 1000 has no home in this image; ssh only needs somewhere writable.
+      HOME: /tmp
+      # A whole agent session on 4 vCPUs against a local model. Minutes, not seconds.
+      SB_AGENT_TIMEOUT: "600"
     volumes:
       - ./benches:/benches:ro
       - ./data:/data
@@ -41,20 +68,13 @@ services:
       - ../diagnose-crash:/skills/diagnose-crash:ro
       # Live theme palettes.
       - /usr/share/omarchy/themes:/themes:ro
+      # The agentic lane's OWN ssh key -- never the operator's. It reaches two
+      # disposable test VMs and nothing else. Generate and install it with
+      # tools/install-bench-key.sh.
+      - ./secrets:/secrets:ro
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     mem_limit: 512m
     pids_limit: 256
     logging:
       options: {max-size: 10m, max-file: "3"}
-    networks: [bench]
-
-networks:
-  bench:
-    # A PINNED subnet, so the host firewall rule that lets this container reach Ollama can
-    # name it exactly. Compose would otherwise allocate a fresh bridge with a generated name
-    # and a subnet that moves, and an interface- or subnet-scoped ufw rule would silently
-    # stop matching. See README 'The host firewall has to allow the bench subnet'.
-    ipam:
-      config:
-        - subnet: 172.28.7.0/24

@@ -162,3 +162,120 @@ def test_control_benches_are_flagged():
     controls = {b["name"] for b in spec.list_benches() if b.get("control")}
     assert controls == {"linux-disk-full", "linux-runaway-process",
                         "linux-boot-partition-full", "linux-pacman-keyring"}
+
+
+# ----------------------------------------------------------------- agentic lane
+
+def test_lane_defaults_to_chat_and_is_validated(tmp_path, monkeypatch):
+    monkeypatch.setattr(spec, "BENCH_DIR", str(tmp_path))
+    (tmp_path / "c.yaml").write_text(yaml.safe_dump(
+        {"name": "c", "tasks": [{"id": "t", "prompt": "p"}]}), encoding="utf-8")
+    assert spec.load_bench("c")["lane"] == "chat"
+
+    (tmp_path / "b.yaml").write_text(yaml.safe_dump(
+        {"name": "b", "lane": "telepathy", "tasks": [{"id": "t", "prompt": "p"}]}),
+        encoding="utf-8")
+    with pytest.raises(spec.SpecError, match="lane"):
+        spec.load_bench("b")
+
+
+def test_agentic_bench_without_post_is_rejected(tmp_path, monkeypatch):
+    """An agentic bench that asserts nothing about the VM is a chat bench in disguise:
+    it would spend minutes driving an agent and then grade only its prose."""
+    monkeypatch.setattr(spec, "BENCH_DIR", str(tmp_path))
+    (tmp_path / "a.yaml").write_text(yaml.safe_dump(
+        {"name": "a", "lane": "agentic", "tasks": [{"id": "t", "prompt": "p"}]}),
+        encoding="utf-8")
+    with pytest.raises(spec.SpecError, match="post"):
+        spec.load_bench("a")
+
+    (tmp_path / "a.yaml").write_text(yaml.safe_dump(
+        {"name": "a", "lane": "agentic",
+         "tasks": [{"id": "t", "prompt": "p",
+                    "post": [{"type": "file_exists", "path": "~/x"}]}]}), encoding="utf-8")
+    assert spec.load_bench("a")["lane"] == "agentic"
+
+
+def test_agentic_task_ids_must_be_usable_as_vm_paths(tmp_path, monkeypatch):
+    """A task id becomes a tmux window name and a directory under /tmp on the VM."""
+    monkeypatch.setattr(spec, "BENCH_DIR", str(tmp_path))
+    (tmp_path / "a.yaml").write_text(yaml.safe_dump(
+        {"name": "a", "lane": "agentic",
+         "tasks": [{"id": "../escape", "prompt": "p",
+                    "post": [{"type": "file_exists", "path": "~/x"}]}]}), encoding="utf-8")
+    with pytest.raises(spec.SpecError, match="VM path"):
+        spec.load_bench("a")
+
+
+def test_skill_files_keep_frontmatter_unlike_the_prompt_form():
+    """The two lanes deliver a skill differently on purpose: the chat lane injects a
+    system prompt with frontmatter stripped, the agentic lane hands pi real files
+    because pi's own discovery reads that frontmatter."""
+    files, revs = spec.skill_files_for("skill:omarchy")
+    assert [n for n, _ in files] == ["SKILL.md"]
+    assert files[0][1].startswith("---")
+    body, sha, _ = spec.load_skill("omarchy")
+    assert not body.startswith("---")
+    # One identity across both lanes, so the resume guard keeps working unchanged.
+    assert revs["omarchy"] == sha
+
+
+def test_skill_files_namespace_bundles_that_share_a_filename():
+    """Two bundles in one variant both ship a SKILL.md; they must not collide."""
+    files, _ = spec.skill_files_for("skill:omarchy+diagnose-crash")
+    names = [n for n, _ in files]
+    assert len(names) == len(set(names))
+    assert "omarchy/SKILL.md" in names and "diagnose-crash/SKILL.md" in names
+
+
+# ----------------------------------------------------------------- post assertions
+
+def test_post_assertion_commands_quote_their_arguments():
+    from app import vmchecks
+    cmd, _ = vmchecks._command_for(
+        {"type": "file_contains", "path": "~/a b/c.lua", "pattern": "x'y"})
+    assert "'~/a b/c.lua'" in cmd and "'x'\"'\"'y'" in cmd
+
+
+def test_unknown_post_assertion_is_a_visible_failure_not_a_pass():
+    from app import vmchecks
+    with pytest.raises(ValueError, match="unknown post assertion"):
+        vmchecks._command_for({"type": "wishful_thinking"})
+
+
+@pytest.mark.parametrize("bad,msg", [
+    ({"type": "file_contains", "path": "~/a"}, "pattern"),
+    ({"type": "command_succeeds"}, "command"),
+])
+def test_malformed_post_assertions_name_the_missing_field(bad, msg):
+    from app import vmchecks
+    with pytest.raises(KeyError):
+        vmchecks._command_for(bad)
+
+
+def test_vm_target_parsing():
+    from app import vm
+    assert [(v.name, v.host) for v in vm.Pool("a=1.2.3.4, b=5.6.7.8").vms] == \
+        [("a", "1.2.3.4"), ("b", "5.6.7.8")]
+    assert len(vm.Pool("").vms) == 0
+    with pytest.raises(vm.VMError):
+        vm.Pool("no-host-here")
+
+
+def test_pi_command_never_puts_the_prompt_on_the_command_line():
+    """Bench prompts contain quotes, newlines and $; argv is where a spec silently
+    becomes a different spec."""
+    from app import runner
+    cmd = runner._pi_command("qwen2.5:latest", "/tmp/skills/x", "/tmp/case/prompt.txt", {})
+    assert "@/tmp/case/prompt.txt" in cmd
+    assert "--print" in cmd and "--no-session" in cmd
+    assert "--skill /tmp/skills/x" in cmd
+    # And anything needing quoting gets it, rather than splitting into extra argv words.
+    odd = runner._pi_command("m", "/tmp/sk ills", "/tmp/p p.txt", {})
+    assert "--skill '/tmp/sk ills'" in odd and "@'/tmp/p p.txt'" in odd
+
+
+def test_pi_command_disables_skill_discovery_for_the_none_variant():
+    """Otherwise a skill already installed on the VM would leak into the control."""
+    from app import runner
+    assert "--no-skills" in runner._pi_command("m", None, "/tmp/p.txt", {})

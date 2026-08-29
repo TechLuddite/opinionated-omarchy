@@ -12,7 +12,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from . import db, runner, spec, theme, ui
+from . import db, runner, spec, theme, ui, vm
 
 app = FastAPI(title="Omarchy Skill Bench", docs_url=None, redoc_url=None)
 
@@ -51,6 +51,13 @@ async def readyz():
             out["ollama"] = r.status_code == 200
     except Exception as e:
         out["ollama_error"] = str(e)[:200]
+    # VMs are reported but never gate readiness: the chat lane is fully usable with
+    # both test VMs powered off, and a 503 there would be a lie about the whole bench.
+    if len(vm.POOL):
+        try:
+            out["vms"] = await vm.POOL.status()
+        except Exception as e:
+            out["vms_error"] = str(e)[:200]
     ok = out["db"] and out["ollama"]
     return JSONResponse(out, status_code=200 if ok else 503)
 
@@ -71,6 +78,7 @@ def api_benches():
         {"name": b["name"], "description": b.get("description", ""), "spec_sha": b["spec_sha"],
          "tasks": [t["id"] for t in b["tasks"]], "skills": b.get("skills", []),
          "control": bool(b.get("control")),
+         "lane": b.get("lane", "chat"),
          "defaults": b.get("defaults", {})}
         for b in spec.list_benches()]}
 
@@ -78,6 +86,17 @@ def api_benches():
 @app.get("/api/skills")
 def api_skills():
     return {"skills": spec.list_skills()}
+
+
+@app.get("/api/vms")
+async def api_vms():
+    """The agentic lane's targets, and whether each is actually usable right now."""
+    if not len(vm.POOL):
+        return {"vms": [], "configured": False}
+    try:
+        return {"vms": await vm.POOL.status(), "configured": True}
+    except Exception as e:
+        raise HTTPException(503, f"cannot probe VMs: {e}")
 
 
 @app.get("/api/themes")
@@ -123,7 +142,11 @@ def _agg(run_ids):
         f"SELECT c.id, c.model, c.variant, c.task_id, c.status, c.prompt_tokens,"
         f"       c.completion_tokens, c.latency_s,"
         f"       (SELECT count(*) FROM grade g WHERE g.case_id=c.id) AS n_checks,"
-        f"       (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.passed=1) AS n_passed"
+        f"       (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.passed=1) AS n_passed,"
+        f"       (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post')"
+        f"         AS n_post,"
+        f"       (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post'"
+        f"         AND g.passed=1) AS n_post_passed"
         f" FROM case_result c WHERE c.run_id IN ({marks})", run_ids).fetchall()
 
     def summarise(bucket):
@@ -131,6 +154,10 @@ def _agg(run_ids):
         errs = sum(1 for r in bucket if r["status"] != "ok")
         checks = sum(r["n_checks"] for r in bucket)
         passed = sum(r["n_passed"] for r in bucket)
+        # State assertions are also counted inside `quality`; `state` isolates them, so
+        # "said the right thing" and "left the machine fixed" can be read apart.
+        post = sum(r["n_post"] for r in bucket)
+        post_passed = sum(r["n_post_passed"] for r in bucket)
         lat = [r["latency_s"] for r in bucket if r["latency_s"] is not None]
         pin = [r["prompt_tokens"] for r in bucket if r["prompt_tokens"] is not None]
         pout = [r["completion_tokens"] for r in bucket if r["completion_tokens"] is not None]
@@ -138,6 +165,8 @@ def _agg(run_ids):
             "cases": cases, "errors": errs,
             "checks": checks, "passed": passed,
             "quality": round(passed / checks, 4) if checks else None,
+            "post": post, "post_passed": post_passed,
+            "state": round(post_passed / post, 4) if post else None,
             "success": round((cases - errs) / cases, 4) if cases else None,
             "tokens_in": round(statistics.mean(pin)) if pin else None,
             "tokens_out": round(statistics.mean(pout)) if pout else None,

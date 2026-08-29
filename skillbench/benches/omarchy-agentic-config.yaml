@@ -1,0 +1,100 @@
+# The agentic lane's first bench: an agent gets a real Omarchy 4 machine and has to
+# CHANGE it. Grading is on the machine afterwards, not on what the agent said.
+#
+# Every task here turns on the same load-bearing fact, and it is the one stale advice
+# gets wrong: Omarchy 4 is pacman-packaged at /usr/share/omarchy, and user configuration
+# lives in ~/.config. Advice written for Omarchy 3 (a git checkout in
+# ~/.local/share/omarchy) sends an agent to edit the system tree, where the change is
+# both wrong and destroyed by the next `omarchy update`.
+#
+# NO TRANSCRIPT CHECKS, DELIBERATELY. The first run of this bench taught the lesson: a
+# good agent acts and says almost nothing. devstral-small-2 scored 3/3 on the monitor task
+# while its entire transcript was "Task completed." -- so prose checks inherited from the
+# chat lane were scoring VERBOSITY, and marking the best-performing agent down for being
+# terse. Forbidden-pattern checks are no better: a silent agent passes them all trivially
+# and reads as 100%. In this lane the machine is the measurement, so STATE is the whole
+# score and QUALITY is left empty rather than filled with a number that means nothing.
+#
+# `pacman -Qkk omarchy` is what makes that measurable rather than rhetorical: it verifies
+# every one of the package's 1654 files against the package database, so "0 altered files"
+# is a hard statement that the agent stayed out of the system tree. A chat bench can only
+# ask whether a model MENTIONS the right directory; this asks whether it stayed out of the
+# wrong one while actually completing the work.
+name: omarchy-agentic-config
+description: An agent changes a real Omarchy machine — keybinding, theme, monitor — graded on the machine's end state, not its prose.
+lane: agentic
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 1
+  params:
+    # pi drives the model in a tool-use loop, so a case is minutes. Thinking off keeps
+    # small local models from spending the whole budget narrating.
+    thinking: "off"
+    agent_timeout: 600
+  vm:
+    # Restored before EVERY case, from a tar taken once at run start. This is the whole
+    # of the isolation: anything outside these paths persists between cases, by design
+    # and not by accident (the container cannot power-cycle a VM -- see app/vm.py).
+    # They are relative to $HOME.
+    restore:
+      - .config/hypr
+      - .config/omarchy
+      - .local/state/omarchy
+
+tasks:
+  # --------------------------------------------------------------------------
+  - id: binding-user-tree
+    prompt: |
+      On this Omarchy machine, add a keyboard shortcut so that pressing
+      SUPER + SHIFT + T opens the foot terminal. The shortcut must survive a
+      reboot and must survive a system update. Make the change, then stop.
+    post:
+      # The binding is really in the user's override file...
+      - type: file_contains
+        path: ~/.config/hypr/bindings.lua
+        pattern: 'SUPER *\+ *SHIFT *\+ *T'
+        case_sensitive: false
+      - type: file_contains
+        path: ~/.config/hypr/bindings.lua
+        pattern: 'foot'
+      # ...and the system tree was never touched. This is the trap.
+      - type: command_output_matches
+        command: pacman -Qkk omarchy 2>/dev/null
+        pattern: '0 altered files'
+
+  # --------------------------------------------------------------------------
+  - id: theme-switch
+    # Seeded onto a known-different theme so "switch to nord" is a real change and not
+    # a no-op that would score green on a machine that was already there.
+    seed: |
+      omarchy theme set gruvbox >/dev/null 2>&1 || true
+      test "$(cat ~/.local/state/omarchy/current/theme.name)" = "gruvbox"
+    prompt: |
+      Switch this Omarchy system's desktop theme to the theme named "nord",
+      using Omarchy's own tooling rather than editing config files by hand.
+      Make the change, then stop.
+    post:
+      - type: command_output_matches
+        command: cat ~/.local/state/omarchy/current/theme.name
+        pattern: '^nord$'
+      - type: command_output_matches
+        command: pacman -Qkk omarchy 2>/dev/null
+        pattern: '0 altered files'
+
+  # --------------------------------------------------------------------------
+  - id: monitor-persist
+    prompt: |
+      Configure this Omarchy machine so that a monitor on output DP-1 runs at
+      1920x1080 at 60Hz, positioned to the right of the built-in display, and so
+      the setting is applied automatically at every login. Make the change, then stop.
+    post:
+      # Omarchy 4 ships hyprland.lua/monitors.lua; an agent that writes hyprland.conf
+      # has followed pre-0.55 advice, and this finds that without naming a file the
+      # agent had to guess.
+      - type: command_succeeds
+        command: grep -rEq 'DP-1' ~/.config/hypr/
+      - type: command_succeeds
+        command: grep -rEq '1920x1080' ~/.config/hypr/
+      - type: command_output_matches
+        command: pacman -Qkk omarchy 2>/dev/null
+        pattern: '0 altered files'
