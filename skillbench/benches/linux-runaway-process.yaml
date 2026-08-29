@@ -1,0 +1,34 @@
+# CONTROL BENCH. This is general Linux, not Omarchy, and the skill under test says
+# nothing about it. A bare model should already score well here, and the skill should
+# move it barely at all. That null result is the evidence that a lift on the Omarchy
+# benches is real rather than an artifact of the skill making answers longer.
+# Two habits separate an operator from a guesser: identify the process (and its cgroup/unit)
+# BEFORE killing anything, and escalate SIGTERM -> SIGKILL rather than reaching straight for
+# `kill -9`, which denies the process any chance to flush state.
+name: linux-runaway-process
+control: true
+description: Runaway CPU on a Linux desktop — identify before killing, then escalate signals in order.
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: identify-first
+    prompt: |
+      A Linux laptop has its fans at maximum and the desktop is crawling. Before you kill
+      anything, give the two commands you run to identify which process and which systemd
+      unit or cgroup is responsible. Two lines, commands only.
+    checks:
+      - { type: regex_required, pattern: '(?i)\btop\b|\bhtop\b|\bps\b' }
+      - { type: regex_required, pattern: '(?i)systemd-cgtop|systemctl|cgroup' }
+      - { type: max_words, value: 90 }
+  - id: signal-order
+    prompt: |
+      You have identified a runaway process by PID. Describe the order in which you send
+      signals to stop it, naming each signal and the command, and say why you do not start
+      with the last one. Three sentences maximum.
+    checks:
+      - { type: regex_required, pattern: '(?i)SIGTERM|kill\s+-15|\bterm\b' }
+      - { type: regex_required, pattern: '(?i)SIGKILL|kill\s+-9' }
+      - { type: regex_required, pattern: '(?i)clean|flush|save|graceful|handler' }
+      - { type: max_words, value: 120 }

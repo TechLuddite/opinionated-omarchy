@@ -1,0 +1,393 @@
+[
+ {
+  "id": 31,
+  "bench": "omarchy-monitor-config",
+  "spec_sha": "c810334899db",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "none",
+   "skill:omarchy"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   }
+  },
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 2,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T15:53:48.49066+00:00",
+  "finished_at": "2026-08-25T15:53:59.028908+00:00",
+  "error": null
+ },
+ {
+  "id": 32,
+  "bench": "linux-desktop-gauntlet",
+  "spec_sha": "b6b0fb7261e7",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "none"
+  ],
+  "skill_revs": {},
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T15:54:42.047867+00:00",
+  "finished_at": "2026-08-25T15:54:47.714867+00:00",
+  "error": null
+ },
+ {
+  "id": 33,
+  "bench": "omarchy-monitor-config",
+  "spec_sha": "c810334899db",
+  "status": "done",
+  "models": [
+   "devstral-small",
+   "qwen2.5",
+   "gemma4",
+   "qwen2.5-coder",
+   "gemma4-26b",
+   "qwen2.5-vl",
+   "gpt-oss",
+   "qwen3-coder",
+   "muse-glimmer",
+   "qwen3.8"
+  ],
+  "variants": [
+   "none",
+   "skill:omarchy"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   }
+  },
+  "params": {
+   "budget_usd": 0.5,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T15:59:44.120943+00:00",
+  "finished_at": "2026-08-25T16:02:56.116527+00:00",
+  "error": null
+ },
+ {
+  "id": 34,
+  "bench": "linux-desktop-gauntlet",
+  "spec_sha": "b6b0fb7261e7",
+  "status": "done",
+  "models": [
+   "devstral-small",
+   "qwen2.5",
+   "gemma4",
+   "qwen2.5-coder",
+   "gemma4-26b",
+   "qwen2.5-vl",
+   "gpt-oss",
+   "qwen3-coder",
+   "muse-glimmer",
+   "qwen3.8"
+  ],
+  "variants": [
+   "none",
+   "skill:omarchy"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   }
+  },
+  "params": {
+   "budget_usd": 0.5,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T16:13:36.160534+00:00",
+  "finished_at": "2026-08-25T16:24:36.830077+00:00",
+  "error": null
+ },
+ {
+  "id": 35,
+  "bench": "crash-forensics",
+  "spec_sha": "6b1821322840",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "none",
+   "skill:diagnose-crash"
+  ],
+  "skill_revs": {
+   "diagnose-crash": {
+    "sha": "1a92d6a5f107",
+    "chars": 3629
+   }
+  },
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 2,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T16:21:07.804544+00:00",
+  "finished_at": "2026-08-25T16:24:41.688629+00:00",
+  "error": null
+ },
+ {
+  "id": 36,
+  "bench": "crash-forensics",
+  "spec_sha": "f3d0b70565d9",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "none",
+   "skill:diagnose-crash"
+  ],
+  "skill_revs": {
+   "diagnose-crash": {
+    "sha": "1a92d6a5f107",
+    "chars": 3629
+   }
+  },
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 2,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T16:25:40.142871+00:00",
+  "finished_at": "2026-08-25T16:25:47.224387+00:00",
+  "error": null
+ },
+ {
+  "id": 37,
+  "bench": "crash-forensics",
+  "spec_sha": "f3d0b70565d9",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "none",
+   "skill:rewst"
+  ],
+  "skill_revs": {
+   "rewst": {
+    "sha": "13cdb2478dc1",
+    "chars": 8995
+   }
+  },
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T19:06:06.676932+00:00",
+  "finished_at": "2026-08-25T19:07:28.340043+00:00",
+  "error": null
+ },
+ {
+  "id": 38,
+  "bench": "crash-forensics",
+  "spec_sha": "f3d0b70565d9",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "skill:diagnose-crash",
+   "skill:omarchy+diagnose-crash"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   },
+   "diagnose-crash": {
+    "sha": "1a92d6a5f107",
+    "chars": 3629
+   }
+  },
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 2,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-25T19:06:20.912258+00:00",
+  "finished_at": "2026-08-25T19:06:33.522011+00:00",
+  "error": null
+ },
+ {
+  "id": 39,
+  "bench": "omarchy-command-discovery",
+  "spec_sha": "c8b659af7f22",
+  "status": "done",
+  "models": [
+   "qwen2.5"
+  ],
+  "variants": [
+   "none",
+   "skill:omarchy"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   }
+  },
+  "params": {
+   "budget_usd": 0.0,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-26T11:25:42.920513+00:00",
+  "finished_at": "2026-08-26T11:25:47.243258+00:00",
+  "error": null
+ },
+ {
+  "id": 40,
+  "bench": "linux-desktop-gauntlet",
+  "spec_sha": "b6b0fb7261e7",
+  "status": "aborted",
+  "models": [
+   "devstral-small",
+   "qwen2.5",
+   "gemma4",
+   "qwen2.5-coder",
+   "gemma4-26b",
+   "qwen2.5-vl",
+   "gpt-oss",
+   "qwen3-coder",
+   "muse-glimmer",
+   "qwen3.8"
+  ],
+  "variants": [
+   "none",
+   "skill:diagnose-crash+frontend-design"
+  ],
+  "skill_revs": {
+   "diagnose-crash": {
+    "sha": "1a92d6a5f107",
+    "chars": 3629
+   },
+   "frontend-design": {
+    "sha": "031d4d4b8389",
+    "chars": 7962
+   }
+  },
+  "params": {
+   "budget_usd": 0.5,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-26T11:50:34.853865+00:00",
+  "finished_at": "2026-08-26T11:59:01.95083+00:00",
+  "error": "stopped by operator — partial matrix kept"
+ },
+ {
+  "id": 41,
+  "bench": "linux-desktop-gauntlet",
+  "spec_sha": "b6b0fb7261e7",
+  "status": "done",
+  "models": [
+   "devstral-small",
+   "qwen2.5",
+   "gemma4",
+   "qwen2.5-coder",
+   "gemma4-26b",
+   "qwen2.5-vl",
+   "gpt-oss",
+   "qwen3-coder",
+   "muse-glimmer",
+   "qwen3.8"
+  ],
+  "variants": [
+   "none",
+   "skill:diagnose-crash+omarchy"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   },
+   "diagnose-crash": {
+    "sha": "1a92d6a5f107",
+    "chars": 3629
+   }
+  },
+  "params": {
+   "budget_usd": 0.5,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-26T11:59:16.786458+00:00",
+  "finished_at": "2026-08-26T12:10:21.983278+00:00",
+  "error": null
+ },
+ {
+  "id": 43,
+  "bench": "linux-desktop-gauntlet",
+  "spec_sha": "b6b0fb7261e7",
+  "status": "done",
+  "models": [
+   "devstral-small",
+   "gemma4",
+   "gemma4-26b",
+   "qwen2.5-coder",
+   "gpt-oss",
+   "qwen2.5-vl",
+   "qwen2.5",
+   "qwen3.8",
+   "muse-glimmer",
+   "qwen3-coder"
+  ],
+  "variants": [
+   "none",
+   "skill:omarchy+diagnose-crash"
+  ],
+  "skill_revs": {
+   "omarchy": {
+    "sha": "36c469d6a114",
+    "chars": 12555
+   },
+   "diagnose-crash": {
+    "sha": "1a92d6a5f107",
+    "chars": 3629
+   }
+  },
+  "params": {
+   "budget_usd": 0.5,
+   "projected_usd": 0.0
+  },
+  "repeats": 1,
+  "spend_usd": 0.0,
+  "started_at": "2026-08-27T07:08:46.524176+00:00",
+  "finished_at": "2026-08-27T07:20:49.644458+00:00",
+  "error": null
+ }
+]

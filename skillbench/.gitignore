@@ -1,0 +1,4 @@
+# Derived: the results database is rebuilt by running benches, never by cloning.
+data/
+__pycache__/
+*.pyc

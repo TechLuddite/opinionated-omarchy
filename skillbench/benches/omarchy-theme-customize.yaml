@@ -1,0 +1,28 @@
+# The skill's decision framework is explicit: a theme customization becomes a NEW theme
+# directory under ~/.config/omarchy/themes/, never an edit of the stock theme in the
+# package-owned tree (which omarchy update overwrites).
+name: omarchy-theme-customize
+description: Customizing an Omarchy theme — copy to a new user theme dir, never edit the stock one.
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 2
+  params: { max_tokens: 350, temperature: 0.2 }
+tasks:
+  - id: tweak-stock
+    prompt: |
+      An Omarchy user likes the stock catppuccin theme but wants a different accent
+      colour. Where do you make the change, and why not edit the theme in place?
+      Two sentences, and name the directory you create.
+    checks:
+      - { type: regex_required, pattern: '(?i)~/\.config/omarchy/themes|\$HOME/\.config/omarchy/themes' }
+      - { type: regex_required, pattern: '(?i)\bnew\b|\bcopy\b|\bcustom\b' }
+      - { type: regex_forbidden, pattern: '(?i)(edit|modify|change)[^\n]{0,40}/usr/share/omarchy' }
+      - { type: max_words, value: 120 }
+  - id: apply-theme
+    prompt: |
+      Which omarchy command applies a theme once it exists, and which one lists the
+      themes available? Two lines, commands only.
+    checks:
+      - { type: regex_required, pattern: '(?i)omarchy\s+theme\s+set' }
+      - { type: regex_required, pattern: '(?i)omarchy\s+theme\s+list' }
+      - { type: max_words, value: 60 }

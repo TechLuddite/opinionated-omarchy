@@ -1,0 +1,48 @@
+# Provenance for imported skill bundles (not part of the roster — sb_spec globs *.md only).
+# Each skill file is the upstream SKILL.md BODY: the YAML frontmatter (name/description
+# triggering metadata) is stripped, because Skill Bench injects the file verbatim as a
+# system-prompt prefix and only the body is prompt text in the real harness too.
+# Note: several upstream skills reference bundled scripts/reference files that are NOT
+# present in the bench context — they bench as prompt-prefix text only.
+anthropic:
+  repo: https://github.com/anthropics/skills
+  commit: 0a64e398ec6bb34a494f0c347e8ccae53a862f8e   # main as of 2026-08-19
+  license: see upstream repo (per-skill LICENSE/THIRD_PARTY_NOTICES)
+  selection: top 10 of 19 by installs on the skills.sh leaderboard, 2026-08-19
+  skills:  # name: installs (skills.sh, 2026-08-19)
+    frontend-design: 791682
+    skill-creator: 355513
+    pptx: 204102
+    pdf: 180945
+    docx: 173565
+    xlsx: 154572
+    webapp-testing: 135082
+    mcp-builder: 103425
+    canvas-design: 99045
+    web-artifacts-builder: 92938
+techluddite:
+  repo: https://github.com/TechLuddite/roosting-robos-skill
+  release: v0.1.1
+  asset: rewst.skill (sha256 363b2ebc10eaca37f8c6e3ecf1d6752868909db6f435950c4a034d644735743e, verified)
+  license: MIT
+  skills:
+    rewst: "Roosting Robos — Rewst MSP-automation skill; SKILL.md body only, references/ + scripts/ from the bundle not included"
+basecamp:
+  repo: https://github.com/basecamp/omarchy
+  branch: quattro          # NOT master — master still holds the pre-2026-08-07 monolithic copy
+  commit: 93010924047d09f62f702bf8b5c07d0149c11943   # quattro HEAD as of 2026-08-25
+  path: default/agents/skills/omarchy/SKILL.md
+  asset: SKILL.md (13248 bytes, sha256 a8d88cfbb12e65f6bae1be57dfaeb4a368d313d842911635302752ec2d06adbe, verified)
+  license: MIT
+  release: skill public since Omarchy 4 "Quattro" (2026-08-14); repo at v4.0.1 (2026-08-25)
+  skills:
+    omarchy: "Omarchy end-user customization skill (Hyprland/themes/bar/omarchy CLI); SKILL.md body
+      only — the 6 sibling topic guides (hyprland/theming/capture/plugins/hooks/contributing) are NOT
+      included, so benches must key on markers present in SKILL.md itself"
+    diagnose-crash: "Omarchy crash-forensics skill (default/agents/skills/diagnose-crash/SKILL.md,
+      4173 bytes, sha256 63e9ea3f54e75ad1d4244be585b57a8bdb2e02aad64f6224678f6ef7f241eca9, verified);
+      SKILL.md body only — the sibling reporting.md (filing an Omarchy bug upstream) is NOT included,
+      so the body's one link to it dangles, same as the omarchy topic-guide links"
+local:
+  skills:
+    contact-extractor: hand-authored FR-011 P1 starter skill (paired with benches/contact-extract.yaml)

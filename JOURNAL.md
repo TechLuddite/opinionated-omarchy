@@ -1,6 +1,93 @@
 # Journal — handoff
 
-Last updated: 2026-08-28
+Last updated: 2026-08-29
+
+## Session of 2026-08-28/29 — the Skill Bench landed
+
+Two things happened: the lab's skill-efficacy data was brought into this repo, and a
+dedicated bench container was built here to extend it.
+
+### 1. This workstation is `ohmy-omarchy`, and that changes what is easy
+
+Worth stating plainly because it was not obvious: the dev box **is** the lab's local LLM
+endpoint. RTX 3090, Ollama on `0.0.0.0:11434` with eleven models — including `qwen2.5`,
+the exact model every nexus1 Omarchy measurement was taken on. Docker 29.7.2 was already
+installed and running.
+
+So the bench needs no LiteLLM, no API key, no cloud, and no lab round-trip. Routing
+through nexus1 would mean ohmy-omarchy → nexus1 → ohmy-omarchy, since nexus1's LiteLLM
+points back here.
+
+### 2. The nexus1 baseline is recorded — [research/bench/](research/bench/)
+
+911 graded cases, ten models, twelve runs, pulled from the lab's Postgres with the bench
+specs and skill provenance alongside. The headline: **the Omarchy skill lifts
+Omarchy-specific tasks +29.3 pt on average and the general-Linux control tasks −2.3 pt.**
+That gap is the whole argument — a skill that merely made answers longer would lift both.
+
+`omarchy/SKILL.md` here is **byte-identical** to what nexus1 benched (sha `a8d88cf…`), so
+those numbers are a baseline to reproduce, not merely a reference. `diagnose-crash` is
+**not** identical (5710 bytes here vs a 4173-byte asset there) — treat its figures as
+indicative only.
+
+It is in `research/bench/`, not `research/docs/`, because
+[`build_db.py:167`](research/tools/build_db.py) unlinks every `*.md` in `docs/` before
+regenerating. A hand-written page there survives until the next corpus build.
+
+### 3. [skillbench/](skillbench/) — a bench container in this repo
+
+Omarchy-only port of the lab's Skill Bench: one container, local Ollama, SQLite,
+`http://127.0.0.1:8878`. Dropped as unnecessary — LiteLLM, Postgres, Authelia, budget
+guard, cost projection, model registry, the paid lane, and 14 non-Omarchy benches.
+
+Two deliberate improvements over the original, both methodology rather than features:
+
+- **Skills are bundles.** nexus1 could inject only a single `SKILL.md`, so instructions in
+  a topic guide could never lift a score — its own backlog called every measured lift *"a
+  floor, not the real-harness number"*. Here `skill:omarchy` (body only, comparable with
+  the baseline) and `skill:omarchy-full` (all 7 files) both ship, so the difference is
+  measurable for the first time.
+- **The four general-Linux benches are flagged `control: true`** and labelled in the UI,
+  so the null case is visible rather than implicit.
+
+Also fixed by construction, both open findings in nexus1's own audit of its bench: runs
+orphaned by a restart are reconciled at startup instead of wedging at `running`, and
+`/readyz` actually probes the DB and Ollama rather than only proving the HTTP process is
+alive.
+
+**Verified working, against the baseline.** 27 unit tests pass (`skillbench/tests/run.sh`).
+The ten-model replication of nexus1's run 33 on `omarchy-monitor-config`:
+
+| | nexus1 | here |
+| --- | ---: | ---: |
+| bare | 0.529 | 0.729 |
+| skill | 0.800 | 0.971 |
+| **lift** | **+27.1 pt** | **+24.3 pt** |
+| models improving | 10/10 | 10/10 |
+| prompt tokens | 3266 | 3244 |
+
+The lift reproduces and the token counts are near-identical — the skill body is the same
+and injected the same way. Absolute levels are higher on both sides, most likely the
+serving path (LiteLLM vs direct Ollama) plus weights moving under the same tags.
+
+**The lesson that came out of it:** benches and skills are sha-pinned, but **model weights
+cannot be pinned**. Trust deltas within a run; distrust absolute scores across runs
+separated by time. Written up in both READMEs.
+
+### 4. The firewall gotcha, again, in a new costume
+
+Containers could not reach Ollama. Cause: Omarchy's `ufw` is default-deny incoming and
+Docker manages only forwarding — **the same family as the `virbr0` DHCP gap**, which is
+now written up as one pattern in [CLAUDE.md](CLAUDE.md) rather than two incidents.
+
+The subtlety worth keeping: an interface-scoped rule on `docker0` does **not** work,
+because Compose puts the container on its own generated bridge. `compose.yaml` therefore
+pins the network to `172.28.7.0/24` so the rule can name it.
+
+### 5. Housekeeping
+
+`omarchy-old/` deleted — its purpose was never recorded and could not be reconstructed.
+`opinionated-omarchy/` is confirmed as the destination for the skill this repo is building.
 
 ## Where we stopped
 
@@ -9,15 +96,15 @@ The repo now lives on the machine it is about. It was cloned to
 sessions of work happened there. Read [CLAUDE.md](CLAUDE.md) first — the environment and
 Test VM sections were both rewritten and are current.
 
-**Branch state: `chore/linux-native-toolchain`, two commits, NOT pushed.** It branches from
-`claude/greenfield-repo-setup-l5fzae`, which is the repo's default branch on GitHub (there
-is no `main` or `master`). Deciding whether to push these, open a PR, or merge them down is
-the first open question for whoever picks this up.
+**Branch state: resolved.** Those two commits went in through PR #1 and
+`claude/greenfield-repo-setup-l5fzae` — the repo's default branch on GitHub, there is no
+`main` or `master` — is clean and in sync with origin.
 
 ```
+b6ddc60  Merge pull request #1 from TechLuddite/chore/linux-native-toolchain
 d4291dd  Add two unattended Omarchy test VMs, with VNC consoles
 69f632f  Convert repo from Windows to Linux-native
-8be248c  Initial import: Omarchy skills and troubleshooting corpus  (on the default branch)
+8be248c  Initial import: Omarchy skills and troubleshooting corpus
 ```
 
 ### 1. The repo was converted from Windows to Linux-native
@@ -68,10 +155,33 @@ you validate it live.
 
 ## What's left
 
-### 1. Push, or don't  (decide first)
+### 1. The agentic lane — the bench's real payoff  (decided, not built)
 
-Two commits sit unpushed on `chore/linux-native-toolchain`. Nothing downstream depends on
-that decision, but leaving them local means the VM tooling exists on exactly one machine.
+The current bench grades what a model **says**. The agreed next block is grading what it
+**does**: drive `omarchy agent` inside the test VMs and assert on the machine's end state.
+Groundwork already surveyed:
+
+- **`omarchy-agent` is the abstraction.** `/usr/share/omarchy/bin/omarchy-default-agent`
+  supports nine harnesses (`pi, omp, opencode, claude, codex, grok, gemini, copilot,
+  crush`), and `omarchy-agent` already encodes each one's non-interactive flags.
+  `--inline` execs directly instead of spawning a terminal, which is what headless driving
+  needs. The harness becomes a bench dimension, exactly as models are today.
+- **`pi --skill <path>` loads a file *or a directory*.** The multi-file ceiling disappears
+  entirely in agentic mode — pi loads the real bundle the way the real harness does.
+  `pi --print --mode json --no-session` is non-interactive with structured output.
+- **pi reaches local Ollama** via a custom provider in `~/.pi/agent/models.json`
+  (`api: openai-completions`, dummy `apiKey`). Ollama is the documented example. Set
+  `compat.supportsDeveloperRole: false` or pi sends a role the server rejects.
+- Both VMs already have `pi`, `opencode`, `claude`, `codex`, `crush` and `mise`.
+- **Decided: snapshot and revert per case**, so cases cannot contaminate each other.
+- **Prove first:** these domains are UEFI, and libvirt has historically refused *internal*
+  snapshots on pflash domains. If that bites, go external or disk-only. The disks are
+  qcow2, so snapshots are available in principle; no snapshots exist yet.
+- **Expect the matrix to collapse.** Chat mode is ~7s/case; agentic is minutes plus revert,
+  with concurrency 2. Agentic runs must be narrow by design.
+- The VMs will need Ollama reachable at `192.168.122.1:11434` — a fourth `virbr0`-scoped
+  ufw rule, same shape as the three already documented.
+- `post:` is already reserved in the bench schema, so this needs no migration.
 
 ### 2. The lab host is reachable, and untouched
 
@@ -118,11 +228,12 @@ first-pass records would be a genuine improvement.
 
 ### 5. Optional / not started
 
-- `opinionated-omarchy/` at the root is still empty, held open by a `.gitkeep`. Presumably
-  the placeholder for a third skill. Nothing written there.
-- `omarchy-old/` is also empty and held open by a `.gitkeep`, but **its purpose is still not
-  recorded anywhere.** Both directories exist because they have a planned purpose; that
-  purpose needs writing down here before anyone else has to guess.
+- `opinionated-omarchy/` at the root is still empty, held open by a `.gitkeep`. **Settled
+  2026-08-28: this is where the skill goes** — the one that turns the corpus into something
+  an agent can consume. Still several steps out, nothing written there yet.
+- `omarchy-old/` **deleted 2026-08-28.** Its purpose was never recorded and nobody could
+  reconstruct it, so it was an empty directory kept alive by a `.gitkeep` for no stated
+  reason.
 - Nothing turns the corpus into an actual Claude skill yet. Still the obvious next step if
   the goal is agent-consumable troubleshooting: a `SKILL.md` telling an agent to query
   `research/tools/ask.py` by symptom.

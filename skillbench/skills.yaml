@@ -1,0 +1,24 @@
+# Skill bundles under test.
+#
+# A skill is a BUNDLE, not a file. Files are concatenated in the order listed, with YAML
+# frontmatter stripped from each (the frontmatter is triggering metadata the harness
+# consumes itself; only the body is ever prompt text).
+#
+# The `-full` entries are the point of this bench. The lab bench this one descends from
+# could only inject a single SKILL.md, so any instruction living in a topic guide could
+# never lift a score, and its own backlog recorded the measured lift as "a floor, not the
+# real-harness number". Running `omarchy` against `omarchy-full` measures exactly what
+# those six topic guides are worth.
+skills:
+  omarchy:
+    root: /skills/omarchy
+    files: [SKILL.md]
+  omarchy-full:
+    root: /skills/omarchy
+    files: [SKILL.md, hyprland.md, theming.md, capture.md, plugins.md, hooks.md, contributing.md]
+  diagnose-crash:
+    root: /skills/diagnose-crash
+    files: [SKILL.md]
+  diagnose-crash-full:
+    root: /skills/diagnose-crash
+    files: [SKILL.md, reporting.md]

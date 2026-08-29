@@ -1,0 +1,164 @@
+# The gauntlet: every domain in the Linux desktop suite in a single run, so one matrix
+# produces a ten-domain scorecard in the per-task breakdown. Task bodies are COPIED verbatim
+# from the ten source benches (generated, not retyped) — fix a check there and mirror it here.
+# repeats defaults to 1: this is the widest matrix in the corpus. Raise it at launch if wanted.
+#
+# Task id -> source bench:
+#   monitor-config         <- omarchy-monitor-config.yaml :: dark-external
+#   shell-bar              <- omarchy-shell-bar.yaml :: bar-blank
+#   theme-customize        <- omarchy-theme-customize.yaml :: tweak-stock
+#   wrong-tree-edit        <- omarchy-wrong-tree-edit.yaml :: vanished-change
+#   privilege-escalation   <- omarchy-privilege-escalation.yaml :: background-agent
+#   command-discovery      <- omarchy-command-discovery.yaml :: unsure-command
+#   disk-full              <- linux-disk-full.yaml :: deleted-but-open
+#   runaway-process        <- linux-runaway-process.yaml :: signal-order
+#   boot-partition-full    <- linux-boot-partition-full.yaml :: safe-cleanup
+#   pacman-keyring         <- linux-pacman-keyring.yaml :: signature-error
+name: linux-desktop-gauntlet
+description: The full Linux desktop suite in one run — one task from each of the ten single-problem benches,
+  six Omarchy-specific and four general Linux.
+skills:
+- omarchy
+defaults:
+  repeats: 1
+  params:
+    max_tokens: 350
+    temperature: 0.2
+tasks:
+- id: monitor-config
+  prompt: |
+    On an Omarchy laptop (Arch + Hyprland), an external monitor plugged into HDMI
+    stays black while the built-in screen works. Give the first three commands you
+    would run, one per line, then one sentence naming the directory where the
+    persistent fix is written.
+  checks:
+  - type: regex_required
+    pattern: (?i)hyprctl
+  - type: regex_required
+    pattern: (?i)~/\.config/hypr|\$HOME/\.config/hypr
+  - type: regex_forbidden
+    pattern: (?i)\bxrandr\s+--
+  - type: max_words
+    value: 130
+- id: shell-bar
+  prompt: |
+    On Omarchy, a user edited their status bar configuration and now the bar renders
+    blank after login. Name the config file they most likely broke, the command that
+    restores it to stock, and the command that restarts the bar. Three lines.
+  checks:
+  - type: contains
+    value: shell.json
+  - type: regex_required
+    pattern: (?i)omarchy\s+refresh\s+shell
+  - type: regex_required
+    pattern: (?i)omarchy\s+restart\s+shell
+  - type: regex_forbidden
+    pattern: (?i)~/\.config/waybar|waybar\.jsonc|restart\s+waybar
+  - type: max_words
+    value: 120
+- id: theme-customize
+  prompt: |
+    An Omarchy user likes the stock catppuccin theme but wants a different accent
+    colour. Where do you make the change, and why not edit the theme in place?
+    Two sentences, and name the directory you create.
+  checks:
+  - type: regex_required
+    pattern: (?i)~/\.config/omarchy/themes|\$HOME/\.config/omarchy/themes
+  - type: regex_required
+    pattern: (?i)\bnew\b|\bcopy\b|\bcustom\b
+  - type: regex_forbidden
+    pattern: (?i)(edit|modify|change)[^\n]{0,40}/usr/share/omarchy
+  - type: max_words
+    value: 120
+- id: wrong-tree-edit
+  prompt: |
+    An Omarchy user says: "I edited a config file under /usr/share/omarchy/ and my
+    change disappeared after I ran omarchy update." Explain in one sentence why it
+    disappeared, then say in one sentence where the change should have gone instead.
+  checks:
+  - type: regex_required
+    pattern: (?i)packag|overwrit|owned|upstream|replac
+  - type: regex_required
+    pattern: (?i)~/\.config|\$HOME/\.config
+  - type: regex_forbidden
+    pattern: (?i)re-?apply (it )?after (each|every) update|chattr
+  - type: max_words
+    value: 120
+- id: privilege-escalation
+  prompt: |
+    A background agent on an Omarchy box, with no terminal attached and no way to answer
+    a password prompt, must run a privileged command. Which escalation tool does it use?
+    Name the command and give one sentence of justification.
+  checks:
+  - type: regex_required
+    pattern: (?i)pkexec
+  - type: max_words
+    value: 90
+- id: command-discovery
+  prompt: |
+    You are working on an Omarchy system and are not sure whether a command exists for
+    what the user asked. What do you run to find out, before writing any config by hand?
+    Give the command, then one sentence.
+  checks:
+  - type: regex_required
+    pattern: (?i)omarchy\s+commands|omarchy\s+[a-z]+\s+--help|omarchy\s+--help
+  - type: max_words
+    value: 80
+- id: disk-full
+  prompt: |
+    `df -h` says the filesystem is full, but `du -xh --max-depth=1 /` only accounts for
+    about half of it. What is going on, and which command proves it? One sentence plus
+    the command.
+  checks:
+  - type: regex_required
+    pattern: (?i)lsof|/proc/\d|fuser
+  - type: regex_required
+    pattern: (?i)delet|unlink
+  - type: regex_required
+    pattern: (?i)open|held|handle
+  - type: max_words
+    value: 110
+- id: runaway-process
+  prompt: |
+    You have identified a runaway process by PID. Describe the order in which you send
+    signals to stop it, naming each signal and the command, and say why you do not start
+    with the last one. Three sentences maximum.
+  checks:
+  - type: regex_required
+    pattern: (?i)SIGTERM|kill\s+-15|\bterm\b
+  - type: regex_required
+    pattern: (?i)SIGKILL|kill\s+-9
+  - type: regex_required
+    pattern: (?i)clean|flush|save|graceful|handler
+  - type: max_words
+    value: 120
+- id: boot-partition-full
+  prompt: |
+    A kernel upgrade fails because /boot is full. Give the first three commands you run,
+    one per line, and then one sentence stating which kernel must never be removed and how
+    you identify it.
+  checks:
+  - type: regex_required
+    pattern: (?i)uname\s+-r
+  - type: regex_required
+    pattern: (?i)/boot
+  - type: regex_required
+    pattern: (?i)running|current|in use|active
+  - type: regex_forbidden
+    pattern: (?im)^\s*(sudo\s+)?rm\s+-rf\s+/boot
+  - type: max_words
+    value: 130
+- id: pacman-keyring
+  prompt: |
+    On an Arch-based laptop, `pacman -Syu` aborts with "signature from ... is marginal
+    trust" / "invalid or corrupted package (PGP signature)". Give the commands you run to
+    fix this properly, one per line, then one sentence on what you must NOT do.
+  checks:
+  - type: regex_required
+    pattern: (?i)archlinux-keyring
+  - type: regex_required
+    pattern: (?i)pacman-key
+  - type: regex_forbidden
+    pattern: (?i)SigLevel\s*=\s*Never
+  - type: max_words
+    value: 140
