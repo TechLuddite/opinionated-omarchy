@@ -1,0 +1,101 @@
+# THE AGENTIC LANE'S CONTROL. This is the null case, and it is the evidence.
+#
+# Everything here is ordinary Linux that the Omarchy skill says nothing whatsoever about:
+# stopping a runaway process, reclaiming space from a stray file, fixing file permissions.
+# A capable agent should already do all three, and giving it the Omarchy skill should
+# barely move the number.
+#
+# That is what makes the paired Omarchy bench readable. If a change lifts THIS as much as
+# omarchy-agentic-config, the bench is measuring "an agent given more context tries harder"
+# rather than skill efficacy -- exactly the failure the four chat-lane controls exist to
+# catch, now available in the lane that grades machine state.
+#
+# Do not delete this to tidy the suite.
+#
+# Every task is self-seeding and bounded: the spinner carries its own `timeout` so a killed
+# case cannot leave a VM burning a core, and the space task works inside a scratch directory
+# instead of genuinely filling a disk. A control that could brick the target would get
+# quietly skipped, and then it would not be evidence of anything.
+name: linux-agentic-triage
+description: General-Linux triage on a real machine — runaway process, stray large file, wrong permissions. The agentic lane's control.
+lane: agentic
+control: true
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 1
+  params:
+    thinking: "off"
+    agent_timeout: 600
+  vm:
+    # The scratch directory each task seeds into. Restored before every case so a task
+    # cannot inherit the previous one's leftovers.
+    restore:
+      - .bench-scratch
+
+tasks:
+  # --------------------------------------------------------------------------
+  - id: runaway-process
+    # setsid + timeout: it survives the seed's ssh session ending, and it dies on its own
+    # after 15 minutes even if the agent never finds it and the case is killed.
+    seed: |
+      pkill -f '[b]ench-runaway-marker' || true
+      mkdir -p ~/.bench-scratch
+      setsid bash -c 'exec -a bench-runaway-marker timeout 900 bash -c "while :; do :; done"' \
+        >/dev/null 2>&1 < /dev/null &
+      sleep 2
+      pgrep -f '[b]ench-runaway-marker' >/dev/null
+    prompt: |
+      Something on this machine is burning a CPU core. Find the runaway process
+      and stop it. Do not reboot the machine. Make the change, then stop.
+    post:
+      # [b]ench-... is not an accident. `pgrep -f bench-runaway-marker` matches the very
+      # shell running it -- its own command line contains the pattern -- so it can never
+      # report "not running" and the assertion could never pass. The bracket makes the
+      # regex match the spinner while the checking command's own text does not match it.
+      - type: command_fails
+        command: pgrep -f '[b]ench-runaway-marker' 
+      # Stopping it by taking the whole machine down would also pass the check above,
+      # so require that the session survived.
+      - type: command_succeeds
+        command: systemctl is-system-running --quiet || true
+
+  # --------------------------------------------------------------------------
+  - id: stray-large-file
+    seed: |
+      rm -rf ~/.bench-scratch/hoard
+      mkdir -p ~/.bench-scratch/hoard
+      dd if=/dev/zero of=~/.bench-scratch/hoard/big.bin bs=1M count=512 status=none
+      printf 'keep me\n' > ~/.bench-scratch/hoard/notes.txt
+      test -s ~/.bench-scratch/hoard/big.bin
+    prompt: |
+      The directory ~/.bench-scratch/hoard is using far more disk space than it
+      should. Find the single largest file in it and delete that file, leaving
+      everything else in the directory alone. Make the change, then stop.
+    post:
+      - type: file_absent
+        path: ~/.bench-scratch/hoard/big.bin
+      # The lazy way to free space is `rm -rf` on the directory. That is not the task,
+      # and this is what tells the two apart.
+      - type: file_exists
+        path: ~/.bench-scratch/hoard/notes.txt
+
+  # --------------------------------------------------------------------------
+  - id: file-permissions
+    seed: |
+      mkdir -p ~/.bench-scratch
+      printf 'api_token = do-not-share\n' > ~/.bench-scratch/credentials.txt
+      chmod 0644 ~/.bench-scratch/credentials.txt
+      test "$(stat -c %a ~/.bench-scratch/credentials.txt)" = "644"
+    prompt: |
+      The file ~/.bench-scratch/credentials.txt holds a secret but is currently
+      readable by every user on the system. Restrict it so that only its owner can
+      read or write it, and no one else has any access. Make the change, then stop.
+    post:
+      - type: command_output_matches
+        command: stat -c %a ~/.bench-scratch/credentials.txt
+        pattern: '^600$'
+      # Deleting the file would also stop it being world-readable. It must still exist,
+      # with its contents intact.
+      - type: file_contains
+        path: ~/.bench-scratch/credentials.txt
+        pattern: 'do-not-share'

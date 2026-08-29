@@ -159,9 +159,23 @@ def test_skill_bundles_concatenate_in_manifest_order():
 
 
 def test_control_benches_are_flagged():
+    """Pinned deliberately. The controls are the evidence that a lift is skill efficacy
+    and not 'more context makes a model try harder', so this test fails if one is
+    deleted to tidy the suite -- and equally if one is added without a deliberate edit."""
     controls = {b["name"] for b in spec.list_benches() if b.get("control")}
     assert controls == {"linux-disk-full", "linux-runaway-process",
-                        "linux-boot-partition-full", "linux-pacman-keyring"}
+                        "linux-boot-partition-full", "linux-pacman-keyring",
+                        # the agentic lane's own null case
+                        "linux-agentic-triage"}
+
+
+def test_each_lane_has_at_least_one_control():
+    """A lane with no control can produce a lift nobody can interpret."""
+    by_lane = {}
+    for b in spec.list_benches():
+        by_lane.setdefault(b.get("lane", "chat"), []).append(b)
+    for lane, benches in by_lane.items():
+        assert any(b.get("control") for b in benches), f"lane {lane!r} has no control bench"
 
 
 # ----------------------------------------------------------------- agentic lane
@@ -231,10 +245,13 @@ def test_skill_files_namespace_bundles_that_share_a_filename():
 # ----------------------------------------------------------------- post assertions
 
 def test_post_assertion_commands_quote_their_arguments():
+    """Patterns and paths are quoted so spaces and quotes cannot split the command --
+    but a leading ~ must still reach the shell as $HOME. See the tilde tests below."""
     from app import vmchecks
     cmd, _ = vmchecks._command_for(
         {"type": "file_contains", "path": "~/a b/c.lua", "pattern": "x'y"})
-    assert "'~/a b/c.lua'" in cmd and "'x'\"'\"'y'" in cmd
+    assert '"$HOME"/' in cmd and "'a b/c.lua'" in cmd
+    assert "'x'\"'\"'y'" in cmd
 
 
 def test_unknown_post_assertion_is_a_visible_failure_not_a_pass():
@@ -279,3 +296,40 @@ def test_pi_command_disables_skill_discovery_for_the_none_variant():
     """Otherwise a skill already installed on the VM would leak into the control."""
     from app import runner
     assert "--no-skills" in runner._pi_command("m", None, "/tmp/p.txt", {})
+
+
+def test_tilde_paths_expand_rather_than_being_quoted_literal():
+    """shlex.quote('~/x') gives '~/x', which the shell never expands -- so `test -e`
+    looks for a directory literally named "~". The asymmetry is what makes it dangerous:
+    file_exists fails closed and looks like the agent did nothing, while file_absent
+    passes TRIVIALLY and reads as green. This cost a whole paired run."""
+    from app import vmchecks
+    cmd, _ = vmchecks._command_for({"type": "file_exists", "path": "~/.config/hypr/x.lua"})
+    assert "'~/" not in cmd
+    assert '"$HOME"/' in cmd
+
+    absent, _ = vmchecks._command_for({"type": "file_absent", "path": "~/gone"})
+    assert '"$HOME"/' in absent and "'~/" not in absent
+
+    # A path with no tilde is still quoted normally.
+    plain, _ = vmchecks._command_for({"type": "file_exists", "path": "/etc/some file"})
+    assert "'/etc/some file'" in plain
+
+
+def test_tilde_expansion_survives_a_path_needing_quotes():
+    from app import vmchecks
+    cmd, _ = vmchecks._command_for({"type": "file_contains", "path": "~/a b/c.lua",
+                                    "pattern": "x"})
+    assert '"$HOME"/' in cmd and "'a b/c.lua'" in cmd
+
+
+def test_no_shipped_post_assertion_can_pass_trivially():
+    """Guards the class of bug above across every bench: a file_absent whose path cannot
+    resolve is green no matter what the agent did."""
+    for b in spec.list_benches():
+        for t in b["tasks"]:
+            for a in t.get("post") or []:
+                path = a.get("path")
+                if path:
+                    assert path.startswith(("~/", "/")), \
+                        f"{b['name']}/{t['id']}: post path {path!r} is not absolute"

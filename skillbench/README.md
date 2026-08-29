@@ -34,9 +34,15 @@ inherent to prompting a model and reading its reply.
 
 **The agentic lane grades what an agent does.** It runs `pi` on a real Omarchy VM, lets
 it act on the machine, and then asserts on the machine — see "The agentic lane" below.
-The first run of it produced exactly the gap the chat lane cannot see: on `theme-switch`,
-both variants talked sensibly about Omarchy theming, and only the one with the skill
-actually left the system on the requested theme.
+
+It has a control of its own (`linux-agentic-triage`), and the first paired run at 3 repeats
+says plainly that **the agentic bench is currently saturated**: `devstral-small-2:24b` scores
+24/24 bare on `omarchy-agentic-config`, leaving no headroom for a skill to show up in, and
+the control moved as far as the Omarchy bench (−5.5 vs −8.3 pt). Those numbers measure
+nothing about the skill, and the README says so rather than quoting the delta. The one
+reproducible effect is cost: mean case latency 2.0× on the Omarchy bench and 4.5× on the
+control, the latter proving it is the price of context in an agent loop, not anything
+Omarchy-specific.
 
 Three things keep the numbers honest:
 
