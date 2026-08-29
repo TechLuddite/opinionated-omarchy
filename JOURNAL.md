@@ -22,24 +22,54 @@ is a hard statement that the agent stayed out of `/usr/share/omarchy` — the ex
 Omarchy-3-era advice sends it. A chat bench can only ask whether a model *mentions* the
 right directory.
 
-### 2. What the first runs actually showed — no skill signal yet
+### 2. What the paired runs showed: no signal, because the bench is SATURATED
 
-Three runs, n=1, and they **disagree**:
+Runs 14 and 15, `devstral-small-2:24b`, `none` vs `skill:omarchy`, **3 repeats**, the
+Omarchy bench against its new control:
 
-| run | model | none | skill | 
-| --- | --- | ---: | ---: |
-| 9 | qwen2.5 | theme task failed | theme task **passed** |
-| 10 | devstral-small-2:24b | STATE 0.75 | STATE 0.625 |
-| 11 | qwen2.5 | STATE 0.625 | STATE 0.5 |
+| bench | none | skill | delta |
+| --- | ---: | ---: | ---: |
+| `omarchy-agentic-config` | **24/24 = 1.000** | 22/24 = 0.917 | −8.3 pt |
+| `linux-agentic-triage` (control) | 17/18 = 0.944 | 16/18 = 0.889 | −5.5 pt |
 
-**There is no measurable skill effect here yet, and one run points the wrong way.** At one
-repeat over three tasks that is noise, not a finding. Getting a real number needs repeats
-and more tasks — which is exactly what the chat lane needed too.
+**The bare model already scores 100% on the Omarchy bench.** There is no headroom for a
+skill to help, so this bench cannot measure skill efficacy against an agent this capable.
+Both deltas are slightly negative and the control moved nearly as far as the Omarchy bench
+(−5.5 vs −8.3) — which, by the rule the controls exist to enforce, means these numbers are
+not measuring the skill at all.
 
-One hypothesis worth testing rather than believing: in run 10 the `skill:omarchy-full`
-theme case ran 199 s and returned an EMPTY transcript having done nothing, while `none`
-finished in 21 s. The full bundle is ~6.6k tokens. Local models in an agentic loop may be
-hitting context pressure, in which case `-full` measures exhaustion rather than skill.
+The tasks need to be harder before this bench discriminates. Writing tasks that a good
+agent fails without the skill is the actual open problem; three tasks a competent agent
+does by default measure nothing.
+
+**The one clear, reproducible effect is cost.** Mean case latency:
+
+| bench | none | skill | |
+| --- | ---: | ---: | --- |
+| `omarchy-agentic-config` | 364 s | 714 s | 2.0× |
+| `linux-agentic-triage` | 33 s | 146 s | 4.5× |
+
+It shows up in the **control** too, so it is the cost of putting ~3.1k tokens into an agent
+loop, not anything Omarchy-specific. Two of 36 cases hit the 600 s timeout — one in each
+variant, so that part is not attributable to the skill.
+
+### 2a. The first paired run was wrong, and the control is what caught it
+
+Runs 12/13 reported +12.5 pt / −5.6 pt. **Those numbers were invalid** and are retained
+here only as a lesson. Two grader bugs:
+
+- **Tilde paths were shell-quoted.** `shlex.quote("~/x")` gives `'~/x'`, which the shell
+  never expands, so `test -e` looked for a directory literally named `~`. The asymmetry is
+  what made it dangerous: `file_exists`/`file_contains` failed closed and looked like agent
+  failure, while **`file_absent` passed trivially and read as green**. An assertion that
+  cannot fail is the one thing a grader must never have.
+- **`pgrep -f bench-runaway-marker` matched its own shell**, whose command line contains
+  the pattern, so `command_fails` could never pass. Fixed with the `[b]ench-…` bracket.
+
+The tell was the control scoring **exactly 0.500 on every task in both variants** — a
+constant, not a measurement. A control that cannot move is a broken control, and catching
+that on its first outing is precisely what it is for. Three regression tests now cover it,
+including one that scans every shipped bench for post paths that cannot resolve.
 
 ### 3. The lesson that changed the bench: good agents do not narrate
 
@@ -103,12 +133,17 @@ runs.
 
 ## What's left
 
-### 1. Get an actual number out of the agentic lane
+### 1. Make the agentic bench hard enough to measure anything
 
-The lane runs; the measurement does not exist yet. Needs repeats (n>=3), more tasks, and a
-decision about whether `-full` is even loadable by a 24B model in an agentic loop. Consider
-adding an agentic **control** task — something general-Linux the skill says nothing about —
-so the null case is visible here as it is in the chat lane.
+The lane works, the control exists, and the graders are fixed. The blocker now is task
+difficulty: `devstral-small-2:24b` scores **24/24 bare** on `omarchy-agentic-config`, so
+there is no headroom for a skill to show up in. Tasks are needed that a capable agent gets
+WRONG without the skill — the Omarchy-3-vs-4 tree split is the right seam (that is what
+`pacman -Qkk` already tests), but the current three are too easy.
+
+Open alongside that: whether `skill:omarchy-full` (~6.6k tokens) is even loadable by a 24B
+model in an agentic loop. One earlier case ran 199 s and returned an empty transcript
+having done nothing.
 
 ### 2. Finish auditing 28 records  (the oldest real loose end)
 

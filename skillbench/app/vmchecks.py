@@ -24,22 +24,39 @@ def _q(s):
     return shlex.quote(str(s))
 
 
+def _path(p):
+    """Quote a path WITHOUT killing tilde expansion.
+
+    shlex.quote('~/x') yields '~/x' -- quoted, so the shell never expands it and
+    `test -e '~/x'` looks for a directory literally named "~". That bug is worse than it
+    sounds because it is not symmetric: file_exists/file_contains fail closed and look
+    like the agent did nothing, while file_absent passes TRIVIALLY and reads as green.
+    An assertion that cannot fail is the one failure mode a grader must never have.
+    """
+    p = str(p)
+    if p == "~":
+        return '"$HOME"'
+    if p.startswith("~/"):
+        return '"$HOME"/' + shlex.quote(p[2:])
+    return shlex.quote(p)
+
+
 def _command_for(a):
     """-> (shell command, describe) for one assertion. Raises ValueError if malformed."""
     t = a.get("type")
 
     if t == "file_exists":
         path = a["path"]
-        return f"test -e {_q(path)}", f"{path} exists"
+        return f"test -e {_path(path)}", f"{path} exists"
 
     if t == "file_absent":
         path = a["path"]
-        return f"! test -e {_q(path)}", f"{path} is absent"
+        return f"! test -e {_path(path)}", f"{path} is absent"
 
     if t == "file_contains":
         path, pattern = a["path"], a["pattern"]
         flags = "-Eq" if a.get("case_sensitive", True) else "-Eqi"
-        return (f"test -e {_q(path)} && grep {flags} -- {_q(pattern)} {_q(path)}",
+        return (f"test -e {_path(path)} && grep {flags} -- {_q(pattern)} {_path(path)}",
                 f"{path} matches /{pattern}/")
 
     if t == "file_not_contains":
@@ -47,7 +64,7 @@ def _command_for(a):
         flags = "-Eq" if a.get("case_sensitive", True) else "-Eqi"
         # A missing file trivially does not contain the pattern; that is the honest
         # reading of "not contains", and file_exists is how you demand it be there.
-        return (f"! test -e {_q(path)} || ! grep {flags} -- {_q(pattern)} {_q(path)}",
+        return (f"! test -e {_path(path)} || ! grep {flags} -- {_q(pattern)} {_path(path)}",
                 f"{path} does not match /{pattern}/")
 
     if t == "command_succeeds":
