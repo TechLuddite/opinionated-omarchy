@@ -1,6 +1,56 @@
 # Journal — handoff
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
+
+## Session of 2026-08-30 — catching the journal up, and starting the re-audit
+
+Housekeeping first, then item 3 of "What's left". Three things had drifted out of the
+written record since the 29th.
+
+### 1. Runs 16 and 17 happened and were never written down
+
+Both on `muse-glimmer:30b`, a model the agentic lane had not been tried with before.
+
+Run 16 (`linux-boot-partition-full`, chat lane) is unremarkable and that is the point:
+**1.000 in both variants**, 91 prompt tokens bare against 3197 with the skill. A control
+behaving exactly as a control should.
+
+Run 17 (`omarchy-agentic-config`, agentic lane) reports 0.333 bare against 0.667 with the
+skill, and **that spread is entirely timeout attrition, not skill signal**. Every case that
+did not error passed every assertion; the run's STATE score is 1.000 in both variants. The
+whole difference is which cases hit the wall:
+
+| task | none | skill:omarchy |
+| --- | --- | --- |
+| `binding-user-tree` | ok, 176 s | ok, 251 s |
+| `monitor-persist` | **agent exceeded 600s** | **agent exceeded 600s** |
+| `theme-switch` | **agent exceeded 600s** | ok, 847 s |
+
+So the bench is still saturated exactly as the 29th recorded it — this adds only that a
+30B model does not fit the current `agent_timeout: 600`. Do not read run 17 as a lift.
+
+### 2. A grader question run 17 raised, still open
+
+**Post assertions are evaluated on timed-out cases too, and they passed there.** Both
+`monitor-persist` cases errored on the timeout, yet each reports `post 3/3` and contributes
+`state = 1.0`. That is why the run shows STATE 1.000 alongside a success rate of 0.333.
+
+This may well be correct — an agent can finish the edit and then burn the remaining budget
+without exiting, and refusing to score work it demonstrably did would be its own distortion.
+But it means STATE currently averages over cases the runner classified as failures, so STATE
+and `success` can disagree without either being wrong, and a reader comparing them will
+assume one is broken. **Decide which it is before the next paired run**, and whichever way it
+goes, make the UI say so. This is the same class of thing the control caught in run 12/13:
+not a wrong number, but a number whose meaning is not written down.
+
+### 3. Smaller drift
+
+- **The suite is 43 tests, not 39.** `CLAUDE.md` still advertised 39; corrected there. The
+  "27 unit tests" in the 08-28/29 entry below is left alone — it was true on the day, and
+  a journal entry is a dated record, not a live figure.
+- **`skillbench/app/ui.py` had an uncommitted change** moving the run-history table below
+  the fold, so the run you just launched is not pushed off screen by the history. Committed
+  as-is; it was finished, not half-done.
 
 ## Session of 2026-08-29 — the agentic lane
 

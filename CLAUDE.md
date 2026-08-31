@@ -243,7 +243,7 @@ context?** It has **two lanes**, and a bench declares which with `lane:`.
 
 ```sh
 cd skillbench && docker compose up -d --build     # http://127.0.0.1:8878
-./tests/run.sh                                    # 39 unit tests
+./tests/run.sh                                    # 43 unit tests
 ```
 
 Read [skillbench/README.md](skillbench/README.md) before changing it. The things that are
