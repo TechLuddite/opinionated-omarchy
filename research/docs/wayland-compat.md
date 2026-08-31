@@ -67,11 +67,11 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 **Symptom.** Screen share starts and immediately stops after about a second, and the list of shareable windows is frozen — opening or closing windows no longer updates it. Portal log shows: `[WARN] [pipewire] Asked for a wl_shm buffer which is legacy.`, `[WARN] [pw] DMA-BUF allocation failed, falling back to SHM`, `[LOG] [sc] Incompatible formats, renegotiate stream`, `[ERR] [screencopy] tried scheduling on already scheduled cb (type 1)`.
 
-**Cause.** XDPH's screencopy session state is left corrupt after a previous share ends (buffer renegotiation between DMA-BUF and SHM races and double-schedules a frame callback). The portal keeps running but every subsequent ScreenCast session dies immediately. Reported against xdg-desktop-portal-hyprland 1.4.0 with Hyprland 0.56.
+**Cause.** XDPH's screencopy session state was left corrupt after a previous share ended (buffer renegotiation between DMA-BUF and SHM raced and double-scheduled a frame callback), so the portal kept running but every subsequent ScreenCast session died immediately. Reported against xdg-desktop-portal-hyprland 1.4.0 with Hyprland 0.56. **This was fixed upstream** by commit `c46162255e00` ('core: fix loop hangup detection', 2026-07-24), released in XDPH v1.4.1 (2026-07-29), which Arch `extra` now carries - so on a current system this is an out-of-date XDPH rather than a live bug.
 
 > **Audit corrected this record.** Symptom, logs, cause and the restart workaround all match xdg-desktop-portal-hyprland#418 verbatim — but the record is now obsolete as written. That issue was closed by upstream commit c46162255e00 ('core: fix loop hangup detection', 2026-07-24), which shipped in XDPH v1.4.1 (2026-07-29). Arch extra currently carries 1.4.1-1. Telling a user to permanently pin force_shm — which the XDPH wiki explicitly documents as the slower path, especially at high resolutions — when a plain system upgrade fixes the bug outright is the wrong first move. The force_shm advice itself is valid (the option exists, and the Omarchy caveat about editing the existing screencopy block is correct) but belongs after the upgrade, scoped to genuine multi-GPU DMA-BUF allocation failures.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `force_shm = true` sends every frame through shared memory instead of a GPU buffer. At 4K/high refresh this raises CPU use noticeably. Only set it if DMA-BUF allocation is actually failing in the logs.
 
@@ -241,11 +241,11 @@ Sources: <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https:
 
 **Symptom.** Screen share silently fails. `journalctl --user -u xdg-desktop-portal-hyprland` or `systemctl --user status xdg-desktop-portal-hyprland` shows: `hyprland-share-picker[5621]: Could not load the Qt platform plugin "wayland" in "" even though it was found.` followed by `This application failed to start because no Qt platform plugin could be initialized.` and `No shell integration named "xdg-shell" found`.
 
-**Cause.** hyprland-share-picker is a Qt 6 application. Without the qt6-wayland platform plugin it cannot create a window, so the picker process dies instantly and the portal never gets a selection back — the calling app just sees the share request fail. Same root cause makes OBS unable to open.
+**Cause.** `hyprland-share-picker` is a Qt 6 application and needs the `qt6-wayland` platform plugin to create a window; without a usable one the picker dies instantly and the portal never gets a selection back, so the calling app just sees the share request fail. Read the log carefully to tell the two states apart: 'Could not load the Qt platform plugin "wayland" ... **even though it was found**', together with 'No shell integration named "xdg-shell" found', means `qt6-wayland` is installed but ABI-mismatched against `qt6-base` after a partial upgrade - the plugin is present and refuses to load. The same root cause makes OBS unable to open.
 
 > **Audit corrected this record.** The problem is real and the cited source (xdg-desktop-portal-hyprland#367) is genuine, but the fix does not follow from the log that is quoted. 'Could not load the Qt platform plugin "wayland" ... even though it was found' plus 'No shell integration named "xdg-shell" found' means qt6-wayland IS installed but is ABI-mismatched against qt6-base (classic partial upgrade). Against that state `pacman -S --needed qt6-wayland` is a silent no-op because --needed skips already-installed packages, so the user runs the command, sees 'nothing to do', and concludes the record is wrong. The maintainer's own resolution in that issue was to reinstall qt6-base and qt6-wayland together. Also: hyprland-share-picker is Qt6 only, so qt5-wayland is irrelevant to it.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
@@ -1520,11 +1520,11 @@ Sources: <https://wiki.archlinux.org/title/Firefox> · <https://wiki.archlinux.o
 
 **Symptom.** In an X11/XWayland application, clicking "Open File" pops up the GTK file dialog, you pick a file, the dialog closes — and nothing happens. The app never receives the file. Or the dialog takes ~25 seconds to appear at all.
 
-**Cause.** xdg-desktop-portal-gtk runs as a systemd user service that may have no `DISPLAY` in its environment. It can show the dialog (over Wayland) but cannot hand the result back to an XWayland client. The 25-second variant is the D-Bus timeout when no backend claims `org.freedesktop.impl.portal.FileChooser`.
+**Cause.** xdg-desktop-portal-hyprland implements no file picker at all, so `xdg-desktop-portal-gtk` has to be installed alongside it; with nothing claiming `org.freedesktop.impl.portal.FileChooser` the call blocks for the 25-second D-Bus timeout and then gives up. Note that portal results are returned to the caller over D-Bus via the `Response` signal - they do not travel over the X connection - so a missing `DISPLAY` in the portal user service's environment does not break the result path. At most it stops the GTK dialog being made transient-for an X11 parent window.
 
 > **Audit corrected this record.** The first half is correct and useful — XDPH genuinely does not implement a file picker (the wiki carries an explicit warning to install xdg-desktop-portal-gtk alongside it), the 25-second figure is the real D-Bus timeout, and the Steam 'Add Library Folder' note is right. The DISPLAY drop-in is the problem. Portal results are returned to the caller over D-Bus via the Response signal; they do not travel over the X connection, so 'can show the dialog but cannot hand the result back to an XWayland client' is not a real mechanism. At most a DISPLAY lets the GTK portal make the dialog transient-for an X11 parent window. And hardcoding DISPLAY=:0 is a guess — Hyprland's XWayland can land on :1 or higher when another X server is present, in which case the drop-in points the portal at the wrong display. Telling a user to write a persistent systemd override on a false premise is the part worth removing.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 

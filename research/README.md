@@ -28,7 +28,9 @@ gaps the first pass's auditors had named. Only two of the second pass's audits f
 
 The second pass also fixed a flaw in the first: its auditors could return a
 `corrected_cause`, not just a corrected fix. **20 records had a disproved cause
-replaced** rather than left standing.
+replaced** rather than left standing. A later pass on 2026-08-30 closed the same gap
+for the first pass's 130 corrected records: all were reviewed and **22 had their cause
+rewritten** to match their own audit note. See the trust model below.
 
 ## Datastore design
 
@@ -105,6 +107,7 @@ colour alone.
   "danger": "",              // non-empty when the fix risks data loss or boot
   "audit_status": "ok|corrected|unaudited|gapfill-unaudited",
   "audit_confidence": "high|medium|low",
+  "cause_reconciled": "2026-08-30",   // optional; see the trust model below
   "sources": ["https://..."]
 }
 ```
@@ -128,16 +131,28 @@ generated markdown. Treat them as leads, not instructions.
 
 **One limitation of `corrected` records from the first pass.** Those audits rewrote only
 the `fix` field. Where the auditor's objection was really about the `cause` — a wrong
-mechanism, an outdated architecture claim — that stale text is still sitting in `cause`.
-The `omarchy-update-aborted-midway` record, for instance, still describes a `git pull`
-into `~/.local/share/omarchy` that Omarchy 4 no longer does.
+mechanism, an outdated architecture claim — that stale text was left sitting in `cause`.
+The second pass fixed this going forward: its auditors supply `corrected_cause`, and 20
+causes were replaced. The first pass's 130 corrected records were not covered by that.
 
-The second pass fixed this going forward (its auditors supply `corrected_cause`, and 20
-causes were replaced), but the first pass's ~130 corrected records were not revisited.
-So both `ask.py` and the generated markdown print the full audit note directly beneath
-the cause, with a line saying the cause may not have been rewritten. Read that note
-before trusting the cause on any corrected record; the fix itself is always the audited
-version.
+**All 130 were reviewed on 2026-08-30, and 22 were found to have a cause its own audit
+note contradicts.** Those 22 have been rewritten from the note — the auditor had already
+done the source work; the first pass simply had nowhere to put the result — and each is
+stamped `cause_reconciled`. The other 108 were left alone: their notes affirm the cause
+("the diagnosis is right", "cause verified exactly") and object only to the fix. The
+worst offenders were the Omarchy 3 → 4 tree split (`~/.local/share/omarchy` git checkout
+vs the pacman-owned `/usr/share/omarchy`) and fabricated precision — a version boundary
+or a config filename asserted with more confidence than the source supports.
+
+So the "~130 possibly-stale causes" figure that appeared in earlier notes was a
+worst-case bound on an unreviewed population, not a count of defects. The real number
+is 22.
+
+Both `ask.py` and the generated markdown still print the full audit note directly
+beneath the cause. The line that follows it now says which case you are in — cause
+rewritten to match the note, or cause not rewritten and possibly still wrong. Read the
+note before trusting the cause on any corrected record; the fix itself is always the
+audited version.
 
 This is a research corpus, not a warranty. It is worth reading `danger` and confirming
 against the cited source before running anything as root — particularly for anything

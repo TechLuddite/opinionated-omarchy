@@ -514,11 +514,11 @@ PM: pci_pm_suspend(): nv_pmops_suspend+0x0/0x20 [nvidia] returns -5
 nvidia 0000:01:00.0: PM: failed to suspend async: error -5
 ```
 
-**Cause.** The NVIDIA driver is set to preserve all video memory across suspend, but the mechanism that actually saves it is not active. On the 430-590 driver series that mechanism is the `nvidia-suspend`/`nvidia-hibernate`/`nvidia-resume` systemd services; on 595+ it is the `NVreg_UseKernelSuspendNotifiers=1` module parameter, and those services must be *disabled* instead.
+**Cause.** The NVIDIA driver is set to preserve all video memory across suspend, but the mechanism that actually saves it is not active. There are two such mechanisms and the discriminator is **which kernel modules are in use, not a driver version cut-off**: with the open kernel modules the driver registers a suspend notifier, enabled by `NVreg_UseKernelSuspendNotifiers=1`; otherwise it is the `nvidia-suspend` / `nvidia-hibernate` / `nvidia-resume` systemd services, which the current driver README still documents as installed and enabled by default. Disabling those services on a proprietary-module machine breaks suspend rather than fixing it.
 
 > **Audit corrected this record.** The symptom, the NVRM message and the general cause are real, and NVreg_UseKernelSuspendNotifiers genuinely exists (nv-reg.h: "If enabled, this option prompts the NVIDIA kernel module to register a notifier that saves and restores all video memory allocations across system power management cycles if PreserveVideoMemoryAllocations is enabled. 0: Suspend notifiers are not used (default), 1: Suspend notifiers are used when available"). But the '430-590 vs 595+' version boundary is fabricated precision and the instruction to DISABLE the three services on '595+' is actively harmful. The current driver README (610.57.04, matching Arch's nvidia-utils 610.57.04-1) says the notifier path applies "When the open kernel modules are in use" and still documents nvidia-suspend/hibernate/resume as installed and enabled by default. The discriminator is open vs proprietary modules, not a version cut-off; blindly masking the services on a proprietary-driver box will break suspend rather than fix it.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** If you use early KMS (the `nvidia` module loaded from the initramfs) the driver has no access to `NVreg_TemporaryFilePath`, so hibernation cannot preserve VRAM — do not use early KMS if you need hibernation. Changing modprobe options requires regenerating the initramfs or the setting silently does not apply.
 
@@ -1655,11 +1655,11 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 **Symptom.** On battery my USB DAC crackles or disappears, my Bluetooth headphones cut out, or the mouse stutters — all fine when plugged into AC. `dmesg` shows `hci0: link tx timeout`.
 
-**Cause.** With its default configuration TLP enables USB autosuspend on battery. Keyboards and scanners are denylisted by default, but audio DACs, Bluetooth radios and some receivers are not, and they misbehave when the kernel powers them down.
+**Cause.** With its default configuration TLP enables USB autosuspend on battery. Its own docs state that all input devices (driver `usbhid`), libsane-supported scanners **and audio devices** are excluded by default - `USB_EXCLUDE_AUDIO` defaults to 1 - so a USB DAC is already covered and autosuspend is usually not the explanation for it. The class that genuinely is *not* excluded by default is Bluetooth: `USB_EXCLUDE_BTUSB` defaults to 0, so a USB Bluetooth radio is the device this actually bites.
 
 > **Audit corrected this record.** Two real errors. (1) The cause paragraph is wrong about defaults: TLP's own docs state "All input devices (driver usbhid), libsane-supported scanners and audio devices get excluded by default" — USB_EXCLUDE_AUDIO defaults to 1, so a USB DAC is already excluded and USB autosuspend is not the explanation for it. The device that genuinely is NOT excluded by default is Bluetooth (USB_EXCLUDE_BTUSB defaults to 0), which the record misses as the one-line fix. (2) The closing 'without TLP' udev rule is backwards and actively harmful: ATTR{power/control}="auto" ENABLES autosuspend on every non-mouse, non-keyboard USB device — it would cause the reported symptom on a machine that does not have it. Disabling autosuspend requires "on", not "auto". USB_DENYLIST and USB_AUTOSUSPEND=0 themselves are correct option names, and the note about /etc/tlp.conf taking precedence over /etc/tlp.d/ is right.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `USB_AUTOSUSPEND=0` measurably shortens battery life. Prefer denylisting the specific device.
 
@@ -1981,11 +1981,11 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/config/hypr/
 
 **Symptom.** I open the lid, the lock screen is there, I type my password and nothing appears in the field. I have to click the password box first, then it works. Locking manually while awake is fine — only resume is affected.
 
-**Cause.** A timing race: the password field calls `forceActiveFocus()` as soon as the lock is *requested*, not once the `WlSessionLock` surface has actually been mapped and granted exclusive keyboard focus by the compositor. On resume the lock is set up during the unstable early-resume window, so the focus call lands before the surface exists. Hybrid Intel+NVIDIA laptops make the window wider. Related to `omarchy-sleep-lock.service` not completing before suspend.
+**Cause.** A timing race: the password field calls `forceActiveFocus()` as soon as the lock is *requested*, not once the `WlSessionLock` surface has actually been mapped and granted exclusive keyboard focus by the compositor. On resume the lock is set up during the unstable early-resume window, so the focus call lands before the surface exists. Hybrid Intel+NVIDIA laptops make the window wider. Omarchy has no `omarchy-sleep-lock.service`; pre-sleep locking is driven by hypridle's `inhibit_sleep = 3` together with the hooks under `default/systemd/system-sleep/`.
 
 > **Audit corrected this record.** The issue is real and the root-cause analysis is accurate — basecamp/omarchy#8520 describes the password field lacking keyboard focus after resume but not on manual lock, on Omarchy 4.0.1-1 with hybrid Intel+NVIDIA, and attributes it to forceActiveFocus() firing before "the WlSessionLock surface has actually been mapped and granted exclusive keyboard focus by the compositor". The workarounds (click the field, widen the after_sleep_cmd delay) are sound and the config block matches upstream apart from the intended sleep 2. The defect is the diagnostic step: there is no omarchy-sleep-lock.service in the Omarchy repository — Omarchy handles pre-sleep locking via hypridle's inhibit_sleep = 3 and hooks under default/systemd/system-sleep/. Those two commands will just report that the unit could not be found, sending the user chasing a non-existent service.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 

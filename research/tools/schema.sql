@@ -38,7 +38,11 @@ CREATE TABLE problems (
     -- Provenance: how much scrutiny this record survived.
     audit_status     TEXT CHECK (audit_status IN ('ok','corrected','unaudited','gapfill-unaudited')),
     audit_confidence TEXT CHECK (audit_confidence IN ('high','medium','low')),
-    audit_note       TEXT
+    audit_note       TEXT,
+    -- Date the `cause` was reconciled against `audit_note`, or NULL. The first
+    -- harvest's auditors could only rewrite `fix`, so a `corrected` record could
+    -- keep a cause its own note disproved. Set => the cause reflects the note.
+    cause_reconciled TEXT
 );
 
 CREATE INDEX idx_problems_category  ON problems(category);

@@ -95,6 +95,7 @@ def norm(rec, coercions):
         verify=(rec.get("verify") or "").strip() or None,
         danger=(rec.get("danger") or "").strip() or None,
         audit_note=(rec.get("audit_note") or "").strip() or None,
+        cause_reconciled=(rec.get("cause_reconciled") or "").strip() or None,
         tags=clean_tags,
         sources=clean_sources,
     )
@@ -126,11 +127,13 @@ def build(records, categories):
         conn.execute(
             """INSERT INTO problems
                (id, slug, title, category, symptom, cause, fix, verify,
-                severity, frequency, danger, audit_status, audit_confidence, audit_note)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                severity, frequency, danger, audit_status, audit_confidence, audit_note,
+                cause_reconciled)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (pid, r["slug"], r["title"], r["category"], r["symptom"], r["cause"],
              r["fix"], r["verify"], r["severity"], r["frequency"], r["danger"],
-             r["audit_status"], r["audit_confidence"], r["audit_note"]),
+             r["audit_status"], r["audit_confidence"], r["audit_note"],
+             r["cause_reconciled"]),
         )
         conn.executemany(
             "INSERT OR IGNORE INTO problem_tags (problem_id, tag) VALUES (?, ?)",
@@ -209,14 +212,22 @@ def write_docs(conn, categories):
             if r["cause"]:
                 out.append(f"**Cause.** {r['cause']}")
                 out.append("")
-            # The audit rewrote `fix` only, so a corrected record can still carry
-            # the stale `cause` the auditor was objecting to. Put the note above
-            # the fix, so the reader sees the dispute before trusting the cause.
+            # Put the note above the fix, so the reader sees the dispute before
+            # trusting the cause. Which disclaimer follows it is load-bearing: the
+            # first harvest's auditors could rewrite only `fix`, so those records
+            # can still carry a cause the note disproves. `cause_reconciled` marks
+            # the ones whose cause has since been brought into line with the note.
             if r["audit_status"] == "corrected" and r["audit_note"]:
                 out.append(f"> **Audit corrected this record.** {r['audit_note']}")
                 out.append(">")
-                out.append("> *The Cause above was not rewritten and may still contain "
-                           "the error described. The Fix below is the corrected version.*")
+                if r["cause_reconciled"]:
+                    out.append("> *The Cause above was rewritten on "
+                               f"{r['cause_reconciled']} to match this note. The Fix "
+                               "was corrected by the audit itself.*")
+                else:
+                    out.append("> *The Cause above was not rewritten and may still "
+                               "contain the error described. The Fix below is the "
+                               "corrected version.*")
                 out.append("")
             if r["danger"]:
                 out.append(f"> ⚠️ **Risk.** {r['danger']}")

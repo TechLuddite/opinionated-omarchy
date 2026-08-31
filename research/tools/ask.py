@@ -91,11 +91,17 @@ def show(conn, row, verbose):
     print(f"\n  SYMPTOM  {row['symptom']}")
     if row["cause"]:
         print(f"  CAUSE    {row['cause']}")
-    # The audit rewrote `fix` only, so a corrected record's `cause` may still be
-    # wrong in exactly the way the note describes. Show it right beside the cause.
+    # Show the note right beside the cause. For first-pass audits the cause may
+    # still be wrong in exactly the way the note describes, because those auditors
+    # could rewrite only `fix`; `cause_reconciled` marks the ones since fixed.
     if row["audit_status"] == "corrected" and row["audit_note"]:
         print(f"  {CYAN}~~ AUDIT  {row['audit_note']}{RESET}")
-        print(f"  {CYAN}          (CAUSE above was not rewritten; FIX below is corrected){RESET}")
+        if row["cause_reconciled"]:
+            print(f"  {CYAN}          (CAUSE above rewritten {row['cause_reconciled']} "
+                  f"to match this audit; FIX corrected by the audit){RESET}")
+        else:
+            print(f"  {CYAN}          (CAUSE above was not rewritten; "
+                  f"FIX below is corrected){RESET}")
     if row["danger"]:
         print(f"  {YELLOW}!! RISK  {row['danger']}{RESET}")
     if row["audit_status"] in ("unaudited", "gapfill-unaudited"):

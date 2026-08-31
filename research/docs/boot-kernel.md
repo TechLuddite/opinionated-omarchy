@@ -1734,11 +1734,11 @@ title: Arch Linux
 version: 6.1.1-arch1-1        <-- stale
 ```
 
-**Cause.** On distros that use `kernel-install` to write versioned entries into `/efi/loader/entries/`, removing or shadowing the `kernel-install` package (e.g. installing `eos-dracut` or `mkinitcpio-archiso`, which conflict with `kernel-install-for-dracut`) stops entries being regenerated on kernel upgrade. Separately, the systemd-boot EFI binary itself is not auto-updated when the `systemd` package updates unless the update service is enabled.
+**Cause.** On distros that use `kernel-install` to write versioned entries into `/efi/loader/entries/`, removing or shadowing the package that provides the kernel-install plugin - `kernel-install-for-dracut`, which `eos-dracut` and `mkinitcpio-archiso` conflict with - stops entries being regenerated on kernel upgrade. Note there is no standalone `kernel-install` package on Arch: the binary ships inside `systemd`. Separately, the systemd-boot EFI binary itself is not auto-updated when the `systemd` package updates unless the update service is enabled.
 
 > **Audit corrected this record.** `sudo pacman -S kernel-install` fails — I searched the Arch package database for name=kernel-install and got zero matches. On Arch the kernel-install binary is shipped inside the `systemd` package; the EndeavourOS package the record is really thinking of is `kernel-install-for-dracut`. Pasting the given command into a root shell on a machine that is already one bad boot away from unusable just errors out. Separately, `pacman -R mkinitcpio-archiso eos-dracut` aborts the entire transaction if either package is absent, so the 'if present' caveat needs to be in the command, not the prose. The bootctl update / systemd-boot-update.service half is correct.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `bootctl install` (as opposed to `update`) rewrites `\EFI\BOOT\BOOTX64.EFI` on the ESP. On a dual-boot machine that can displace another loader — prefer `bootctl update` when systemd-boot is already installed.
 
@@ -1863,11 +1863,11 @@ You are now being dropped into an emergency shell.
 
 Keyboard input in that shell is sluggish and drops characters. Reported on a ThinkPad T14 (basecamp/omarchy#8454).
 
-**Cause.** A USB/xHCI enumeration handoff problem between the firmware and the kernel: the stick is present to the bootloader, but after the kernel takes over the xHCI controller the device is either not re-enumerated or comes up without its ISO9660 label, so the archiso hook's label search times out. The image itself is fine.
+**Cause.** A USB/xHCI enumeration handoff problem between the firmware and the kernel: the stick is present to the bootloader, but after the kernel takes over the xHCI controller the device is either not re-enumerated or is not present under `/dev/disk/by-uuid` in time, so the archiso hook's search for the boot medium times out. Current archiso locates the medium by `archisosearchuuid=`/`archisosearchfilename=` (the older `archisolabel=` label search is gone), so the wait is on the by-uuid symlink appearing. The image itself is fine.
 
 > **Audit corrected this record.** Issue 8454 is real and the replug workaround is exactly what the reporter confirms. But the issue's own quoted cmdline uses `archisosearchuuid=` and waits on /dev/disk/by-uuid — current archiso replaced `archisolabel=` with archisosearchuuid=/archisosearchfilename=, so the suggested `archisolabel=<LABEL>` line is obsolete and will not be honoured. `copytoram` is also the wrong tool for this failure: copytoram runs *after* the medium is located, so it cannot rescue a device that is never found — it helps only once boot already works. And `dd of=/dev/sdX` is offered with no instruction to confirm the target, which is the classic way to overwrite the wrong disk.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `dd of=/dev/sdX` will destroy everything on whatever device you name. Confirm the target with `lsblk` immediately before running it, and never point it at a partition (`/dev/sdX1`) or at your system disk.
 

@@ -2480,11 +2480,11 @@ brcmfmac: brcmf_c_process_clm_blob: no clm_blob available (err=-2), device may h
 brcmfmac: brcmf_c_process_txcap_blob: no txcap_blob available (err=-2)
 ```
 
-**Cause.** `linux-firmware-broadcom` ships the BCM43602 (`14e4:43ba`) chip firmware but no board-specific NVRAM calibration file. Without it `brcmfmac` loads placeholder 5 GHz values (`aa5g=1`, no per-channel tx-power tables), so `iw phy` only ever advertises Band 1 (2.4 GHz).
+**Cause.** Almost always the regulatory domain: with none set, the driver falls back to the most restrictive world domain and `iw phy` only ever advertises Band 1 (2.4 GHz). `wireless-regdb` ships `/etc/conf.d/wireless-regdom`, `/usr/bin/set-wireless-regdom` and `/usr/lib/udev/rules.d/85-regulatory.rules`, and Omarchy's `install/hardware/set-wireless-regdom.sh` already writes a `WIRELESS_REGDOM` line derived from the timezone - so the value may be set but wrong, and it must be edited rather than appended to. The board-NVRAM theory is much weaker than it looks: `no clm_blob available` is a benign informational message on many brcmfmac parts, and on Macs `brcmfmac` falls back to the on-device NVRAM.
 
 > **Audit corrected this record.** The regulatory-domain half is verified and is the real, reproducible fix: core/any/wireless-regdb ships /etc/conf.d/wireless-regdom, /usr/bin/set-wireless-regdom and /usr/lib/udev/rules.d/85-regulatory.rules, and omarchy's install/hardware/set-wireless-regdom.sh already writes a WIRELESS_REGDOM line from the timezone — so the record's unconditional `tee -a` appends a *second* WIRELESS_REGDOM line. The NVRAM half is weak: `no clm_blob available` is a benign informational message on many brcmfmac parts, brcmfmac falls back to the on-device NVRAM on Macs, and the record tells the user to install an unvetted binary blob from a bugzilla attachment into /usr/lib/firmware. Lead with regdom; make the NVRAM step an explicitly optional last resort.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Installing an NVRAM file for the wrong board can push out-of-spec transmit power. Only use a file matched to your exact Mac model.
 

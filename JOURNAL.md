@@ -52,6 +52,49 @@ not a wrong number, but a number whose meaning is not written down.
   the fold, so the run you just launched is not pushed off screen by the history. Committed
   as-is; it was finished, not half-done.
 
+### 4. Item 3 of "What's left" is closed: 22 stale causes, not 130
+
+The backlog said "roughly 130 `corrected` records may still carry a `cause` the auditor
+disproved". That number was never a count of defects — it was the size of the population
+nobody had looked at. All 130 have now been read, and **22 actually had a cause their own
+audit note contradicts.** The other 108 are fine: their notes open with "the diagnosis is
+right", "cause verified exactly", "the mechanism is real", and go on to object to the
+*fix*, which the first-pass audit had already rewritten.
+
+**Scoping it took provenance, not keywords.** The README records that the second pass's
+auditors could return a `corrected_cause` while the first pass's could not, so the
+affected set is exactly the `corrected` records whose audit came from the first pass.
+Reconstructing that from `raw/harvest-result.json` and `raw/gapfill-result.json` —
+`apps-services` was the only category re-audited in pass 2, everything else in
+`gapfill-result` audits the *new* records — yields **130 records, and independently
+reproduces the README's "20 causes replaced" figure**, which is what confirmed the
+mapping was right. Keyword heuristics on the notes gave a union of 123 and would have
+been both wrong and unfalsifiable.
+
+**The rewrites needed no new source work.** The auditor had already done it; the first
+pass simply had no field to put the result in. Each new cause is written from its own
+note. Two failure modes dominate, and both are worth recognising again elsewhere:
+
+- **The Omarchy 3 → 4 tree split.** Causes asserting a git checkout at
+  `~/.local/share/omarchy` that `omarchy update` hard-syncs, when Omarchy 4 is
+  pacman-owned at `/usr/share/omarchy` and the reason edits vanish is a package upgrade.
+  Same trap the agentic bench's `pacman -Qkk` assertion exists to catch.
+- **Fabricated precision.** A confident specific the source does not support: a
+  "430-590 vs 595+" NVIDIA driver boundary that is really open-vs-proprietary modules; a
+  `kernel-install` package that does not exist on Arch; `48-guessfamily.conf` asserted as
+  a filename the auditor could not find; an `omarchy-sleep-lock.service` that is not in
+  the repo. These read as more authoritative than the vague text around them, which is
+  what makes them worse than vagueness.
+
+**A schema change was needed to stay honest.** Rewriting a cause silently would have
+destroyed the distinction between "cause checked and correct" and "cause never
+revisited". Records now carry `cause_reconciled` (a date, or absent), it is a column in
+`schema.sql`, and the disclaimer under the audit note in both `ask.py` and the generated
+markdown is now **conditional** on it — previously it told every reader of all 197
+corrected records that the cause "was not rewritten", which is now false for 22 of them.
+A blanket disclaimer that is wrong for part of its audience is the same class of problem
+as the assertion that could not fail: it stops carrying information.
+
 ## Session of 2026-08-29 — the agentic lane
 
 The Skill Bench now grades what an agent **does** on a real machine, not only what a model
@@ -212,11 +255,11 @@ python3 tools/build_db.py
 
 **Do not use `resumeFromRunId` for this.** It was tried and re-ran completed work.
 
-### 3. Stale `cause` fields on first-pass corrected records  (known, mitigated)
+### 3. Stale `cause` fields on first-pass corrected records  — **DONE 2026-08-30**
 
-Roughly 130 `corrected` records may still carry a `cause` the auditor disproved; the first
-harvest's audits rewrote only `fix`. The audit note prints directly beneath the cause with a
-warning, so a reader is never misled, but a re-audit pass would be a genuine improvement.
+All 130 reviewed, 22 rewritten, each stamped `cause_reconciled`. The "~130" was a
+worst-case bound on an unreviewed population, not a defect count. See the 2026-08-30
+session entry above.
 
 ### 4. Optional / not started
 
