@@ -22,12 +22,10 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
+from corpus import read_jsonl, write_jsonl
+
 ROOT = Path(__file__).resolve().parent.parent
 JSONL = ROOT / "data" / "problems.jsonl"
-FIELDS = ["slug", "title", "category", "symptom", "cause", "fix", "verify",
-          "applies_to", "severity", "frequency", "danger",
-          "audit_status", "audit_confidence", "audit_note", "cause_reconciled",
-          "sources"]
 
 
 def apply_verdict(rec, v, stats):
@@ -72,7 +70,7 @@ def main():
     if not results:
         sys.exit("no results in payload — inspect the workflow journal before rerunning")
 
-    existing = [json.loads(l) for l in JSONL.read_text(encoding="utf-8").splitlines() if l.strip()]
+    existing = read_jsonl(JSONL)
     by_slug = {r["slug"]: r for r in existing}
     stats = Counter()
 
@@ -123,9 +121,7 @@ def main():
             added.append(p)
 
     merged = existing + added
-    with JSONL.open("w", encoding="utf-8", newline="\n") as fh:
-        for r in merged:
-            fh.write(json.dumps({k: r.get(k) for k in FIELDS}, ensure_ascii=False) + "\n")
+    write_jsonl(JSONL, merged)
 
     print(f"corpus: {len(existing) + len(dropped)} -> {len(merged)} records "
           f"(+{len(added)} new, -{len(dropped)} rejected)")

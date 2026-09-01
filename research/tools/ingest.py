@@ -19,10 +19,9 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from corpus import write_jsonl
+
 ROOT = Path(__file__).resolve().parent.parent
-FIELDS = ["slug", "title", "category", "symptom", "cause", "fix", "verify",
-          "applies_to", "severity", "frequency", "danger",
-          "audit_status", "audit_confidence", "audit_note", "sources"]
 
 STOP = {"the", "a", "an", "is", "to", "in", "on", "of", "and", "or", "not",
         "with", "after", "when", "my", "it", "but", "for", "at", "from"}
@@ -48,9 +47,10 @@ def main():
     data.mkdir(parents=True, exist_ok=True)
     raw.mkdir(parents=True, exist_ok=True)
 
-    with (data / "problems.jsonl").open("w", encoding="utf-8", newline="\n") as fh:
-        for p in problems:
-            fh.write(json.dumps({k: p.get(k) for k in FIELDS}, ensure_ascii=False) + "\n")
+    # Via corpus.write_jsonl, not a local field list: this script's own copy of
+    # that list was missing `cause_reconciled`, so the REPLACE path would have
+    # dropped the field on any payload carrying it.
+    write_jsonl(data / "problems.jsonl", problems)
 
     cats = {c["key"]: c["label"] for c in payload.get("categories", [])}
     # Any category that appears on a record but not in the declared list still
