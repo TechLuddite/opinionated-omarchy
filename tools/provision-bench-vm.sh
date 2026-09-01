@@ -58,6 +58,28 @@ omarchy-toggle screensaver-off on
 
 echo "$PASSWORD" | sudo -S -v 2>/dev/null       # cache sudo; heredocs below need stdin
 
+# ---- 1a. passwordless sudo, without which the agentic lane cannot test root ---
+# The bench drives this VM over ssh with no tty: seeds, post assertions and the
+# agent itself all run through `bash -lc` with nothing on stdin to answer a
+# password prompt. So WITHOUT this, the agentic lane can only ever exercise
+# things reachable as an unprivileged user -- which is every ~/.config task it
+# currently has, and a large part of why it is saturated. Every hard Omarchy
+# trap (boot config, pacman, the packaged system tree) lives behind sudo.
+#
+# This is safe HERE and nowhere else: these VMs are disposable, NAT-only, carry
+# no real data, and their password is committed in plain text in CLAUDE.md
+# already. It does let a misbehaving agent break the machine -- which is what
+# `tools/golden-test-vm.sh reset` is for. Never do this to a VM with a routable
+# address.
+# `id -un`, not $USER: $USER is set by login(1) and is frequently EMPTY in a
+# non-interactive ssh shell, which would write a sudoers rule granting NOPASSWD
+# to everyone parsed as a syntax error -- or worse, silently to the wrong name.
+sudo tee /etc/sudoers.d/99-bench-nopasswd >/dev/null <<EOF
+$(id -un) ALL=(ALL) NOPASSWD: ALL
+EOF
+sudo chmod 0440 /etc/sudoers.d/99-bench-nopasswd
+sudo visudo -c -f /etc/sudoers.d/99-bench-nopasswd >/dev/null   # refuse to ship a broken sudoers
+
 sudo tee /etc/sddm.conf.d/95-autologin.conf >/dev/null <<'EOF'
 # Bench VM: log straight in, and log back in if the session ever exits.
 # Session names a file in /usr/share/wayland-sessions/.

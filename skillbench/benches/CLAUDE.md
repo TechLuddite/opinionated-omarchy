@@ -141,3 +141,28 @@ there is no headroom for a skill to show up in. What is needed is tasks a capabl
 what `pacman -Qkk omarchy` (0 altered files) already tests: stale advice sends an agent to
 edit `/usr/share/omarchy`, where the change is both wrong and destroyed by the next update.
 The current three tasks are simply too easy. See [../../JOURNAL.md](../../JOURNAL.md).
+
+### Root is available now, and it was the real ceiling
+
+Every task in `omarchy-agentic-config` is a `~/.config` edit. That was **not** a judgement
+about difficulty: until 2026-09-01 the bench user had no passwordless sudo, and the bench
+drives the VM over ssh with **no tty**, so nothing requiring root could be seeded, done by
+the agent, or asserted. Userspace config is the easy end of Omarchy, and the bench could
+only ever reach that end.
+
+`tools/provision-bench-vm.sh` now installs `/etc/sudoers.d/99-bench-nopasswd`, and the
+golden images carry it, so it survives a `golden-test-vm.sh reset`. If a `post:` assertion
+that uses `sudo` starts failing on a rebuilt VM, that file is the first thing to check.
+
+`omarchy-agentic-root-config` is the first bench built on this. Two things in it are worth
+copying:
+
+- **Make a wrong answer a single plausible command.** Its task is resolving a `.pacnew`,
+  where `mv` adopts upstream and destroys the local edit, `rm` keeps local and discards the
+  new option, and only a real merge keeps both. Asserting on *both* values means each
+  shortcut fails a different assertion. Measured on a VM: seed-only 5/8, `mv` 7/8, `rm`
+  7/8, correct merge 8/8.
+- **Seeds that touch `/etc` must be idempotent.** `defaults.vm.restore` paths are
+  `$HOME`-relative, so `/etc` persists between cases. That bench keeps a pristine copy on
+  first run and re-derives the live file from it every time, so a case never inherits the
+  previous case's merge.

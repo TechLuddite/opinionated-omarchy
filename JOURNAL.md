@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-## Session of 2026-09-01 (second) — tests for the corpus writers, and the first live scenario
+## Session of 2026-09-01 (second) — writer tests, the first live scenario, and root in the bench
 
 Item 4 of "What's left" is closed, and the VM spot-checking under item 5 has started.
 
@@ -101,7 +101,67 @@ against a virtio GPU, 297 `laptop`, most of `power-suspend`, much of `network`).
 reset 0.76 s, ssh reachable ~7 s later. `virsh shutdown` is still ignored; poweroff over
 ssh works.
 
-### 4. A lead worth someone's time
+### 4. Item 1 is unblocked: the agentic lane could not reach root, and now can
+
+Writing the scenario into a bench turned up why `omarchy-agentic-config` is saturated,
+and it is not that nobody wrote hard tasks. **Every task in it is a `~/.config` edit
+because that was the ceiling.** The bench drives the VM over ssh with no tty (`vm.py`
+`run()` is `bash -lc` with nothing on stdin), and the bench user had no passwordless
+sudo — so nothing requiring root could be seeded, performed by the agent, or asserted.
+Userspace config is the easy end of Omarchy, and the bench could only ever measure that
+end.
+
+`tools/provision-bench-vm.sh` now installs `/etc/sudoers.d/99-bench-nopasswd`, validated
+with `visudo -c` so a broken sudoers is never shipped, and using `id -un` rather than
+`$USER` — `$USER` is set by login(1) and is frequently empty in a non-interactive ssh,
+which would have written a rule for the wrong name or none.
+
+**Both golden images were re-saved with it baked in**, because the first reset silently
+dropped it and a `sudo` assertion would then fail looking like a bench bug. Verified: a
+reset now comes back with NOPASSWD intact and no leftover bench state.
+
+This is safe on these VMs and nowhere else — disposable, NAT-only, no real data, and
+their password is already committed in plain text. It does let a misbehaving agent break
+the machine, which is what the 0.76 s reset is for.
+
+### 5. The first deliberately hard agentic bench
+
+`skillbench/benches/omarchy-agentic-root-config.yaml`. One task: resolve a `.pacnew` for
+the Limine boot config, keeping both the operator's local setting and the new upstream
+one, and regenerate the boot config.
+
+**The difficulty is structural rather than obscure.** Both wrong answers are single
+plausible commands that exit 0 and look like completion: `mv` the `.pacnew` over the live
+file adopts upstream and destroys the local edit; `rm` keeps local and silently discards
+the new option. Asserting on *both* values means each shortcut fails a different
+assertion, so the bench says which mistake was made rather than just "failed".
+
+**Checked by hand on a VM as `benches/CLAUDE.md` requires**, all four states:
+
+| state | score | what failed |
+| --- | --- | --- |
+| after seed, nothing done | 5/8 | both values, the `.pacnew`, the rebuild |
+| `mv` the .pacnew over the file | 7/8 | the local setting |
+| `rm` the .pacnew | 7/8 | the upstream setting |
+| a real merge, then rebuild | **8/8** | — |
+
+The remaining five assertions are collateral-damage guards — hooks intact, UKI present,
+`pacman -Qkk omarchy` clean — which correctly pass on an untouched machine and are there
+to catch an agent that succeeds destructively.
+
+Two things in it are worth copying and are written into `benches/CLAUDE.md`: the
+"both wrong answers are one command" shape, and the fact that **a seed touching `/etc`
+must be idempotent**, since `defaults.vm.restore` is `$HOME`-relative and `/etc` persists
+between cases. That bench keeps a pristine copy on first run and re-derives from it.
+
+All **43 skillbench tests still pass** with the new spec, so it loads, its assertions
+compile, its paths are absolute, and the control set is still pinned.
+
+**Not yet run against a model.** The bench is validated as a measuring instrument; what
+it measures is the next session's work, and it needs a paired bare/skill run to say
+anything about lift.
+
+### 6. A lead worth someone's time
 
 `/etc/mkinitcpio.conf.d/omarchy_resume.conf` is `HOOKS+=(resume)`, which appends `resume`
 *after* `filesystems`, `fsck` and `btrfs-overlayfs`. Corpus record
@@ -477,13 +537,17 @@ runs.
 
 ## What's left
 
-### 1. Make the agentic bench hard enough to measure anything
+### 1. Make the agentic bench hard enough to measure anything  — **UNBLOCKED, not finished**
 
-The lane works, the control exists, and the graders are fixed. The blocker now is task
-difficulty: `devstral-small-2:24b` scores **24/24 bare** on `omarchy-agentic-config`, so
-there is no headroom for a skill to show up in. Tasks are needed that a capable agent gets
-WRONG without the skill — the Omarchy-3-vs-4 tree split is the right seam (that is what
-`pacman -Qkk` already tests), but the current three are too easy.
+The structural cause was found on 2026-09-01: the lane could not reach root at all, so
+every task was a `~/.config` edit. NOPASSWD sudo is now provisioned and baked into the
+golden images, and `omarchy-agentic-root-config` is a first hard bench built on it,
+validated 5/8 → 7/8 → 7/8 → 8/8 across the four outcome states.
+
+**What remains: run it against a model, bare and with the skill.** Nothing here has been
+run against `devstral-small-2:24b` or anything else, so there is still no lift figure. If
+it also saturates, the next seam is the same one — more tasks where both wrong answers
+are single plausible commands. Original text follows.
 
 Open alongside that: whether `skill:omarchy-full` (~6.6k tokens) is even loadable by a 24B
 model in an agentic loop. One earlier case ran 199 s and returned an empty transcript

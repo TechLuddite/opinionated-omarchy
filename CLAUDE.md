@@ -41,7 +41,7 @@ research/                the troubleshooting corpus + its tooling
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
 skillbench/              the Skill Bench container — measures whether a skill helps
   app/                   FastAPI app: runner, graders, loader, themed UI
-  benches/               14 bench specs (7 Omarchy, 5 controls, gauntlet, crash)
+  benches/               15 bench specs (8 Omarchy, 5 controls, gauntlet, crash)
   benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
   data/                  DERIVED SQLite results DB; NOT tracked
@@ -119,6 +119,10 @@ and rebuild with `tools/make-test-vm.sh`, then re-provision:
 
 ```sh
 tools/install-bench-key.sh 1 2     # the bench's own ssh key (never your ~/.ssh key)
+                                   # provision also installs NOPASSWD sudo — without it
+                                   # the agentic lane cannot seed, perform or assert
+                                   # anything needing root, because it drives ssh with
+                                   # no tty and nothing can answer a password prompt
 tools/provision-bench-vm.sh 1 2    # autologin, never lock/blank/suspend, tmux mirror,
                                    # and pi pointed at the host's Ollama
 tools/golden-test-vm.sh save 1 2   # capture that good state (VM must be shut off)
