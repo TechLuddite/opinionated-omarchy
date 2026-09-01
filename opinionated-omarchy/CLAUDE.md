@@ -4,9 +4,9 @@
 knows what the thing is for, what it has to beat, and what would make it dishonest.
 
 The slot is not speculative: it is the settled destination for the skill that turns the
-[research corpus](../research/) into something an agent can consume. `.gitkeep` holds the
-directory open because git tracks files, not directories; delete it when real content
-lands.
+[research corpus](../research/) into something an agent can consume. This file is what
+holds the directory open — git tracks files, not directories — so it replaced the
+zero-byte `.gitkeep` that used to do the job.
 
 ## What it has to be
 

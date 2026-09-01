@@ -32,7 +32,7 @@ research/                the troubleshooting corpus + its tooling
   data/categories.json   category key -> display label
   docs/*.md              DERIVED per-category markdown; tracked, see the rule below
   raw/                   unprocessed workflow output, kept for provenance
-  tools/                 build/search/ingest scripts + the two workflow scripts
+  tools/                 build/search/ingest scripts + the three workflow scripts
   bench/                 skill-efficacy measurements; NOT corpus, NOT generated
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
 skillbench/              the Skill Bench container — measures whether a skill helps
@@ -47,6 +47,7 @@ tools/                   host-side scripts, not part of the corpus
   provision-bench-vm.sh  make a VM an agentic bench target (autologin, no lock, mirror)
   install-bench-key.sh   generate + install the bench's own ssh key on a VM
   golden-test-vm.sh      save/reset a VM's disk as a golden image (btrfs reflink, ~1s)
+writeups/                post-mortems worth keeping outside the journal
 JOURNAL.md               where we stopped, what's left
 ```
 
@@ -321,21 +322,35 @@ auditors never returned a verdict for. See [JOURNAL.md](JOURNAL.md).
 Two ingest paths, and picking the wrong one destroys work:
 
 - `tools/ingest.py` **replaces** the corpus from a full harvest result.
-- `tools/merge_gapfill.py` **extends** it in place. Use this for incremental work.
+- `tools/merge_gapfill.py` **extends** it in place, and also applies audit verdicts to
+  records already in the corpus. Use this for incremental work.
+
+`merge_gapfill.py` has one behaviour worth knowing before you point it at anything: when a
+result carries an `audit` block for a category, **it walks every record in that category**,
+not only the ones you meant to audit. Records with no verdict keep their existing status,
+so this is safe *provided the verdict set is scoped to the slugs you intended*. A stray or
+hallucinated slug silently overwrites an already-audited record. Scope the verdicts, and
+dry-run against a copy before pointing it at `data/problems.jsonl`.
 
 Every record carries an `audit_status` (`ok` / `corrected` / `unaudited` /
 `gapfill-unaudited`) recording how much scrutiny it survived. Unaudited records are
 flagged in both the CLI and the markdown. **Preserve that honesty** — if you add records,
-mark their provenance rather than letting them blend in with audited ones.
+mark their provenance rather than letting them blend in with audited ones. As of
+2026-09-01 no record carries `gapfill-unaudited`; the status stays reachable because
+`merge_gapfill.py` still assigns it when an audit agent dies.
 
 A second provenance field, `cause_reconciled` (a date, or absent), exists because the
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
 could therefore keep a `cause` its own `audit_note` disproved. All 130 such records were
-read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from their notes;
-those carry the stamp. **The disclaimer printed under the audit note is conditional on
-this field** in both `ask.py` and the generated markdown — if you reconcile more causes,
-set the field rather than editing the cause silently, or you destroy the distinction
-between "checked and correct" and "never revisited".
+read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from their notes.
+A further 7 were stamped on 2026-09-01 by the audit of the last unaudited records, so
+**29 records carry the stamp across two dates**. **The disclaimer printed under the audit
+note is conditional on this field** in both `ask.py` and the generated markdown — if you
+reconcile more causes, set the field rather than editing the cause silently, or you
+destroy the distinction between "checked and correct" and "never revisited".
+`merge_gapfill.py` now sets it automatically whenever it applies a `corrected_cause`;
+it did not always, and the consequences are written up in
+[writeups/2026-09-01-merge-gapfill-silent-defects.md](writeups/2026-09-01-merge-gapfill-silent-defects.md).
 
 ## Domain facts that are load-bearing
 
@@ -396,13 +411,22 @@ against primary sources during the research and repeatedly caught stale advice.
 
 ## Regenerating the corpus
 
-Both workflow scripts live in `research/tools/` and run via the `Workflow` tool pointed
-at their `scriptPath`:
+All three workflow scripts live in `research/tools/` and run via the `Workflow` tool
+pointed at their `scriptPath`. **They do different jobs and the difference is not obvious
+from the names:**
 
 - `harvest-workflow.js` — full harvest from scratch: one harvester per category, each
   audited, plus a gap-fill pass. ~35 agents, expensive.
-- `gapfill-workflow.js` — extend an existing corpus: audit unaudited categories and fill
-  auditor-named gaps. ~25 agents.
+- `gapfill-workflow.js` — **harvests new records** against auditor-named gaps and audits
+  only those new records. ~25 agents. Its `GAP_CATEGORIES` list drives the *harvest*
+  phase; its only audit-existing path is Track A, hardcoded to `apps-services`.
+- `audit-existing-workflow.js` — **audits records already in the corpus** and harvests
+  nothing. Retarget by editing `BATCHES`. ~1 agent per 6-8 records.
+
+Pick by what the records need, not by category. Records that exist but are unaudited need
+the third script; pointing `GAP_CATEGORIES` at their category re-harvests the same topics
+as `-2` suffixed duplicates and audits nothing that already exists. That mistake was
+written into JOURNAL.md as the recipe for a whole session before anyone caught it.
 
 These consume a lot of budget (the first harvest died partway through on a spend limit).
 Check `/usage-credits` before launching, and prefer trimming a workflow's category list
