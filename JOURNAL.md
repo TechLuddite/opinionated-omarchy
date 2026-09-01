@@ -95,6 +95,49 @@ corrected records that the cause "was not rewritten", which is now false for 22 
 A blanket disclaimer that is wrong for part of its audience is the same class of problem
 as the assertion that could not fail: it stops carrying information.
 
+### 5. Agent context files brought current, and two gaps filled
+
+Three counts had gone stale as the repo moved, all in the direction that matters — they
+undercounted work that had landed:
+
+- `CLAUDE.md` advertised **12 bench specs (6 Omarchy, 4 controls)**; it is 14 (7 Omarchy,
+  5 controls). `skillbench/README.md` said **"Four of the twelve"**. Both missed
+  `linux-agentic-triage`, the agentic lane's control — added on 2026-08-29 and never
+  written into either file. The control that exists to make a lift interpretable was
+  invisible in the docs describing the controls.
+- `skillbench/README.md`'s layout line said 13 specs and, once corrected, would have
+  double-counted: the agentic control is *both* a control and agentic. It now reads
+  "6 Omarchy chat + 1 Omarchy agentic, 5 controls (1 of them agentic), gauntlet, crash",
+  which actually sums to 14.
+- `CLAUDE.md` gained the `cause_reconciled` rule from section 4 above.
+
+**Two supplemental files were added, both where an agent would otherwise have had to
+reverse-engineer from source.**
+
+`skillbench/benches/CLAUDE.md` — the bench-spec schema. This was the real gap: the
+README explains *why* the bench exists across 310 lines but never documents the spec, so
+writing a bench meant reading `spec.py`, `checks.py` and `vmchecks.py`. That matters right
+now, because "write harder agentic tasks" is the top open item. It carries the full `post:`
+and `checks:` type tables, the three loader/test rules that are enforced (name must match
+filename, agentic-without-`post` is refused, every lane needs a control), and both grader
+traps that invalidated runs 12/13 — the tilde-quoting asymmetry and `pgrep` matching its
+own shell — because those are exactly what a new bench author will reproduce.
+
+`opinionated-omarchy/CLAUDE.md` — what the skill has to be. That directory had a
+zero-byte `.gitkeep` and nothing else, and it is the one place an agent is most likely to
+start writing from a blank slate. It now records the retrieval-shape problem (the corpus
+does not fit in context and "run ask.py" is not a skill), the **+29.3 pt Omarchy /
+−2.3 pt control** baseline it has to beat, the instruction to write its benches *before*
+tuning it, and the provenance it must not launder — 28 records are still
+`gapfill-unaudited` and must not reach a user reading as audited. It replaces the
+`.gitkeep`, which a real tracked file makes redundant.
+
+Every figure in these files was checked against the repo rather than copied forward: bench
+counts and control names from the YAML, `43` tests from a run, `457`/`228`/`197`/`28`/`4`
+and the 22 reconciled from the JSONL, `911` cases and the two lift figures from
+`research/bench/`, `1.6 MB` from `du`. The named tests were confirmed to exist before being
+cited.
+
 ## Session of 2026-08-29 — the agentic lane
 
 The Skill Bench now grades what an agent **does** on a real machine, not only what a model
@@ -263,9 +306,11 @@ session entry above.
 
 ### 4. Optional / not started
 
-- `opinionated-omarchy/` is still empty, held open by a `.gitkeep`. Settled: this is where
-  the skill goes — the one that turns the corpus into something an agent can consume.
-  Nothing written there yet.
+- `opinionated-omarchy/` still holds no skill. Settled: this is where it goes — the one
+  that turns the corpus into something an agent can consume. It now carries an orientation
+  file (`opinionated-omarchy/CLAUDE.md`) recording what the skill has to be, the
+  +29.3 pt / −2.3 pt baseline it has to beat, and the provenance it must not launder; that
+  file replaced the `.gitkeep`.
 - Now that the VMs exist and can be reset in a second, the corpus could be spot-checked
   against a real install. Nobody has done any of that.
 - `research/` root holds ~17 loose Hyprland wiki pages. Not corpus, no tooling reads them.
