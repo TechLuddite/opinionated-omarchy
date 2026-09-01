@@ -70,7 +70,20 @@ no verdict are preserved, so scoping the verdict set is what protects the 33 alr
 `wayland-compat` records. The workflow filters verdicts to the assigned slugs for the same
 reason.
 
-### 3. The Windows era is gone
+### 3. The audit workflow is now a third script in the repo
+
+`research/tools/audit-existing-workflow.js`. The repo had two workflow shapes and neither
+audits a record that already exists — `gapfill-workflow.js` **harvests** against
+auditor-named gaps and audits only what it just wrote, and its one audit-existing path is
+Track A, hardcoded to `apps-services`. That gap is exactly what made the old item-2 recipe
+wrong, so the fix is a script rather than a note.
+
+Retarget it by editing `BATCHES`; slugs are listed explicitly rather than derived, which
+keeps the run resumable and means a verdict can never land on a record you did not name.
+Batches of 6-8 leave each agent enough budget to actually fetch each record's sources.
+The obvious next user is the 4 remaining `unaudited` records.
+
+### 4. The Windows era is gone
 
 The repo was converted from Windows earlier; two things survived that conversion.
 
@@ -386,7 +399,33 @@ All 130 reviewed, 22 rewritten, each stamped `cause_reconciled`. The "~130" was 
 worst-case bound on an unreviewed population, not a defect count. See the 2026-08-30
 session entry above.
 
-### 4. Optional / not started
+### 4. The corpus tooling has no tests, and one script is unread
+
+New, and a direct consequence of what the 2026-09-01 audit turned up. Two defects in
+`merge_gapfill.py` would have silently destroyed the `cause_reconciled` provenance, and
+**nothing in the repo would have caught either** — `skillbench/tests/` covers the bench,
+and there is no test anywhere for `build_db.py`, `ask.py`, `merge_gapfill.py` or
+`ingest.py`.
+
+Two concrete follow-ups, in order of value:
+
+- **A round-trip test that asserts every schema field survives a merge.** This is the
+  cheap one and it catches the exact class of bug that got through: the writer projects
+  records onto an allowlist (`FIELDS`), so adding a schema field without updating that
+  list drops it with no error. A fixture record carrying every field, merged and read
+  back, would have failed loudly on 2026-08-30.
+- **Read `ingest.py` for the same defect.** It was out of scope on 2026-09-01 because it
+  is the *replace* path rather than the *extend* path, but it writes the corpus too and
+  may well share the projection pattern. Do this before it is next run, not after.
+
+Also worth writing down: adding a field to the record schema currently has **four**
+consumers and no checklist — `schema.sql`, `build_db.py`, `ask.py`, `merge_gapfill.py`.
+Three were updated when `cause_reconciled` landed and one was missed.
+
+Full detail in
+[writeups/2026-09-01-merge-gapfill-silent-defects.md](writeups/2026-09-01-merge-gapfill-silent-defects.md).
+
+### 5. Optional / not started
 
 - `opinionated-omarchy/` still holds no skill. Settled: this is where it goes — the one
   that turns the corpus into something an agent can consume. It now carries an orientation

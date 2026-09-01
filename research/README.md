@@ -21,17 +21,23 @@ So 452 of 456 records (99%) have been through an adversarial audit. The last
 `gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
 schema and `merge_gapfill.py` can produce, but no record currently carries it.
 
-This was built in two passes. The first harvested 314 records but hit the account spend
+This was built in three passes. The first harvested 314 records but hit the account spend
 limit, which killed the gap-fill stage and left `apps-services` unaudited. The second
 pass closed both: it audited those 26 records and filled 143 new records against the 117
 gaps the first pass's auditors had named. Only two of the second pass's audits failed
-(`wayland-compat`, `network` — API errors, not budget), which is the remaining 28.
+(`wayland-compat`, `network` — API errors, not budget), leaving 28 records harvested but
+never reviewed.
+
+The third pass, on 2026-09-01, audited exactly those 28: **12 `ok`, 15 `corrected`, and 1
+rejected and removed** — which is why the corpus is 456 records rather than 457. Since
+then no record carries `gapfill-unaudited`.
 
 The second pass also fixed a flaw in the first: its auditors could return a
 `corrected_cause`, not just a corrected fix. **20 records had a disproved cause
 replaced** rather than left standing. A later pass on 2026-08-30 closed the same gap
 for the first pass's 130 corrected records: all were reviewed and **22 had their cause
-rewritten** to match their own audit note. See the trust model below.
+rewritten** to match their own audit note. The third pass added **7 more**, for 29 stamped
+records across two dates. See the trust model below.
 
 ## Datastore design
 
@@ -148,6 +154,13 @@ or a config filename asserted with more confidence than the source supports.
 So the "~130 possibly-stale causes" figure that appeared in earlier notes was a
 worst-case bound on an unreviewed population, not a count of defects. The real number
 is 22.
+
+The 2026-09-01 audit stamped a further **7**, so 29 records carry `cause_reconciled`
+across two dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+whenever an auditor supplies a `corrected_cause` — it previously rewrote the cause and
+left the field unset, which made the renderers below assert the opposite of what had
+happened. See
+[../writeups/2026-09-01-merge-gapfill-silent-defects.md](../writeups/2026-09-01-merge-gapfill-silent-defects.md).
 
 Both `ask.py` and the generated markdown still print the full audit note directly
 beneath the cause. The line that follows it now says which case you are in — cause
