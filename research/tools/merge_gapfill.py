@@ -19,13 +19,15 @@ Rewrites data/problems.jsonl in place. Re-run tools/build_db.py afterwards.
 import json
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 JSONL = ROOT / "data" / "problems.jsonl"
 FIELDS = ["slug", "title", "category", "symptom", "cause", "fix", "verify",
           "applies_to", "severity", "frequency", "danger",
-          "audit_status", "audit_confidence", "audit_note", "sources"]
+          "audit_status", "audit_confidence", "audit_note", "cause_reconciled",
+          "sources"]
 
 
 def apply_verdict(rec, v, stats):
@@ -46,9 +48,13 @@ def apply_verdict(rec, v, stats):
         if v.get("corrected_fix"):
             rec["fix"] = v["corrected_fix"]
         # The first harvest could not do this, which left disproved causes in
-        # place on 130 records. Replace the cause when the auditor supplied one.
+        # place on 130 records. Replace the cause when the auditor supplied one,
+        # and stamp it: the disclaimer in build_db.py and ask.py is conditional on
+        # `cause_reconciled`, so an unstamped rewrite makes both tell the reader
+        # the cause "was not rewritten" about a cause this pass just replaced.
         if v.get("corrected_cause"):
             rec["cause"] = v["corrected_cause"]
+            rec["cause_reconciled"] = date.today().isoformat()
             stats["cause-corrected"] += 1
         rec["audit_status"] = "corrected"
         stats["corrected"] += 1

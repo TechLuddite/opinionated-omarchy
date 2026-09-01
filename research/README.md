@@ -8,17 +8,18 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**457 problems across 12 categories**, drawn from 769 distinct sources. Every record
+**456 problems across 12 categories**, drawn from 766 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 228 | audited and confirmed accurate |
-| `corrected` | 197 | problem real, fix (and sometimes cause) rewritten by the audit |
-| `gapfill-unaudited` | 28 | harvested but never reviewed — `wayland-compat` and `network` gap-fill |
+| `ok` | 240 | audited and confirmed accurate |
+| `corrected` | 212 | problem real, fix (and sometimes cause) rewritten by the audit |
 | `unaudited` | 4 | audit returned no verdict for these slugs |
 
-So 425 of 457 records (93%) have been through an adversarial audit.
+So 452 of 456 records (99%) have been through an adversarial audit. The last
+`gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
+schema and `merge_gapfill.py` can produce, but no record currently carries it.
 
 This was built in two passes. The first harvested 314 records but hit the account spend
 limit, which killed the gap-fill stage and left `apps-services` unaudited. The second
@@ -124,7 +125,7 @@ up, and corrects ones that are salvageable. Every record carries what it survive
 | `ok` | audited and confirmed accurate |
 | `corrected` | problem was real, fix was wrong — the audited version is stored |
 | `unaudited` | the auditor never returned a verdict for it |
-| `gapfill-unaudited` | added in a later gap-fill pass, never audited |
+| `gapfill-unaudited` | added in a later gap-fill pass, never audited — none remain, but `merge_gapfill.py` still assigns it when an audit agent dies |
 
 `unaudited` and `gapfill-unaudited` records are flagged in both `ask.py` output and the
 generated markdown. Treat them as leads, not instructions.

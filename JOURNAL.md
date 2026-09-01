@@ -1,6 +1,92 @@
 # Journal — handoff
 
-Last updated: 2026-08-30
+Last updated: 2026-09-01
+
+## Session of 2026-09-01 — the last unaudited records, and the Windows remnants
+
+Item 2 of "What's left" is closed, and the repo no longer carries anything from its
+Windows era.
+
+### 1. The 28 unaudited records are audited
+
+`wayland-compat` (12) and `network` (16) had been harvested but never reviewed since the
+gap-fill pass, whose audit agents died on API streaming errors. Four auditors, batched by
+category, returned **28/28 verdicts**:
+
+| | `ok` | `corrected` | `reject` |
+| --- | ---: | ---: | ---: |
+| `wayland-compat` | 5 | 7 | 0 |
+| `network` | 7 | 8 | 1 |
+| **total** | **12** | **15** | **1** |
+
+27 of 28 verdicts are `confidence: high`. Seven `corrected` records also had their `cause`
+rewritten and stamped `cause_reconciled: 2026-09-01`, so the corpus now carries 29 stamps
+across two dates. The corpus is **456 records**, `ok` 240 / `corrected` 212 / `unaudited` 4.
+
+**The one rejection is the most interesting result.**
+`usb-tethering-renamed-wwan-networkmanager-ignores` described a real kernel regression —
+the auditor confirmed commit `67d1a89` "rndis_host: Flag RNDIS modems as WWAN devices" and
+verified by fetching `drivers/net/usb/rndis_host.c` at each stable tag that
+`wwan_rndis_info` appears in exactly the versions the record named. **But the patch was
+reverted**, and is absent from v6.15, v6.17 and master. The record presented a six-week
+2025 regression as a live problem at `frequency: common`, on a workstation running 7.1.8.
+Its own cited thread said so at post #60. Separately the auditor traced NetworkManager's
+source to show the record's headline fix *cannot* work even on an affected kernel, because
+`nm-wwan-factory.c` unconditionally sets `*out_ignore = TRUE`, so no device object is ever
+created for `nmcli` to act on.
+
+That is the `fabricated precision` failure mode from the 2026-08-30 session showing up
+once more, in its most convincing costume yet: every specific in the cause was checkable
+and correct, and the conclusion was still wrong because nobody checked whether the story
+had ended.
+
+### 2. Two blockers in that path, both fixed first
+
+Neither would have failed loudly.
+
+- **`research/tools/gapfill-workflow.js:15` pointed at a Windows path.** `ROOT` was
+  `c:/Projects/Personal/skills/omarchy/research`, which agents use to read the corpus off
+  disk. Every gap-fill and audit agent would have failed on the read.
+- **`merge_gapfill.py` would have destroyed the `cause_reconciled` work.** Its writer
+  projects each record onto `FIELDS`, and the 2026-08-30 schema change never added the
+  field there — so a merge would have **stripped all 22 stamps**. It also rewrote causes
+  without stamping them, which would have made `build_db.py` and `ask.py` print *"The Cause
+  above was not rewritten and may still contain the error described"* about causes it had
+  just replaced. Both fixed: the field is in `FIELDS`, and `apply_verdict` stamps
+  `date.today()` whenever it applies a `corrected_cause`.
+
+Both are written up in full in
+[writeups/2026-09-01-merge-gapfill-silent-defects.md](writeups/2026-09-01-merge-gapfill-silent-defects.md),
+including the two follow-ups they leave open: the corpus tooling has no tests at all, and
+adding a schema field still has no checklist covering its four consumers.
+
+The second was caught by dry-running the merge against a **copy** of the corpus with
+synthetic verdicts before letting it near the real file — worth doing again, because the
+failure is silent and the evidence it destroys is the evidence of honesty.
+
+That dry run also confirmed the property that actually makes this merge safe: **merge
+iterates every record in the audited category, not just the targeted ones.** Records with
+no verdict are preserved, so scoping the verdict set is what protects the 33 already-audited
+`wayland-compat` records. The workflow filters verdicts to the assigned slugs for the same
+reason.
+
+### 3. The Windows era is gone
+
+The repo was converted from Windows earlier; two things survived that conversion.
+
+- The `gapfill-workflow.js` path above — the only functional remnant left anywhere.
+- **`CLAUDE.md`'s "previously developed on Windows" paragraph.** The LF and UTF-8 rules it
+  introduced are load-bearing and stay, but they now stand on their own merits instead of
+  being framed as inherited concessions.
+
+**Two things that look like Windows remnants are not, and should be left alone.**
+
+- `research/{lua,u55,wr054}.txt` carry CRLF. That is deliberate: `.gitattributes` pins
+  `research/*.txt -text` so downloaded wiki pages keep their harvested bytes. Provenance,
+  not drift.
+- Every other "Windows" hit is **corpus content** — dual-boot Bluetooth link keys, NTFS,
+  "works on Windows but not Arch" — or Hyprland *windows* in `wr054.txt`'s window rules.
+  Stripping those would delete real records.
 
 ## Session of 2026-08-30 — catching the journal up, and starting the re-audit
 
@@ -281,22 +367,18 @@ Open alongside that: whether `skill:omarchy-full` (~6.6k tokens) is even loadabl
 model in an agentic loop. One earlier case ran 199 s and returned an empty transcript
 having done nothing.
 
-### 2. Finish auditing 28 records  (the oldest real loose end)
+### 2. Finish auditing 28 records  — **DONE 2026-09-01**
 
-Unchanged from before. `wayland-compat` (12) and `network` (16) gap-fill records are
-harvested but never audited; their audit agents died on API streaming errors. They are
-flagged `gapfill-unaudited` and warn in both `ask.py` and the generated markdown.
+All 28 audited: 12 `ok`, 15 `corrected`, 1 rejected and removed. No record carries
+`gapfill-unaudited` any more. See the 2026-09-01 session entry above.
 
-To close: edit `GAP_CATEGORIES` in [research/tools/gapfill-workflow.js](research/tools/gapfill-workflow.js)
-down to those two categories, run it, then:
-
-```sh
-cd research
-python3 tools/merge_gapfill.py raw/gapfill-result.json
-python3 tools/build_db.py
-```
-
-**Do not use `resumeFromRunId` for this.** It was tried and re-ran completed work.
+**The recipe that used to live here was wrong, and is worth keeping as a warning.** It
+said to edit `GAP_CATEGORIES` down to those two categories and re-run the gap-fill
+workflow. That list drives the *harvest* phase, and the harvest had already succeeded —
+those 28 records **are** its output; only `gapfillAudit` came back `NONE`. Running it
+would have re-harvested the same topics as `-2` suffixed duplicates and left all 28
+exactly as unaudited as before. Track B has no audit-existing path at all; that shape
+exists only in Track A, hardcoded to `apps-services`.
 
 ### 3. Stale `cause` fields on first-pass corrected records  — **DONE 2026-08-30**
 
@@ -408,11 +490,12 @@ pins the network to `172.28.7.0/24` so the rule can name it.
 | What | Where |
 | --- | --- |
 | Corpus design, schema, trust model | [research/README.md](research/README.md) |
-| The 457 records (source of truth) | `research/data/problems.jsonl` |
+| The 456 records (source of truth) | `research/data/problems.jsonl` |
 | Generated per-category reading | `research/docs/*.md` |
 | Search / build / ingest tooling | `research/tools/` |
 | Deep-research report (13 verified findings, 12 refuted folk fixes) | `research/raw/deep-research-report.json` |
-| Raw workflow output, kept for provenance | `research/raw/harvest-result.json`, `research/raw/gapfill-result.json` |
+| Raw workflow output, kept for provenance | `research/raw/harvest-result.json`, `research/raw/gapfill-result.json`, `research/raw/audit-28-result.json` |
+| Post-mortems worth keeping outside the journal | [writeups/](writeups/) |
 | Gaps the auditors named | `research/raw/gapfill-todo.json` |
 | Per-category harvest/audit counts | `research/raw/harvest-stats.json` |
 | Test VM build / viewer scripts | `tools/make-test-vm.sh`, `tools/view-test-vms.sh` |

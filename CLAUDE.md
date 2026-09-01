@@ -11,7 +11,7 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
 1. **Upstream skills**, downloaded from `basecamp/omarchy` — [omarchy/](omarchy/) (system
    customization: Hyprland, theming, keybindings) and [diagnose-crash/](diagnose-crash/)
    (crash diagnosis from systemd-coredump).
-2. **A troubleshooting corpus** in [research/](research/) — 457 real Omarchy/Arch
+2. **A troubleshooting corpus** in [research/](research/) — 456 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
 This **is** a git repository: `TechLuddite/opinionated-omarchy`, work happening on
@@ -68,10 +68,8 @@ machine this repo is developed on *is* the system the corpus is about: `/usr/sha
 is present, so the Omarchy 4 layout described under "Domain facts" can be read directly
 rather than inferred.
 
-This repository was previously developed on Windows and has been converted. Nothing here
-targets Windows any more, and the concessions it required — ASCII-only stdout, a cp1252
-console, `python` rather than `python3` — are gone. Two habits from that era were kept
-because they are good practice independent of platform, and both are load-bearing:
+This is a Linux-native repository and nothing in it targets another platform. Two
+conventions are enforced throughout, and both are load-bearing:
 
 - **Generated files are written LF, explicitly.** Every `write_text` / `open("w")` in
   `research/tools/` passes `newline="\n"`, and `.gitattributes` normalises on top. Since
@@ -316,8 +314,9 @@ git diff --exit-code research/docs/     # must be clean once the build output is
 
 There is no refresh cadence, and inventing one would be dishonest about what this is. The
 corpus is a dated snapshot, not a feed. Rebuild when the JSONL changes; re-run a harvest
-workflow only when there is a reason, such as the 28 records still awaiting audit or an
-Omarchy release that changes the underlying facts. See [JOURNAL.md](JOURNAL.md).
+workflow only when there is a reason, such as an Omarchy release that changes the
+underlying facts. Every record has now been audited except the 4 `unaudited` ones the
+auditors never returned a verdict for. See [JOURNAL.md](JOURNAL.md).
 
 Two ingest paths, and picking the wrong one destroys work:
 

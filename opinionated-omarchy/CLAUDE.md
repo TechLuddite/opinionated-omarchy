@@ -10,12 +10,12 @@ lands.
 
 ## What it has to be
 
-The corpus is **457 records** of real Omarchy/Arch problems with verified, copy-pasteable
+The corpus is **456 records** of real Omarchy/Arch problems with verified, copy-pasteable
 fixes, searchable by symptom (`research/data/problems.jsonl` is the source of truth). It is
 currently reachable two ways, and neither is a skill:
 
 - `research/tools/ask.py` — a CLI, which needs Python and a built index.
-- `research/docs/*.md` — ~1.6 MB of generated markdown, far past any context budget.
+- `research/docs/*.md` — ~1.7 MB of generated markdown, far past any context budget.
 
 So the job is a **retrieval shape**, not a document dump. The interesting design question
 is what an agent gets handed: the whole corpus does not fit, and a skill that merely says
@@ -41,12 +41,13 @@ after. Writing the bench second is how you end up measuring what you already bui
 
 The corpus carries per-record provenance and that is load-bearing, not decoration:
 
-- `audit_status` — `ok` (228), `corrected` (197), `gapfill-unaudited` (28), `unaudited` (4).
-- `cause_reconciled` — set on the 22 records whose `cause` was rewritten on 2026-08-30 to
-  match their own audit note.
+- `audit_status` — `ok` (240), `corrected` (212), `unaudited` (4).
+- `cause_reconciled` — set on the 29 records whose `cause` was rewritten to match their own
+  audit note: 22 on 2026-08-30, 7 on 2026-09-01.
 
-**A skill that flattens those into undifferentiated advice launders 28 never-reviewed
-records into the same voice as audited ones.** Whatever shape the skill takes, an
+**A skill that flattens those into undifferentiated advice launders the 4 never-reviewed
+records, and the 212 whose fix an auditor had to rewrite, into the same voice as the
+records that passed clean.** Whatever shape the skill takes, an
 unaudited record has to still read as unaudited by the time it reaches the user. Both
 `ask.py` and the generated markdown already do this; do not regress it.
 
