@@ -11,7 +11,7 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
 1. **Upstream skills**, downloaded from `basecamp/omarchy` — [omarchy/](omarchy/) (system
    customization: Hyprland, theming, keybindings) and [diagnose-crash/](diagnose-crash/)
    (crash diagnosis from systemd-coredump).
-2. **A troubleshooting corpus** in [research/](research/) — 457 real Omarchy/Arch
+2. **A troubleshooting corpus** in [research/](research/) — 456 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
 This **is** a git repository: `TechLuddite/opinionated-omarchy`, work happening on
@@ -24,6 +24,7 @@ generated is enforced by [.gitignore](.gitignore) and [.gitattributes](.gitattri
 omarchy/                 upstream skill: system customization  (7 files)
 diagnose-crash/          upstream skill: crash diagnosis       (2 files)
 opinionated-omarchy/     where the skill this repo is building will live, nothing written yet
+  CLAUDE.md              what belongs here and what it has to beat; read before writing
 research/                the troubleshooting corpus + its tooling
   README.md              design, record schema, trust model — read this first
   data/problems.jsonl    SOURCE OF TRUTH, one JSON record per line
@@ -36,7 +37,8 @@ research/                the troubleshooting corpus + its tooling
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
 skillbench/              the Skill Bench container — measures whether a skill helps
   app/                   FastAPI app: runner, graders, loader, themed UI
-  benches/               12 bench specs (6 Omarchy, 4 controls, gauntlet, crash)
+  benches/               14 bench specs (7 Omarchy, 5 controls, gauntlet, crash)
+  benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
   data/                  DERIVED SQLite results DB; NOT tracked
 tools/                   host-side scripts, not part of the corpus
@@ -48,15 +50,16 @@ tools/                   host-side scripts, not part of the corpus
 JOURNAL.md               where we stopped, what's left
 ```
 
-`opinionated-omarchy/` holds a zero-byte `.gitkeep`. Git tracks files, not directories, so
-an empty directory cannot be committed and would simply vanish from a clone; the `.gitkeep`
-is the conventional way to hold the slot open. Delete it when real content lands.
+`opinionated-omarchy/` is **the destination for the skill this repo exists to produce** —
+the one that makes the corpus agent-consumable. It is still several steps out, so no skill
+is written there yet, but the slot is not speculative. It now holds
+[opinionated-omarchy/CLAUDE.md](opinionated-omarchy/CLAUDE.md), which records what the skill
+has to be, the +29.3 pt / −2.3 pt baseline it has to beat, and the provenance it must not
+launder — read that before writing anything there. (That file also replaced the zero-byte
+`.gitkeep` that used to hold the directory open, since git tracks files, not directories.)
 
-That directory is **the destination for the skill this repo exists to produce** — the one
-that makes the corpus agent-consumable. It is still several steps out, so nothing is written
-there yet, but the slot is not speculative. (A second placeholder, `omarchy-old/`, was
-deleted on 2026-08-28: nobody could recall what it was for, which is reason enough not to
-keep an empty directory around.)
+A second placeholder, `omarchy-old/`, was deleted on 2026-08-28: nobody could recall what it
+was for, which is reason enough not to keep an empty directory around.
 
 ## Environment
 
@@ -65,10 +68,8 @@ machine this repo is developed on *is* the system the corpus is about: `/usr/sha
 is present, so the Omarchy 4 layout described under "Domain facts" can be read directly
 rather than inferred.
 
-This repository was previously developed on Windows and has been converted. Nothing here
-targets Windows any more, and the concessions it required — ASCII-only stdout, a cp1252
-console, `python` rather than `python3` — are gone. Two habits from that era were kept
-because they are good practice independent of platform, and both are load-bearing:
+This is a Linux-native repository and nothing in it targets another platform. Two
+conventions are enforced throughout, and both are load-bearing:
 
 - **Generated files are written LF, explicitly.** Every `write_text` / `open("w")` in
   `research/tools/` passes `newline="\n"`, and `.gitattributes` normalises on top. Since
@@ -243,7 +244,7 @@ context?** It has **two lanes**, and a bench declares which with `lane:`.
 
 ```sh
 cd skillbench && docker compose up -d --build     # http://127.0.0.1:8878
-./tests/run.sh                                    # 39 unit tests
+./tests/run.sh                                    # 43 unit tests
 ```
 
 Read [skillbench/README.md](skillbench/README.md) before changing it. The things that are
@@ -261,11 +262,13 @@ load-bearing:
   test VMs at all — and nothing in ufw can override it, because in nftables only
   `reject`/`drop` are terminal. This also removed the old pinned-subnet ufw rule for
   Ollama entirely; the app binds `127.0.0.1:8878` itself.
-- **Four benches are controls** (`linux-disk-full`, `-runaway-process`,
-  `-boot-partition-full`, `-pacman-keyring`), flagged `control: true`. They are general
-  Linux the skill says nothing about, so the skill should barely move them. If a change
-  lifts the controls as much as the Omarchy benches, it is measuring answer length rather
-  than skill efficacy. **Do not delete them to tidy the suite** — they are the evidence.
+- **Five benches are controls** (`linux-disk-full`, `-runaway-process`,
+  `-boot-partition-full`, `-pacman-keyring`, and `-agentic-triage` for the agentic lane),
+  flagged `control: true`. They are general Linux the skill says nothing about, so the
+  skill should barely move them. If a change lifts the controls as much as the Omarchy
+  benches, it is measuring answer length rather than skill efficacy. **Do not delete them
+  to tidy the suite** — they are the evidence, and every lane needs at least one (a test
+  enforces this).
 - **Everything is sha-pinned.** Edit a bench and the next run is a new series; edit a skill
   and resume refuses. Regrade re-scores from stored output with zero model calls.
 
@@ -311,8 +314,9 @@ git diff --exit-code research/docs/     # must be clean once the build output is
 
 There is no refresh cadence, and inventing one would be dishonest about what this is. The
 corpus is a dated snapshot, not a feed. Rebuild when the JSONL changes; re-run a harvest
-workflow only when there is a reason, such as the 28 records still awaiting audit or an
-Omarchy release that changes the underlying facts. See [JOURNAL.md](JOURNAL.md).
+workflow only when there is a reason, such as an Omarchy release that changes the
+underlying facts. Every record has now been audited except the 4 `unaudited` ones the
+auditors never returned a verdict for. See [JOURNAL.md](JOURNAL.md).
 
 Two ingest paths, and picking the wrong one destroys work:
 
@@ -323,6 +327,15 @@ Every record carries an `audit_status` (`ok` / `corrected` / `unaudited` /
 `gapfill-unaudited`) recording how much scrutiny it survived. Unaudited records are
 flagged in both the CLI and the markdown. **Preserve that honesty** — if you add records,
 mark their provenance rather than letting them blend in with audited ones.
+
+A second provenance field, `cause_reconciled` (a date, or absent), exists because the
+first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
+could therefore keep a `cause` its own `audit_note` disproved. All 130 such records were
+read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from their notes;
+those carry the stamp. **The disclaimer printed under the audit note is conditional on
+this field** in both `ask.py` and the generated markdown — if you reconcile more causes,
+set the field rather than editing the cause silently, or you destroy the distinction
+between "checked and correct" and "never revisited".
 
 ## Domain facts that are load-bearing
 

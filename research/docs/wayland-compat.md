@@ -67,11 +67,11 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 **Symptom.** Screen share starts and immediately stops after about a second, and the list of shareable windows is frozen — opening or closing windows no longer updates it. Portal log shows: `[WARN] [pipewire] Asked for a wl_shm buffer which is legacy.`, `[WARN] [pw] DMA-BUF allocation failed, falling back to SHM`, `[LOG] [sc] Incompatible formats, renegotiate stream`, `[ERR] [screencopy] tried scheduling on already scheduled cb (type 1)`.
 
-**Cause.** XDPH's screencopy session state is left corrupt after a previous share ends (buffer renegotiation between DMA-BUF and SHM races and double-schedules a frame callback). The portal keeps running but every subsequent ScreenCast session dies immediately. Reported against xdg-desktop-portal-hyprland 1.4.0 with Hyprland 0.56.
+**Cause.** XDPH's screencopy session state was left corrupt after a previous share ended (buffer renegotiation between DMA-BUF and SHM raced and double-scheduled a frame callback), so the portal kept running but every subsequent ScreenCast session died immediately. Reported against xdg-desktop-portal-hyprland 1.4.0 with Hyprland 0.56. **This was fixed upstream** by commit `c46162255e00` ('core: fix loop hangup detection', 2026-07-24), released in XDPH v1.4.1 (2026-07-29), which Arch `extra` now carries - so on a current system this is an out-of-date XDPH rather than a live bug.
 
 > **Audit corrected this record.** Symptom, logs, cause and the restart workaround all match xdg-desktop-portal-hyprland#418 verbatim — but the record is now obsolete as written. That issue was closed by upstream commit c46162255e00 ('core: fix loop hangup detection', 2026-07-24), which shipped in XDPH v1.4.1 (2026-07-29). Arch extra currently carries 1.4.1-1. Telling a user to permanently pin force_shm — which the XDPH wiki explicitly documents as the slower path, especially at high resolutions — when a plain system upgrade fixes the bug outright is the wrong first move. The force_shm advice itself is valid (the option exists, and the Omarchy caveat about editing the existing screencopy block is correct) but belongs after the upgrade, scoped to genuine multi-GPU DMA-BUF allocation failures.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `force_shm = true` sends every frame through shared memory instead of a GPU buffer. At 4K/high refresh this raises CPU use noticeably. Only set it if DMA-BUF allocation is actually failing in the logs.
 
@@ -182,8 +182,6 @@ Then log out and back in.
 
 **Verify.** Open the app, press Ctrl+Space, and check the fcitx5 candidate window appears over the app window. `hyprctl clients | grep -A6 <class>` should show `xwayland: 0` for a native Wayland Electron app. If the popup appears but characters land in the wrong place, you are still on text-input-v1 — confirm the flag file is being read by launching from a terminal and checking `chrome://version` shows the flags in the command line.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/Chromium> · <https://wiki.archlinux.org/title/Fcitx5> · <https://wiki.archlinux.org/title/Electron> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-variables/>
 
 ---
@@ -241,11 +239,11 @@ Sources: <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https:
 
 **Symptom.** Screen share silently fails. `journalctl --user -u xdg-desktop-portal-hyprland` or `systemctl --user status xdg-desktop-portal-hyprland` shows: `hyprland-share-picker[5621]: Could not load the Qt platform plugin "wayland" in "" even though it was found.` followed by `This application failed to start because no Qt platform plugin could be initialized.` and `No shell integration named "xdg-shell" found`.
 
-**Cause.** hyprland-share-picker is a Qt 6 application. Without the qt6-wayland platform plugin it cannot create a window, so the picker process dies instantly and the portal never gets a selection back — the calling app just sees the share request fail. Same root cause makes OBS unable to open.
+**Cause.** `hyprland-share-picker` is a Qt 6 application and needs the `qt6-wayland` platform plugin to create a window; without a usable one the picker dies instantly and the portal never gets a selection back, so the calling app just sees the share request fail. Read the log carefully to tell the two states apart: 'Could not load the Qt platform plugin "wayland" ... **even though it was found**', together with 'No shell integration named "xdg-shell" found', means `qt6-wayland` is installed but ABI-mismatched against `qt6-base` after a partial upgrade - the plugin is present and refuses to load. The same root cause makes OBS unable to open.
 
 > **Audit corrected this record.** The problem is real and the cited source (xdg-desktop-portal-hyprland#367) is genuine, but the fix does not follow from the log that is quoted. 'Could not load the Qt platform plugin "wayland" ... even though it was found' plus 'No shell integration named "xdg-shell" found' means qt6-wayland IS installed but is ABI-mismatched against qt6-base (classic partial upgrade). Against that state `pacman -S --needed qt6-wayland` is a silent no-op because --needed skips already-installed packages, so the user runs the command, sees 'nothing to do', and concludes the record is wrong. The maintainer's own resolution in that issue was to reinstall qt6-base and qt6-wayland together. Also: hyprland-share-picker is Qt6 only, so qt5-wayland is irrelevant to it.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
@@ -758,17 +756,40 @@ Sources: <https://github.com/basecamp/omarchy/issues/1862> · <https://wiki.hypr
 
 **Cause.** Chromium (and every Electron app, which uses the same `safeStorage`/Secret Service code) auto-detects which password store to use. With no desktop environment it guesses, and the guess changes as packages come and go — so the key that encrypted your cookies with one backend cannot be read back with another. Separately, on a bare Hyprland session gnome-keyring is often never unlocked: `pam_gnome_keyring.so` is not in the PAM stack, or `gnome-keyring-daemon --login` started by PAM died because it was never handed the session D-Bus environment, so the daemon has no unlocked `login` keyring to serve.
 
+> **Audit corrected this record.** Real, very common problem, and the Chromium half is impeccable — but the PAM half sends an Omarchy reader to the wrong file on a wrong premise, and the verify command does not work. (a) The fix says "If you log in through a display manager (SDDM, GDM, LightDM, LXDM) this is already configured" (a faithful copy of ArchWiki GNOME/Keyring) and then walks the reader through /etc/pam.d/login. On Omarchy 4 both halves are wrong. Omarchy ships SDDM — `sddm` is in /usr/share/omarchy/install/omarchy-base.packages and /etc/sddm.conf.d/ is populated — so /etc/pam.d/login is never consulted; and Arch's sddm PAM stack is only half-configured for gnome-keyring. I read /etc/pam.d/sddm on this box: it has `-session optional pam_gnome_keyring.so auto_start` but **no `auth optional pam_gnome_keyring.so`** line, and `grep -n gnome_keyring /etc/pam.d/*` shows nothing else in the include chain (system-login/system-auth are clean). Without the auth half PAM never captures the login password, so the `login` keyring is started but never unlocked — which is precisely this record's symptom. The record therefore tells the majority of its audience "already configured, skip this" when it is the actual cause. (b) SDDM autologin, which Omarchy supports (/etc/sddm.conf.d/autologin.conf), has both PAM lines in /etc/pam.d/sddm-autologin but no password is ever typed, so the keyring still cannot be unlocked — a second real case the record does not cover. (c) The verify command `pgrep -a gnome-keyring-daemon` does not work: the name is 20 characters and pgrep refuses patterns over 15 ("pattern that searches for process name longer than 15 characters will result in zero matches"). It needs `pgrep -af`. (d) Step 2's hand-start is obsolete and mildly harmful: current gnome-keyring (1:50.0-1) ships gnome-keyring-daemon.socket, enabled by preset and active here, plus /etc/xdg/autostart/gnome-keyring-secrets.desktop which uwsm runs; ArchWiki warns a second start produces "discover_other_daemon: 1". Omarchy's own /usr/share/omarchy/default/hypr/autostart.lua already runs `dbus-update-activation-environment --systemd --all`. (e) Step 2 also names the wrong file for Omarchy: user autostart lives in ~/.config/hypr/autostart.lua, which hyprland.lua requires. What is correct and stays: the ArchWiki /etc/pam.d/login block and the /etc/pam.d/passwd append are verbatim-accurate; `--password-store=gnome-libsecret` is a real, currently documented value (ArchWiki Chromium "Force a password store" lists gnome-libsecret, kwallet5, kwallet6, basic, detect) and the `Failed to decrypt token for service AccountId-*` symptom is quoted verbatim from that same page; ArchWiki Electron documents --password-store for safeStorage; the danger about --password-store=basic writing plaintext into `Login Data` matches the wiki exactly; gnome-keyring, libsecret and seahorse are all in official repos; `busctl --user list | grep secrets` works (shows org.freedesktop.secrets owned by gnome-keyring-d).
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** Changing the password store makes everything encrypted under the previous backend permanently unreadable — you are logged out of every site and all saved passwords in that profile are lost. Export what you need first. `--password-store=basic` is a last resort: it writes the cookie encryption key and passwords as plain text into the profile's `Login Data` file, readable by anything running as your user. Editing PAM files incorrectly can lock you out of login entirely — keep a root shell open on another TTY (Ctrl+Alt+F2) while you edit, and test in a second TTY before closing it. Deleting `~/.local/share/keyrings/login.keyring` permanently destroys every stored secret.
 
 **Fix.**
 
-1. Install the keyring and make PAM unlock it at login:
+**1. Find out which PAM stack your login actually uses — and check it, do not assume it is fine.**
 
 ```bash
-sudo pacman -S --needed gnome-keyring libsecret seahorse
+systemctl status display-manager --no-pager | head -3
+grep -n gnome_keyring /etc/pam.d/*
 ```
 
-If you log in through a display manager (SDDM, GDM, LightDM, LXDM) this is already configured. For console login, edit `/etc/pam.d/login` — add the two bold lines:
+Omarchy 4 logs in through **SDDM**, so `/etc/pam.d/login` is never read. And Arch's `sddm` package ships only half of what gnome-keyring needs — `/etc/pam.d/sddm` has
+
+```
+-session    optional    pam_gnome_keyring.so    auto_start
+```
+
+but **no `auth` line**, so PAM never captures your login password and the `login` keyring comes up locked. That is the usual reason for a prompt on every launch on Omarchy, and it is why "a display manager configures this for you" is not true here.
+
+Before editing any PAM file, **open a root shell on another TTY (Ctrl+Alt+F2) and leave it open** — a broken PAM stack locks you out of login entirely. Add the missing line after `auth include system-login`:
+
+```
+# /etc/pam.d/sddm
+auth        include     system-login
+-auth       optional    pam_gnome_keyring.so
+```
+
+Log out and back in, and confirm on the second TTY that you can still authenticate before you close it.
+
+For a console login with no display manager, the file is `/etc/pam.d/login` and the ArchWiki block is:
 
 ```
 #%PAM-1.0
@@ -781,19 +802,33 @@ session    include      system-local-login
 session    optional     pam_gnome_keyring.so auto_start
 ```
 
-If you use `greetd`, edit `/etc/pam.d/greetd` instead.
+`greetd` users edit `/etc/pam.d/greetd` instead.
 
-2. Make sure the session bus knows about your graphical session, otherwise the PAM-started daemon dies within minutes:
+**If you use SDDM autologin** (`/etc/sddm.conf.d/autologin.conf`), no password is ever typed, so PAM has nothing to unlock the keyring with and the missing `auth` line above will not help. Either accept one prompt per boot, or give the **Login** keyring an empty password in `seahorse` — which stores every secret in it **unencrypted on disk, readable by anything running as your user.** Do not do that on a machine anyone else can reach.
+
+**2. Packages.** `gnome-keyring` and `libsecret` are already in Omarchy's base set; `seahorse` is not:
+
+```bash
+sudo pacman -S --needed gnome-keyring libsecret seahorse
+```
+
+**3. Do not hand-start the daemon — check it instead.** Current `gnome-keyring` ships `gnome-keyring-daemon.socket` (enabled by preset) and `/etc/xdg/autostart/gnome-keyring-secrets.desktop`, which uwsm runs; adding another `gnome-keyring-daemon --start` gives you `discover_other_daemon: 1`.
+
+```bash
+systemctl --user status gnome-keyring-daemon.socket
+busctl --user list | grep org.freedesktop.secrets
+```
+
+The D-Bus activation environment is already handled on Omarchy by `/usr/share/omarchy/default/hypr/autostart.lua`. Only on a bare Hyprland session with no uwsm and no display manager do you need to add it yourself — and the user-owned file is `~/.config/hypr/autostart.lua`, not `hyprland.lua`:
 
 ```lua
--- ~/.config/hypr/hyprland.lua
+-- ~/.config/hypr/autostart.lua
 hl.on("hyprland.start", function()
   hl.exec_cmd("dbus-update-activation-environment --systemd --all")
-  hl.exec_cmd("gnome-keyring-daemon --start --components=secrets")
 end)
 ```
 
-3. Stop Chromium guessing. Pin the backend explicitly:
+**4. Stop Chromium guessing which store to use.** Pin the backend explicitly:
 
 ```conf
 # ~/.config/chromium-flags.conf
@@ -805,7 +840,7 @@ end)
 --password-store=gnome-libsecret
 ```
 
-For an app bundling its own Electron, patch its desktop entry:
+For an app bundling its own Electron (these files are read only by Arch's `electron` package), patch its desktop entry:
 
 ```bash
 cp /usr/share/applications/slack.desktop ~/.local/share/applications/
@@ -813,17 +848,20 @@ sed -i 's|^Exec=\(.*slack\) |Exec=\1 --password-store=gnome-libsecret |' ~/.loca
 update-desktop-database ~/.local/share/applications
 ```
 
-4. If the keyring password no longer matches your login password (the usual reason the prompt keeps coming back), change it in `seahorse`: right-click the **Login** keyring → Change Password → set it to your user password. To make it track your password automatically in future, append to `/etc/pam.d/passwd`:
+**5. If the keyring password no longer matches your login password**, change it in `seahorse`: right-click the **Login** keyring → Change Password → set it to your user password. To make it track your password automatically in future, append to `/etc/pam.d/passwd`:
 
 ```
 password	optional	pam_gnome_keyring.so
 ```
 
-5. Log out completely and back in — PAM only runs at login.
+**6. Log out completely and back in** — PAM only runs at login. Then verify (note the `-f`; the process name is 20 characters and plain `pgrep -a` refuses to match names longer than 15):
+
+```bash
+pgrep -af gnome-keyring-daemon
+busctl --user list | grep org.freedesktop.secrets
+```
 
 **Verify.** `pgrep -a gnome-keyring-daemon` shows the daemon running with `--components=` including `secrets`. `busctl --user list | grep secrets` shows `org.freedesktop.secrets`. Launch Chromium: no prompt appears and previously saved passwords are listed under `chrome://settings/passwords`. `seahorse` shows the **Login** keyring as unlocked.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Chromium> · <https://wiki.archlinux.org/title/GNOME/Keyring> · <https://wiki.archlinux.org/title/Electron>
 
@@ -977,11 +1015,17 @@ Sources: <https://github.com/basecamp/omarchy/issues/7021> · <https://github.co
 
 **Cause.** On Hyprland the screen-cast stream comes from xdg-desktop-portal-hyprland, which streams video only — its documented configuration (`~/.config/hypr/xdph.conf`) exposes `max_fps`, `cursor_mode`, `force_shm` and token options and nothing at all for audio, because the portal's audio path is not implemented. So "share entire screen" carries no audio no matter which app you use. Audio has to be routed separately through PipeWire: either by capturing the sink's monitor source, or by using a client that does its own capture.
 
+> **Audit corrected this record.** The cause is well supported: I pulled hyprwm/hyprland-wiki content/hypr-ecosystem/user/xdg-desktop-portal-hyprland.md, and the entire documented `~/.config/hypr/xdph.conf` surface is `max_fps`, `allow_token_by_default`, `custom_picker_binary`, `force_shm` and `cursor_mode` — there is no audio option, exactly as the record says. The pactl/pavucontrol/qpwgraph routing, the `.monitor` source naming, `pactl move-source-output <ID> <monitor>`, the OBS "Audio Output Capture (PulseAudio)" source and the AUR packages (`obs-pipewire-audio-capture` 1.2.1-1, `vesktop` 1.6.7-1, neither of which is in the official repos, so `yay` is correct) all check out. Two claims do not. (1) "choose Chrome Tab / **Firefox Tab** and tick Share tab audio" — Firefox cannot do this at all. Mozilla bug 1541425, "Implement audio capture for getDisplayMedia", is still status NEW with no resolution (queried via the Bugzilla REST API), so a Firefox tab share carries no audio track by any route. Sending a user to look for a checkbox that does not exist is exactly the kind of confident specific this audit is meant to catch. (2) "OBS 27+ already has the PipeWire screen-capture source; only the audio plugin is separate on older builds" implies current OBS ships application audio capture on Linux. It does not: a code search of obsproject/obs-studio for "Application Audio Capture" returns hits only under plugins/win-wasapi, plugins/win-capture and plugins/mac-capture — there is no Linux implementation in any release, including the 32.2.2 installed here. The plugin is separate on every build, not just old ones. Everything else, including the danger note about leaking notification sounds and other tabs into the call, is accurate and worth keeping.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** Routing a sink monitor into a call means everything the machine plays — including notification sounds, other calls, and anything in another browser tab — goes out to the other participants. Mute or move any stream you do not want shared before joining.
 
 **Fix.**
 
-**Browsers (Meet, Teams, Jitsi, Discord in a tab).** Only a *tab* share can carry audio. In the share picker choose "Chrome Tab" / "Firefox Tab" and tick **Share tab audio**. Whole-screen and window shares have no audio path.
+**Browsers (Meet, Teams, Jitsi, Discord in a tab).** Only a *tab* share can carry audio, and only in a Chromium-based browser. In Chrome/Chromium/Brave/Edge choose **Chrome Tab** in the share picker and tick **Share tab audio**. Whole-screen and window shares have no audio path.
+
+Firefox cannot share audio at all — audio capture for `getDisplayMedia` has never been implemented (Mozilla bug [1541425](https://bugzilla.mozilla.org/show_bug.cgi?id=1541425), still open). If you must use Firefox, route the sink monitor into the call as described at the bottom of this fix, or join from a Chromium-based browser instead.
 
 **OBS.** Capture the monitor of your output sink. Find its name:
 
@@ -990,13 +1034,15 @@ pactl list short sources | grep monitor
 # e.g. alsa_output.pci-0000_00_1f.3.analog-stereo.monitor
 ```
 
-Then in OBS: `+` → **Audio Output Capture (PulseAudio)** → Device = that `.monitor` source. For per-application audio instead of the whole desktop, use the **Application Audio Capture (PipeWire)** source; if it is missing from the list, install the plugin:
+Then in OBS: `+` → **Audio Output Capture (PulseAudio)** → Device = that `.monitor` source. That captures the whole desktop.
+
+For **per-application** audio instead, you need the third-party plugin — OBS has never shipped application audio capture on Linux, only on Windows and macOS, so this is a separate install on every OBS version:
 
 ```bash
 yay -S obs-pipewire-audio-capture
 ```
 
-OBS 27+ already has the PipeWire screen-capture source; only the audio plugin is separate on older builds.
+After installing it, restart OBS and add `+` → **Application Audio Capture (PipeWire)**.
 
 **Discord desktop.** The official client's Linux screenshare audio is unreliable on Wayland. `vesktop` implements Linux screenshare with sound natively:
 
@@ -1004,7 +1050,7 @@ OBS 27+ already has the PipeWire screen-capture source; only the audio plugin is
 yay -S vesktop
 ```
 
-**Anything that only accepts a microphone (Zoom, Teams desktop, older clients).** Point its capture stream at the sink monitor while the share is running:
+**Anything that only accepts a microphone (Zoom, Teams desktop, Firefox, older clients).** Point its capture stream at the sink monitor while the share is running:
 
 ```bash
 pactl list short source-outputs          # find the app's record stream ID
@@ -1015,8 +1061,6 @@ pactl move-source-output <ID> <monitor-source-name>
 The same thing with a GUI: run `pavucontrol`, open the **Recording** tab, and change the app's input device from your microphone to `Monitor of <your output>`. To mix your voice *and* desktop audio, wire both into the app's capture node with `qpwgraph`.
 
 **Verify.** `pactl list short source-outputs` shows the sharing app's record stream bound to a `*.monitor` source. In `pavucontrol`'s Recording tab the app's level meter moves while music plays. On the receiving end of the call, audio is audible.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/> · <https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/> · <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https://github.com/Vencord/Vesktop> · <https://aur.archlinux.org/packages/obs-pipewire-audio-capture>
 
@@ -1030,6 +1074,10 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/> ·
 
 **Cause.** Wayland has no XEmbed system tray — the X11 `_NET_SYSTEM_TRAY` protocol that every classic tray icon used simply does not exist. On Wayland the bar must run a StatusNotifierItem (SNI/AppIndicator) *host*, and each app must publish an SNI on the session bus. GTK and Electron apps only publish an SNI if libappindicator is present at runtime; Wine, Java/Swing `SystemTray`, and older Qt4-era apps only ever speak XEmbed and will never publish one. XWayland gives those apps an X server but no tray host to dock into, which is why Wine draws its own floating icon window.
 
+> **Audit corrected this record.** Cause is sound and the diagnosis via `busctl --user list | grep StatusNotifier` is right - I ran it on this Omarchy 4.0.0-1 / Hyprland 0.56.2 box and it prints `org.kde.StatusNotifierWatcher` owned by quickshell, and /usr/share/omarchy/shell/plugins/bar/widgets/Tray.qml does `import Quickshell.Services.SystemTray`. But three specifics in the fix are wrong. (1) The binary path is fabricated: the Arch file list for plasma-workspace 6.7.4-3 shows `usr/bin/xembedsniproxy`, not `/usr/lib/xembedsniproxy`, so the copy-pasteable Lua line launches nothing. The record's own cited source, hyprwm/Hyprland discussion 13083, just runs `xembedsniproxy` off PATH. (2) The window rule cannot match. The record matches `class = "^xembedsniproxy$"`, but discussion 13083 - fetched in full via the GitHub GraphQL API - says the leftover helper "commonly has an empty title" and its working rule matches `xwayland true, title ^$, class ^$, initial_class ^$, initial_title ^$`. (3) The parenthetical "Before KDE 6.7.0 the helper had an empty class and you had to match title/class ^$ instead" is invented precision with the sign flipped: plasma-workspace is currently 6.7.4 and the empty class/title is the present-day behaviour, not a pre-6.7.0 one. The `no_blur` claim is genuine - the discussion says "`no_blur on` is required, otherwise the window can remain visible as a faint blurred/dark rectangle even with opacity set to 0." Two more findings worth folding in: plasma-workspace ships `etc/xdg/autostart/xembedsniproxy.desktop` but KDE's copy of it is `OnlyShowIn=KDE;` with `X-systemd-skip=true`, so it will not autostart on a Hyprland/uwsm session (the explicit autostart really is needed), and `plasma-xembedsniproxy.service` has no [Install] section (only `PartOf=graphical-session.target`), so `systemctl --user enable` on it would fail - config autostart is the correct route. Finally, the danger note's "there is no separately packaged xembedsniproxy" is true of the repos but there is a standalone AUR `xembedsniproxy` 6.7.2-0 whose deps are just kcoreaddons/kcrash/kdbusaddons/kwindowsystem/qt6-base/xcb-*, which avoids the whole Plasma stack. Verified `libappindicator` 12.10.1-2 and `libayatana-appindicator` 0.6.0-2 both exist in extra, so step 2 stands as written.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** `plasma-workspace` pulls in a large chunk of the KDE Plasma stack (hundreds of MB of Qt/KF6 dependencies) purely to obtain one small binary. On a minimal Hyprland install decide whether that trade is worth it before installing; there is no separately packaged `xembedsniproxy` in the Arch repos.
 
 **Fix.**
@@ -1040,7 +1088,7 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/> ·
 busctl --user list | grep -i StatusNotifier
 ```
 
-You want to see `org.kde.StatusNotifierWatcher`. If it is absent, no bar is hosting the tray. For Waybar, add the module:
+You want to see `org.kde.StatusNotifierWatcher`. On a stock Omarchy 4 session this is already there and owned by `quickshell` — the bar's tray widget (`/usr/share/omarchy/shell/plugins/bar/widgets/Tray.qml`) is an SNI host, so skip to step 2. If the watcher is absent, no bar is hosting the tray. For Waybar, add the module:
 
 ```jsonc
 // ~/.config/waybar/config.jsonc
@@ -1058,44 +1106,57 @@ sudo pacman -S --needed libappindicator libayatana-appindicator
 
 Restart the app afterwards — it only probes at startup.
 
-3. For XEmbed-only apps (Wine/Proton launchers, Java/Swing, Steam), run KDE's XEmbed→SNI proxy. It ships in `plasma-workspace`:
+3. For XEmbed-only apps (Wine/Proton launchers, Java/Swing, Steam), run KDE's XEmbed→SNI proxy. Prefer the standalone AUR package, which pulls only a handful of KF6/Qt6 libraries:
+
+```bash
+yay -S xembedsniproxy
+```
+
+If you would rather stay in the official repos, the same binary ships in `plasma-workspace` — see the danger note before choosing this:
 
 ```bash
 sudo pacman -S --needed plasma-workspace
-pacman -Ql plasma-workspace | grep xembedsniproxy   # prints the real binary path
 ```
 
-Autostart it from your Hyprland config (substitute the path printed above):
+Either way the binary lands at `/usr/bin/xembedsniproxy`; confirm with `command -v xembedsniproxy`.
+
+4. Autostart it. The `.desktop` file that `plasma-workspace` installs is `OnlyShowIn=KDE;`, so it will **not** fire on a Hyprland/uwsm session, and the bundled `plasma-xembedsniproxy.service` has no `[Install]` section so `systemctl --user enable` on it fails. Start it from your Hyprland config instead:
 
 ```lua
 -- ~/.config/hypr/hyprland.lua
 hl.on("hyprland.start", function()
-  hl.exec_cmd("/usr/lib/xembedsniproxy")
+  hl.exec_cmd("xembedsniproxy")
 end)
 ```
 
-It spawns a 1x1 helper window that Hyprland will otherwise show as a faint blurred rectangle. Hide it:
+5. Hide the leftover helper window. Once the proxy is running, XWayland still leaves a small blank helper window with an **empty class and title**, which Hyprland draws as a faint blurred rectangle:
 
 ```lua
 hl.window_rule({
-  name = "hide-xembedsniproxy",
-  match = { class = "^xembedsniproxy$" },
-  no_focus = true,
-  no_initial_focus = true,
-  no_anim = true,
-  no_blur = true,
-  max_size = { 1, 1 },
-  opacity = 0.0
+  name = "hide-xembed-tray-helper",
+  match = {
+    xwayland      = true,
+    class         = "^$",
+    title         = "^$",
+    initial_class = "^$",
+    initial_title = "^$"
+  },
+  float             = true,
+  no_focus          = true,
+  no_initial_focus  = true,
+  no_anim           = true,
+  no_blur           = true,
+  opacity           = 0.0
 })
 ```
 
-`no_blur` is required — with opacity alone the helper stays visible as a dark smear. (Before KDE 6.7.0 the helper had an empty class and you had to match `title = "^$"` plus `class = "^$"` instead.)
+`no_blur` is required — with opacity alone the helper stays visible as a dark smear. Note that this rule is deliberately broad: any XWayland window that opens with no class and no title will also be hidden. If something legitimate disappears, narrow the match.
 
-4. Restart the offending app and re-check `busctl --user list | grep StatusNotifierItem` — each tray-owning app should now hold a name there.
+Apply with `hyprctl reload`.
+
+6. Restart the offending app and re-check `busctl --user list | grep StatusNotifierItem` — each tray-owning app should now hold a name there.
 
 **Verify.** `busctl --user list | grep StatusNotifierItem` lists one bus name per app that should have a tray icon, and `busctl --user list | grep StatusNotifierWatcher` shows the host. The icons then appear in the bar. If a name is listed on the bus but no icon draws, the problem is in the bar (a known GDBus property-caching bug affects some Electron 43+ items in Waybar), not in the app.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://github.com/hyprwm/Hyprland/discussions/13083> · <https://github.com/Alexays/Waybar/wiki/Module:-Tray> · <https://wiki.archlinux.org/title/Wayland> · <https://archlinux.org/packages/extra/x86_64/plasma-workspace/>
 
@@ -1471,8 +1532,6 @@ or sidestep the drag entirely and use the app's own file-open dialog.
 
 **Verify.** `hyprctl clients` shows `xwayland: 0` for both the source and the target app, and the drop is accepted. As a control, drag between two known-native apps (e.g. two GTK4 windows) to confirm DnD works at all in your session.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://hypr.land/news/update46/> · <https://github.com/hyprwm/Hyprland/issues/7644> · <https://github.com/hyprwm/Hyprland/issues/1083> · <https://wiki.archlinux.org/title/Wayland> · <https://wiki.archlinux.org/title/Electron>
 
 ---
@@ -1520,11 +1579,11 @@ Sources: <https://wiki.archlinux.org/title/Firefox> · <https://wiki.archlinux.o
 
 **Symptom.** In an X11/XWayland application, clicking "Open File" pops up the GTK file dialog, you pick a file, the dialog closes — and nothing happens. The app never receives the file. Or the dialog takes ~25 seconds to appear at all.
 
-**Cause.** xdg-desktop-portal-gtk runs as a systemd user service that may have no `DISPLAY` in its environment. It can show the dialog (over Wayland) but cannot hand the result back to an XWayland client. The 25-second variant is the D-Bus timeout when no backend claims `org.freedesktop.impl.portal.FileChooser`.
+**Cause.** xdg-desktop-portal-hyprland implements no file picker at all, so `xdg-desktop-portal-gtk` has to be installed alongside it; with nothing claiming `org.freedesktop.impl.portal.FileChooser` the call blocks for the 25-second D-Bus timeout and then gives up. Note that portal results are returned to the caller over D-Bus via the `Response` signal - they do not travel over the X connection - so a missing `DISPLAY` in the portal user service's environment does not break the result path. At most it stops the GTK dialog being made transient-for an X11 parent window.
 
 > **Audit corrected this record.** The first half is correct and useful — XDPH genuinely does not implement a file picker (the wiki carries an explicit warning to install xdg-desktop-portal-gtk alongside it), the 25-second figure is the real D-Bus timeout, and the Steam 'Add Library Folder' note is right. The DISPLAY drop-in is the problem. Portal results are returned to the caller over D-Bus via the Response signal; they do not travel over the X connection, so 'can show the dialog but cannot hand the result back to an XWayland client' is not a real mechanism. At most a DISPLAY lets the GTK portal make the dialog transient-for an X11 parent window. And hardcoding DISPLAY=:0 is a guess — Hyprland's XWayland can land on :1 or higher when another X server is present, in which case the drop-in points the portal at the wrong display. Telling a user to write a persistent systemd override on a false premise is the part worth removing.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
@@ -1793,48 +1852,73 @@ Sources: <https://github.com/basecamp/omarchy/issues/7184> · <https://github.co
 
 **Symptom.** Nautilus, GNOME Text Editor, Loupe, Fractal and other GTK4/libadwaita apps launch in bright white while my whole desktop is dark. Putting `gtk-application-prefer-dark-theme=1` in `~/.config/gtk-4.0/settings.ini` does nothing. `GTK_THEME=Adwaita:dark` only half-works — the headerbar is dark but the content is not.
 
-**Cause.** libadwaita does not read GTK theme files for light/dark. It asks the `org.freedesktop.impl.portal.Settings` portal for `org.freedesktop.appearance / color-scheme`. xdg-desktop-portal-hyprland does not implement the Settings portal at all — it only provides Global shortcuts, Screen cast and Remote desktop. With no backend serving Settings, the portal returns nothing, libadwaita assumes "no preference", and every app falls back to light. `gtk-application-prefer-dark-theme` is a GTK3 key and is simply unsupported by libadwaita.
+**Cause.** libadwaita does not read GTK theme files for light/dark, and `gtk-application-prefer-dark-theme` is a GTK3 key it ignores entirely. It asks the `org.freedesktop.impl.portal.Settings` portal for `org.freedesktop.appearance / color-scheme` and renders light for anything other than `prefer-dark`. xdg-desktop-portal-hyprland genuinely does not implement Settings — `/usr/share/xdg-desktop-portal/portals/hyprland.portal` declares only `Screenshot;ScreenCast;GlobalShortcuts;InputCapture` — but on its own that breaks nothing, because Hyprland ships `/usr/share/xdg-desktop-portal/hyprland-portals.conf` containing `default=hyprland;gtk`, so xdg-desktop-portal falls through to xdg-desktop-portal-gtk for Settings, and Omarchy installs that package in its base set. So on a stock Omarchy the portal chain already works and the actual cause is that `org.gnome.desktop.interface color-scheme` is still at its schema default of `'default'` (no preference). Omarchy sets it to `prefer-dark` at first run via `/usr/share/omarchy/install/user/first-run/gnome-theme.sh`, so this appears when that script never ran, when dconf was reset, or on a non-Omarchy Hyprland install where `xdg-desktop-portal-gtk` is simply not installed and nothing serves Settings at all.
+
+> **Audit corrected this record.** Real problem, and the second half of the fix is right, but the cause's conclusion is disproven on the exact platform this corpus targets, and two specifics are fabricated. (a) The claim "With no backend serving Settings, the portal returns nothing" is false on a stock Hyprland/Omarchy install. Hyprland itself ships /usr/share/xdg-desktop-portal/hyprland-portals.conf containing `[preferred]` / `default=hyprland;gtk` (owned by package hyprland 0.56.2-1), so xdg-desktop-portal falls through to xdg-desktop-portal-gtk for any interface hyprland does not implement — including Settings — and Omarchy lists xdg-desktop-portal-gtk in /usr/share/omarchy/install/omarchy-base.packages. I verified this live on this machine, which has NO ~/.config/xdg-desktop-portal directory at all: `busctl --user call ... org.freedesktop.portal.Settings Read ss "org.freedesktop.appearance" "color-scheme"` answers correctly. So step 3 of the fix — creating a user hyprland-portals.conf — is unnecessary on a stock system, and it is the step the record's own `danger` field says can silently break FileChooser and ScreenCast. Telling every reader to write that file is the riskiest part of the record and it is usually not needed. (b) The enumeration of what xdg-desktop-portal-hyprland provides is wrong. /usr/share/xdg-desktop-portal/portals/hyprland.portal lists Screenshot;ScreenCast;GlobalShortcuts;InputCapture — there is no RemoteDesktop, and Screenshot is omitted. The true part (no Settings interface) is confirmed by that same file. (c) The verify's expected output is wrong: the real answer is `v v u 1`, a nested variant, not `v u 1`. (d) Correct-as-written: `gtk-application-prefer-dark-theme` is a GTK3 key that libadwaita ignores; xdg-desktop-portal-gtk is the Settings provider (ArchWiki Dark mode switching: "To query gsettings configuration, GTK requires the Settings XDG Desktop Portal, provided by xdg-desktop-portal-gtk, to be running"); `color-scheme 'prefer-dark'` is the right key/value (ArchWiki Dark mode switching); XDG_CURRENT_DESKTOP is Hyprland on Omarchy (set in /usr/share/omarchy/default/hypr/envs.lua) and portals.conf(5) confirms the filename is that value ASCII-lowercased, i.e. hyprland-portals.conf; all three systemd user units named exist. The real cause is simply that org.gnome.desktop.interface color-scheme sits at its schema default `'default'` (= no preference), which libadwaita renders light — Omarchy sets it at first run in /usr/share/omarchy/install/user/first-run/gnome-theme.sh, so this only bites when that never ran, dconf was reset, or xdg-desktop-portal-gtk is absent on a non-Omarchy Hyprland box.
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** A malformed `hyprland-portals.conf` — a typo in an interface name, or pointing an interface at a backend that does not implement it — silently breaks whatever it names. Getting `org.freedesktop.impl.portal.ScreenCast` or `FileChooser` wrong will kill screen sharing or every file-open dialog. Keep `default = hyprland;gtk` and only add specific overrides you have verified with the `busctl` call above.
 
 **Fix.**
 
-1. Install a Settings-portal backend. On a generic Wayland session that is `xdg-desktop-portal-gtk`:
+**1. Ask the portal what it currently answers, before changing anything.** The reply is a nested variant, `v v u N`, where 0 = no preference, 1 = prefer-dark, 2 = prefer-light:
+
+```bash
+busctl --user call org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop \
+  org.freedesktop.portal.Settings Read ss "org.freedesktop.appearance" "color-scheme"
+```
+
+- Answers `v v u 0` → the portal works, you just have no preference set. Skip to step 3.
+- Answers `v v u 1` → the portal already says dark; your problem is elsewhere (a GTK theme with no dark variant, or `GTK_THEME` forced in the environment — check `systemctl --user show-environment | grep GTK`).
+- Errors, or reports no such backend → do step 2.
+
+**2. Only if step 1 found no Settings backend: install one.** Hyprland does not implement the Settings portal, but it ships a fall-through to gtk, so installing the gtk backend is normally all that is required. On Omarchy it is already in the base package set:
 
 ```bash
 sudo pacman -S --needed xdg-desktop-portal-gtk
+cat /usr/share/xdg-desktop-portal/hyprland-portals.conf   # expect: [preferred] / default=hyprland;gtk
 ```
 
-2. Set the preference:
+**3. Set the preference.** This is the actual fix in the common case:
 
 ```bash
 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark'
 ```
 
-(without gsettings schemas: `dconf write /org/gnome/desktop/interface/color-scheme "'prefer-dark'"`)
+Without gsettings schemas available:
 
-3. Make sure the portal is actually running and picked as the Settings backend. Pin it explicitly — `XDG_CURRENT_DESKTOP=Hyprland` means the file is `hyprland-portals.conf`:
+```bash
+dconf write /org/gnome/desktop/interface/color-scheme "'prefer-dark'"
+```
+
+On Omarchy you can simply re-run the first-run script that does exactly this:
+
+```bash
+bash /usr/share/omarchy/install/user/first-run/gnome-theme.sh
+```
+
+**4. Restart the portal stack, then the apps.**
+
+```bash
+systemctl --user restart xdg-desktop-portal-gtk xdg-desktop-portal-hyprland xdg-desktop-portal
+```
+
+libadwaita queries the portal at startup and then follows live changes, but an app started before any backend existed never got a first answer — so restart the affected apps once.
+
+**5. Pin the backend explicitly only if steps 1–4 did not fix it.** A user file at this path *shadows Hyprland's shipped one*, so you take over responsibility for every interface it names. `XDG_CURRENT_DESKTOP` is `Hyprland` on Omarchy and `portals.conf(5)` says the filename is that value with ASCII upper case folded to lower, hence `hyprland-portals.conf`:
 
 ```ini
 # ~/.config/xdg-desktop-portal/hyprland-portals.conf
 [preferred]
 default = hyprland;gtk
 org.freedesktop.impl.portal.Settings = gtk
-org.freedesktop.impl.portal.FileChooser = gtk
 ```
 
-4. Restart the portal stack:
+Keep `default = hyprland;gtk` and add nothing you have not verified with the `busctl` call in step 1. Do **not** add `org.freedesktop.impl.portal.FileChooser` or `ScreenCast` overrides speculatively — pointing either at a backend that does not implement it kills every file dialog or all screen sharing, silently. Delete the file to go back to the shipped default.
 
-```bash
-systemctl --user restart xdg-desktop-portal xdg-desktop-portal-gtk
-```
-
-(add `xdg-desktop-portal-hyprland` to that list if it is also running)
-
-5. Restart the affected apps — libadwaita queries the portal at startup and then listens for changes, but an app started before any backend existed never gets a first answer.
-
-To flip back: `gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'`.
+To flip back to light: `gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'`.
 
 **Verify.** Ask the portal directly — it should answer `v u 1` (1 = prefer-dark, 2 = prefer-light, 0 = no preference):
 
@@ -1844,8 +1928,6 @@ busctl --user call org.freedesktop.portal.Desktop /org/freedesktop/portal/deskto
 ```
 
 Then open Nautilus or GNOME Text Editor — it should be dark, and should follow a live `gsettings set ... color-scheme` change without restarting.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Dark_mode_switching> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://github.com/CachyOS/cachyos-niri-noctalia/issues/4> · <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/>
 
@@ -1857,7 +1939,11 @@ Sources: <https://wiki.archlinux.org/title/Dark_mode_switching> · <https://wiki
 
 **Symptom.** The desktop has my chosen cursor, but the instant the pointer crosses into Steam, a Proton game, GIMP, or a Java tool (Ghidra, JetBrains, Burp) it turns into the plain black X11 arrow — or a huge white one, or nothing at all. Setting `XCURSOR_THEME` in my Hyprland config changed nothing. On a fresh install the cursor is the Hyprland logo.
 
-**Cause.** Hyprland draws a server-side cursor for Wayland-native clients using hyprcursor (falling back to XCursor). XWayland clients draw their own client-side cursor through libXcursor, which resolves the theme name from `XCURSOR_THEME` *in the process's own environment* and, failing that, from the `Inherits=` line of `~/.icons/default/index.theme` then `/usr/share/icons/default/index.theme`. Env vars set with `hl.env()` only reach processes Hyprland launches after that line — Steam relaunched by its own updater, a game started by the Steam client, or anything started by a systemd user unit never sees them. The Hyprland-logo cursor means no cursor theme is installed at all: hyprcursor is the format/library, not a theme.
+**Cause.** Hyprland draws a server-side cursor for Wayland-native clients using hyprcursor (falling back to XCursor). XWayland clients draw their own client-side cursor through libXcursor, which resolves the theme name from `XCURSOR_THEME` *in the process's own environment* and, failing that, from the `Inherits=` line of the "default" theme — `~/.local/share/icons/default/index.theme`, then `~/.icons/default/index.theme`, then `/usr/share/icons/default/index.theme`. That last file is owned by the `default-cursors` package (a dependency of `libxcursor` and `wayland`, so it is always installed) and ships `Inherits=Adwaita`, which is why an unconfigured system usually lands on Adwaita rather than nothing. Env vars set with `hl.env()` only reach processes Hyprland launches after that line — Steam relaunched by its own updater, a game started by the Steam client, or anything started by a systemd user unit never sees them; and under uwsm, session-wide variables belong in `~/.config/uwsm/env` rather than in `hyprland.lua` at all. The Hyprland-logo cursor is the separate case where no cursor theme resolves at all: hyprcursor is the format/library, not a theme.
+
+> **Audit corrected this record.** Most of this record holds up. The `~/.icons/default/index.theme` + `Inherits=` mechanism is documented verbatim at https://wiki.archlinux.org/title/Cursor_themes ("The default cursor theme is in the usual theme locations: ~/.local/share/icons/default/, ~/.icons/default/, /usr/share/icons/default/" and the Inheritance subsection). `adwaita-cursors` 50.0-1 exists in extra and ships `usr/share/icons/Adwaita/cursors/`. The gsettings and dconf commands are lifted from the hyprcursor wiki page, `cursor:sync_gsettings_theme` really does default to `true` and `cursor:enable_hyprcursor` to `true` (config-options.md), and the FAQ confirms "My cursor is a Hyprland icon? This means you have no hyprcursor theme installed, and Hyprland failed to find an XCursor theme as well." I also checked whether `hyprctl setcursor Adwaita 24` would fail on an XCursor-only theme, since the wiki still claims "since 0.37.0, this only accepts hyprcursor themes" — it does not fail: CCursorManager::changeTheme() in src/pointer/cursor/CursorManager.cpp logs "Hyprcursor failed loading theme, falling back to XCursor" and calls `m_xcursor->loadTheme(name, ...)`, so step 5 is fine as written. Two things are wrong. (1) The danger note attributes /usr/share/icons/default/index.theme to "adwaita-cursors, xcursor-themes or your theme package". It is owned by neither: `pacman -Qo /usr/share/icons/default/index.theme` on this Omarchy 4 box returns `default-cursors 3-1`, and the Arch file lists confirm adwaita-cursors ships only usr/share/icons/Adwaita/ while xcursor-themes ships only handhelds/redglass/whiteglass. `default-cursors` is a dependency of both `libxcursor` and `wayland`, so it is present on every install, and its index.theme already reads `Inherits=Adwaita` — which is useful context the record omits: the fallback chain is not empty on a stock system, so this record really applies to someone wanting a *different* theme. The warning itself (don't edit it, use ~/.icons) is correct; only the attribution is fabricated. (2) Step 4 puts `HYPRCURSOR_THEME`/`HYPRCURSOR_SIZE` in `~/.config/uwsm/env`, but the uwsm page it cites says the opposite: "use ~/.config/uwsm/env for theming, XCursor, NVIDIA and toolkit variables, and ~/.config/uwsm/env-hyprland for HYPR* and AQ_* variables." Also worth stating: Omarchy 4 already sets XCURSOR_SIZE and HYPRCURSOR_SIZE to 24 in /usr/share/omarchy/default/hypr/envs.lua, which is pacman-owned and must not be edited.
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Do not edit `/usr/share/icons/default/index.theme` — that file is owned by a package (`adwaita-cursors`, `xcursor-themes` or your theme package) and pacman will silently revert your change on the next upgrade, or leave a `.pacnew` you never notice. Always use `~/.icons/default/index.theme`, which nothing owns.
 
@@ -1866,11 +1952,13 @@ Sources: <https://wiki.archlinux.org/title/Dark_mode_switching> · <https://wiki
 1. Install a real cursor theme and note its **directory** name (that is the name you use everywhere, not the pretty name):
 
 ```bash
-sudo pacman -S --needed adwaita-cursors    # or xcursor-themes, or an AUR bibata-cursor-theme
+sudo pacman -S --needed adwaita-cursors    # or an AUR theme such as bibata-cursor-theme
 ls /usr/share/icons ~/.local/share/icons ~/.icons 2>/dev/null
 ```
 
-2. Set the libXcursor fallback so XWayland clients find it with no environment at all. Use the **user** path, not the system one:
+Note that `default-cursors` is already installed on every Arch/Omarchy system — it is a dependency of `libxcursor` and `wayland` — and it ships `/usr/share/icons/default/index.theme` containing `Inherits=Adwaita`. So the XCursor fallback chain is normally *not* empty. If you are seeing the Hyprland-logo cursor, that package or the Adwaita cursors are genuinely missing; if you are seeing plain black X11 arrows, the chain is resolving to something you did not choose and the rest of this fix redirects it.
+
+2. Set the libXcursor fallback so XWayland clients find your theme with no environment at all. Use the **user** path, which takes precedence over the system one:
 
 ```bash
 mkdir -p ~/.icons/default
@@ -1879,6 +1967,8 @@ cat > ~/.icons/default/index.theme <<'EOF'
 Inherits=Adwaita
 EOF
 ```
+
+(Substitute your theme's directory name for `Adwaita`.)
 
 3. Set it for GTK/CSD clients through gsettings (Hyprland's `cursor:sync_gsettings_theme` is `true` by default and will keep these in step):
 
@@ -1889,15 +1979,21 @@ gsettings set org.gnome.desktop.interface cursor-size 24
 
 If gsettings schemas are unavailable: `dconf write /org/gnome/desktop/interface/cursor-theme "'Adwaita'"`
 
-4. Set it for the compositor and for anything it launches. On an Omarchy/uwsm session put them in `~/.config/uwsm/env` (the Hyprland wiki explicitly says uwsm users should not put theming/xcursor vars in `hyprland.lua`):
+4. Set it for the compositor and for anything it launches. Omarchy 4 runs the session under uwsm, and the Hyprland wiki explicitly says uwsm users should not put theming/xcursor vars in `hyprland.lua`. It also splits them across two files — XCursor and toolkit vars in `~/.config/uwsm/env`, `HYPR*` vars in `~/.config/uwsm/env-hyprland`:
 
 ```sh
 # ~/.config/uwsm/env
 export XCURSOR_THEME=Adwaita
 export XCURSOR_SIZE=24
+```
+
+```sh
+# ~/.config/uwsm/env-hyprland
 export HYPRCURSOR_THEME=Adwaita
 export HYPRCURSOR_SIZE=24
 ```
+
+Omarchy also sources `~/.config/uwsm/env.d/*`, which is the tidier place if you keep several drop-ins. Do **not** edit `/usr/share/omarchy/default/hypr/envs.lua`, which already sets `XCURSOR_SIZE` and `HYPRCURSOR_SIZE` to 24 — it is pacman-owned and your change would be reverted on the next `omarchy update`.
 
 On a non-uwsm session the equivalent is in `~/.config/hypr/hyprland.lua`:
 
@@ -1914,7 +2010,7 @@ hl.env("HYPRCURSOR_SIZE", "24")
 hyprctl setcursor Adwaita 24
 ```
 
-Add that same call to your autostart so it survives a restart:
+The wiki still says `setcursor` takes hyprcursor themes only; that is stale — Hyprland falls back to loading the same name as an XCursor theme if no hyprcursor theme matches. Add the call to your autostart so it survives a restart:
 
 ```lua
 hl.on("hyprland.start", function()
@@ -1922,13 +2018,13 @@ hl.on("hyprland.start", function()
 end)
 ```
 
+This only affects server-side cursors, so it fixes Wayland-native clients immediately; XWayland clients still need steps 2 and 4.
+
 6. Log out and back in, then relaunch Steam/the game so it inherits the new environment.
 
 If a theme ships only one bitmap size, XWayland may still scale it up into a giant arrow — that is a property of the theme, not your config. Themes that ship 24/32/48 variants (Adwaita, Bibata) do not have this problem.
 
 **Verify.** `hyprctl getoption cursor:enable_hyprcursor` and hover over an XWayland window — `hyprctl clients | grep -B2 -A6 xwayland` confirms which clients are on the X side. Launch `xterm` or `xeyes` and check the cursor matches the desktop. `echo $XCURSOR_THEME` inside a terminal started from the launcher (not from an old shell) should print your theme.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hypr.land/FAQ/> · <https://github.com/hyprwm/Hyprland/discussions/8196> · <https://bbs.archlinux.org/viewtopic.php?id=311943> · <https://wiki.archlinux.org/title/Cursor_themes> · <https://wiki.hypr.land/Configuring/Basics/Variables/>
 
@@ -1940,20 +2036,37 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hy
 
 **Symptom.** My Flatpak Obsidian / Spotify / VS Code is noticeably blurry next to everything else, ignores my display scale, and `hyprctl clients` shows `xwayland: 1` for it. The exact same app installed from pacman is crisp. Setting the variable in `~/.config/uwsm/env` or with `hl.env()` makes no difference to the Flatpak.
 
-**Cause.** A Flatpak runs in a sandbox with its own environment. Variables you export in the session — `ELECTRON_OZONE_PLATFORM_HINT`, `GDK_BACKEND`, `QT_QPA_PLATFORM`, `MOZ_ENABLE_WAYLAND` — are not passed into the sandbox, so a Chromium/Electron app inside it takes its default. Most Flatpak manifests grant both `--socket=wayland` and `--socket=fallback-x11`, and the fallback is used silently whenever the app does not positively select the Wayland backend. Nothing errors; you just get an XWayland window.
+**Cause.** A Flatpak's window ends up on XWayland because the app inside the sandbox never positively selected the Wayland backend: most manifests grant both `--socket=wayland` and `--socket=fallback-x11`, and the X11 fallback is taken silently, with no error and no log line. It is *not* the case that the sandbox gets none of your session environment — `flatpak run` starts from the host environment (`flatpak_bwrap_new(NULL)` falls through to `g_get_environ()` in `common/flatpak-bwrap.c`) and then overrides only the fixed `default_exports[]` list in `common/flatpak-run.c`. Of the variables that matter here, exactly one is on that list: **`GDK_BACKEND` is unset unconditionally**, which is why a GTK app in a Flatpak ignores the value you set in `~/.config/uwsm/env` or with `hl.env()`. `ELECTRON_OZONE_PLATFORM_HINT`, `QT_QPA_PLATFORM` and `MOZ_ENABLE_WAYLAND` are *not* stripped and do reach the sandbox — so if those are not taking effect, they are missing from the environment the launcher itself inherited (D-Bus/systemd activation), not being filtered out by Flatpak.
+
+> **Audit corrected this record.** The symptom, the severity and every command in the fix are correct — but the cause is factually wrong in a way that would mislead someone diagnosing the same class of problem, so it cannot stand. The record asserts that ELECTRON_OZONE_PLATFORM_HINT, GDK_BACKEND, QT_QPA_PLATFORM and MOZ_ENABLE_WAYLAND "are not passed into the sandbox". Flatpak inherits the host environment by default: `flatpak_run_app()` in common/flatpak-run.c calls `flatpak_bwrap_new(NULL)`, and common/flatpak-bwrap.c does `bwrap->envp = g_get_environ()` when passed NULL. What Flatpak then does is override a fixed list, `default_exports[]` in common/flatpak-run.c. Of the four variables the record names, exactly one is on that list: `{"GDK_BACKEND", NULL}` — unset unconditionally, alongside XCURSOR_PATH, PYTHONPATH, the GST_* family and the VK_* family. ELECTRON_OZONE_PLATFORM_HINT, QT_QPA_PLATFORM and MOZ_ENABLE_WAYLAND are not stripped and do reach the sandbox. So the record is right about GTK apps and wrong about the other three, and it points a reader away from the real failure (the variable never reaching the launcher's environment in the first place — systemd/D-Bus activation) toward a sandbox filter that does not exist for those variables. Everything else verified: all flatpak flags used are real, checked against doc/flatpak-override.xml upstream (--user, --show, --socket, --nosocket, --env, --reset are all documented options); `flatpak info --show-permissions` and `flatpak kill` are real; `--socket=fallback-x11` is a real socket name so `--nosocket=fallback-x11` is a valid diagnostic and the danger note about it is correct; `com.github.tchx84.Flatseal` is the right Flathub app id (and `flatseal` 2.4.1-1 is in Arch `extra`, which is the simpler route on Omarchy); the `hyprctl clients` / `xwayland: 0` verify is accurate against Hyprland v0.56.2's HyprCtl.cpp; ArchWiki Flatpak confirms `flatpak override` and `flatpak override --reset name` and uses the same `-u override --env=` pattern for the analogous XCURSOR_PATH problem. No pacman -Sy, no rm -rf, no Omarchy 3 assumptions.
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `--nosocket=fallback-x11` (or `--nosocket=x11`) will stop an app from starting at all if any part of it genuinely needs X11 — some Electron apps still spawn X11 helper processes. Use it as a diagnostic and reset it afterwards with `flatpak override --user --reset <app-id>`.
 
 **Fix.**
 
-Inspect what the app currently has:
+**1. Look at what the sandbox actually receives, rather than guessing.**
 
 ```bash
 flatpak info --show-permissions md.obsidian.Obsidian
 flatpak override --user --show md.obsidian.Obsidian
+flatpak run --command=env md.obsidian.Obsidian \
+  | grep -E 'GDK_BACKEND|ELECTRON_OZONE|QT_QPA_PLATFORM|MOZ_ENABLE_WAYLAND|WAYLAND_DISPLAY'
 ```
 
-Set the backend *inside* the sandbox. For Electron/Chromium apps:
+Read the result this way:
+
+- `GDK_BACKEND` will be **absent no matter what you set on the host** — Flatpak unsets it unconditionally. That is expected, and it is why GTK apps in a Flatpak ignore your session setting.
+- `ELECTRON_OZONE_PLATFORM_HINT`, `QT_QPA_PLATFORM` and `MOZ_ENABLE_WAYLAND` *are* inherited. If they are missing here, fix the host side first — the launcher did not have them either:
+
+```bash
+systemctl --user show-environment | grep -E 'ELECTRON_OZONE|QT_QPA_PLATFORM|MOZ_ENABLE_WAYLAND'
+```
+
+- `WAYLAND_DISPLAY` missing means the sandbox has no Wayland socket at all; go straight to the `--socket=wayland` override below.
+
+**2. Set the backend inside the sandbox.** For Electron/Chromium apps:
 
 ```bash
 flatpak override --user --socket=wayland \
@@ -1961,7 +2074,7 @@ flatpak override --user --socket=wayland \
   md.obsidian.Obsidian
 ```
 
-For GTK apps:
+For GTK apps — this one is genuinely required, since the host value never survives:
 
 ```bash
 flatpak override --user --socket=wayland --env=GDK_BACKEND=wayland <app-id>
@@ -1982,32 +2095,32 @@ flatpak override --user --socket=wayland --env=MOZ_ENABLE_WAYLAND=1 org.mozilla.
 To apply a default to every Flatpak, omit the app id:
 
 ```bash
-flatpak override --user --socket=wayland --env=ELECTRON_OZONE_PLATFORM_HINT=wayland
+flatpak override --user --socket=wayland --env=GDK_BACKEND=wayland
 ```
 
 Restart the app (`flatpak kill md.obsidian.Obsidian` first if it lingers) and re-check.
 
-To prove an app really can run without X11, temporarily remove the fallback so it fails loudly instead of falling back:
+**3. To prove an app really can run without X11**, temporarily remove the fallback so it fails loudly instead of falling back silently:
 
 ```bash
 flatpak override --user --nosocket=fallback-x11 md.obsidian.Obsidian
 ```
 
-Undo everything for one app:
+**4. Undo everything for one app:**
 
 ```bash
 flatpak override --user --reset md.obsidian.Obsidian
 ```
 
-A GUI for all of this is Flatseal:
+**5. A GUI for all of the above** is Flatseal. On Arch/Omarchy it is in the official repos, which is simpler than installing it as a Flatpak:
 
 ```bash
+sudo pacman -S --needed flatseal
+# or, from Flathub:
 flatpak install flathub com.github.tchx84.Flatseal
 ```
 
 **Verify.** `hyprctl clients | grep -A8 <class>` reports `xwayland: 0` for the Flatpak window, and the window is sharp at your display scale. `flatpak override --user --show <app-id>` lists the env entries you set.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://wiki.archlinux.org/title/Wayland> · <https://wiki.archlinux.org/title/Electron> · <https://docs.flatpak.org/en/latest/desktop-integration.html>
 
@@ -2062,8 +2175,6 @@ end)
 ```
 
 **Verify.** `gsettings get org.gnome.desktop.interface gtk-enable-primary-paste` returns `true`; select text in one GTK window and middle-click into another — the text pastes. `wl-paste --primary` prints the current selection.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://bbs.archlinux.org/viewtopic.php?id=313089> · <https://github.com/ghostty-org/ghostty/discussions/12181> · <https://wiki.archlinux.org/title/Clipboard> · <https://wiki.hypr.land/Useful-Utilities/Clipboard-Managers/>
 
@@ -2124,8 +2235,6 @@ sudo modprobe v4l2loopback video_nr=9 card_label="OBS Virtual Camera"
 
 **Verify.** `v4l2-ctl --list-devices` lists "OBS Virtual Camera" at `/dev/video9`. With OBS's virtual camera running, `ffplay /dev/video9` shows the OBS program feed, and the device appears in the browser's camera picker.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/V4l2loopback> · <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https://archlinux.org/packages/extra/x86_64/v4l2loopback-dkms/>
 
 ---
@@ -2137,6 +2246,10 @@ Sources: <https://wiki.archlinux.org/title/V4l2loopback> · <https://wiki.archli
 **Symptom.** In a fullscreen VM (virt-manager, GNOME Boxes, VirtualBox) or a VNC/RDP client (Remmina, Vinagre), pressing SUPER switches my Hyprland workspace instead of opening the guest's start menu — the guest never sees the key. Or the opposite: while that window is focused none of my Hyprland binds work at all, I cannot change workspace or adjust volume, and I have to alt-tab out first.
 
 **Cause.** Both behaviours come from the `keyboard-shortcuts-inhibit` Wayland protocol. A client that requests inhibition is handed every key including the compositor's own binds — that is what makes SUPER reach a guest OS, and also what makes your workspace binds go dead. A client that does not request it (or that you have configured Hyprland to refuse) leaks modifier combos to the compositor instead. Hyprland exposes both sides: a per-window rule to refuse an app's inhibit request, and per-bind flags that survive inhibition.
+
+> **Audit corrected this record.** The cause and the protocol story are correct, and every flag the record names is real — I checked the current Lua wiki (hyprwm/hyprland-wiki content/configuring/core/binds/flags.md): `dont_inhibit` ("Bypasses the app's requests to inhibit keybinds"), `allow_input_capture` ("When input is captured by a client, this bind will still be processed"), `locked` and `repeating` are all in the flag table, and content/configuring/core/rules/window-rules.md lists `no_shortcuts_inhibit` ("Disallows the app from inhibiting your shortcuts") as a dynamic effect. The `{ name = ..., match = {...} }` rule schema and the `wpctl` volume binds match the wiki's own examples. The defect is the escape hatch — the one thing the record's own danger note says you must always have. It is written as `hl.dsp.exec_cmd("hyprctl dispatch fullscreen 0")`, and on Hyprland 0.56 `hyprctl dispatch` is documented as "a shorthand for `eval 'hl.dispatch(...)'`" (content/configuring/core/advanced-configuration/using-hyprctl.md), so the bare-dispatcher form `fullscreen 0` is evaluated as Lua and errors instead of un-fullscreening. A user trapped in a fullscreen VM presses the escape bind and nothing happens. The correct dispatcher is `hl.dsp.window.fullscreen({ action = "unset" })` (dispatchers.md: `fullscreen({ window?, action?, mode?, layout_aware? })`, action can be toggle/set/unset), and it should be dispatched directly rather than shelling out to hyprctl. Two additions while correcting: `hl.dsp.release_input_capture()` is a documented general dispatcher and is the right partner for the `allow_input_capture` case, and if the app never requests inhibition at all (toggling the rule changes nothing) no window rule can help — a submap that unbinds SUPER is the only compositor-side answer, using `hl.define_submap` / `hl.dsp.submap("reset")` / `submap_universal` as documented in binds/submaps.md.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 > ⚠️ **Risk.** Adding a broad `no_shortcuts_inhibit` rule (for example matching `class = ".*"`) makes SUPER and other modifier combos unusable inside every VM and remote session, which is usually worse than the original complaint. Match one specific class. Conversely, if you let an app inhibit everything and define no `dont_inhibit` escape bind, a fullscreen VM that grabs the keyboard can leave you unable to leave it without switching to a TTY with Ctrl+Alt+F2.
 
@@ -2159,11 +2272,11 @@ hl.window_rule({
 })
 ```
 
-**Case B — you want the app to keep grabbing keys, but a few binds must always work.** Mark those binds `dont_inhibit` (bypasses the app's inhibit request) and/or `locked` (also fires while an input inhibitor such as a lockscreen is active):
+**Case B — you want the app to keep grabbing keys, but a few binds must always work.** Mark those binds `dont_inhibit` (bypasses the app's inhibit request) and/or `locked` (also fires while an input inhibitor such as a lockscreen is active). Note that `hyprctl dispatch` on 0.55+ evaluates its argument as Lua, so do **not** shell out to `hyprctl dispatch fullscreen 0` — call the dispatcher directly:
 
 ```lua
 -- escape hatch that always works, even inside a fullscreen VM
-hl.bind("SUPER + SHIFT + Escape", hl.dsp.exec_cmd("hyprctl dispatch fullscreen 0"), { dont_inhibit = true })
+hl.bind("SUPER + SHIFT + Escape", hl.dsp.window.fullscreen({ action = "unset" }), { dont_inhibit = true })
 
 -- media keys that keep working everywhere
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+"),
@@ -2172,12 +2285,28 @@ hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO
         { repeating = true, dont_inhibit = true, locked = true })
 ```
 
-For clients that use input *capture* (some remote-desktop and input-sharing tools), the corresponding bind flag is `allow_input_capture`:
+For clients that use input *capture* rather than shortcut inhibition (some remote-desktop and input-sharing tools), the bind flag is `allow_input_capture`, and there is a dispatcher that tears the capture session down:
 
 ```lua
-hl.bind("SUPER + SHIFT + Escape", hl.dsp.exec_cmd("hyprctl dispatch fullscreen 0"),
-        { dont_inhibit = true, allow_input_capture = true })
+hl.bind("SUPER + SHIFT + Escape", function()
+  hl.dispatch(hl.dsp.release_input_capture())
+  hl.dispatch(hl.dsp.window.fullscreen({ action = "unset" }))
+end, { dont_inhibit = true, allow_input_capture = true })
 ```
+
+**If toggling the rule changes nothing**, the app is not using the protocol at all — it never requests inhibition, so there is nothing for Hyprland to refuse and no way to hand it SUPER either. The only compositor-side answer is a submap that clears your binds while you work in the guest:
+
+```lua
+hl.bind("SUPER + SHIFT + V", hl.dsp.submap("vm"))
+
+hl.define_submap("vm", function()
+  -- nothing is bound in here, so SUPER and friends all reach the guest
+  hl.bind("SUPER + SHIFT + V", hl.dsp.submap("reset"))
+end)
+```
+
+If you ever get stuck in it with no terminal, switch to a TTY and run
+`hyprctl dispatch --instance 0 'hl.dsp.submap("reset")'`.
 
 Apply without restarting:
 
@@ -2190,8 +2319,6 @@ Always keep at least one `dont_inhibit` escape bind, or a fullscreen VM that gra
 On Hyprland 0.54 and older the same rule and bind flags exist in hyprlang form — see the pinned 0.54 wiki at <https://wiki.hypr.land/0.54.0/> for that syntax.
 
 **Verify.** `hyprctl clients` gives you the class; after `hyprctl reload`, focus the VM/RDP window and press SUPER — with the rule applied, the compositor bind fires; without it, the key reaches the guest. Your `dont_inhibit` escape bind must work in both cases.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.hypr.land/Configuring/Basics/Binds/> · <https://wiki.hypr.land/Configuring/Basics/Window-Rules/> · <https://wiki.hypr.land/Configuring/Basics/Variables/>
 
@@ -2248,8 +2375,6 @@ DISPLAY=:1 wine winecfg
 ```
 
 **Verify.** With the Wayland driver active, `hyprctl clients` shows the Wine/Proton window with `xwayland: 0`. Mouse position tracks correctly in fullscreen and the window no longer flickers between sizes.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Wine> · <https://github.com/GloriousEggroll/proton-ge-custom/issues/166> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/>
 

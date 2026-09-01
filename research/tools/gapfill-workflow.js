@@ -12,7 +12,7 @@ export const meta = {
 // Agents read the corpus off disk by absolute path rather than receiving it
 // through `args`: the apps-services records alone are ~50KB, and round-tripping
 // them through the tool call would cost more than the audit itself.
-const ROOT = 'c:/Projects/Personal/skills/omarchy/research'
+const ROOT = '/home/techluddite/Projects/opinionated-omarchy/research'
 const JSONL = ROOT + '/data/problems.jsonl'
 const TODO = ROOT + '/raw/gapfill-todo.json'
 

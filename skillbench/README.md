@@ -46,9 +46,9 @@ Omarchy-specific.
 
 Three things keep the numbers honest:
 
-- **Control benches.** Four of the twelve (`linux-disk-full`, `linux-runaway-process`,
-  `linux-boot-partition-full`, `linux-pacman-keyring`) are general Linux that the skill
-  says nothing about. A bare model should already score well and the skill should barely
+- **Control benches.** Five of the fourteen (`linux-disk-full`, `linux-runaway-process`,
+  `linux-boot-partition-full`, `linux-pacman-keyring`, and `linux-agentic-triage` for the
+  agentic lane) are general Linux that the skill says nothing about. A bare model should already score well and the skill should barely
   move them. They are flagged `control: true` and labelled in the UI. If a change lifts
   the controls as much as the Omarchy benches, it is not measuring skill efficacy — it is
   measuring answer length. In the baseline this separation is stark: **+29.3 pt mean on
@@ -195,7 +195,9 @@ app/
   db.py       SQLite schema and helpers
   theme.py    Omarchy colors.toml -> UI palette
   ui.py       the page
-benches/      13 bench specs (6 Omarchy chat, 4 controls, gauntlet, crash, 1 agentic)
+benches/      14 specs: 6 Omarchy chat + 1 Omarchy agentic, 5 controls (1 of them
+              agentic), gauntlet, crash
+  CLAUDE.md   the bench-spec schema -- read this before writing or editing a bench
 skills.yaml   skill bundle manifest
 secrets/      the agentic lane's ssh keypair - generated, gitignored
 data/         SQLite results DB - derived, gitignored, delete it to start over

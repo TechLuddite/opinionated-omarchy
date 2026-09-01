@@ -336,7 +336,8 @@ async function loadCases(id,f){
 
 async function loadRuns(){
   const d=await api('/api/runs');
-  $('runs').innerHTML='<caption>Runs</caption><thead><tr><th>#</th><th class="l">Bench</th>'+
+  $('runs').innerHTML='<caption>Runs &mdash; click a row to open it above</caption>'+
+    '<thead><tr><th>#</th><th class="l">Bench</th>'+
     '<th class="l">Variants</th><th>Models</th><th>Cases</th><th class="l">Status</th>'+
     '<th class="l">Started</th></tr></thead><tbody>'+
     d.runs.map(r=>`<tr data-id="${r.id}"><td>${r.id}</td><td class="l">${esc(r.bench)}</td>`+
@@ -439,7 +440,6 @@ def page(colors, themes):
       a skill shows up as prompt tokens.</p>
   </div>
 
-  <div class="panel"><div class="scroll"><table id="runs"></table></div></div>
 
   <div id="runview" class="panel hide">
     <div class="row" style="margin-bottom:6px">
@@ -462,6 +462,12 @@ def page(colors, themes):
   </div>
 
   <div id="cases" class="hide"></div>
+
+  <!-- The run list sits at the BOTTOM. The page reads top-down as the order you work in:
+       launch a run, watch the run you just launched, drill into its cases, and only then
+       the history you might jump back to. Above the fold it was pushing the thing you
+       actually came to look at off the screen. -->
+  <div class="panel"><div class="scroll"><table id="runs"></table></div></div>
 </div>
 <div class="tip" id="tip"></div>
 <script>{JS}</script>

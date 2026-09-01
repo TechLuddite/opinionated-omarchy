@@ -1,6 +1,6 @@
 # Networking
 
-46 problems. Sorted by severity, then by how often users hit it.
+45 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix a brand-new Intel Wi-Fi card that finds no usable firmware
 
@@ -334,8 +334,6 @@ sudo systemctl restart NetworkManager bluetooth
 
 **Verify.** Run `systemctl suspend`, resume, then `nmcli device status` — the wlan device should be `connected` or `disconnected`, never `unavailable`. `journalctl -kb | grep -i mt7921` should show no `error -110`, no `driver own failed` and no `D3cold` message after the resume timestamp. `cat /sys/module/mt7921e/parameters/disable_aspm` should print `Y`.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <https://bbs.archlinux.org/viewtopic.php?id=295916> · <https://bbs.archlinux.org/viewtopic.php?id=284180> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/mediatek/mt76/mt7921/pci.c> · <https://github.com/basecamp/omarchy/blob/master/bin/omarchy-hibernation-setup>
 
 ---
@@ -346,7 +344,11 @@ Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <h
 
 **Symptom.** Clicking a secured network in the bar does nothing — no password dialog ever opens and the connection silently fails. From the terminal: `Error: Connection activation failed: (7) Secrets were required, but not provided`. The journal shows `no secrets: No agents were available for this request.` or `Failed to request VPN secrets #1: No agents were available for this request.` Anything else that needs elevation (mounting a disk in a file manager, `pkexec`) also fails without prompting.
 
-**Cause.** NetworkManager never stores an agent-owned secret itself; it asks a *secret agent* running in your session for it. On a full desktop environment the shell provides one. A bare Hyprland session provides neither a secret agent nor a polkit authentication agent unless you start one, so the request has nowhere to go and NetworkManager gives up with error 7. On Omarchy 4 this role is filled by the polkit dialog inside `omarchy-shell` (the Quickshell process that also draws the bar) — if that process has crashed or is restart-looping, every password prompt on the machine disappears with it. Omarchy 4 also retires the standalone `hyprpolkitagent.service` user unit during the Quattro upgrade, so a stale enabled copy of it is not what is answering.
+**Cause.** NetworkManager does not prompt for Wi-Fi secrets itself. Unless the passphrase is stored in the profile, it asks a registered *secret agent* in your session for it, and if none has registered it gives up immediately with error 7 and logs `no secrets: No agents were available for this request.` A full desktop environment's shell provides one; a bare Hyprland session provides neither a secret agent nor a polkit authentication agent unless you start one. Omarchy 4 is a third case, and it is not the same mechanism: it registers **no** NetworkManager secret agent at all. Its network panel (part of the `omarchy-shell` Quickshell process that also draws the bar) collects the passphrase in its own dialog and passes it straight to `nmcli`, and a separate Quickshell plugin provides the **polkit** agent for `pkexec` and friends. Both live in that one process, so if `omarchy-shell` has crashed or is restart-looping you lose the Wi-Fi dialog and every privilege prompt on the machine together — but you will not see the NetworkManager "no agents" error from clicking the bar, because the bar never asked NetworkManager for secrets in the first place. You get that error from `nmcli` without `--ask`, from a VPN plugin, or on a bare Hyprland session with no agent running. Note also that Omarchy 4 retires the standalone `hyprpolkitagent.service` user unit during the Quattro upgrade, so a stale enabled copy of it is not what is answering.
+
+> **Audit corrected this record.** The problem is real and the generic Arch half is verbatim-correct, but three Omarchy 4 / Hyprland 4 specifics are fabricated, and the cause conflates two different agents. Checked on the live Omarchy 4.0.0 install. (1) `omarchy-shell.service` does not exist as a user unit — `systemctl --user cat omarchy-shell.service` returns "No files found", there is no such file in /usr/lib/systemd/user, and worse, `omarchy-shell.service` is listed in the `retired_user_units` array of /usr/bin/omarchy-upgrade-to-quattro and actively deleted from ~/.config/systemd/user. The shell is started from Hyprland's autostart (`hl.exec_cmd("omarchy-launch-shell")` in /usr/share/omarchy/default/hypr/autostart.lua) and restarted with `omarchy-restart-shell` (`omarchy restart shell`). (2) `hl.exec_once(...)` is not a Hyprland Lua API. The hyprland-wiki page content/configuring/core/autostart.md shows the only documented form is `hl.on("hyprland.start", function() hl.exec_cmd("...") end)`, and `strings /usr/bin/Hyprland` on 0.56 has `exec_cmd` but no `exec_once` (only the legacy hyprlang keyword `exec-once`). (3) `busctl --user list | grep -i polkit` is a false-negative diagnostic: on this healthy machine, with the Quickshell polkit plugin loaded (/usr/share/omarchy/shell/plugins/polkit/PolkitAgent.qml, `import Quickshell.Services.Polkit`), that command matches nothing, so it would tell a user their agent is dead when it is fine. (4) The cause is wrong about mechanism. A NetworkManager *secret agent* (org.freedesktop.NetworkManager.AgentManager) and a *polkit* agent are different things; Omarchy 4 ships the latter but registers no secret agent — its network panel collects the passphrase itself and hands it to nmcli (see /usr/share/omarchy/shell/plugins/panels/network/Model.js, which builds `nmcli connection add ... | nmcli connection edit uuid ...` with the password on stdin). Verified as correct and kept: the error strings (Arch wiki NetworkManager: "If you make neither of these available, then authentication will fail with the error `no secrets: No agents were available for this request.`", and the i3 warning uses the same string); `nmcli --ask` and `nmtui` as their own agents; `psk-flags 0` = stored by NetworkManager in cleartext under /etc/NetworkManager/system-connections plus that danger note; the polkit rules snippet, which is character-for-character the wiki's 50-org.freedesktop.NetworkManager.rules with `subject.isInGroup("network")`; the Hyprland wiki listing an Authentication Agent under Must-have with "Starting method: manual (autostart in config)" and hyprpolkitagent's own page giving `systemctl --user start hyprpolkitagent` in autostart and `systemctl --user enable --now hyprpolkitagent.service` under uwsm; and the claim that Quattro retires hyprpolkitagent.service, which is true (it heads the retired_user_units list).
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `psk-flags 0` writes the passphrase in clear text into `/etc/NetworkManager/system-connections/<name>.nmconnection`, readable by root and by anything that can read that directory. That is the normal Arch default, but do not do it for shared machines or for corporate credentials. The polkit rules file grants every member of `network` unprompted control over all NetworkManager settings including VPN configuration — only add users you would give sudo to.
 
@@ -355,9 +357,11 @@ Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <h
 Confirm the diagnosis rather than guessing at the password:
 
 ```bash
-journalctl -u NetworkManager -b --no-pager | tail -40 | grep -i 'secret\|agent'
-busctl --user list | grep -i polkit
+journalctl -u NetworkManager -b --no-pager | grep -i 'secret\|agent' | tail -20
+pkexec true          # should raise a password dialog; fails silently if no polkit agent
 ```
+
+Do not use `busctl --user list | grep -i polkit` as the test — a working Quickshell or hyprpolkitagent agent owns no name on the user bus, so that matches nothing even on a healthy machine.
 
 **Immediate workaround — no agent needed.** `nmcli` can be its own agent with `--ask`, and `nmtui` prompts in the terminal:
 
@@ -367,14 +371,17 @@ nmcli --ask device wifi connect "<SSID>"
 nmtui
 ```
 
-**Omarchy 4.** The agent lives in the shell; restart it:
+**Omarchy 4.** The network panel and the polkit dialog both live in the `omarchy-shell` Quickshell process. There is no `omarchy-shell.service` user unit — Quattro retires that name — so check and restart it this way:
 
 ```bash
-systemctl --user status omarchy-shell.service
-systemctl --user restart omarchy-shell.service
+pgrep -af quickshell                              # is the shell alive?
+journalctl --user -t omarchy-shell -b | tail -40  # why it died, if it did
+omarchy-restart-shell                             # same as: omarchy restart shell
 ```
 
-If a leftover pre-Quattro unit is still enabled and fighting it, clear it:
+`omarchy-restart-shell` is deliberately careful about the lock screen; prefer it over killing the process by hand.
+
+If a leftover pre-Quattro unit is still enabled and fighting it, clear it (this is exactly what the Quattro upgrade's own cleanup does):
 
 ```bash
 systemctl --user disable --now hyprpolkitagent.service 2>/dev/null
@@ -382,23 +389,27 @@ rm -f ~/.config/systemd/user/hyprpolkitagent.service
 systemctl --user daemon-reload
 ```
 
-**Bare Hyprland / plain Arch.** Install and autostart an agent. The Hyprland wiki lists an authentication agent under "must have" and its start method as manual:
+**Bare Hyprland / plain Arch.** Install and autostart an agent. The Hyprland wiki lists an authentication agent under "must have" with its starting method as manual, via an autostart entry in the config:
 
 ```bash
 sudo pacman -S --needed hyprpolkitagent
 ```
 
-Hyprland 0.55+ config is Lua, so in `~/.config/hypr/hyprland.lua`:
+Hyprland 0.55+ config is Lua, and there is no `exec-once` equivalent function — autostart is an event handler. In `~/.config/hypr/hyprland.lua`:
 
 ```lua
-hl.exec_once("systemctl --user start hyprpolkitagent")
+hl.on("hyprland.start", function()
+  hl.exec_cmd("systemctl --user start hyprpolkitagent")
+end)
 ```
 
-If you launch Hyprland through uwsm, enable it as a proper user unit instead:
+If you launch Hyprland through uwsm, enable it as a proper user unit instead and drop the autostart line:
 
 ```bash
 systemctl --user enable --now hyprpolkitagent.service
 ```
+
+Note that a polkit agent alone does not make NetworkManager stop reporting "no agents" — that error wants a *secret* agent. On a bare Hyprland session, either use `nmcli --ask` / `nmtui`, run a front-end that registers one (`nm-applet`, `networkmanager-dmenu`), or store the secret as below.
 
 **Make the Wi-Fi password not need an agent at all.** Store it in the connection profile rather than in a keyring, so NetworkManager itself owns it (secret flag `0` = stored by NetworkManager):
 
@@ -424,8 +435,6 @@ EOF
 Log out and back in for the group change to take effect.
 
 **Verify.** `nmcli device wifi connect "<SSID>"` on a network whose password is not yet stored should pop a graphical prompt. `busctl --user list | grep -i polkit` shows an agent on the bus. `pkexec true` should prompt rather than fail silently.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://wiki.hypr.land/Useful-Utilities/Must-have/> · <https://wiki.hypr.land/Hypr-Ecosystem/hyprpolkitagent/> · <https://github.com/basecamp/omarchy/blob/master/bin/omarchy-upgrade-to-quattro>
 
@@ -642,9 +651,19 @@ Sources: <https://man.archlinux.org/man/nfs.5> · <https://man.archlinux.org/man
 
 **Cause.** The RTL8111/8168 family covers dozens of silicon revisions behind one PCI ID. The in-tree `r8169` driver handles most of them well but some revisions misbehave, usually around PCIe ASPM and Energy Efficient Ethernet: the PHY drops into a low-power state, the link partner does not follow, and the link renegotiates or downshifts. On some mini-PCs and Gigabyte/MSI boards the PCIe root port itself throws AER errors when ASPM is active. This is distinct from the RTL8125 2.5 GbE offload bug, which is a different chip and a different fix.
 
+> **Audit corrected this record.** Nearly everything here checks out against the cited sources and against this Omarchy 4 box. https://wiki.archlinux.org/title/Network_configuration/Ethernet carries the exact two log lines the symptom quotes ("MicroStar Motherboard with Realtek 8111/8168/8411" section), prescribes the `ip link set dev <iface> down/up` bounce verbatim, prescribes the AUR r8168 + blacklist r8169 route for flapping revisions, and documents `iommu=soft` for Gigabyte boards — so the record's "documented remedy" claim is real, not fabricated. bbs.archlinux.org/viewtopic.php?id=285421 is exactly the AER-storm mini-PC case and its accepted answer is literally `r8168.aspm=0 r8168.eee_enable=0 pcie_aspm=off` with r8168-dkms and r8169 blacklisted. I confirmed `aspm` and `eee_enable` are real module_param()s in r8168_n.c (lines 502 and 520), and that `r8168-dkms` exists in the AUR at 8.056.02-1, last updated 2026-02. The Omarchy-specific boot bits are correct for Quattro, not Omarchy 3: /etc/limine-entry-tool.d exists on this machine holding omarchy-defaults.conf and resume.conf, the `KERNEL_CMDLINE[default]+=" ..."` append syntax matches /etc/limine-entry-tool.conf's documented drop-in operator, `sudo limine-mkinitcpio` is precisely what /usr/share/omarchy/migrations/1784917531.sh and 1786482992.sh run after writing such a drop-in, and omarchy-refresh-limine really does overwrite /boot/limine.conf from $OMARCHY_PATH/default/limine/limine.conf, so the warning against hand-editing it is right. NetworkManager-dispatcher.service is enabled here, so the dispatcher hook will fire. ONE REAL GAP: `ethtool` is not installed on Omarchy 4 — `pacman -Q ethtool` returns "package not found" on this machine and `ethtool` appears nowhere in /usr/share/omarchy/install/*.packages. A user copy-pasting the diagnostic block or Step 1 gets "command not found", and the dispatcher script silently no-ops on /usr/bin/ethtool. Corrected fix adds the install and a check that the dispatcher actually took effect. Cause is accurate and stands.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** `r8168` is an out-of-tree DKMS module. If it fails to build against a new kernel you boot with no ethernet at all — and because you blacklisted `r8169`, there is no fallback. Always install the matching `linux-headers` before a kernel upgrade, check `dkms status` afterwards, and keep a USB ethernet adapter or working Wi-Fi as a way back in. Try steps 1–3 on the in-tree driver first; most machines never need step 4. `pcie_aspm=off` disables PCIe power management system-wide and will measurably shorten laptop battery life — prefer the per-driver `r8168 aspm=0` where it is sufficient.
 
 **Fix.**
+
+**Step 0 — install `ethtool`.** Omarchy 4 does not ship it (it is not in `omarchy-base.packages`), so every command below fails with `command not found` without this:
+
+```bash
+sudo pacman -S --needed ethtool
+```
 
 Identify the exact revision and the bound driver:
 
@@ -674,9 +693,18 @@ if [ "$ACTION" = "up" ]; then
 fi
 EOF
 sudo chmod 755 /etc/NetworkManager/dispatcher.d/50-realtek-eee
+sudo systemctl enable --now NetworkManager-dispatcher.service
 ```
 
-**Step 2 — if the log shows `pci link is down` or AER errors, disable ASPM.** On Omarchy 4, kernel parameters go into a limine-entry-tool drop-in (hand edits to `/boot/limine.conf` are reset by `omarchy-refresh-limine`):
+Confirm it actually ran after the next link event, rather than assuming it did:
+
+```bash
+sudo nmcli device disconnect <iface> && sudo nmcli device connect <iface>
+sudo ethtool --show-eee <iface>      # must still report EEE disabled
+journalctl -u NetworkManager-dispatcher -n 20
+```
+
+**Step 2 — if the log shows `pci link is down` or AER errors, disable ASPM.** On Omarchy 4, kernel parameters go into a limine-entry-tool drop-in (hand edits to `/boot/limine.conf` are reset by `omarchy-refresh-limine`, which copies the packaged default over it):
 
 ```bash
 sudo mkdir -p /etc/limine-entry-tool.d
@@ -686,7 +714,13 @@ sudo limine-mkinitcpio
 sudo reboot
 ```
 
-On plain Arch with GRUB, add `pcie_aspm=off` to `GRUB_CMDLINE_LINUX_DEFAULT` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`. On some Gigabyte boards `iommu=soft` is the documented remedy instead.
+After the reboot, check the parameter actually made it into the booted command line — Omarchy builds a UKI, so a drop-in that was written without a rebuild will not be in effect:
+
+```bash
+grep -o 'pcie_aspm=off' /proc/cmdline
+```
+
+On plain Arch with GRUB, add `pcie_aspm=off` to `GRUB_CMDLINE_LINUX_DEFAULT` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`. On some Gigabyte boards (the wiki's example is the GA-990FXA-UD3) `iommu=soft` is the documented remedy instead.
 
 **Step 3 — as a one-off recovery** when it has already downshifted, bounce the link:
 
@@ -705,6 +739,7 @@ sudo tee /etc/modprobe.d/r8168.conf >/dev/null <<'EOF'
 options r8168 aspm=0 eee_enable=0
 EOF
 
+sudo dkms status                 # must show r8168 installed for your kernel
 sudo mkinitcpio -P
 sudo reboot
 ```
@@ -712,8 +747,6 @@ sudo reboot
 After the reboot, `lspci -k` should show `Kernel driver in use: r8168`. The `aspm=0 eee_enable=0` combination (with `pcie_aspm=off` on the cmdline) is what fixed the AER-storm case on affected mini-PCs.
 
 **Verify.** `sudo ethtool <iface> | grep -E 'Speed|Link detected'` reports `1000Mb/s` and `yes`. `sudo ethtool --show-eee <iface>` shows EEE disabled. Then hold it under load: `ping -i 0.2 -c 600 <router-ip>` alongside a large transfer should complete with no loss, and `journalctl -kf | grep -iE 'r816|link is'` should stay silent for the duration.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Network_configuration/Ethernet> · <https://bbs.archlinux.org/viewtopic.php?id=285421> · <https://github.com/basecamp/omarchy/blob/master/bin/omarchy-hibernation-setup>
 
@@ -783,7 +816,11 @@ Sources: <https://github.com/basecamp/omarchy/issues/1509> · <https://github.co
 
 **Symptom.** Wi-Fi on an RTL8821CE / RTL8822BE / RTL8822CE (very common in budget HP, Lenovo and Asus laptops) connects but is unusable — a few hundred kbit/s, pings jumping to seconds, the link dropping every couple of minutes and reconnecting, or the card going dead after a resume. `lspci -k` shows `Kernel driver in use: rtw88_8821ce`. Users describe it as "my Wi-Fi works on Windows but is unusable on Arch".
 
-**Cause.** The in-kernel rtw88 driver enables PCIe ASPM and the deep low-power-save mode on hardware whose platform implementation is broken. Upstream `rtw88/pci.c` carries a DMI quirk table that force-disables ASPM, but it only lists a handful of HP models — every other affected machine has to set the module parameter by hand. This is the rtw88 sibling of the already-documented rtw89 problem; rtw88 covers the Wi-Fi 5 parts (8821CE, 8822BE, 8822CE, 8723DE) while rtw89 covers the Wi-Fi 6 ones.
+**Cause.** The in-kernel rtw88 driver enables PCIe ASPM and the deep low-power-save mode on hardware whose platform implementation is broken, so the link stalls, crawls or dies after resume. Upstream `rtw88/pci.c` carries a DMI quirk table (`rtw_pci_quirks[]`) that force-disables ASPM and deep LPS, but it has only two entries — "HP Notebook - P3S95EA#ACB" and "ASUS TUF Gaming A15 FA506II" — so every other affected machine has to set the module parameter by hand. The driver also force-disables ASPM at runtime for an 8821C sitting behind an Intel PCIe bridge (`rx_no_aspm`), which is why the same chip misbehaves on some boards and not others. This is the rtw88 sibling of the already-documented rtw89 problem; rtw88 covers the older Realtek PCIe parts (8821CE, 8822BE, 8822CE and the 802.11n 8723DE) while rtw89 covers the Wi-Fi 6 ones.
+
+> **Audit corrected this record.** The fix is exactly right and I verified every module and parameter name against the cited kernel sources rather than from memory. drivers/net/wireless/realtek/rtw88/pci.c lines 20-23 declare `module_param_named(disable_msi, ...)` and `module_param_named(disable_aspm, rtw_pci_disable_aspm, bool, 0644)`; main.c line 38 declares `module_param_named(disable_lps_deep, rtw_disable_lps_deep_mode, bool, 0644)`. The rtw88 Makefile confirms main.o builds into `rtw88_core` and pci.o into `rtw88_pci`, and that `rtw88_8821ce`, `rtw88_8822ce`, `rtw88_8822be` and `rtw88_8723de` are real module names — so /etc/modprobe.d/70-rtw88.conf as written is correct, and the sysfs paths in the verify step exist. `rtl8821ce-dkms-git` and `rtw88-dkms-git` both exist in the AUR. Nothing here is Omarchy-3 shaped and the `yay -S` note correctly avoids a bare pacman upgrade. THE CAUSE IS WRONG ON A CHECKABLE SPECIFIC: it says the upstream DMI quirk table "only lists a handful of HP models". `rtw_pci_quirks[]` in pci.c has exactly TWO entries — "HP Notebook - P3S95EA#ACB" and "ASUS TUF Gaming A15 FA506II" — so it is two machines from two vendors, not a handful of HP models. That is precisely the kind of invented specific that reads more authoritative than the text around it. Two smaller points folded into the corrected text: the RTL8723DE is 802.11n, not a Wi-Fi 5 part; and pci.c also carries a narrower runtime workaround (`rx_no_aspm` for 8821C behind an Intel bridge) worth knowing about. Finally, `rtl8821ce-dkms-git` was last updated 2023-01 per the AUR RPC, which is a real build risk against a 7.x kernel and belongs in the text rather than only implied by the danger note.
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Blacklisting `rtw88_8821ce` in favour of a DKMS module means that if the DKMS build fails on the next kernel upgrade you boot with no Wi-Fi at all and no way to download a fix. Keep an ethernet cable or a USB Wi-Fi dongle to hand, always install the matching `linux-headers` before upgrading, and check `dkms status` after every kernel bump. Do not blacklist the in-tree driver until you have confirmed the DKMS one actually loads.
 
@@ -807,7 +844,7 @@ sudo modprobe -r rtw88_8821ce rtw88_pci rtw88_core 2>/dev/null
 sudo modprobe rtw88_8821ce
 ```
 
-(Substitute `rtw88_8822ce` / `rtw88_8822be` / `rtw88_8723de` for your part.) Confirm:
+(Substitute `rtw88_8822ce` / `rtw88_8822be` / `rtw88_8723de` for your part. Doing this over ssh will drop the connection — run it at the console.) Confirm:
 
 ```bash
 cat /sys/module/rtw88_pci/parameters/disable_aspm
@@ -816,22 +853,31 @@ cat /sys/module/rtw88_core/parameters/disable_lps_deep
 
 If `disable_msi` is also needed on your board (some report MSI interrupt trouble), the same module exposes it: add `options rtw88_pci disable_msi=y`.
 
-If the in-tree driver is still unusable after that, fall back to the out-of-tree DKMS driver. It needs kernel headers, so install those first:
+If the in-tree driver is still unusable after that, fall back to an out-of-tree DKMS driver. It needs kernel headers, so install those first:
 
 ```bash
 # Omarchy: use the AUR helper, never a bare pacman -Syu
-yay -S linux-headers rtl8821ce-dkms-git
+yay -S linux-headers rtw88-dkms-git
+```
 
+Prefer `rtw88-dkms-git`: it is a backport of the whole mainline rtw88 series and is still maintained. The older single-chip `rtl8821ce-dkms-git` also exists, but its last AUR update was January 2023, so expect it to fail to build against a current kernel:
+
+```bash
+yay -S linux-headers rtl8821ce-dkms-git
+```
+
+Only after `dkms status` shows the replacement module built for your running kernel should you blacklist the in-tree one:
+
+```bash
+sudo dkms status
 echo 'blacklist rtw88_8821ce' | sudo tee /etc/modprobe.d/blacklist-rtw88.conf
 sudo mkinitcpio -P
 sudo reboot
 ```
 
-After the reboot `lspci -k` should show `Kernel driver in use: rtl8821ce`. A backport of the whole rtw88 series is also available as `rtw88-dkms-git` if you would rather stay on the mainline driver but on newer code.
+After the reboot `lspci -k` should show the replacement driver in `Kernel driver in use:`.
 
 **Verify.** `cat /sys/module/rtw88_pci/parameters/disable_aspm` prints `Y`. Then run a sustained transfer and watch for drops: `ping -i 0.2 -c 200 <your-router-ip>` should show no gaps over one second and no packet loss, and `journalctl -kf | grep -i rtw88` should be quiet during it.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/realtek/rtw88/pci.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/realtek/rtw88/main.c> · <https://bbs.archlinux.org/viewtopic.php?id=273440>
 
@@ -1010,8 +1056,6 @@ sudo wpa_supplicant -d -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 If you use iwd as the backend instead, it supports WPA3 Personal natively and generally needs no key-mgmt configuration at all — worth trying as a straight A/B test.
 
 **Verify.** `nmcli -f GENERAL.STATE,802-11-wireless-security.key-mgmt connection show --active "<SSID>"` shows the connection active. `iw dev wlan0 link` reports the BSS and no repeated re-association. With wpa_supplicant running in the foreground you should see `CTRL-EVENT-CONNECTED` rather than `No PSK available for association`.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Wpa_supplicant> · <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <https://bbs.archlinux.org/viewtopic.php?id=256573> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless-security.html>
 
@@ -1268,6 +1312,10 @@ Sources: <https://github.com/basecamp/omarchy/issues/1288> · <https://github.co
 
 **Cause.** Three different failures wear the same face. (1) A2DP is playback-only by design; the microphone only exists under HFP/HSP, which is a separate profile the card has to be switched to. (2) The adapter's firmware is missing, so the SCO link that carries HFP audio never comes up — Broadcom USB dongles are the classic case, logging `Bluetooth: hci0: BCM: firmware Patch file not found`. (3) The `hfp_hf` role or mSBC has been disabled in a WirePlumber drop-in, often copied from a "fix my headset" snippet whose whole purpose was to turn HFP off.
 
+> **Audit corrected this record.** Almost all of this is verified and current, but the WirePlumber drop-in contradicts the default it just quoted and re-enables a role combination upstream deliberately leaves out. Verified correct first: `wpctl settings --save bluetooth.autoswitch-to-headset-profile <bool>` is real (Arch wiki Bluetooth headset uses that exact command; the key is in the schema at /usr/share/wireplumber/wireplumber.conf line 873 with default true). The stated upstream default `bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hfp_hf hfp_ag ]` is exactly what the wiki documents. `bluez5.roles`, `bluez5.enable-msbc`, `bluez5.enable-sbc-xq` and `bluez5.hfphsp-backend` are all real properties — I found all four in the strings of /usr/lib/spa-0.2/bluez5/libspa-bluez5.so on PipeWire 1.6.8. The profile names are real: bluez5-device.c builds codec profiles as `spa_aprintf("%s-%s", name, media_codec->name)` over base `headset-head-unit` with codec names `msbc`/`cvsd`, so `headset-head-unit-msbc` is right, and `pactl set-card-profile` taking the name while `wpctl set-profile` takes an index is right. Package names check out: broadcom-bt-firmware is AUR (wiki uses {{AUR|...}}), and linux-firmware-intel / linux-firmware-realtek are real core packages post-split — linux-firmware-intel owns 127 ibt-* Bluetooth blobs and linux-firmware-realtek owns 48 rtl_bt files. Nothing is stale PulseAudio advice; the danger note about /var/lib/bluetooth destroying every link key is correct and matches the dual-boot record. The defect: the drop-in writes `bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hsp_hs hsp_ag hfp_hf hfp_ag ]` under the heading "restore the roles explicitly", which is not the default it stated two lines earlier — it adds hsp_hs and hsp_ag. Upstream omits hsp_ag on purpose; the Arch wiki records why: "Currently some headsets (Sony WH-1000XM3) are not working with both hsp_ag and hfp_ag enabled, so by default we enable only HFP." A user copy-pasting this to fix a mic can break a headset that was working. Corrected fix restores the documented default list and says what to do if the headset only speaks HSP.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** Deleting `/var/lib/bluetooth` to force a clean re-pair (advice that circulates for this problem) removes the link keys for *every* paired device on the machine, including any you have painstakingly synchronised with a Windows dual boot. Back it up first: `sudo cp -a /var/lib/bluetooth /var/lib/bluetooth.bak`.
 
 **Fix.**
@@ -1301,14 +1349,14 @@ wpctl set-default <source-id>
 journalctl -kb | grep -i 'bluetooth.*firmware'
 ```
 
-`BCM: firmware Patch file not found` means a Broadcom part:
+`BCM: firmware Patch file not found` means a Broadcom part, whose blobs are not in the repos:
 
 ```bash
-yay -S broadcom-bt-firmware
+yay -S broadcom-bt-firmware      # AUR
 sudo systemctl restart bluetooth.service
 ```
 
-Then unpair and re-pair the headset. For Intel adapters, `linux-firmware-intel` covers it; for Realtek, `linux-firmware-realtek`.
+Then unpair and re-pair the headset. For Intel adapters the `ibt-*` blobs are in `linux-firmware-intel`; for Realtek the `rtl_bt` blobs are in `linux-firmware-realtek`. Both are pulled in by the `linux-firmware` meta-package, so on a stock install they are already there.
 
 **Make apps switch to the mic automatically** when a call starts (this is on by default in WirePlumber but is frequently turned off by copy-pasted configs):
 
@@ -1323,13 +1371,13 @@ grep -rn 'bluez5.roles\|autoswitch-to-headset\|enable-msbc' \
   ~/.config/wireplumber/ /etc/wireplumber/ 2>/dev/null
 ```
 
-The upstream defaults are `bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hfp_hf hfp_ag ]`, `bluez5.enable-msbc = true` and `bluez5.hfphsp-backend = "native"`. If a file has narrowed that, delete it or restore the roles explicitly:
+The upstream defaults are `bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hfp_hf hfp_ag ]`, `bluez5.enable-msbc = true` and `bluez5.hfphsp-backend = "native"`. **Prefer deleting the offending drop-in** — that puts you back on the defaults with no drift. If you would rather be explicit, write the defaults back verbatim and nothing more:
 
 ```bash
 mkdir -p ~/.config/wireplumber/wireplumber.conf.d
 tee ~/.config/wireplumber/wireplumber.conf.d/51-bluez-roles.conf >/dev/null <<'EOF'
 monitor.bluez.properties = {
-  bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hsp_hs hsp_ag hfp_hf hfp_ag ]
+  bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hfp_hf hfp_ag ]
   bluez5.enable-msbc = true
   bluez5.enable-sbc-xq = true
   bluez5.hfphsp-backend = "native"
@@ -1339,11 +1387,11 @@ EOF
 systemctl --user restart wireplumber.service
 ```
 
+Do **not** add `hsp_hs` / `hsp_ag` on spec. They are omitted from the upstream default deliberately: with both `hsp_ag` and `hfp_ag` enabled some headsets stop working entirely (the Sony WH-1000XM3 is the documented case). Only add `hsp_hs hsp_ag` if the headset is old enough to offer HSP but not HFP, and back it out the moment the profile stops appearing.
+
 Reconnect the headset afterwards. Expect the sound quality to collapse while HFP is active — mSBC is 16 kHz wideband and CVSD is 8 kHz narrowband; that is the protocol, not a bug, and it is why you want autoswitch rather than staying on HFP permanently.
 
 **Verify.** `pactl list cards | grep -A 5 'Active Profile'` shows a `headset-head-unit*` profile. `wpctl status` lists the headset under Sources. Record and play back a test: `pw-record /tmp/t.wav` (Ctrl-C after speaking) then `pw-play /tmp/t.wav`. `bluetoothctl info <MAC>` and the transport state should read `active`, not `idle`, while recording.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Bluetooth_headset> · <https://wiki.archlinux.org/title/PipeWire> · <https://bbs.archlinux.org/viewtopic.php?id=290780> · <https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/bluetooth.html>
 
@@ -1475,8 +1523,6 @@ Do not run Avahi as a responder and systemd-resolved as a responder simultaneous
 
 **Verify.** `avahi-browse --all --ignore-local --resolve --terminate` lists services from other machines. `getent hosts nas.local` returns an address. `resolvectl query nas.local` succeeds. `sudo ufw status | grep 5353` shows the ALLOW rule. Printers appear in `lpstat -e` / the GTK print dialog.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/Systemd-resolved> · <https://github.com/basecamp/omarchy/blob/master/install/config/firewall.sh> · <https://github.com/basecamp/omarchy/blob/master/etc/nsswitch.conf> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall>
 
 ---
@@ -1488,6 +1534,10 @@ Sources: <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org
 **Symptom.** Boot sits on a blank screen or the splash for half a minute or more before the login screen appears, sometimes ending with `A start job is running for Network Manager Wait Online (1min 30s / no limit)` or a red `Failed to start Network Manager Wait Online`. `systemd-analyze blame` puts `NetworkManager-wait-online.service` at the top with 30s, 60s or 120s. It is worst on laptops that boot away from their usual Wi-Fi, and on machines with no cable plugged in.
 
 **Cause.** `NetworkManager-wait-online.service` is `WantedBy=network-online.target`, so it only runs when something pulls that target in — and on a desktop install something almost always does. On Omarchy it is `cups-browsed.service`, which orders itself after `network-online.target`, which in turn gates `graphical.target`. The result is that the whole desktop waits for DHCP or Wi-Fi association before it will draw. Nothing in a Hyprland session actually needs the network to be up before it starts.
+
+> **Audit corrected this record.** The problem, the remedy and every Omarchy-specific claim are correct — but one sentence of mechanism inside the fix is false, and it is exactly the confident-specific failure mode. Verified true: Omarchy 4's install/config/enable-services.sh on quattro really does `systemctl mask NetworkManager-wait-online.service`, migrations/1784568652.sh really does mask it on upgrade, and install/hardware/network.sh really does disable+mask systemd-networkd-wait-online.service while retiring archinstall's 'copy ISO network' units — the record even gets the archinstall provenance right. The cups-browsed cause is confirmed by the migration's own comment: "graphical.target was gated on network-online.target (cups-browsed orders itself after it)". The unit file on this machine confirms `ExecStart=/usr/bin/nm-online -s -q`, `Environment=NM_ONLINE_TIMEOUT=60` and `WantedBy=network-online.target`, so dropping -s to wait for real connectivity and raising NM_ONLINE_TIMEOUT are both right. What is wrong: "Mask, not disable: systemctl disable will not stop it, because it is pulled in as a dependency of network-online.target rather than started on its own." The enablement symlink is /etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service (there is no vendor .wants directory under /usr/lib), so `systemctl disable` does remove it and does stop it running. The real reason to prefer mask is in NetworkManager.service's own [Install]: `Also=NetworkManager-wait-online.service`, so any later `systemctl enable NetworkManager` or preset run silently re-enables it. Corrected fix replaces that one rationale with the verified one; all commands are unchanged.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 > ⚠️ **Risk.** Masking the unit means `network-online.target` is reached immediately, so any unit ordered `After=network-online.target` — NFS/CIFS mounts in fstab with `_netdev`, `wg-quick@`, backup timers, self-hosted services — can now start before there is an address and fail on the first try. Audit `systemctl list-dependencies network-online.target` before masking, and give anything genuinely network-dependent its own `Restart=on-failure` / `RestartSec=` rather than relying on the global wait.
 
@@ -1507,7 +1557,7 @@ Then mask the unit:
 sudo systemctl mask NetworkManager-wait-online.service
 ```
 
-Mask, not disable: `systemctl disable` will not stop it, because it is pulled in as a dependency of `network-online.target` rather than started on its own.
+**Mask rather than disable.** `systemctl disable` does work — the enable symlink lives in `/etc/systemd/system/network-online.target.wants/` and disabling removes it — but it does not stick. `NetworkManager.service` carries `Also=NetworkManager-wait-online.service` in its own `[Install]` section, so the next `systemctl enable NetworkManager.service`, or any preset run, quietly re-enables the wait unit. A mask survives all of that.
 
 If `systemd-networkd` is also installed (common on machines built by archinstall's "copy ISO network config" mode), mask its equivalent too:
 
@@ -1515,13 +1565,13 @@ If `systemd-networkd` is also installed (common on machines built by archinstall
 sudo systemctl mask systemd-networkd-wait-online.service
 ```
 
-Omarchy 4 does both of these for you — `install/config/enable-services.sh` masks the NetworkManager one on a fresh install and `migrations/1784568652.sh` masks it on upgrade — so on Omarchy check first rather than assuming:
+Omarchy 4 does both of these for you — `install/config/enable-services.sh` masks the NetworkManager one on a fresh install, `install/hardware/network.sh` disables and masks the networkd one, and `migrations/1784568652.sh` masks the NetworkManager one on upgrade — so on Omarchy check first rather than assuming:
 
 ```bash
 systemctl is-enabled NetworkManager-wait-online.service   # expect: masked
 ```
 
-If you genuinely have a service that must not start before the network is really up (a network mount, a VPN, a backup job), do not mask the unit. Instead make it wait for actual connectivity rather than for NetworkManager to finish starting, by dropping the `-s` flag:
+If you genuinely have a service that must not start before the network is really up (a network mount, a VPN, a backup job), do not mask the unit. Instead make it wait for actual connectivity rather than for NetworkManager to finish starting, by dropping the `-s` flag (the stock unit is `ExecStart=/usr/bin/nm-online -s -q`, and `-s` means "wait until NetworkManager logs startup complete", not "wait until there is an address"):
 
 ```bash
 sudo systemctl edit NetworkManager-wait-online.service
@@ -1533,7 +1583,7 @@ ExecStart=
 ExecStart=/usr/bin/nm-online -q
 ```
 
-and raise the timeout in the same drop-in if 60s is too tight:
+and raise the timeout in the same drop-in if the stock 60s is too tight:
 
 ```ini
 [Service]
@@ -1541,8 +1591,6 @@ Environment=NM_ONLINE_TIMEOUT=120
 ```
 
 **Verify.** Reboot, then `systemd-analyze blame | head -5` should no longer list either wait-online unit, and `systemd-analyze` should report a total boot time tens of seconds shorter. `systemctl is-enabled NetworkManager-wait-online.service` prints `masked`.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://github.com/basecamp/omarchy/blob/master/install/config/enable-services.sh> · <https://github.com/basecamp/omarchy/blob/master/migrations/1784568652.sh> · <https://github.com/basecamp/omarchy/blob/master/install/hardware/network.sh>
 
@@ -1907,8 +1955,6 @@ After any of these, update anything else that referenced the old name — `/etc/
 
 **Verify.** `nmcli -f NAME,DEVICE connection show --active` shows the profile bound to the current interface. `ip -br addr` shows an address on it. Reboot once and confirm it comes up unattended.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/Network_configuration> · <https://wiki.archlinux.org/title/Iwd> · <https://wiki.archlinux.org/title/NetworkManager> · <https://networkmanager.dev/docs/api/latest/NetworkManager.conf.html>
 
 ---
@@ -2025,8 +2071,6 @@ Make it persistent through your firewall's own config rather than a raw `iptable
 
 **Verify.** `ip link show <iface>` reports the new MTU. `ping -M do -s $((MTU-28)) -c 3 1.1.1.1` succeeds while one byte larger fails. Then reproduce the original failure: `ssh <host> 'yes | head -100000'` runs to completion, and a `git clone` of a real repository finishes.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/WireGuard> · <https://wiki.archlinux.org/title/Network_configuration> · <https://networkmanager.dev/docs/api/latest/settings-802-3-ethernet.html> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html>
 
 ---
@@ -2039,6 +2083,10 @@ Sources: <https://wiki.archlinux.org/title/WireGuard> · <https://wiki.archlinux
 
 **Cause.** Country `00` is the world regulatory domain: a lowest-common-denominator ruleset in which nearly every 5 GHz range is passive-scan / no-IR (no initiating radiation) and the whole 6 GHz band is simply absent. The card may legally listen but not transmit, so it can beacon-scan and never associate — and 6 GHz channels it is not permitted to use are never even enumerated. The kernel only leaves country 00 if `wireless-regdb` is installed and something actually sets a country. Intel cards muddy this: they are *self-managed* (Location Aware Regulatory), carry their own table in firmware, and are unaffected by `iw reg set` on the global domain — `iw reg get` prints a separate `phy#0 (self-managed)` block for them.
 
+> **Audit corrected this record.** The cause is accurate and I confirmed it from the primary data rather than memory. In wireless-regdb's db.txt, `country 00:` has no 6 GHz range at all and every 5 GHz range carries NO-IR, exactly as claimed; `country US:` does have a 6 GHz range. The self-managed claim is right too — `iw reg get` on this Intel machine prints a `global` block followed by a separate `phy#0 (self-managed)` block, precisely the shape the record describes. `wireless-regdb` really does own /etc/conf.d/wireless-regdom and /usr/lib/udev/rules.d/85-regulatory.rules (which RUNs /usr/bin/set-wireless-regdom on cfg80211 module add), so the sed and the reboot advice are sound. `linux-firmware-intel` is a real Arch package and does contain /usr/lib/firmware/intel/iwlwifi (390 files), so that is not a fabricated package name. `pacman -S --needed wireless-regdb` after `omarchy update` is safe: I read /usr/bin/omarchy-update-pacman-guard and it only aborts when BOTH sync and sysupgrade are present, so a plain `-S` is not blocked. TWO DEFECTS. (1) The `country=` line in /etc/wpa_supplicant/wpa_supplicant.conf is inert on Omarchy: Arch's wpa_supplicant.service runs `/usr/bin/wpa_supplicant -u -s -O /run/wpa_supplicant` with no `-c`, so under NetworkManager that file is never read. Telling a user to edit it sends them chasing a no-op. (2) The verify criteria are wrong on two counts I checked live. regulatory.db supplies only a max-EIRP figure, so a country-set global block prints `(N/A, 23)` style entries — `(6, 22)` only ever appears in the self-managed Intel block, so "real EIRP figures such as (6, 22)" will never be satisfied by setting a country. And with country US set on this machine the 5925–7125 MHz range still shows `NO-OUTDOOR, PASSIVE-SCAN`, because that is what US 6 GHz client rules are; a user following the stated verify would conclude the fix failed when it worked.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** Setting a regulatory domain other than the country you are actually in is illegal in most jurisdictions and can interfere with radar, aviation and licensed services on DFS and 6 GHz channels. Set your real country. Note also that software can only ever add restrictions on top of what the card's EEPROM/firmware allows — a device with a CN EEPROM will not transmit at US power levels no matter what you set.
 
 **Fix.**
@@ -2047,15 +2095,15 @@ Diagnose first — the two blocks in this output mean different things:
 
 ```bash
 iw reg get
-# 'global / country 00: DFS-UNSET' with PASSIVE-SCAN everywhere = unset
-# a trailing 'phy#0 (self-managed)' block = Intel-style LAR, global domain is not what governs it
+# 'global / country 00: DFS-UNSET' with NO-IR / PASSIVE-SCAN everywhere = unset
+# a trailing 'phy#0 (self-managed)' block = Intel-style LAR, the global domain is not what governs that card
 
 iw list | grep -A 40 'Frequencies:' | grep -i 'no IR\|disabled\|5955\|6135'
 journalctl -kb | grep -i 'regulatory\|regdb\|cfg80211'
 # 'cfg80211: failed to load regulatory.db' means wireless-regdb is missing
 ```
 
-Install the database and set your country persistently:
+Install the database and set your country persistently. (`wireless-regdb` is already in Omarchy's base package set, so normally it is present — check before assuming it is the problem.)
 
 ```bash
 # Omarchy: go through the wrapper, direct pacman -Syu is blocked by the update guard
@@ -2065,19 +2113,14 @@ sudo pacman -S --needed wireless-regdb
 sudo sed -i 's/^#WIRELESS_REGDOM="US"/WIRELESS_REGDOM="US"/' /etc/conf.d/wireless-regdom
 ```
 
-Uncomment exactly one line in `/etc/conf.d/wireless-regdom`, matching where you physically are. The file is only read at boot, so reboot — or set it for the current session:
+Uncomment exactly one line in `/etc/conf.d/wireless-regdom`, matching where you physically are. That file is read by `/usr/bin/set-wireless-regdom`, which udev runs from `/usr/lib/udev/rules.d/85-regulatory.rules` when the `cfg80211` module appears — i.e. at boot. Apply it now without rebooting:
 
 ```bash
-sudo iw reg set US
+sudo /usr/bin/set-wireless-regdom     # reads the file you just edited
 iw reg get
 ```
 
-Also tell the supplicant, which keeps its own notion of country:
-
-```ini
-# /etc/wpa_supplicant/wpa_supplicant.conf, global section
-country=US
-```
+Do **not** bother putting `country=` in `/etc/wpa_supplicant/wpa_supplicant.conf` on Omarchy. NetworkManager starts the supplicant as `wpa_supplicant -u -s -O /run/wpa_supplicant` with no `-c`, so that file is never read; it only applies if you run `wpa_supplicant@<iface>.service` yourself instead of NetworkManager.
 
 If `iw reg get` shows a `(self-managed)` phy (Intel AX210/AX211/BE200 and similar), the global setting is cosmetic for that card. Its domain comes from firmware plus the country IE in nearby beacons, so make sure the firmware is current and let it associate to a 2.4/5 GHz SSID from the same AP once:
 
@@ -2098,9 +2141,9 @@ iw list | grep -E '59[0-9]{2}|6[0-9]{3}\.0 MHz' | head
 nmcli device wifi list --rescan yes
 ```
 
-**Verify.** `iw reg get` shows `country XX` (not `00`) with real EIRP figures such as `(6, 22)` instead of `(N/A, 20)`, and the previously blocked ranges no longer carry `PASSIVE-SCAN`. `iw list` lists frequencies in the 5955–7115 MHz range without `no IR`. `nmcli device wifi list` then shows the 6 GHz SSID.
+**What success actually looks like — read this before deciding it failed.** `iw reg get` should show `country US: DFS-FCC` (or your country) instead of `country 00: DFS-UNSET`, and the 5 GHz ranges should lose their `NO-IR` flag. The power figures will still print as `(N/A, 23)`: `regulatory.db` carries only a max-EIRP number and never a max antenna gain, so the first field is always `N/A` in the global block. A pair like `(6, 22)` appears only in a `(self-managed)` phy block and is not something setting a country can produce. The US 6 GHz range `5925 - 7125` legitimately keeps `NO-OUTDOOR, PASSIVE-SCAN` even when everything is correct — that is the US client rule, and the channel is unblocked once the card hears the AP's beacon or discovers it out-of-band from the 2.4/5 GHz SSID. The real end-to-end check is that `nmcli device wifi list --rescan yes` now shows the 6 GHz SSID and the profile associates.
 
-> *Not independently audited — verify before running.*
+**Verify.** `iw reg get` shows `country XX` (not `00`) with real EIRP figures such as `(6, 22)` instead of `(N/A, 20)`, and the previously blocked ranges no longer carry `PASSIVE-SCAN`. `iw list` lists frequencies in the 5955–7115 MHz range without `no IR`. `nmcli device wifi list` then shows the 6 GHz SSID.
 
 Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <https://wiki.archlinux.org/title/NetworkManager> · <https://bbs.archlinux.org/viewtopic.php?id=295044> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html>
 
@@ -2112,7 +2155,11 @@ Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <h
 
 **Symptom.** You advertise the machine as an exit node, approve it in the admin console, select it on your phone — and the phone loses all internet. Tailscale itself stays connected and you can still ping the exit node's 100.x address, but nothing routes through it. A subnet router shows the same shape: the route is approved and visible, but the LAN behind it is unreachable. `sysctl net.ipv4.ip_forward` prints `1` and it still does not work.
 
-**Cause.** Two firewall-side causes, and the second one is the trap. First, ufw's default forward policy is `DROP`, so packets arriving on `tailscale0` destined elsewhere are dropped before any of your `allow` rules are consulted — those rules govern the INPUT chain, not FORWARD. Second, when ufw is enabled it applies `/etc/ufw/sysctl.conf`, which **overrides** `/etc/sysctl.d/*`. So a `net.ipv4.ip_forward=1` you set the normal way reads back as `1` at the moment you check it and is then reset by ufw, and forwarding is off again after the next `ufw reload` or reboot. Omarchy enables ufw with `default deny incoming` out of the box, so both apply.
+**Cause.** Two firewall-side causes. First and dominant: ufw's default forward policy is `DROP` (`DEFAULT_FORWARD_POLICY="DROP"` in /etc/default/ufw), so packets arriving on `tailscale0` destined elsewhere are dropped in the FORWARD chain before any of your `allow` rules are consulted — those rules govern INPUT, not FORWARD. That is why `sysctl net.ipv4.ip_forward` can read `1` and nothing routes. Second: ufw runs `sysctl -e -q -p /etc/ufw/sysctl.conf` every time it starts or reloads, so for any key that file actually sets, ufw's value wins over `/etc/sysctl.d/*`. On Arch the three forwarding keys ship commented out, so ufw is not resetting your setting — but /etc/ufw/sysctl.conf is nonetheless the durable place to enable forwarding on a ufw box, because it is applied last and survives every reload. Omarchy enables ufw with `default deny incoming` out of the box, so both apply.
+
+> **Audit corrected this record.** Every command in the fix is source-supported and I checked them against the primary pages and against this machine. https://wiki.archlinux.org/title/Uncomplicated_Firewall documents both remedies verbatim: `DEFAULT_FORWARD_POLICY="ACCEPT"` in /etc/default/ufw, and the two `-A ufw-before-forward -i <if> -j ACCEPT` / `-o` lines placed after `# End required lines` in /etc/ufw/before.rules, plus "You may also need to uncomment" exactly the three slash-syntax lines `net/ipv4/ip_forward=1`, `net/ipv6/conf/default/forwarding=1`, `net/ipv6/conf/all/forwarding=1` — which are lines 8-10 of /etc/ufw/sysctl.conf on this box, commented, character for character as the record prints them. `sudo ufw allow in on tailscale0` is recommended verbatim by the cited tailscale.com/kb/1077. I confirmed `--advertise-exit-node`, `--exit-node`, `--exit-node-allow-lan-access`, `--stateful-filtering` and `--netfilter-mode` are all real flags on `tailscale set` in cmd/tailscale/cli/set.go. /etc/default/ufw here has DEFAULT_FORWARD_POLICY="DROP" and IPT_SYSCTL=/etc/ufw/sysctl.conf, and Omarchy's install/config/firewall.sh does `ufw default deny incoming` and enables ufw — so the Omarchy framing is right. THREE INACCURACIES, all in the cause and danger text rather than the commands. (1) The cause's headline "trap" overstates: ufw applies /etc/ufw/sysctl.conf with `sysctl -e -q -p` in ufw_start, so it overrides /etc/sysctl.d only for keys it actually sets — and on Arch all three forwarding lines ship commented out, so ufw does not silently reset an ip_forward=1 you set elsewhere. The real reason the symptom survives is DEFAULT_FORWARD_POLICY=DROP. Leaving the wrong mechanism standing sends a reader hunting a reset that is not happening. (2) The danger note says /etc/ufw/before.rules is package-owned and "a ufw upgrade can replace it and silently drop your rules". `pacman -Qii ufw` lists /etc/ufw/before.rules in the backup array, so pacman preserves a modified copy and writes a .pacnew instead — the described silent loss does not occur. (3) "`ufw reload` does not always re-read `before.rules`" is wrong for current ufw: ufw_reload() in /usr/lib/ufw/ufw-init-functions is a full stop-then-start, which re-reads before.rules and re-applies IPT_SYSCTL. The disable/enable cycle is harmless but should not be sold as necessary. Also, as with the sibling record, the cited github.com/basecamp/omarchy/blob/master/install/config/firewall.sh 404s — that file lives on `quattro`, not `master`.
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `DEFAULT_FORWARD_POLICY="ACCEPT"` turns the machine into an open router for *every* interface, not just `tailscale0` — on a laptop that also runs Docker or a hotspot this is a real exposure. Prefer the two targeted `ufw-before-forward` lines. Note also that `/etc/ufw/before.rules` is package-owned: a ufw upgrade can replace it and silently drop your rules, so re-check after updates. Turning on IP forwarding at all changes the machine's role on the network; do not leave it enabled on a laptop that no longer needs to be an exit node.
 
@@ -2123,12 +2170,12 @@ Diagnose in this order:
 ```bash
 tailscale status
 sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding
-grep -E '^net' /etc/ufw/sysctl.conf
+grep -E '^#?net' /etc/ufw/sysctl.conf
 grep DEFAULT_FORWARD_POLICY /etc/default/ufw
 sudo ufw status verbose
 ```
 
-**1. Enable forwarding where ufw will not undo it.** Uncomment these in `/etc/ufw/sysctl.conf` (note the slash-separated syntax that file uses):
+**1. Enable forwarding where ufw will not undo it.** Uncomment these in `/etc/ufw/sysctl.conf` (note the slash-separated syntax that file uses). They ship commented out on Arch, so ufw is not currently resetting anything — but this file is applied on every `ufw` start and reload, which makes it the durable place for the setting on a ufw box:
 
 ```ini
 # /etc/ufw/sysctl.conf
@@ -2137,7 +2184,7 @@ net/ipv6/conf/default/forwarding=1
 net/ipv6/conf/all/forwarding=1
 ```
 
-**2. Let forwarded traffic through.** Either globally:
+**2. Let forwarded traffic through — this is the step that actually fixes the symptom.** Either globally:
 
 ```ini
 # /etc/default/ufw
@@ -2158,10 +2205,10 @@ sudo ufw allow in on tailscale0
 sudo ufw allow 41641/udp comment 'tailscale direct'
 ```
 
-**4. Reload properly.** `ufw reload` does not always re-read `before.rules`; cycle it:
+**4. Reload.** `sudo ufw reload` is sufficient — `ufw_reload()` performs a full stop and start, so it re-reads `before.rules` and re-applies `/etc/ufw/sysctl.conf`. Restart the daemon afterwards so it re-installs its own rules on top:
 
 ```bash
-sudo ufw disable && sudo ufw enable
+sudo ufw reload
 sudo systemctl restart tailscaled
 ```
 
@@ -2191,107 +2238,11 @@ EOF
 sudo systemctl restart NetworkManager tailscaled
 ```
 
+One note on maintenance: `/etc/ufw/before.rules` is listed in ufw's pacman backup array, so an upgrade will **not** overwrite your edits — it leaves your file in place and drops a `.pacnew` beside it. Check for one after a ufw update (`find /etc/ufw -name '*.pacnew'`) so you do not miss upstream changes, but your two forward rules will still be there.
+
 **Verify.** On the exit node: `sysctl net.ipv4.ip_forward` prints `1` after a `sudo ufw disable && sudo ufw enable` cycle, and `sudo iptables -L FORWARD -n -v` shows the tailscale0 ACCEPT rules with a non-zero packet counter once a client is routing. On the client: `tailscale status` shows the exit node in use, and a public IP lookup returns the exit node's address rather than yours.
 
-> *Not independently audited — verify before running.*
-
 Sources: <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://wiki.archlinux.org/title/Tailscale> · <https://tailscale.com/kb/1103/exit-nodes> · <https://tailscale.com/kb/1077/secure-server-ubuntu> · <https://github.com/basecamp/omarchy/blob/master/install/config/firewall.sh>
-
----
-
-## Fix Android USB tethering that stopped working after a kernel update
-
-`usb-tethering-renamed-wwan-networkmanager-ignores` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
-
-**Symptom.** USB tethering from an Android phone worked and then stopped after an update, with no other change. The phone is detected, `adb` still works, and `ip link` shows a new interface — but it is called `wwp0s20f0u3` where it used to be `enp0s20f0u3`, and it sits `DOWN` with no address. NetworkManager lists it but never brings it up. `dmesg` shows `rndis_host 1-3:1.0 wwan0: register 'rndis_host' at usb-...-3, Mobile Broadband RNDIS device` where it previously said `RNDIS device` and named it `usb0`.
-
-**Cause.** Kernel commit 67d1a8956d2d, "rndis_host: Flag RNDIS modems as WWAN devices", sets `FLAG_WWAN` instead of `FLAG_ETHERNET` on RNDIS interfaces. It landed in 6.14.2 and was backported down the stable series as far as 6.1.134, so LTS kernels got it too. The device is now classified as mobile broadband, which changes its predictable name from `en*` to `ww*` — and NetworkManager only auto-creates a default profile for ethernet devices. Everything else is opt-in and must be configured explicitly, so a tether that used to "just work" now needs a profile. Attempting the ModemManager route instead usually dead-ends with `couldn't check support for device '...': not supported by any plugin`, because a phone in tether mode is not a modem.
-
-> ⚠️ **Risk.** Do not blacklist `rndis_host` to force the old naming: it is the driver that makes tethering work at all. Enabling ModemManager on a machine with a serial device connected (an Arduino, a GPS puck, a USB-serial adapter) can have it probe that port with AT commands and confuse the device — if that happens, use ModemManager's udev filter rules to exclude it rather than leaving the service off.
-
-**Fix.**
-
-Confirm what you have:
-
-```bash
-ip -br link
-sudo dmesg -W        # then plug in the phone and enable USB tethering
-nmcli device status
-```
-
-You are looking for a `wwp*` device in `unmanaged` or `unavailable` state.
-
-**With NetworkManager — create the profile it will no longer create for you:**
-
-```bash
-IFACE=$(ip -br link | awk '/^ww/{print $1; exit}')
-
-sudo nmcli device set "$IFACE" managed yes
-nmcli connection add type ethernet ifname "$IFACE" con-name usb-tether \
-  ipv4.method auto ipv6.method auto connection.autoconnect yes
-nmcli connection up usb-tether
-```
-
-Make the "managed" part stick across reboots and across the interface name changing when you use a different USB port:
-
-```bash
-sudo tee /etc/NetworkManager/conf.d/20-usb-tether.conf >/dev/null <<'EOF'
-[device-usb-tether]
-match-device=interface-name:ww*
-managed=1
-EOF
-
-sudo systemctl reload NetworkManager
-```
-
-Because the name embeds the USB port path, either unpin the profile so it binds to any tether device:
-
-```bash
-nmcli connection modify usb-tether connection.interface-name ""
-```
-
-or give the device a stable name of your own with a udev rule keyed on the phone's USB IDs (get them from `lsusb`):
-
-```bash
-sudo tee /etc/udev/rules.d/90-android-tethering.rules >/dev/null <<'EOF'
-SUBSYSTEM=="net", ACTION=="add", ENV{ID_USB_DRIVER}=="rndis_host", NAME="android0"
-EOF
-sudo udevadm control --reload
-```
-
-**With systemd-networkd** (verified working on the affected kernels):
-
-```ini
-# /etc/systemd/network/50-usb-tether.network
-[Match]
-Name=ww*
-
-[Network]
-DHCP=yes
-```
-
-```bash
-sudo systemctl restart systemd-networkd systemd-resolved
-```
-
-Do not run NetworkManager and systemd-networkd at the same time — pick one.
-
-**Do not** chase this with ModemManager. Whitelisting the phone with a `/etc/udev/rules.d/78-mm-allowlist-*.rules` file will not make a tethering phone into a modem, and it is not what is broken. ModemManager *is* required for genuine WWAN/5G modem cards, which is a different case:
-
-```bash
-sudo pacman -S --needed modemmanager usb_modeswitch mobile-broadband-provider-info
-sudo systemctl enable --now ModemManager.service
-mmcli -L
-mmcli -m 0
-```
-
-If `mmcli -L` finds nothing, restart NetworkManager so it picks up ModemManager and re-plug the modem.
-
-**Verify.** `ip -br addr` shows an IPv4 address on the `ww*` interface. `ip route` shows a default route via it. `nmcli device status` reports it as `connected`. Unplug and re-plug the phone — it should come up without intervention.
-
-> *Not independently audited — verify before running.*
-
-Sources: <https://bbs.archlinux.org/viewtopic.php?id=304892> · <https://wiki.archlinux.org/title/Android_tethering> · <https://wiki.archlinux.org/title/Mobile_broadband_modem> · <https://wiki.archlinux.org/title/NetworkManager> · <https://networkmanager.dev/docs/api/latest/NetworkManager.conf.html>
 
 ---
 
@@ -2363,8 +2314,6 @@ sudo reboot     # pick the LTS entry from the Limine menu
 ```
 
 **Verify.** With the Bluetooth device connected and playing audio, run `ping -i 0.2 -c 300 <router-ip>` — latency should stay in single- or low-double-digit milliseconds with no loss. `iw dev wlan0 link` should report a 5 GHz frequency and a stable bitrate. A large download should hold its speed with the headset in use.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://bbs.archlinux.org/viewtopic.php?id=287090> · <https://bbs.archlinux.org/viewtopic.php?id=302036> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/iwl-drv.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/dvm/main.c> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html>
 
@@ -2480,11 +2429,11 @@ brcmfmac: brcmf_c_process_clm_blob: no clm_blob available (err=-2), device may h
 brcmfmac: brcmf_c_process_txcap_blob: no txcap_blob available (err=-2)
 ```
 
-**Cause.** `linux-firmware-broadcom` ships the BCM43602 (`14e4:43ba`) chip firmware but no board-specific NVRAM calibration file. Without it `brcmfmac` loads placeholder 5 GHz values (`aa5g=1`, no per-channel tx-power tables), so `iw phy` only ever advertises Band 1 (2.4 GHz).
+**Cause.** Almost always the regulatory domain: with none set, the driver falls back to the most restrictive world domain and `iw phy` only ever advertises Band 1 (2.4 GHz). `wireless-regdb` ships `/etc/conf.d/wireless-regdom`, `/usr/bin/set-wireless-regdom` and `/usr/lib/udev/rules.d/85-regulatory.rules`, and Omarchy's `install/hardware/set-wireless-regdom.sh` already writes a `WIRELESS_REGDOM` line derived from the timezone - so the value may be set but wrong, and it must be edited rather than appended to. The board-NVRAM theory is much weaker than it looks: `no clm_blob available` is a benign informational message on many brcmfmac parts, and on Macs `brcmfmac` falls back to the on-device NVRAM.
 
 > **Audit corrected this record.** The regulatory-domain half is verified and is the real, reproducible fix: core/any/wireless-regdb ships /etc/conf.d/wireless-regdom, /usr/bin/set-wireless-regdom and /usr/lib/udev/rules.d/85-regulatory.rules, and omarchy's install/hardware/set-wireless-regdom.sh already writes a WIRELESS_REGDOM line from the timezone — so the record's unconditional `tee -a` appends a *second* WIRELESS_REGDOM line. The NVRAM half is weak: `no clm_blob available` is a benign informational message on many brcmfmac parts, brcmfmac falls back to the on-device NVRAM on Macs, and the record tells the user to install an unvetted binary blob from a bugzilla attachment into /usr/lib/firmware. Lead with regdom; make the NVRAM step an explicitly optional last resort.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Installing an NVRAM file for the wrong board can push out-of-spec transmit power. Only use a file matched to your exact Mac model.
 
@@ -2618,19 +2567,25 @@ Sources: <https://github.com/basecamp/omarchy/issues/1478> · <https://man.archl
 
 **Symptom.** Containers that were reachable from other devices on the tailnet stop answering after a Tailscale upgrade — a self-hosted service on `100.x.y.z:8080` times out from the phone even though the container is up and reachable from the host itself. Containers may also stop resolving DNS. The Tailscale client surfaces the message: `Stateful filtering is enabled and Docker was detected; this may prevent Docker containers on this host from resolving DNS and connecting to Tailscale nodes.`
 
-**Cause.** Tailscale's stateful filtering only lets traffic through that is part of a connection it already tracked. Docker's own iptables rules move packets between the bridge network and the host in a way that Tailscale does not see as part of an established flow, so return traffic to containers is dropped. Nothing on your side changed; the filtering default did. On Omarchy this bites more often than elsewhere because Docker and `ufw-docker` are installed and enabled by default, so there is always a bridge network present for Tailscale to detect.
+**Cause.** Tailscale's stateful filtering only lets traffic through that is part of a connection it already tracked. Docker's own iptables rules move packets between the bridge network and the host in a way Tailscale does not see as part of an established flow, so return traffic to containers is dropped and container DNS can fail. This is not something a Tailscale upgrade does to you any more: it was on by default only in 1.66.0 through 1.66.3, and v1.66.4 (2024-05-20) turned it back off specifically because it broke containers. The current default in `ipn/prefs.go` is still `NoStatefulFiltering: true`, i.e. filtering off. So on a modern client you are seeing this because the node was explicitly brought up with `--stateful-filtering=true`, or because a pref set during that 2024 window has persisted in the node's state ever since. On Omarchy the warning fires readily because `docker`, `docker-compose` and `ufw-docker` are all in the base package set and `docker.socket` is enabled at install, so a bridge network is there for Tailscale to detect.
+
+> **Audit corrected this record.** The remedy is well sourced — I pulled the cited page (tailscale.com/docs/reference/messages/client/docker-stateful-filtering) and it carries the warning string verbatim and lists `tailscale set --stateful-filtering=false`, `tailscale up --netfilter-mode=off` and `dockerd --iptables=false` as the fixes, so the commands are real and current. The Omarchy framing checks out against the quattro tree and this machine: `docker`, `docker-compose` and `ufw-docker` are all in omarchy-base.packages, install/config/enable-services.sh runs `systemctl enable docker.socket`, and install/config/firewall.sh does `ufw default deny incoming` and installs ufw-docker's after.rules block. THREE DEFECTS. (1) THE CAUSE IS STALE. It says "Nothing on your side changed; the filtering default did." Stateful filtering was on by default only in Tailscale 1.66.0–1.66.3; the changelog entry for v1.66.4 (2024-05-20) reads "Linux: Stateful filtering is now off by default" precisely because it broke container DNS, and it was never re-enabled — ipn/prefs.go in tailscale main still has `NoStatefulFiltering: opt.NewBool(true)` in the defaults with the comment "The default is to not apply stateful filtering." So on any client from mid-2024 onward this is not something an upgrade turns on; it is something the operator turned on. (2) The `docker.service` override drops the `--containerd=/run/containerd/containerd.sock` argument that Arch's shipped unit passes, so dockerd stops using the system containerd.service it still Wants/Afters and spawns its own — a second, avoidable breakage bolted onto an already-advanced step. (3) The verify reads `tailscale debug prefs | grep -i statefulfilter` "shows it disabled", but the pref is the inverted `NoStatefulFiltering`, so the correct state prints `true`; as written a reader is likely to read the output backwards. Also worth flagging for the record's provenance: the third source URL, github.com/basecamp/omarchy/blob/master/install/config/firewall.sh, 404s — `master` is the Omarchy 3 tree; the file exists only on `quattro`.
+>
+> *The Cause above was rewritten on 2026-09-01 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Disabling stateful filtering means the machine will accept unsolicited inbound traffic from other tailnet nodes to whatever it forwards, rather than only replies to connections it initiated. That is fine on a tailnet you control with ACLs in place, and a meaningful loosening on a shared tailnet — review your ACLs before doing it. Editing `docker.service` to pass `--iptables=false` will break container networking and any ufw-docker rules if the rest of the ruleset is not written by hand; do not do that as a first move.
 
 **Fix.**
 
-Check whether the warning is present and what state you are in:
+Check whether the warning is present and what state you are actually in:
 
 ```bash
 tailscale status
 sudo tailscale debug prefs | grep -i statefulfilter
 docker network ls
 ```
+
+Read that pref carefully — it is inverted. The field is `NoStatefulFiltering`, so `"NoStatefulFiltering": true` means stateful filtering is **off** (the default), and `false` means it is **on** and is what you are hitting.
 
 Turn stateful filtering off:
 
@@ -2645,17 +2600,16 @@ That is persistent — it does not need re-applying after a reboot or a `tailsca
 curl -v http://100.x.y.z:8080/
 ```
 
-If you would rather Docker not manage netfilter at all (advanced, and you then own every rule):
+If you would rather Docker not manage netfilter at all (advanced, and you then own every rule), keep the rest of Arch's shipped `ExecStart` intact — only add the flag, or dockerd will also stop using the system `containerd.service` and start its own:
 
 ```bash
-# Tailscale keeps its rules, Docker stops writing any
 sudo systemctl edit docker.service
 ```
 
 ```ini
 [Service]
 ExecStart=
-ExecStart=/usr/bin/dockerd --iptables=false -H fd://
+ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock --iptables=false
 ```
 
 Or the mirror image — Tailscale stops writing rules and you manage them:
@@ -2666,9 +2620,9 @@ sudo tailscale up --netfilter-mode=off
 
 On Omarchy, remember `ufw-docker` has already installed its own block in `/etc/ufw/after.rules`; if you disable Docker's iptables management you break those protections too, so prefer the single `--stateful-filtering=false` change unless you have a specific reason not to.
 
-**Verify.** `sudo tailscale debug prefs | grep -i statefulfilter` shows it disabled, and the Tailscale client no longer emits the Docker warning. From another tailnet device, `curl http://<tailscale-ip>:<port>/` against a containerised service returns a response. Inside a container, `getent hosts archlinux.org` resolves.
+Verify: `sudo tailscale debug prefs | grep -i statefulfilter` prints `"NoStatefulFiltering": true`, and the client no longer emits the Docker warning. From another tailnet device, `curl http://<tailscale-ip>:<port>/` against a containerised service returns a response. Inside a container, `getent hosts archlinux.org` resolves.
 
-> *Not independently audited — verify before running.*
+**Verify.** `sudo tailscale debug prefs | grep -i statefulfilter` shows it disabled, and the Tailscale client no longer emits the Docker warning. From another tailnet device, `curl http://<tailscale-ip>:<port>/` against a containerised service returns a response. Inside a container, `getent hosts archlinux.org` resolves.
 
 Sources: <https://tailscale.com/docs/reference/messages/client/docker-stateful-filtering> · <https://wiki.archlinux.org/title/Tailscale> · <https://github.com/basecamp/omarchy/blob/master/install/config/firewall.sh>
 
@@ -2747,8 +2701,6 @@ ControllerMode = bredr
 **Between two Linux installs** this is much simpler: just make `/var/lib/bluetooth/<ADAPTER-MAC>/` identical on both, by copying or symlinking.
 
 **Verify.** Reboot into Windows, use the device, reboot back into Linux, and connect without re-pairing. `bluetoothctl info <DEVICE-MAC>` shows `Paired: yes` and `Connected: yes` in both directions across several reboots.
-
-> *Not independently audited — verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://wiki.archlinux.org/title/Dual_boot_with_Windows>
 
