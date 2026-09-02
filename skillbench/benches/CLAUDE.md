@@ -135,12 +135,31 @@ between runs is an operator action (`tools/golden-test-vm.sh`).
 
 ## The open problem, if you are here to write tasks
 
-`omarchy-agentic-config` is **saturated** — `devstral-small-2:24b` scores 24/24 bare, so
-there is no headroom for a skill to show up in. What is needed is tasks a capable agent gets
-**wrong without the skill**. The productive seam is the Omarchy 3 → 4 tree split, which is
-what `pacman -Qkk omarchy` (0 altered files) already tests: stale advice sends an agent to
-edit `/usr/share/omarchy`, where the change is both wrong and destroyed by the next update.
-The current three tasks are simply too easy. See [../../JOURNAL.md](../../JOURNAL.md).
+**Read [../MODELS.md](../MODELS.md) first.** Both `omarchy-agentic-config` and
+`omarchy-agentic-root-config` are **saturated**, and the 2026-09-02 model scan explains why
+in a way that changes what you should write: only **4 of 14** local models can drive the
+agent loop at all, and all four already score full marks. The other ten score the untouched
+floor for reasons no skill addresses — tool calls emitted as prose, empty transcripts, VRAM
+spill. **Making a task harder does not create headroom**; it lowers the four capable models
+while the other ten stay at the floor.
+
+The one seam left is **not difficulty but wrongness**: a task where the widely-published
+answer is confidently wrong on Omarchy 4. `omarchy-agentic-stale-advice` is the first of
+these — Omarchy 3's `~/.local/share/omarchy` git checkout, and hyprlang config that
+Hyprland 0.55 deprecated for Lua. Both prompts say the change "must survive an
+`omarchy update`", which is satisfiable only from the user tree and never names the answer.
+
+If you write another, copy that shape: **make the wrong answer score BELOW doing nothing.**
+In `omarchy-agentic-stale-advice` the floor is 4/6, a hyprlang answer is 3/6 and a correct
+one is 6/6, so the grader separates "did nothing" from "did the wrong thing" — which a
+pass/fail assertion cannot.
+
+**And hand-verify against the SHIPPED config templates, not an empty file.** Both of that
+bench's first-draft patterns passed on a file the agent never touched, because
+`~/.config/hypr/bindings.lua` ships a commented `-- hl.unbind("SUPER + SPACE")` example and
+`looknfeel.lua` ships five commented `hl.config(` examples. `^[^-]*` excludes Lua comments.
+That is the tilde-quoting bug of 2026-08-29 wearing different clothes: an assertion that is
+green before the agent runs. See [../../JOURNAL.md](../../JOURNAL.md).
 
 ### Root is available now, and it was the real ceiling
 

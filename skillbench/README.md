@@ -54,7 +54,7 @@ against a model** — a validated instrument, not a result.
 
 Three things keep the numbers honest:
 
-- **Control benches.** Five of the fifteen (`linux-disk-full`, `linux-runaway-process`,
+- **Control benches.** Five of the sixteen (`linux-disk-full`, `linux-runaway-process`,
   `linux-boot-partition-full`, `linux-pacman-keyring`, and `linux-agentic-triage` for the
   agentic lane) are general Linux that the skill says nothing about. A bare model should already score well and the skill should barely
   move them. They are flagged `control: true` and labelled in the UI. If a change lifts

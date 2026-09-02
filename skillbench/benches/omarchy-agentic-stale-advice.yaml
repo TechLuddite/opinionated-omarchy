@@ -1,0 +1,93 @@
+name: omarchy-agentic-stale-advice
+description: >
+  Two config changes where the widely-published answer is the Omarchy 3 / hyprlang one and
+  is wrong on Omarchy 4. Tests whether an agent goes confidently wrong, not whether it can act.
+lane: agentic
+control: false
+skills: [omarchy, omarchy-full]
+
+# WHY THIS BENCH EXISTS
+#
+# `omarchy-agentic-root-config` is saturated: every model capable of driving the agent loop
+# scores 8/8 on it (see ../MODELS.md). That bench asks for a CORRECT PROCEDURE, and a
+# capable agent derives it. This one asks for something where the *attractive* answer is
+# wrong, because the internet is full of Omarchy 3 and hyprlang advice:
+#
+#   - Omarchy 3 kept a git checkout at ~/.local/share/omarchy that `omarchy update`
+#     hard-synced. Omarchy 4 is pacman-owned at /usr/share/omarchy; an edit there is
+#     reverted by the next package upgrade and shows up in `pacman -Qkk`.
+#   - Hyprland 0.55 deprecated hyprlang for Lua. `bind = SUPER, W, exec, foo` and
+#     `general { gaps_in = 0 }` in a hyprland.conf are what every pre-0.55 page shows.
+#
+# Both prompts say the change "must survive an omarchy update". That is the phrasing a real
+# user would use and it is what makes the trap discriminating: it is satisfiable only from
+# the user tree, and it never names the answer.
+#
+# THE FLOOR IS 4/6 PER TASK. Three assertions per task are negative -- did NOT touch the
+# package tree, did NOT resurrect the Omarchy 3 path, did NOT write hyprlang -- so an agent
+# that does nothing still scores 4/6 -- the fourth is `luajit` parsing a file it never
+# edited. Read 4/6 as "did nothing", not "two thirds right".
+
+defaults:
+  repeats: 1
+  params:
+    thinking: "off"
+    agent_timeout: 600
+  vm:
+    # Every path either task or a wrong answer might touch. .config/hypr covers the correct
+    # targets; the Omarchy 3 path and a stray hyprland.conf are cleared by each seed instead,
+    # because restoring .local/share wholesale would tar several hundred MB of unrelated state
+    # before every case.
+    restore:
+      - .config/hypr
+
+tasks:
+  - id: rebind-packaged-default
+    prompt: |
+      Omarchy binds SUPER + W to "close window" by default. Change it so that SUPER + W
+      launches the Nautilus file manager instead.
+
+      The change must survive an `omarchy update`, and every other default binding must
+      keep working. Make the change, then stop.
+    seed: |
+      set -euo pipefail
+      # A previous case's wrong answer must not be scored as this one's. Both paths are
+      # absent on a stock Omarchy 4, so this only ever removes leftovers.
+      if [ -d "$HOME/.local/share/omarchy" ]; then rm -rf "$HOME/.local/share/omarchy"; fi
+      rm -f "$HOME/.config/hypr/hyprland.conf"
+    post:
+      # --- the traps: these three pass at the floor, and catch a confidently wrong agent ---
+      - { type: command_output_matches, command: "pacman -Qkk omarchy", pattern: "0 altered files" }
+      - { type: file_absent, path: ~/.local/share/omarchy }
+      - { type: file_absent, path: ~/.config/hypr/hyprland.conf }
+      # --- the work: these three fail at the floor ---
+      # Omarchy's own shipped template (/usr/share/omarchy/config/hypr/bindings.lua) says
+      # "Change an existing binding by unbinding it first, then binding the key again", so
+      # this asserts the vendor's documented mechanism, not a style preference.
+      # `^[^-]*` excludes Lua comments, and that is load-bearing rather than tidy: the
+      # SHIPPED template already contains `-- hl.unbind("SUPER + SPACE")` as an example, so a
+      # bare `hl\.unbind` pattern passes on a file the agent never touched. Verified on a VM:
+      # naive patterns score the floor at 5/6, anchored ones at 4/6.
+      - { type: file_contains, path: ~/.config/hypr/bindings.lua, pattern: '^[^-]*hl\.unbind\(' }
+      - { type: file_contains, path: ~/.config/hypr/bindings.lua, pattern: '^[^-]*o\.bind\(.*nautilus' }
+      - { type: command_succeeds, command: "luajit -bl $HOME/.config/hypr/bindings.lua" }
+
+  - id: looknfeel-not-hyprlang
+    prompt: |
+      Turn off window gaps and window borders on this machine: inner gaps 0, outer gaps 0,
+      and border size 0.
+
+      The change must survive an `omarchy update`. Make the change, then stop.
+    seed: |
+      set -euo pipefail
+      if [ -d "$HOME/.local/share/omarchy" ]; then rm -rf "$HOME/.local/share/omarchy"; fi
+      rm -f "$HOME/.config/hypr/hyprland.conf"
+    post:
+      - { type: command_output_matches, command: "pacman -Qkk omarchy", pattern: "0 altered files" }
+      - { type: file_absent, path: ~/.local/share/omarchy }
+      - { type: file_absent, path: ~/.config/hypr/hyprland.conf }
+      # Same trap, worse: looknfeel.lua ships FIVE commented `hl.config(` examples and a
+      # commented `gaps_in`, so the naive patterns would have scored 6/6 on an untouched file.
+      - { type: file_contains, path: ~/.config/hypr/looknfeel.lua, pattern: '^[^-]*hl\.config\(' }
+      - { type: file_contains, path: ~/.config/hypr/looknfeel.lua, pattern: '^[^-]*gaps_in' }
+      - { type: command_succeeds, command: "luajit -bl $HOME/.config/hypr/looknfeel.lua" }

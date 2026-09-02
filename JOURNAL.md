@@ -2,6 +2,97 @@
 
 Last updated: 2026-09-02
 
+## Session of 2026-09-02 (second) — the trap seam, and the first agentic lift
+
+Two things were asked for and both landed: `qwen3.8:27b` is unblocked, and the Omarchy 3
+trap seam now has a bench. The lift is positive but **not yet demonstrated** — the control
+moved too.
+
+### 1. `qwen3.8:27b` was never incapable
+
+Recorded as **blocked** earlier the same day on one bare case: `pi exited 1`, a transcript
+containing only `500: no user query found in messages`, and a floor score. Re-run with 3
+repeats (run 22) it scores **8/8, 8/8, 7/8** — and the 7/8 case had already done most of the
+work before erroring. It is the **fourth capable model**, and run directly it produced the
+best solution of anything tested: it used Omarchy's own `omarchy-refresh-limine` instead of
+hand-rolling `limine-update`, and noticed `OMARCHY_PATH` is not passed through `sudo`.
+
+**Root cause, and it is Ollama's, not pi's.** `no user query found in messages` is compiled
+into the **Ollama binary**. `qwen3.8:27b` reports family `qwen35` with template
+`{{ .Prompt }}` — a stub — so Ollama renders it with a **built-in renderer for that family
+which requires at least one `user` message**. One curl reproduces it with no agent involved:
+`system`+`user` returns 200, `system` alone returns the 500, and so does
+`system`+`assistant`. `devstral-small-2:24b` accepts all three, which is why only this model
+trips. Somewhere in a long loop pi sends an array with no surviving user turn. Intermittent,
+about **1 run in 3**.
+
+**The lesson is about the scan, not the model:** a one-repeat scan cannot separate "cannot
+act" from "hit an intermittent harness failure". Anything recorded as blocked deserves a
+re-run before it is believed. This is now written into
+[skillbench/MODELS.md](skillbench/MODELS.md).
+
+### 2. `omarchy-agentic-stale-advice` — the first bench with headroom
+
+Two tasks where the *widely published* answer is wrong on Omarchy 4: the Omarchy 3
+`~/.local/share/omarchy` git checkout, and hyprlang config that Hyprland 0.55 deprecated for
+Lua. Both prompts say the change **"must survive an `omarchy update`"** — the phrasing a
+real user would use, satisfiable only from the user tree, and it never names the answer.
+
+**The design rule worth copying: the wrong answer scores BELOW doing nothing.** Verified by
+hand on a VM across five outcome states:
+
+| outcome | task 1 | task 2 |
+| --- | ---: | ---: |
+| does nothing | 4/6 | 4/6 |
+| hyprlang `hyprland.conf` | **3/6** | **3/6** |
+| resurrects the Omarchy 3 tree | **3/6** | — |
+| correct Lua in the user tree | **6/6** | **6/6** |
+
+A pass/fail assertion cannot separate "did nothing" from "did the wrong thing"; this does.
+
+**Both first-draft patterns were green on a file the agent never touched.** `bindings.lua`
+ships a commented `-- hl.unbind("SUPER + SPACE")` example and `looknfeel.lua` ships **five**
+commented `hl.config(` examples plus a commented `gaps_in` — so `hl\.unbind` and `hl\.config`
+matched the pristine template and task 2 would have scored 6/6 while doing nothing. Fixed
+with `^[^-]*`, which excludes Lua comments. **This is the tilde-quoting bug of 2026-08-29 in
+different clothes**, and it was caught only because the schema doc insists on hand-verifying
+before and after on a real VM. Hand-verify against the SHIPPED templates, not an empty file.
+
+### 3. Run 23/24: a positive lift, and an honest control that undercuts it
+
+`devstral-small-2:24b`, 3 repeats, `none` vs `skill:omarchy`:
+
+| bench | none | skill | lift |
+| --- | ---: | ---: | ---: |
+| `omarchy-agentic-stale-advice` | 0.889 | 1.000 | **+11.1 pt** |
+| `linux-agentic-triage` (control) | 0.944 | 1.000 | **+5.6 pt** |
+
+**This is the first positive lift the agentic lane has ever produced**, and the trap bench
+is the first with real headroom — bare hits the floor on `rebind-packaged-default` in 2 of
+3 runs, where every earlier agentic bench was saturated at 8/8.
+
+**But do not report it as a result yet.** The control moved +5.6 pt, which is *one assertion
+flipping* out of 18; the Omarchy delta is four out of 36. Both are a couple of assertion
+flips on n=3. The direction is right and the Omarchy bench moved twice the control, but the
+sample cannot separate a real effect from noise. **More repeats is the whole next step.**
+
+Also worth noting: the two tasks behave differently. `looknfeel-not-hyprlang` is nearly
+saturated bare (6/6, 6/6, 4/6) while `rebind-packaged-default` is not (4/6, 4/6, 6/6). The
+headroom is in the *binding* task, and a future bench should lean that way.
+
+### 4. Agentic `latency_s` was measuring the queue, and a previous claim was wrong
+
+`t0` was set **before** `pool.acquire()`, so agentic latency included time spent waiting for
+a VM. Concurrency there is the pool (2), so a case launched 12th banks the whole queue, and
+because the runner finishes one variant before the next, **the second variant systematically
+looks slower**. That inflated run 23's `skill` mean to 1572 s against 790 s bare, and it
+means the **"3.0x latency" reported for run 18 overstates the skill's cost** — that figure
+should not be quoted.
+
+Fixed: the clock starts after `acquire()`, and `queue_wait_s` is recorded separately.
+**Runs up to and including 24 carry the old semantics** and their agentic latencies are not
+comparable with later ones.
+
 ## Session of 2026-09-02 — what the local models can actually do
 
 The agentic bench got its first paired run and its first honest answer, and the answer
@@ -632,43 +723,31 @@ runs.
 
 ## What's left
 
-### 1. The agentic lane cannot measure skill lift with the local models available
+### 1. Confirm the agentic lift, or show it is noise
 
-**Reframed 2026-09-02 — the old premise was wrong.** This used to read "make the bench hard
-enough to measure anything". Run 21 shows difficulty is not the lever:
-[skillbench/MODELS.md](skillbench/MODELS.md) has the full table.
+**Changed 2026-09-02 (second session).** This item previously said the lane *cannot* measure
+skill lift. That is now too strong: `omarchy-agentic-stale-advice` produced
+**+11.1 pt** against a control that moved **+5.6 pt** — the first positive agentic signal.
 
-Only **3 of 14** tool-capable local models can drive the agent loop at all, and all three
-score **8/8 bare**. The other 11 score the untouched floor for reasons no skill addresses —
-tool calls emitted as prose, empty transcripts, VRAM spill, harness incompatibility. Every
-model capable enough to act is capable enough to finish. Run 18 measured the consequence
-directly: **0.958 vs 0.958**, zero lift, 3.0x latency.
+It is **not** a result yet. Both deltas are a couple of assertion flips at n=3, and the
+control moving at all is exactly what the controls exist to warn about. The next step is
+simply **more repeats** on runs 23/24's design (`devstral-small-2:24b`, `none` vs
+`skill:omarchy`, the trap bench against `linux-agentic-triage`). If the gap holds at n=10 it
+is real; if the control catches up it was answer length.
 
-Harder tasks will not fix this. They move the three capable models down while the other
-eleven keep scoring the floor for unrelated reasons, which is a *wider* spread but not a
-*measurement*.
+Two things to fold in when re-running:
 
-Options, none obviously right:
+- **Weight toward `rebind-packaged-default`.** It has the headroom (bare 4/6, 4/6, 6/6);
+  `looknfeel-not-hyprlang` is nearly saturated bare (6/6, 6/6, 4/6).
+- **Raise `agent_timeout` above 600 s.** Several cases in run 23 timed out *having already
+  solved the task* (one scored 6/6 and still errored), which drags `success` down for a
+  reason that is not capability. Pass it as a launch param rather than editing the bench, or
+  the spec sha changes and the series restarts.
 
-- **Accept the chat lane as the instrument for skill efficacy** — that is where +29.3 pt
-  was measured, and it has ten models of headroom — and keep the agentic lane as a
-  regression check that the skill does not cause harm (it currently costs 3x latency for
-  no gain, which is itself worth watching).
-- **Find capable models that are not already saturated.** The three that work are 24-30B.
-  Nothing smaller drives the loop; nothing larger fits 24 GiB. That is a hardware ceiling,
-  not a search problem.
-- **Unblock `qwen3.8:27b`** (`500: no user query found in messages` from pi's
-  OpenAI-compat shape). Cheapest concrete next step — it would add a fourth data point in
-  exactly the size class where the capable models live.
-- **Target the trap rather than the task.** Every capable model solved a *correct-procedure*
-  task. Untested: whether they go wrong confidently on something where Omarchy-3-era advice
-  is the attractive answer. That is the one seam where a skill could still show a lift, and
-  the `pacman -Qkk` assertion already exists to catch it.
-
-Open alongside that: whether `skill:omarchy-full` (~6.6k tokens, ~20% of the 32K budget) is
-loadable at all in an agentic loop. One earlier case ran 199 s and returned an empty
-transcript having done nothing — the same signature several models produced in run 21, so
-this may be the same phenomenon rather than a skill-size problem.
+Still open, and unchanged: only **4 of 14** local models can drive the loop at all
+([skillbench/MODELS.md](skillbench/MODELS.md)), so difficulty is not a lever — *wrongness*
+is. And whether `skill:omarchy-full` (~6.6k tokens, ~20% of the 32K budget) is loadable in
+an agentic loop at all is untested.
 
 ### 2. Finish auditing 28 records  — **DONE 2026-09-01**
 

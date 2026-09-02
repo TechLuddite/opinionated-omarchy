@@ -30,9 +30,8 @@ between, which is itself the finding.
    into the agent timeout, which reads as a capability failure. Confirm with
    `curl -s localhost:11434/api/ps` mid-run and look at `size_vram` against `size`.
 3. **Harness compatibility.** The model must survive pi's OpenAI-compat request shape.
-   `qwen3.8:27b` returns `500: no user query found in messages` and never gets to try —
-   that is a **blocked** verdict, not an incapable one, and it must not be recorded as a
-   capability judgement.
+   **`qwen3.8:27b` looked incapable here and was not** — see "The blocked model was
+   capable" below. Record a harness failure as *blocked*, never as a capability judgement.
 4. **Agentic competence.** Declared tool support is *not* competence. Most models that
    pass gate 1 still fail here, and a skill cannot fix any of them: they do not lose on
    Omarchy knowledge, they lose before knowledge is reachable.
@@ -44,7 +43,7 @@ between, which is itself the finding.
 | `qwen3-coder:30b` | 30.5B | 18.6 GB | 100% | 8/8 | 41 s | **✓ capable** | **Solves it.** |
 | `gemma4:26b` | 25.8B | 18.0 GB | 100% | 8/8 | 96 s | **✓ capable** | **Solves it.** |
 | `devstral-small-2:24b` | 24.0B | 15.2 GB | 100% | 8/8 | 86 s | **✓ capable** | **Solves it.** |
-| `qwen3.8:27b` | 27.3B | 17.7 GB | 100% | 5/8 | 220 s | ⚠ blocked | **Blocked, not judged** — pi/Ollama: `no user query found in messages`. |
+| `qwen3.8:27b` | 27.3B | 17.7 GB | 100% | **8/8** | 377 s | **✓ capable** | **Solves it** (run 22, 2 of 3 clean; 1 run hit an intermittent 500 at 7/8). |
 | `qwen3:32b` | 32.8B | 20.2 GB | 90% | 5/8 | 236 s | ✗ floor | Weights + 32K KV exceed the card — 10% on CPU, then stalls. |
 | `muse-glimmer:30b` | 27.9B | 18.2 GB | 100% | 5/8 | 603 s | ✗ floor | Fits entirely on GPU; still exceeded the 600 s budget. |
 | `mistral-small3.2:24b` | 24.0B | 15.2 GB | 100% | 5/8 | 19 s | ✗ floor | Acts, hits a permission error, gives up. |
@@ -59,7 +58,7 @@ between, which is itself the finding.
 
 ## What this means for measuring skills
 
-**Three of fourteen local models can run this bench at all**, and all three already score
+**Four of fourteen local models can run this bench at all**, and all four already score
 8/8 bare. There is therefore **no headroom on this bench for any skill to demonstrate a
 lift**, and run 18 confirmed it directly: `devstral-small-2:24b`, `none` vs
 `skill:omarchy`, came out 0.958 vs 0.958 — identical to three decimals — at 3.0× the
@@ -111,5 +110,47 @@ curl -sX POST http://127.0.0.1:8878/api/runs -H 'Content-Type: application/json'
   `OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_MAX_LOADED_MODELS=1`.
   `pi --list-models` reporting `128K` is **cosmetic** — pi speaks OpenAI-compat, which
   cannot set `num_ctx`; the server decides. See [../CLAUDE.md](../CLAUDE.md).
-- `qwen3.8:27b` is unjudged, not incapable. Fixing the pi/Ollama request-shape problem
-  would add a fourth data point in the 27B class, where the capable models already live.
+- `qwen3.8:27b` still fails roughly **1 run in 3** with the 500 described below. Its
+  successful runs are clean 8/8, so it is counted as capable, but a single-repeat scan will
+  misclassify it about a third of the time. Use >= 3 repeats for it.
+
+## The blocked model was capable — worth reading before trusting any single scan
+
+`qwen3.8:27b` was recorded on 2026-09-02 as **blocked**: one bare case, `pi exited 1`, a
+transcript containing only
+`500: {"message":"no user query found in messages"}`, and a 5/8 floor score. On a
+one-repeat scan that is indistinguishable from a model that cannot act.
+
+It can. Re-run with 3 repeats (run 22) it scored **8/8, 8/8, and 7/8**, and the 7/8 came
+from a case that had already done most of the work before the error. Run directly it
+produced the most sophisticated solution of any model tested — it used Omarchy's own
+`omarchy-refresh-limine` rather than calling `limine-update` by hand, and noticed that
+`OMARCHY_PATH` is not passed through `sudo`, then corrected for it.
+
+**Root cause.** The string `no user query found in messages` is compiled into the *Ollama
+binary*, next to its reasoning-effort strings. `qwen3.8:27b` reports family `qwen35` and
+template `{{ .Prompt }}` — a stub — so Ollama renders it with a **built-in renderer for
+that family, and that renderer requires at least one `user` message.** Reproduce it in one
+call, no agent involved:
+
+```sh
+# 200 OK
+curl -s localhost:11434/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3.8:27b","max_tokens":8,
+       "messages":[{"role":"system","content":"s"},{"role":"user","content":"hi"}]}'
+
+# 500 no user query found in messages
+curl -s localhost:11434/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3.8:27b","max_tokens":8,"messages":[{"role":"system","content":"s"}]}'
+```
+
+`system` + `assistant` fails the same way; `system` + `user` + `assistant` + `tool` is
+fine. `devstral-small-2:24b` accepts all of them, which is why only this model trips it.
+So somewhere in a long agent loop pi sends an array with no surviving `user` turn and
+Ollama rejects the whole request. It is **intermittent (~1 in 3)** and it is an
+Ollama-side constraint, not a pi bug and not a model capability.
+
+**The lesson for this table:** a one-repeat scan cannot separate "cannot act" from "hit an
+intermittent harness failure". Anything recorded as blocked deserves a re-run before it is
+believed, and any model here that scores the floor *with an error set* should be treated as
+unmeasured rather than incapable.
