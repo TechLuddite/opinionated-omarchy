@@ -29,7 +29,39 @@ set -euo pipefail
 
 SESSION=${SB_TMUX_SESSION:-bench}
 OLLAMA_HOST=${SB_OLLAMA_HOST:-192.168.122.1}
-MODELS=${SB_VM_MODELS:-qwen2.5:latest,qwen2.5-coder:14b,gpt-oss:20b,devstral-small-2:24b}
+# Every tool-capable model the host's Ollama serves, unless overridden.
+#
+# This used to be a hardcoded list of four, and that silently skewed comparisons. pi
+# still RUNS a model that is missing from models.json -- it warns "not found for
+# provider ollama. Using custom model id" and carries on -- but it then applies its own
+# defaults rather than the entry here. So a benched model absent from this list is not
+# configured the same as one present in it, and the difference never surfaces as an
+# error. Deriving the list means adding a model to Ollama is enough; you only have to
+# remember to RE-PROVISION, not to edit this file.
+#
+# Models without tool support are excluded on purpose: pi cannot drive them at all
+# (HTTP 400 "does not support tools"), so listing them would only add dead entries.
+default_models() {
+  curl -fsS --max-time 10 "http://${OLLAMA_HOST}:11434/api/tags" 2>/dev/null | python3 -c '
+import json,sys,urllib.request
+try: tags=json.load(sys.stdin)["models"]
+except Exception: sys.exit(1)
+out=[]
+for m in tags:
+    n=m["name"]
+    if "embed" in n: continue
+    try:
+        req=urllib.request.Request("http://'"${OLLAMA_HOST}"':11434/api/show",
+            data=json.dumps({"model":n}).encode(),
+            headers={"Content-Type":"application/json"})
+        if "tools" in (json.load(urllib.request.urlopen(req,timeout=15)).get("capabilities") or []):
+            out.append(n)
+    except Exception: pass
+print(",".join(sorted(out)))
+' 2>/dev/null
+}
+MODELS=${SB_VM_MODELS:-$(default_models)}
+MODELS=${MODELS:-qwen2.5:latest,qwen2.5-coder:14b,gpt-oss:20b,devstral-small-2:24b}
 USER_NAME=${OMARCHY_TEST_USER:-techluddite}
 PASSWORD=${OMARCHY_TEST_PASSWORD:-omarchytest}
 

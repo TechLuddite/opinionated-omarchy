@@ -125,7 +125,22 @@ tools/install-bench-key.sh 1 2     # the bench's own ssh key (never your ~/.ssh 
                                    # no tty and nothing can answer a password prompt
 tools/provision-bench-vm.sh 1 2    # autologin, never lock/blank/suspend, tmux mirror,
                                    # and pi pointed at the host's Ollama
-tools/golden-test-vm.sh save 1 2   # capture that good state (VM must be shut off)
+tools/golden-test-vm.sh save 1     # capture that good state (VM must be shut off)
+tools/golden-test-vm.sh save 2     # ONE VM PER INVOCATION — see below
+```
+
+**`golden-test-vm.sh` takes a single VM number; the other two take a list.** `save 1 2`
+does not error — it saves VM 1 and silently ignores the `2`. Same for `reset`. That is how
+both golden images went stale on 2026-09-02: a `reset` restored disks to a state captured
+before `install-bench-key.sh` had ever run, so the pool came back with no bench key and no
+tmux units and `/readyz` reported `ready:false` on both machines.
+
+**Save the golden AFTER provisioning, not before**, and verify with a reboot — the units
+are user-level and the honest test is that they come back on their own:
+
+```sh
+sudo virsh reboot opinionated-omarchy-test1
+curl -s http://127.0.0.1:8878/readyz     # both VMs must be ready:true, tmux:true
 ```
 
 Both are **provisioned to autologin and never lock**, which is not cosmetic — see the
@@ -280,6 +295,38 @@ load-bearing:
   enforces this).
 - **Everything is sha-pinned.** Edit a bench and the next run is a new series; edit a skill
   and resume refuses. Regrade re-scores from stored output with zero model calls.
+
+### What the local models can actually do — check before designing a bench around them
+
+Three independent gates decide whether a model can be measured on the agentic lane at
+all, and they fail in different ways. `skillbench/tools/probe_models.py` reports the two
+that are static; only a run answers the third. The full ladder, and which models sit
+where, is [skillbench/MODELS.md](skillbench/MODELS.md) — **read it before concluding a
+bench is too easy**, because "no lift" and "the model cannot drive the loop" look
+identical in the score column.
+
+The host settings that make any of it reproducible are on the **ollama systemd unit**,
+not in this repo, so they are easy to lose:
+
+```sh
+systemctl show ollama -p Environment      # OLLAMA_CONTEXT_LENGTH, KV cache type, ...
+```
+
+- **`OLLAMA_CONTEXT_LENGTH=32768`** is the number that matters, and it is a *server* cap
+  applied to every model. Ollama's own default is 4096. `pi --list-models` on a VM
+  cheerfully reports `128K` — that is pi's client-side belief and it is **cosmetic**,
+  because pi talks OpenAI-compat (`/v1`), which has no way to set `num_ctx`. Trust the
+  server, not the client. At 32K the `omarchy` skill body (~3.1k tokens) is about 10% of
+  the budget and `omarchy-full` (~6.6k) about 20%.
+- **`OLLAMA_KV_CACHE_TYPE=q8_0` and `OLLAMA_FLASH_ATTENTION=1`** keep the KV cache small
+  enough that a 30B Q4 model fits. Without them the same model spills to CPU.
+- **`OLLAMA_MAX_LOADED_MODELS=1`** is why the runner finishes an entire suite on one model
+  before touching the next — interleaving would evict and reload weights every case.
+- **The card is a 24 GiB RTX 3090, and the 30B class already uses ~20.2 GiB at 32K.**
+  That is the real ceiling: a 32B model may not fit, and a model that does not fit does
+  not fail cleanly — it spills to CPU and the case dies on the agent timeout, which reads
+  as a capability failure rather than a memory one. Check with `curl -s
+  localhost:11434/api/ps` while a case is running.
 
 The prior measurements this was built against — 911 graded cases from the lab's own bench,
 on a byte-identical copy of `omarchy/SKILL.md` — are in

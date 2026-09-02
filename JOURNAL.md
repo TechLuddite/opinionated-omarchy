@@ -1,6 +1,101 @@
 # Journal — handoff
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
+
+## Session of 2026-09-02 — what the local models can actually do
+
+The agentic bench got its first paired run and its first honest answer, and the answer
+moves the open problem rather than closing it.
+
+### 1. Run 18: the paired run, and it is a flat zero
+
+`omarchy-agentic-root-config`, `devstral-small-2:24b`, `none` vs `skill:omarchy`, 3 repeats:
+
+| variant | cases | success | STATE | mean latency |
+| --- | ---: | ---: | ---: | ---: |
+| `none` | 3 | 1.000 | **0.958** (23/24) | 97 s |
+| `skill:omarchy` | 3 | 1.000 | **0.958** (23/24) | 291 s |
+
+Identical to three decimals, at **3.0x the latency**. The cost of putting the skill in an
+agent loop reproduces (2.0x and 4.5x in runs 14/15); the benefit still does not exist.
+
+### 2. Run 21: the reason, and it is not task difficulty
+
+The standing assumption was that the bench needed harder tasks. **That assumption is now
+evidence-against.** A bare scan of all 14 tool-capable local models
+([skillbench/MODELS.md](skillbench/MODELS.md)) found:
+
+- **3 of 14 can do the task at all** — `qwen3-coder:30b` (41 s), `devstral-small-2:24b`
+  (86 s), `gemma4:26b` (96 s). All three score **8/8**.
+- **11 score the untouched floor of 5/8**, and none of them for a reason a skill could fix.
+  They emit the tool call as prose, or as pseudo-XML, or return an empty transcript, or
+  give up on the first permission error.
+
+**Every model capable enough to drive the loop is also capable enough to finish the task.**
+The band is that narrow. Harder tasks do not widen it — they just move the three capable
+models down while the other eleven keep scoring the floor for unrelated reasons.
+
+**The floor is 5/8, not 0**, which is what makes this easy to misread: five of the eight
+assertions are "you did not break anything", so a model that does nothing still scores
+0.625. Score alone cannot distinguish "did nothing" from "did most of it".
+
+### 3. Failure modes that look identical in the score column
+
+Four different causes produce the same 5/8, and telling them apart needed transcripts,
+`/api/ps` and the error field:
+
+- **VRAM.** `qwen3:32b` is 22.7 GB of a 25.2 GB footprint on a 24 GiB card — **90% on GPU,
+  10% spilled to CPU**. It does not fail cleanly; it crawls and dies at 237 s. A memory
+  failure reads exactly like a capability failure.
+- **Throughput.** `muse-glimmer:30b` fits *entirely* on GPU and still blew the 600 s budget.
+- **Harness compatibility.** `qwen3.8:27b` returns `500: no user query found in messages`
+  from pi's OpenAI-compat request and never gets to try. Recorded as **blocked, not
+  judged** — calling that a capability verdict would be a lie.
+- **Competence.** The remaining eight, in various shapes.
+
+**The result worth remembering: `gemma4` (8B) reported the merge complete while changing
+nothing.** A transcript-trusting grader scores that a success. It is the sharpest possible
+argument for why the agentic lane asserts on the machine and carries no transcript checks.
+
+### 4. Context and VRAM are hard constraints, and they lived nowhere in the repo
+
+Both now in [CLAUDE.md](CLAUDE.md), because both are on the ollama systemd unit rather
+than in this repository and are therefore easy to lose:
+
+- **`OLLAMA_CONTEXT_LENGTH=32768`** is a *server* cap on every model. **Ollama's own
+  default is 4096.** If that variable were ever lost, every agentic result would silently
+  become garbage rather than fail.
+- **`pi --list-models` reporting `128K` is cosmetic.** pi speaks OpenAI-compat, which has
+  no way to set `num_ctx`. The server decides. Believing the client here would have been
+  an easy and invisible mistake.
+- At 32K the `omarchy` body is ~10% of the budget, `omarchy-full` ~20%.
+- **24 GiB is the real ceiling and the 30B class already sits at ~20.2 GiB.**
+
+### 5. Three defects in the VM tooling, all silent
+
+Found while getting the pool usable again; all three cost time before they were understood.
+
+- **The pool came up dead.** `/readyz` reported `ready:false, tmux:false` on both machines:
+  they had been reset to a golden image carrying NOPASSWD sudo but **no bench key and no
+  tmux units**. Re-installed and re-provisioned, then re-saved the goldens from the
+  provisioned state and verified across a reboot.
+- **`golden-test-vm.sh save 1 2` silently saves only VM 1.** It takes a single number;
+  the extra argument is ignored without error. CLAUDE.md had documented the two-argument
+  form, which is how the goldens went stale in the first place. `reset` has the same shape.
+- **`provision-bench-vm.sh` hardcoded four models** into pi's `models.json`. pi still
+  *runs* an unlisted model — it warns `not found for provider ollama. Using custom model
+  id` and carries on with its own defaults — so listed and unlisted models were not
+  configured identically and nothing surfaced as an error. The list is now **derived from
+  Ollama's tool-capable models**; pull a model and re-provision, never edit a list.
+
+### 6. The grader question from run 17 is answered, with data
+
+The 2026-08-30 entry asked whether STATE is inflated by scoring timed-out cases, and said
+to decide before the next paired run. Computing it both ways over run 17 gives
+`state_ok` == `state_all` == 1.000: every timed-out case had genuinely passed all its post
+assertions. **STATE is not inflated.** STATE and `success` measure different things — did
+the machine end up correct, versus did the agent exit within budget — and both were right.
+No grader change. Run 18 had no timeouts, so it does not bind there either.
 
 ## Session of 2026-09-01 (second) — writer tests, the first live scenario, and root in the bench
 
@@ -537,21 +632,43 @@ runs.
 
 ## What's left
 
-### 1. Make the agentic bench hard enough to measure anything  — **UNBLOCKED, not finished**
+### 1. The agentic lane cannot measure skill lift with the local models available
 
-The structural cause was found on 2026-09-01: the lane could not reach root at all, so
-every task was a `~/.config` edit. NOPASSWD sudo is now provisioned and baked into the
-golden images, and `omarchy-agentic-root-config` is a first hard bench built on it,
-validated 5/8 → 7/8 → 7/8 → 8/8 across the four outcome states.
+**Reframed 2026-09-02 — the old premise was wrong.** This used to read "make the bench hard
+enough to measure anything". Run 21 shows difficulty is not the lever:
+[skillbench/MODELS.md](skillbench/MODELS.md) has the full table.
 
-**What remains: run it against a model, bare and with the skill.** Nothing here has been
-run against `devstral-small-2:24b` or anything else, so there is still no lift figure. If
-it also saturates, the next seam is the same one — more tasks where both wrong answers
-are single plausible commands. Original text follows.
+Only **3 of 14** tool-capable local models can drive the agent loop at all, and all three
+score **8/8 bare**. The other 11 score the untouched floor for reasons no skill addresses —
+tool calls emitted as prose, empty transcripts, VRAM spill, harness incompatibility. Every
+model capable enough to act is capable enough to finish. Run 18 measured the consequence
+directly: **0.958 vs 0.958**, zero lift, 3.0x latency.
 
-Open alongside that: whether `skill:omarchy-full` (~6.6k tokens) is even loadable by a 24B
-model in an agentic loop. One earlier case ran 199 s and returned an empty transcript
-having done nothing.
+Harder tasks will not fix this. They move the three capable models down while the other
+eleven keep scoring the floor for unrelated reasons, which is a *wider* spread but not a
+*measurement*.
+
+Options, none obviously right:
+
+- **Accept the chat lane as the instrument for skill efficacy** — that is where +29.3 pt
+  was measured, and it has ten models of headroom — and keep the agentic lane as a
+  regression check that the skill does not cause harm (it currently costs 3x latency for
+  no gain, which is itself worth watching).
+- **Find capable models that are not already saturated.** The three that work are 24-30B.
+  Nothing smaller drives the loop; nothing larger fits 24 GiB. That is a hardware ceiling,
+  not a search problem.
+- **Unblock `qwen3.8:27b`** (`500: no user query found in messages` from pi's
+  OpenAI-compat shape). Cheapest concrete next step — it would add a fourth data point in
+  exactly the size class where the capable models live.
+- **Target the trap rather than the task.** Every capable model solved a *correct-procedure*
+  task. Untested: whether they go wrong confidently on something where Omarchy-3-era advice
+  is the attractive answer. That is the one seam where a skill could still show a lift, and
+  the `pacman -Qkk` assertion already exists to catch it.
+
+Open alongside that: whether `skill:omarchy-full` (~6.6k tokens, ~20% of the 32K budget) is
+loadable at all in an agentic loop. One earlier case ran 199 s and returned an empty
+transcript having done nothing — the same signature several models produced in run 21, so
+this may be the same phenomenon rather than a skill-size problem.
 
 ### 2. Finish auditing 28 records  — **DONE 2026-09-01**
 
