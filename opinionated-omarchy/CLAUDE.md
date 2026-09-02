@@ -37,6 +37,12 @@ Add benches for it in `skillbench/benches/` (see the schema in
 [benches/CLAUDE.md](../skillbench/benches/CLAUDE.md)) **before** tuning the skill, not
 after. Writing the bench second is how you end up measuring what you already built.
 
+Note what the rig can now reach that it could not before 2026-09-01: the agentic lane has
+passwordless sudo on its VMs, so a bench can seed, perform and assert work that needs
+root. Every task written before that date is a `~/.config` edit because that was the
+ceiling, and it is a large part of why the agentic bench saturated. If this skill's value
+is in boot, pacman or system-tree territory, that is where its benches belong.
+
 ## What would make it dishonest
 
 The corpus carries per-record provenance and that is load-bearing, not decoration:
@@ -51,6 +57,16 @@ records that passed clean.** Whatever shape the skill takes, an
 unaudited record has to still read as unaudited by the time it reaches the user. Both
 `ask.py` and the generated markdown already do this; do not regress it.
 
+**And `audit_status: ok` does not mean "true on Omarchy 4".** It means the record was
+checked against its sources. The first record exercised on a real VM
+(`mkinitcpio-pacnew-unhandled-breaks-next-boot`, status `ok`) turned out to name two files
+that cannot produce a `.pacnew` on Omarchy 4 at all, and to overstate a danger that a
+package-owned drop-in makes moot. Sound generic Arch advice, mis-specialised — which is
+exactly the class of error a source audit cannot see and a skill will happily repeat with
+more confidence than the record had. See [../research/validation/](../research/validation/)
+for what live exercise does and does not establish; it is a third signal, deliberately
+kept out of `audit_status`.
+
 The same applies to `danger`: it is non-empty exactly when a fix can lose data, break boot,
 or cause a partial upgrade. Anything touching pacman, the bootloader, initramfs, or
 partitions deserves confirmation against the cited source before it runs as root.
@@ -62,6 +78,7 @@ partitions deserves confirmation against the cited source before it runs as root
 | Corpus design, record schema, trust model | [../research/README.md](../research/README.md) |
 | The measurement rig and its limits | [../skillbench/README.md](../skillbench/README.md) |
 | The baseline to beat (911 graded cases) | [../research/bench/](../research/bench/) |
+| What live VM exercise proves, and what it does not | [../research/validation/](../research/validation/) |
 | Repo-wide conventions and domain facts | [../CLAUDE.md](../CLAUDE.md) |
 | Current status, what is outstanding | [../JOURNAL.md](../JOURNAL.md) |
 
