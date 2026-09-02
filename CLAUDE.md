@@ -41,7 +41,7 @@ research/                the troubleshooting corpus + its tooling
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
 skillbench/              the Skill Bench container — measures whether a skill helps
   app/                   FastAPI app: runner, graders, loader, themed UI
-  benches/               15 bench specs (8 Omarchy, 5 controls, gauntlet, crash)
+  benches/               16 bench specs (9 Omarchy, 5 controls, gauntlet, crash)
   benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
   data/                  DERIVED SQLite results DB; NOT tracked

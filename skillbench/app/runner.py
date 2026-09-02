@@ -131,10 +131,17 @@ async def _one_agentic_case(pool, run_id, bench, task, model, variant, repeat_id
     restore_paths = ((bench.get("defaults") or {}).get("vm") or {}).get("restore") or []
     request = {"lane": "agentic", "model": model, "variant": variant,
                "task": task["id"], "prompt": task["prompt"]}
-    t0 = time.monotonic()
+    # Start the clock AFTER the VM is in hand. Concurrency here is the VM pool, so a case
+    # launched 12th waits for a machine, and timing from before `acquire()` folds that queue
+    # into `latency_s` -- which then reads as "this variant was slower" purely because it ran
+    # second. Runs up to and including 24 carry the old semantics; do not compare their
+    # agentic latencies against later ones, or use them as a cost figure at all.
+    queued_at = time.monotonic()
     machine = await pool.acquire()
+    t0 = time.monotonic()
     try:
         request["vm"] = machine.name
+        request["queue_wait_s"] = round(t0 - queued_at, 3)
 
         # 1. Put the machine back to the state every case starts from, then apply this
         #    task's seed -- the breakage the agent is being asked to fix.
