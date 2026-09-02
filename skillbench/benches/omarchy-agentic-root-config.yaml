@@ -1,0 +1,124 @@
+# The agentic lane's first bench that requires ROOT, and the first written to be hard.
+#
+# Why it exists. `omarchy-agentic-config` is saturated -- devstral-small-2:24b scores
+# 24/24 bare -- and every one of its tasks is a ~/.config edit. That was not a choice
+# about difficulty: until 2026-09-01 the bench user had no passwordless sudo, and the
+# bench drives the VM over ssh with no tty, so nothing needing root could be seeded,
+# performed OR asserted. Userspace config edits are the easy end of Omarchy, and the
+# bench had been measuring only that end. `tools/provision-bench-vm.sh` now installs
+# /etc/sudoers.d/99-bench-nopasswd; this bench is what that unlocked.
+#
+# THE TRAP, and why it is not soluble by narrating. A pacman .pacnew can be resolved
+# three ways and only one is right:
+#
+#   mv  the .pacnew over the live file  -> adopts upstream, DESTROYS the local setting
+#   rm  the .pacnew                     -> keeps local, SILENTLY DISCARDS the new option
+#   merge the two                       -> the only outcome that keeps both
+#
+# Both wrong answers are single commands that look like completion and exit 0. The
+# assertions below require BOTH values to survive, so an agent that reaches for either
+# shortcut fails on exactly one of the first two checks. This is a real Arch trap and
+# the corpus record it is drawn from rates it high/common.
+#
+# GROUNDED ON A REAL MACHINE, NOT ON THE RECORD'S PROSE. The record that motivated this
+# (`mkinitcpio-pacnew-unhandled-breaks-next-boot`) names two files that can never
+# actually produce a .pacnew on Omarchy 4: /etc/default/limine is owned by no package,
+# and /etc/mkinitcpio.conf is [unmodified] on a stock install. The file used here,
+# /etc/limine-entry-tool.conf, IS package-owned and IS a backup file, so the scenario
+# is reachable. See research/validation/README.md.
+name: omarchy-agentic-root-config
+description: An agent resolves a boot-config .pacnew on a real machine — graded on whether both the local and the upstream setting survived.
+lane: agentic
+control: false
+skills: [omarchy, omarchy-full]
+defaults:
+  repeats: 1
+  params:
+    thinking: "off"
+    agent_timeout: 600
+  vm:
+    # NOTE: this bench's seed writes to /etc, which is OUTSIDE anything `restore` can
+    # cover -- these paths are $HOME-relative by design (the container has no libvirt
+    # socket and cannot roll a disk back). The seed is therefore written to be
+    # IDEMPOTENT: it re-derives the live file from a pristine copy every time, so a
+    # case never inherits the previous case's merge. Reset the disk between RUNS with
+    # tools/golden-test-vm.sh.
+    restore:
+      - .config/hypr
+      - .config/omarchy
+
+tasks:
+  - id: pacnew-merge-boot-config
+    prompt: |
+      A package upgrade on this Omarchy machine left a .pacnew file for the Limine
+      boot-entry configuration. Resolve it.
+
+      The live configuration currently carries a local customisation that must not be
+      lost, and the .pacnew introduces a new upstream setting that should be adopted.
+      When you are done there must be no .pacnew left, and the boot configuration must
+      have been regenerated so the change is actually in effect.
+
+      Do not modify any file owned by an Omarchy package. Make the changes, then stop.
+
+    seed: |
+      set -e
+      PRISTINE=/etc/.bench-pristine-limine-entry-tool.conf
+      # Capture the packaged file once, then always re-derive from it. Idempotent
+      # because /etc survives between cases (see the note under defaults.vm above).
+      [ -f "$PRISTINE" ] || sudo cp /etc/limine-entry-tool.conf "$PRISTINE"
+      sudo cp "$PRISTINE" /etc/limine-entry-tool.conf
+      sudo rm -f /etc/limine-entry-tool.conf.pacnew
+
+      # The operator's local edit, already live. This is what `mv` would destroy.
+      printf '\n# local override -- keep this\nSPACE_NUMBER=4\n' \
+        | sudo tee -a /etc/limine-entry-tool.conf >/dev/null
+
+      # What the upgrade shipped: packaged defaults plus a new option, and NO local
+      # edit. This is what `rm` would discard.
+      sudo cp "$PRISTINE" /etc/limine-entry-tool.conf.pacnew
+      printf '\n# new in this release\nCONFIG_BACKUP_THRESHOLD=12\n' \
+        | sudo tee -a /etc/limine-entry-tool.conf.pacnew >/dev/null
+
+      # Written LAST: the boot-regeneration assertion compares against this mtime.
+      sudo touch /etc/.bench-seed-marker
+
+    post:
+      # --- the trap: both values have to survive -------------------------------
+      - type: file_contains
+        path: /etc/limine-entry-tool.conf
+        pattern: 'SPACE_NUMBER=4'
+      - type: file_contains
+        path: /etc/limine-entry-tool.conf
+        pattern: 'CONFIG_BACKUP_THRESHOLD=12'
+
+      # --- and the .pacnew is actually resolved, not just ignored --------------
+      - type: file_absent
+        path: /etc/limine-entry-tool.conf.pacnew
+
+      # --- the boot config was really regenerated, not just edited -------------
+      # Newer than the marker the seed wrote last, so this can only pass if something
+      # rewrote limine.conf after the breakage was staged. `limine-mkinitcpio` and
+      # `limine-update` both do; editing the file by hand does not.
+      - type: command_succeeds
+        command: sudo test /boot/limine.conf -nt /etc/.bench-seed-marker
+
+      # --- the machine can still boot -----------------------------------------
+      # sudo, because /boot is a vfat ESP mounted dmask=0077: an unprivileged `test`
+      # returns 1 for "unreadable", which is indistinguishable from "absent".
+      - type: command_succeeds
+        command: sudo test -s /boot/EFI/Linux/omarchy_linux.efi
+
+      # --- the initramfs hooks were not collaterally damaged -------------------
+      # Sourced the way mkinitcpio does, so this reads the EFFECTIVE hooks rather than
+      # the stock HOOKS= line in /etc/mkinitcpio.conf, which Omarchy's drop-in replaces.
+      - type: command_output_matches
+        command: bash -c 'source /etc/mkinitcpio.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done; echo "${HOOKS[*]}"'
+        pattern: 'encrypt.*filesystems'
+      - type: command_output_matches
+        command: bash -c 'source /etc/mkinitcpio.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done; echo "${HOOKS[*]}"'
+        pattern: 'plymouth.*btrfs-overlayfs'
+
+      # --- and the packaged system tree was left alone -------------------------
+      - type: command_output_matches
+        command: pacman -Qkk omarchy 2>/dev/null
+        pattern: '0 altered files'

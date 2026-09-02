@@ -36,17 +36,25 @@ inherent to prompting a model and reading its reply.
 it act on the machine, and then asserts on the machine — see "The agentic lane" below.
 
 It has a control of its own (`linux-agentic-triage`), and the first paired run at 3 repeats
-says plainly that **the agentic bench is currently saturated**: `devstral-small-2:24b` scores
-24/24 bare on `omarchy-agentic-config`, leaving no headroom for a skill to show up in, and
-the control moved as far as the Omarchy bench (−5.5 vs −8.3 pt). Those numbers measure
-nothing about the skill, and the README says so rather than quoting the delta. The one
-reproducible effect is cost: mean case latency 2.0× on the Omarchy bench and 4.5× on the
-control, the latter proving it is the price of context in an agent loop, not anything
-Omarchy-specific.
+says plainly that **`omarchy-agentic-config` is saturated**: `devstral-small-2:24b` scores
+24/24 bare on it, leaving no headroom for a skill to show up in, and the control moved as
+far as the Omarchy bench (−5.5 vs −8.3 pt). Those numbers measure nothing about the skill,
+and the README says so rather than quoting the delta. The one reproducible effect is cost:
+mean case latency 2.0× on the Omarchy bench and 4.5× on the control, the latter proving it
+is the price of context in an agent loop, not anything Omarchy-specific.
+
+**Why it was saturated turned out to be structural, not a shortage of imagination.** Every
+task in that bench is a `~/.config` edit, and until 2026-09-01 that was the ceiling rather
+than a choice: the bench drives its VMs over ssh with **no tty**, and the bench user had no
+passwordless sudo, so nothing requiring root could be seeded, performed by the agent, or
+asserted. Userspace config is the easy end of Omarchy. `tools/provision-bench-vm.sh` now
+installs NOPASSWD sudo and the golden images carry it;
+`omarchy-agentic-root-config` is the first bench built on that, and it is **not yet run
+against a model** — a validated instrument, not a result.
 
 Three things keep the numbers honest:
 
-- **Control benches.** Five of the fourteen (`linux-disk-full`, `linux-runaway-process`,
+- **Control benches.** Five of the fifteen (`linux-disk-full`, `linux-runaway-process`,
   `linux-boot-partition-full`, `linux-pacman-keyring`, and `linux-agentic-triage` for the
   agentic lane) are general Linux that the skill says nothing about. A bare model should already score well and the skill should barely
   move them. They are flagged `control: true` and labelled in the UI. If a change lifts
@@ -195,7 +203,7 @@ app/
   db.py       SQLite schema and helpers
   theme.py    Omarchy colors.toml -> UI palette
   ui.py       the page
-benches/      14 specs: 6 Omarchy chat + 1 Omarchy agentic, 5 controls (1 of them
+benches/      15 specs: 6 Omarchy chat + 2 Omarchy agentic, 5 controls (1 of them
               agentic), gauntlet, crash
   CLAUDE.md   the bench-spec schema -- read this before writing or editing a bench
 skills.yaml   skill bundle manifest
@@ -230,6 +238,14 @@ acquire a VM  ->  restore declared paths  ->  run seed:  ->  pi --print --skill 
                                                               (in a tmux window)
               ->  evaluate post: over ssh  ->  release the VM
 ```
+
+**The agent runs as root, and that is recent.** Seeds, the agent, and `post:` assertions
+all reach the VM through `bash -lc` over ssh with nothing on stdin, so a sudo password
+prompt can never be answered — a bench that needs root needs
+`/etc/sudoers.d/99-bench-nopasswd`, which `tools/provision-bench-vm.sh` installs and both
+golden images now carry. If a `sudo` assertion starts failing on a freshly reset VM, check
+that file first. Safe only because these VMs are disposable, NAT-only and carry no real
+data; the cost of an agent breaking one is a 0.76 s `golden-test-vm.sh reset`.
 
 **What it measures that the chat lane cannot.** `omarchy-agentic-config` asks an agent to
 add a keybinding, switch a theme, and configure a monitor. Every task also asserts

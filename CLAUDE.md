@@ -33,11 +33,15 @@ research/                the troubleshooting corpus + its tooling
   docs/*.md              DERIVED per-category markdown; tracked, see the rule below
   raw/                   unprocessed workflow output, kept for provenance
   tools/                 build/search/ingest scripts + the three workflow scripts
+    corpus.py            the record schema + the only corpus reader/writer
+  tests/                 stdlib-unittest tests for the writers; ./tests/run.sh
   bench/                 skill-efficacy measurements; NOT corpus, NOT generated
+  validation/            induce a problem on a test VM, apply a fix, assert; runs.jsonl
+                         is an append-only log and NEVER feeds audit_status
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
 skillbench/              the Skill Bench container — measures whether a skill helps
   app/                   FastAPI app: runner, graders, loader, themed UI
-  benches/               14 bench specs (7 Omarchy, 5 controls, gauntlet, crash)
+  benches/               15 bench specs (8 Omarchy, 5 controls, gauntlet, crash)
   benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
   data/                  DERIVED SQLite results DB; NOT tracked
@@ -115,6 +119,10 @@ and rebuild with `tools/make-test-vm.sh`, then re-provision:
 
 ```sh
 tools/install-bench-key.sh 1 2     # the bench's own ssh key (never your ~/.ssh key)
+                                   # provision also installs NOPASSWD sudo — without it
+                                   # the agentic lane cannot seed, perform or assert
+                                   # anything needing root, because it drives ssh with
+                                   # no tty and nothing can answer a password prompt
 tools/provision-bench-vm.sh 1 2    # autologin, never lock/blank/suspend, tmux mirror,
                                    # and pi pointed at the host's Ollama
 tools/golden-test-vm.sh save 1 2   # capture that good state (VM must be shut off)
@@ -287,6 +295,7 @@ python3 tools/ask.py "zoom screen share is a black rectangle"   # search by symp
 python3 tools/ask.py --tag nvidia --tag laptop --list           # filter by tag
 python3 tools/ask.py --slug some-problem-slug -v                # exact lookup + sources
 python3 tools/build_db.py                                       # rebuild DB + docs from JSONL
+./tests/run.sh                                                  # 13 tests, stdlib only
 ```
 
 **The JSONL is authoritative; the `.db` and `docs/` are derived.** Edit the JSONL, then
@@ -351,6 +360,37 @@ destroy the distinction between "checked and correct" and "never revisited".
 `merge_gapfill.py` now sets it automatically whenever it applies a `corrected_cause`;
 it did not always, and the consequences are written up in
 [writeups/2026-09-01-merge-gapfill-silent-defects.md](writeups/2026-09-01-merge-gapfill-silent-defects.md).
+
+### The record schema has one definition, and it is tested
+
+Both corpus writers used to keep a **private copy** of the field list they project
+records onto, so a field missing from that copy was dropped with no error and no
+warning. `cause_reconciled` reached `schema.sql`, `build_db.py` and `ask.py` on
+2026-08-30 and never reached `ingest.py`'s copy — the replace path would have thrown the
+provenance away silently.
+
+There is now one definition, in **[research/tools/corpus.py](research/tools/corpus.py)**,
+and `ingest.py` and `merge_gapfill.py` both import it. Read that file before touching
+either. Three rules it enforces:
+
+- **`FIELDS` order is load-bearing.** It is the key order of all 456 lines on disk.
+  Append; never reorder, or the next merge becomes a whole-corpus diff that hides the
+  records actually touched.
+- **`read_jsonl` / `write_jsonl` are the only ways in and out.** They pin `newline="\n"`
+  and `encoding="utf-8"` in one place instead of at each call site.
+- **An unrecognised key raises.** Harvest chaff the corpus deliberately drops
+  (`cause_note`, `cause_extra`, `verify_note`) is enumerated in `WORKFLOW_ONLY`; anything
+  else is an unfinished schema change and fails loudly.
+
+Adding a field to the schema still touches **four** consumers — `schema.sql`,
+`build_db.py`, `ask.py`, `corpus.py` — but two of those are now checked automatically.
+`research/tests/` asserts `FIELDS` against `schema.sql` and against the live corpus, so
+the 2026-08-30 mistake fails the suite instead of destroying data. Run it before
+committing anything that touches the tooling:
+
+```sh
+cd research && ./tests/run.sh
+```
 
 ## Domain facts that are load-bearing
 

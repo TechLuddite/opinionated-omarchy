@@ -1,0 +1,90 @@
+# Scenario for corpus record `mkinitcpio-pacnew-unhandled-breaks-next-boot`.
+#
+# WHAT THIS MEASURES, EXACTLY. The record's `fix` is prose with four branches
+# (triage, pacdiff merge, rebuild, drop-in prevention). Prose is not executable, so
+# `repair:` below is ONE OPERATOR'S READING of that prose, not the record itself. A
+# green result says "this reading of the fix produced the asserted end state on this
+# VM on this date". It does NOT say the record is correct, and it must never be
+# rendered as though it did. See ../README.md.
+slug: mkinitcpio-pacnew-unhandled-breaks-next-boot
+category: boot-kernel
+
+# Everything the seed touches, so the runner can prove it restored the machine.
+touches:
+  - /etc/limine-entry-tool.conf
+  - /etc/limine-entry-tool.conf.pacnew
+
+# ---------------------------------------------------------------- induce
+# Reproduce the end state pacman leaves behind, rather than driving a real upgrade:
+# pacman writes a .pacnew only for a backup file the user has MODIFIED, so the seed
+# has to modify the file first or the situation is unreachable. That precondition is
+# itself a finding -- see README.md.
+seed: |
+  set -e
+  # 1. make the package-owned file locally modified, which is what arms the trap
+  printf '\n# local edit by the operator\nQUIET_MODE=no\n' | sudo tee -a /etc/limine-entry-tool.conf >/dev/null
+  # 2. drop the .pacnew pacman would have written on the next upgrade
+  sudo cp /etc/limine-entry-tool.conf /etc/limine-entry-tool.conf.pacnew
+  printf '\n# NEW UPSTREAM OPTION IN THIS RELEASE\nENABLE_VERIFICATION=yes\n' \
+    | sudo tee -a /etc/limine-entry-tool.conf.pacnew >/dev/null
+
+# The seed is only valid if it actually created the situation. If these fail the
+# run is recorded as `seed-failed`, never as a verdict about the record.
+seed_asserts:
+  - name: pacnew now exists
+    type: command_succeeds
+    command: test -f /etc/limine-entry-tool.conf.pacnew
+
+# ---------------------------------------------------------------- repair
+# The operator's reading of the record's fix: merge deliberately, keep the local
+# edit AND take the new upstream option, then rebuild through the Limine path the
+# record names -- NOT `mkinitcpio -P`, which Omarchy's own wrapper warns does not
+# update boot entries.
+repair: |
+  set -e
+  sudo cp /etc/limine-entry-tool.conf.pacnew /etc/limine-entry-tool.conf
+  sudo rm -f /etc/limine-entry-tool.conf.pacnew
+  sudo limine-mkinitcpio
+
+# ---------------------------------------------------------------- assert
+asserts:
+  - name: no .pacnew left anywhere under /etc
+    type: command_output_matches
+    command: sudo find /etc -name '*.pacnew' | wc -l
+    pattern: '^0$'
+
+  - name: the Omarchy hooks survived the merge
+    # The trap the record warns about. On Omarchy 4 these live in a package-owned
+    # drop-in, so this asserts the real effective HOOKS, not the stock conf.
+    type: command_output_matches
+    command: |
+      sudo bash -c 'source /etc/mkinitcpio.conf
+      for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done
+      echo "${HOOKS[*]}"'
+    pattern: 'encrypt.*filesystems'
+
+  - name: plymouth and btrfs-overlayfs still present
+    type: command_output_matches
+    command: |
+      sudo bash -c 'source /etc/mkinitcpio.conf
+      for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done
+      echo "${HOOKS[*]}"'
+    pattern: 'plymouth.*btrfs-overlayfs'
+
+  - name: the initramfs rebuild reported no errors
+    # Graded on the output the repair ALREADY produced. Re-running limine-mkinitcpio
+    # inside an assertion would rebuild the boot image just to read its log.
+    type: repair_output_not_matches
+    pattern: '(ERROR|cannot be found|module not found)'
+
+  - name: the rebuild produced a unified kernel image
+    type: repair_output_matches
+    pattern: 'Unified kernel image generation successful'
+
+  - name: a bootable kernel image is present on the ESP
+    # NOT /boot/vmlinuz-linux -- Omarchy 4 boots a UKI, and there is no vmlinuz on
+    # the ESP at all. And NOT without sudo: /boot is a vfat ESP mounted dmask=0077,
+    # so an unprivileged `test` returns 1 for "unreadable", which is indistinguishable
+    # from "absent" and passes as a failure for the wrong reason.
+    type: command_succeeds
+    command: sudo test -s /boot/EFI/Linux/omarchy_linux.efi

@@ -2,7 +2,176 @@
 
 Last updated: 2026-09-01
 
-## Session of 2026-09-01 — the last unaudited records, and the Windows remnants
+## Session of 2026-09-01 (second) — writer tests, the first live scenario, and root in the bench
+
+Item 4 of "What's left" is closed, and the VM spot-checking under item 5 has started.
+
+### 1. The corpus writers now have one schema definition, and tests
+
+`ingest.py`'s `FIELDS` allowlist was missing `cause_reconciled`. That was predicted in
+the backlog ("read `ingest.py` for the same defect, before it is next run") and it was
+real: the replace path projected records onto a private list that never learned about the
+field added on 2026-08-30.
+
+The fix is not "add the string to the second list" — two lists that must never diverge is
+the defect. [research/tools/corpus.py](research/tools/corpus.py) now holds the only
+`FIELDS`, plus the only `read_jsonl` / `write_jsonl`, and both writers import it. That
+also pins `newline="\n"` and `encoding="utf-8"` in one place instead of at each call site.
+
+`write_jsonl` **raises** on a key it cannot classify. The harvest genuinely emits chaff
+the corpus drops on purpose — `cause_note`, `cause_extra`, `verify_note`, enumerated
+from the raw payloads into `WORKFLOW_ONLY` — so a blanket raise would have broken every
+merge. The distinction is the point: dropping enumerated chaff is the projection working,
+dropping an unclassified key is an unfinished schema change.
+
+**13 tests, stdlib `unittest`, `research/tests/run.sh`.** Not pytest: the corpus tooling
+is dependency-free by design so it runs on a bare container, and a suite that needed
+pytest installed would be the first thing to break that. Two of them are the ones that
+would have caught 2026-08-30 — `FIELDS` is asserted against `schema.sql` and against the
+live corpus, in both directions.
+
+**The tests were checked against the defect, not just run green.** Removing
+`cause_reconciled` from `FIELDS` again produces 3 failures and 8 errors, and both
+invariant tests name the missing field in their message. An assertion that cannot fail is
+the thing this project keeps catching itself on, so it gets proved rather than assumed.
+
+Two consumers of the four are now checked automatically. `schema.sql`, `build_db.py`,
+`ask.py` and `corpus.py` still all have to be edited by hand for a new field.
+
+**The refactor is provably neutral:** reading all 456 records and writing them back
+through the new code is byte-identical to `data/problems.jsonl` (sha256
+`fd5f5bfe653745e8…`). Key order is load-bearing — it is the key order of every line on
+disk — so `FIELDS` may be appended to but never reordered.
+
+### 2. The first live scenario: a corpus record exercised on a real VM
+
+New directory [research/validation/](research/validation/) — induce a problem on a
+throwaway VM, apply a fix, assert on the machine, append to `runs.jsonl`. Read its
+README before adding one; the trust model is the whole design.
+
+**Validation never touches `audit_status`.** That field means "checked against its
+sources", and one VM agreeing is not a source confirming. Results are a separate
+append-only log because a record has one audit but many runs, each with its own date and
+Omarchy version. And `repair:` is explicitly *an operator's reading* of the record's
+prose, not the record — record fixes are branching prose, and only 6 of 456 have a fenced
+`verify` block, so nothing here can execute "the fix" itself.
+
+First scenario: `mkinitcpio-pacnew-unhandled-breaks-next-boot` on omarchy `4.0.1-1`.
+**6/6 assertions pass** — the record's remediation advice is sound, and its
+Omarchy-vs-plain-Arch branch is confirmed by the system itself: `/usr/local/bin/mkinitcpio`
+is a wrapper from `limine-mkinitcpio-hook` that warns `This does not update Limine boot
+entries` and offers `limine-mkinitcpio` instead, exactly as the record says.
+
+**But three claims in that record are wrong for Omarchy 4, and the source audit missed
+all three.** `/etc/default/limine` is owned by no package, so it can never produce the
+`.pacnew` the record's symptom block quotes; `/etc/mkinitcpio.conf` is `[unmodified]` on
+a stock install, so neither can it; and the danger claim that overwriting
+`mkinitcpio.conf` "removes your encryption, plymouth and btrfs hooks" is false, because
+those come from a package-owned drop-in sourced afterwards that assigns `HOOKS=`
+wholesale. Measured, not inferred. Generic Arch advice mis-specialised to Omarchy — the
+same family as the Omarchy 3 → 4 tree split.
+
+**These are recorded in the validation README, not edited into the corpus.** A correction
+needs an `audit_note` and a `cause_reconciled` stamp through `merge_gapfill.py`; a silent
+rewrite is exactly what the provenance fields exist to prevent.
+
+### 3. What the spike cost, which was the point of running it
+
+The harness is written once. Per record after that, the expensive part is neither the
+seed nor the assertions — it is **establishing ground truth on a live machine first**.
+Eight ssh round trips went into learning that `/boot` is a root-only vfat ESP, that
+Omarchy boots a UKI and has no `vmlinuz`, that the hooks live in a drop-in, and that
+`/etc/default/limine` is unowned. Only after that could the assertions be written
+correctly.
+
+Two of six assertions were wrong on the first run and both failed *for the wrong reason*:
+one asserted `/boot/vmlinuz-linux`, which does not exist on this system, and did so as an
+unprivileged user against a `dmask=0077` mount, where `test` returns 1 for "unreadable"
+and looks identical to "absent". A third re-ran `limine-mkinitcpio` inside an assertion,
+making grading a side effect that rebuilt the boot image; that is why the runner now has
+`repair_output_*` types.
+
+Realistically **30–45 minutes per scriptable record**, more for anything needing a
+reboot to observe. So this scales to a few dozen records, not 456 — roughly a third of
+the corpus is out of reach of these VMs anyway (67 `nvidia` / 49 `intel` / 47 `amd`
+against a virtio GPU, 297 `laptop`, most of `power-suspend`, much of `network`).
+**Spot-check and bench-source, not corpus validation**, and the README says so.
+
+**The golden-image workflow was exercised end to end and matches its documentation:**
+reset 0.76 s, ssh reachable ~7 s later. `virsh shutdown` is still ignored; poweroff over
+ssh works.
+
+### 4. Item 1 is unblocked: the agentic lane could not reach root, and now can
+
+Writing the scenario into a bench turned up why `omarchy-agentic-config` is saturated,
+and it is not that nobody wrote hard tasks. **Every task in it is a `~/.config` edit
+because that was the ceiling.** The bench drives the VM over ssh with no tty (`vm.py`
+`run()` is `bash -lc` with nothing on stdin), and the bench user had no passwordless
+sudo — so nothing requiring root could be seeded, performed by the agent, or asserted.
+Userspace config is the easy end of Omarchy, and the bench could only ever measure that
+end.
+
+`tools/provision-bench-vm.sh` now installs `/etc/sudoers.d/99-bench-nopasswd`, validated
+with `visudo -c` so a broken sudoers is never shipped, and using `id -un` rather than
+`$USER` — `$USER` is set by login(1) and is frequently empty in a non-interactive ssh,
+which would have written a rule for the wrong name or none.
+
+**Both golden images were re-saved with it baked in**, because the first reset silently
+dropped it and a `sudo` assertion would then fail looking like a bench bug. Verified: a
+reset now comes back with NOPASSWD intact and no leftover bench state.
+
+This is safe on these VMs and nowhere else — disposable, NAT-only, no real data, and
+their password is already committed in plain text. It does let a misbehaving agent break
+the machine, which is what the 0.76 s reset is for.
+
+### 5. The first deliberately hard agentic bench
+
+`skillbench/benches/omarchy-agentic-root-config.yaml`. One task: resolve a `.pacnew` for
+the Limine boot config, keeping both the operator's local setting and the new upstream
+one, and regenerate the boot config.
+
+**The difficulty is structural rather than obscure.** Both wrong answers are single
+plausible commands that exit 0 and look like completion: `mv` the `.pacnew` over the live
+file adopts upstream and destroys the local edit; `rm` keeps local and silently discards
+the new option. Asserting on *both* values means each shortcut fails a different
+assertion, so the bench says which mistake was made rather than just "failed".
+
+**Checked by hand on a VM as `benches/CLAUDE.md` requires**, all four states:
+
+| state | score | what failed |
+| --- | --- | --- |
+| after seed, nothing done | 5/8 | both values, the `.pacnew`, the rebuild |
+| `mv` the .pacnew over the file | 7/8 | the local setting |
+| `rm` the .pacnew | 7/8 | the upstream setting |
+| a real merge, then rebuild | **8/8** | — |
+
+The remaining five assertions are collateral-damage guards — hooks intact, UKI present,
+`pacman -Qkk omarchy` clean — which correctly pass on an untouched machine and are there
+to catch an agent that succeeds destructively.
+
+Two things in it are worth copying and are written into `benches/CLAUDE.md`: the
+"both wrong answers are one command" shape, and the fact that **a seed touching `/etc`
+must be idempotent**, since `defaults.vm.restore` is `$HOME`-relative and `/etc` persists
+between cases. That bench keeps a pristine copy on first run and re-derives from it.
+
+All **43 skillbench tests still pass** with the new spec, so it loads, its assertions
+compile, its paths are absolute, and the control set is still pinned.
+
+**Not yet run against a model.** The bench is validated as a measuring instrument; what
+it measures is the next session's work, and it needs a paired bare/skill run to say
+anything about lift.
+
+### 6. A lead worth someone's time
+
+`/etc/mkinitcpio.conf.d/omarchy_resume.conf` is `HOOKS+=(resume)`, which appends `resume`
+*after* `filesystems`, `fsck` and `btrfs-overlayfs`. Corpus record
+`resume-hook-after-filesystems-hibernation` — one of the 4 remaining `unaudited` records —
+describes that exact ordering as a problem. Either the record is wrong, or Omarchy ships
+the broken ordering by default. Observing the ordering does not establish which, and
+guessing would be the fabricated-precision failure mode again. **Check it against a
+source.**
+
+## Session of 2026-09-01 (first) — the last unaudited records, and the Windows remnants
 
 Item 2 of "What's left" is closed, and the repo no longer carries anything from its
 Windows era.
@@ -368,13 +537,17 @@ runs.
 
 ## What's left
 
-### 1. Make the agentic bench hard enough to measure anything
+### 1. Make the agentic bench hard enough to measure anything  — **UNBLOCKED, not finished**
 
-The lane works, the control exists, and the graders are fixed. The blocker now is task
-difficulty: `devstral-small-2:24b` scores **24/24 bare** on `omarchy-agentic-config`, so
-there is no headroom for a skill to show up in. Tasks are needed that a capable agent gets
-WRONG without the skill — the Omarchy-3-vs-4 tree split is the right seam (that is what
-`pacman -Qkk` already tests), but the current three are too easy.
+The structural cause was found on 2026-09-01: the lane could not reach root at all, so
+every task was a `~/.config` edit. NOPASSWD sudo is now provisioned and baked into the
+golden images, and `omarchy-agentic-root-config` is a first hard bench built on it,
+validated 5/8 → 7/8 → 7/8 → 8/8 across the four outcome states.
+
+**What remains: run it against a model, bare and with the skill.** Nothing here has been
+run against `devstral-small-2:24b` or anything else, so there is still no lift figure. If
+it also saturates, the next seam is the same one — more tasks where both wrong answers
+are single plausible commands. Original text follows.
 
 Open alongside that: whether `skill:omarchy-full` (~6.6k tokens) is even loadable by a 24B
 model in an agentic loop. One earlier case ran 199 s and returned an empty transcript
@@ -399,7 +572,13 @@ All 130 reviewed, 22 rewritten, each stamped `cause_reconciled`. The "~130" was 
 worst-case bound on an unreviewed population, not a defect count. See the 2026-08-30
 session entry above.
 
-### 4. The corpus tooling has no tests, and one script is unread
+### 4. The corpus tooling has no tests, and one script is unread  — **DONE 2026-09-01**
+
+Closed by the second session of 2026-09-01. `ingest.py` did carry the predicted defect;
+there is now one `FIELDS` in `corpus.py` and 13 stdlib tests, verified against the defect
+rather than merely run green. The four-consumer checklist is written into CLAUDE.md and
+two of the four are now checked automatically. Original text follows.
+
 
 New, and a direct consequence of what the 2026-09-01 audit turned up. Two defects in
 `merge_gapfill.py` would have silently destroyed the `cause_reconciled` provenance, and
@@ -432,8 +611,16 @@ Full detail in
   file (`opinionated-omarchy/CLAUDE.md`) recording what the skill has to be, the
   +29.3 pt / −2.3 pt baseline it has to beat, and the provenance it must not launder; that
   file replaced the `.gitkeep`.
-- Now that the VMs exist and can be reset in a second, the corpus could be spot-checked
-  against a real install. Nobody has done any of that.
+- Spot-checking the corpus against a real install is **started, not finished** — see
+  [research/validation/](research/validation/). One scenario exists and passes 6/6; it
+  also turned up three wrong claims in the record it validated, none of which the source
+  audit caught. The next steps are more scenarios (the `boot-kernel` records with
+  `danger` set are the highest-value targets, and the cheapest to test given a 0.76 s
+  reset), and feeding a working scenario into the agentic bench as a `seed:`/`post:`
+  pair, which is what item 1 needs.
+- The three record defects found on 2026-09-01 are **written up but not applied**. They
+  need an audit pass through `merge_gapfill.py` so the corrections carry an `audit_note`
+  and a `cause_reconciled` stamp.
 - `research/` root holds ~17 loose Hyprland wiki pages. Not corpus, no tooling reads them.
   Left in place deliberately.
 

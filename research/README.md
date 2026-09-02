@@ -68,6 +68,10 @@ research/
   docs/                   generated markdown, one page per category
   raw/                    unprocessed workflow output, kept for provenance
   bench/                  skill-efficacy measurements — hand-written, NOT generated
+  validation/             records exercised on a real VM — a SEPARATE signal from the
+                          audit, and never merged into audit_status (see below)
+  tests/                  stdlib-unittest tests for the corpus writers; ./tests/run.sh
+  tools/corpus.py         the record schema (FIELDS) + the only reader/writer
   tools/build_db.py       JSONL -> DB + markdown
   tools/ask.py            symptom search
   tools/schema.sql        DB schema
@@ -78,6 +82,7 @@ research/
 
 ```sh
 python3 tools/build_db.py                              # rebuild after editing JSONL
+./tests/run.sh                                         # 13 tests, stdlib only
 
 python3 tools/ask.py "screen share is black in zoom"   # search by symptom
 python3 tools/ask.py "wifi keeps dropping" -v          # include verify steps + sources
@@ -171,6 +176,46 @@ audited version.
 This is a research corpus, not a warranty. It is worth reading `danger` and confirming
 against the cited source before running anything as root — particularly for anything
 touching pacman, the bootloader, initramfs, or partitions.
+
+### Exercising a record on a real machine is a different signal
+
+[validation/](validation/) induces a record's problem on a throwaway Omarchy VM, applies a
+fix, and asserts on the machine. It answers a question the audit cannot: **does this work
+on Omarchy 4?**
+
+**It never touches `audit_status`, and the two must not be conflated.** `audit_status`
+means "checked against its sources". One VM agreeing is not a source confirming — a fix
+can pass by accident, pass only on that hardware, or pass while its stated `cause` is
+wrong. Results live in `validation/runs.jsonl`, an append-only log, because a record has
+one audit but many runs, each with its own date and Omarchy version.
+
+**Being source-audited does not mean being right about the machine, and the first run
+proved it.** `mkinitcpio-pacnew-unhandled-breaks-next-boot` is `audit_status: ok` and its
+remediation advice checks out — but three of its specifics are false on Omarchy 4:
+`/etc/default/limine` is owned by no package and so can never produce the `.pacnew` its
+symptom block quotes, `/etc/mkinitcpio.conf` is `[unmodified]` on a stock install and so
+cannot either, and overwriting that file does not remove the encryption/plymouth/btrfs
+hooks, because those are set by a package-owned drop-in sourced afterwards that assigns
+`HOOKS=` wholesale. Generic Arch advice mis-specialised to Omarchy — the same family as
+the Omarchy 3 → 4 tree split, and invisible to an auditor reading sources.
+
+Scale expectations accordingly: every scenario needs a hand-written seed and assertions,
+and roughly a third of the corpus is out of reach of these VMs anyway (GPU, laptop and
+most network records). This is **spot-check and bench-source**, not corpus validation.
+
+### The record schema has one definition
+
+`tools/corpus.py` owns `FIELDS` and the only `read_jsonl` / `write_jsonl`. Both writers
+import it. Before 2026-09-01 each kept a private copy, and `ingest.py`'s was missing
+`cause_reconciled` — the replace path would have dropped that provenance silently.
+
+`FIELDS` order is load-bearing: it is the key order of every line in `problems.jsonl`.
+Append, never reorder. An unrecognised key raises rather than being dropped; harvest
+working notes the corpus deliberately discards (`cause_note`, `cause_extra`,
+`verify_note`) are enumerated in `WORKFLOW_ONLY`. Adding a schema field still means
+editing four things by hand — `schema.sql`, `build_db.py`, `ask.py`, `corpus.py` — but
+`tests/` now asserts `FIELDS` against both `schema.sql` and the live corpus, so the
+2026-08-30 mistake fails the suite instead of destroying data.
 
 ## What is tracked, and what you build
 
