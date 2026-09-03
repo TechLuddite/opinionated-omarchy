@@ -15,23 +15,63 @@ fixes, searchable by symptom (`research/data/problems.jsonl` is the source of tr
 currently reachable two ways, and neither is a skill:
 
 - `research/tools/ask.py` — a CLI, which needs Python and a built index.
-- `research/docs/*.md` — ~1.7 MB of generated markdown, far past any context budget.
+- `research/docs/*.md` — ~1.6 MB of generated markdown, far past any context budget.
+- <https://techluddite.github.io/opinionated-omarchy/> — the public site, for humans.
 
 So the job is a **retrieval shape**, not a document dump. The interesting design question
 is what an agent gets handed: the whole corpus does not fit, and a skill that merely says
 "run `ask.py`" adds nothing a tool description could not.
 
+### The retrieval architecture, settled 2026-09-03 with measurements
+
+Three findings, and each closed a design option. **Do not re-derive these.**
+
+**1. Per-category files are already impossible, not a future risk.** Seven of the twelve
+`research/docs/*.md` pages exceed a 32K context window *today* at 456 records —
+`network.md` is 43.3k tokens. So records must be reachable individually. That also
+dissolves the "will a category need splitting in a few years" question: with per-record
+granularity a category is **metadata**, so splitting one is a field edit, never a
+migration.
+
+**2. No index can be preloaded.** A one-line-per-record index costs 10.2k tokens with just
+slug and title, 26.5k with a symptom snippet. Against a 32K budget the skill body must
+teach the *search*, never carry the data.
+
+**3. grep does not scale; ranking does. Ship the SQLite index.** Unranked matching over
+this corpus returns 22 hits for `bluetooth`, 32 for `nvidia`, 45 for `audio` and **94 for
+`boot`** — reading those is ~94k tokens, and at 10x growth it is hopeless. `ask.py`
+already solves this with **FTS5 + bm25 and tuned per-column weights**, returning ranked
+top-N regardless of corpus size. Every Python 3.11+ bundles FTS5 and Omarchy ships 3.14,
+so the dependency is free. `data/problems.db` is derived and gitignored; ship it prebuilt
+or build it on first use.
+
 ## What it has to beat, and how you will know
 
 There is a working measurement rig — do not write this skill blind.
 [../skillbench/](../skillbench/) grades whether a skill measurably improves a model, with
-**five control benches** of general Linux the skill says nothing about. The controls are
+**six control benches** of general Linux the skill says nothing about. The controls are
 the whole argument: a skill that merely makes answers longer lifts both, and that shows up.
+Score a paired run with `skillbench/tools/lift_test.py`, which reports the
+difference-in-differences and its p-value rather than two percentages to eyeball.
 
 The bar to clear is on the record. `omarchy/SKILL.md` — the upstream skill, byte-identical
 to what the lab benched — lifts Omarchy-specific tasks **+29.3 pt** while moving the
 general-Linux controls **−2.3 pt** ([research/bench/](../research/bench/)). A corpus-backed
 skill that cannot beat that is not worth shipping, and the bench will say so.
+
+**But that figure was measured on the CHAT lane, and a retrieval skill cannot run there
+at all** — no shell, no grep, no file reads. Resolve this before tuning anything. The
+shape that survives the contradiction is two jobs in one bundle:
+
+1. **A token-light core of load-bearing facts** — the Omarchy 3 → 4 tree split, Lua rather
+   than hyprlang, the ALPM guard. This works in the chat lane, is what the +29.3 pt figure
+   is comparable against, and is what the trap bench measures.
+2. **Retrieval for depth** — agentic only, where the 456 records live.
+
+Also worth knowing before you pick a target: on the agentic lane **only 4 of 14 local
+models can drive the loop at all** ([../skillbench/MODELS.md](../skillbench/MODELS.md)),
+and all four already score full marks on the easy benches. Difficulty is not the lever
+there — *wrongness* is, which is why `omarchy-agentic-stale-advice` exists.
 
 Add benches for it in `skillbench/benches/` (see the schema in
 [benches/CLAUDE.md](../skillbench/benches/CLAUDE.md)) **before** tuning the skill, not
