@@ -131,7 +131,33 @@ Room's own Dockerfile curled five woff2 files at build time with `|| true` on ea
 network blip produced a silently unstyled build. 22 KB in git removes that failure mode and
 every runtime third party at once.
 
-### 5. Scaling settled: per-record files, and FTS5 rather than grep
+### 5. Pre-flight for going public, and what the screenshots caught
+
+Rendering the site found three defects that reading the generator would not have:
+
+- **Record pages showed `1 RECORDS / 1 AUDITED`** in the masthead — the vitals were computed
+  from the single record being rendered instead of the corpus. Now corpus-wide.
+- **150 of 456 records carry no `title`**, so a third of pages had a raw slug as their `h1`.
+  `build_db.py` has the same fallback, so the site was *consistent* — this is a **corpus
+  content gap, not a site bug**. The slug is prettified for display only; filling those
+  titles in properly is a content task, now on the backlog.
+- **The phosphor trace read as a solid slab.** Audit coverage is 97-100%, so the area under
+  the line is nearly the whole box and `--signal-soft` (.14) filled it. Dropped to .06 so it
+  reads as a trace.
+
+Pre-flight for the public flip came back clean: **no keys or tokens in tracked files or in
+history** (the bench key was never added — it is ignored by a nested
+`skillbench/.gitignore`). Two things were fixed first:
+
+- **`/home/techluddite` was hardcoded** in both harvest workflow scripts. Unportable in a
+  public clone, and a silent failure — agents read the corpus off disk, so a wrong root
+  surfaces as a missing file *inside an agent*. Now required in `args`, failing loudly at
+  launch.
+- The **test-VM credentials in CLAUDE.md are published deliberately.** They guard NAT-only
+  VMs with loopback VNC and no real data, and the file says so. Anyone cloning this should
+  change them before giving those machines a routable address.
+
+### 6. Scaling settled: per-record files, and FTS5 rather than grep
 
 **Per-category storage is already broken, not a future risk.** Seven of the twelve category
 pages exceed the 32K context window *today* at 456 records — `network.md` is 43.3k tokens.
@@ -952,7 +978,17 @@ things to fold in:
 Also unmeasured: the skill halved the error rate (6/20 to 2/20) in run 25, which is a
 separate effect from the STATE lift and currently hides inside `success`.
 
-### 2. Finish auditing 28 records  — **DONE 2026-09-01**
+### 2. 150 records have no `title`
+
+Found while rendering the public site. `build_db.py` and `build_site.py` both fall back to
+the slug, so a third of the generated pages are headed `screenshare-black-screen-no-portal`
+rather than a sentence. The site prettifies the slug for display, which is presentation
+lipstick — the records genuinely lack the field.
+
+Cheap to fix and worth doing before the site is announced: a `title` is one line per record
+and the `symptom` already contains the material. Do it in the JSONL, rebuild both.
+
+### 3. Finish auditing 28 records  — **DONE 2026-09-01**
 
 All 28 audited: 12 `ok`, 15 `corrected`, 1 rejected and removed. No record carries
 `gapfill-unaudited` any more. See the 2026-09-01 session entry above.

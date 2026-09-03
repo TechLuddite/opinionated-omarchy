@@ -499,8 +499,16 @@ against primary sources during the research and repeatedly caught stale advice.
 ## Regenerating the corpus
 
 All three workflow scripts live in `research/tools/` and run via the `Workflow` tool
-pointed at their `scriptPath`. **They do different jobs and the difference is not obvious
-from the names:**
+pointed at their `scriptPath`. **Pass the corpus root in `args`** — the path used to be
+hardcoded to one developer's home directory, and a wrong root fails *inside an agent* as a
+missing file rather than at launch:
+
+```js
+Workflow({ scriptPath: "research/tools/audit-existing-workflow.js",
+           args: { root: "/abs/path/to/research" } })
+```
+
+**They do different jobs and the difference is not obvious from the names:**
 
 - `harvest-workflow.js` — full harvest from scratch: one harvester per category, each
   audited, plus a gap-fill pass. ~35 agents, expensive.

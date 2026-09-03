@@ -64,6 +64,21 @@ def read_records():
     return recs
 
 
+def heading(r):
+    """A readable heading for a record.
+
+    150 of 456 records carry no `title`. build_db.py falls back to the raw slug, which is
+    fine in a developer-facing markdown dump and looks like a database leak on a public
+    page. This prettifies the slug for DISPLAY only -- the corpus is untouched, and filling
+    those titles in properly is a content task on the backlog, not something to fake here.
+    """
+    t = (r.get("title") or "").strip()
+    if t:
+        return t
+    words = r["slug"].replace("-", " ").strip()
+    return words[:1].upper() + words[1:] if words else r["slug"]
+
+
 def md_lite(text):
     """Just enough markdown for the corpus's own conventions: fenced blocks and `code`.
 
@@ -162,7 +177,7 @@ def masthead(recs, depth=0, trace=None):
 </header>"""
 
 
-def record_page(r, cats):
+def record_page(r, cats, corpus):
     acc = ACCENT.get(r["category"], FALLBACK_ACCENT)
     cls, label, meaning = LED.get(r.get("audit_status"), LED["unaudited"])
     note = r.get("audit_note")
@@ -191,7 +206,7 @@ def record_page(r, cats):
     verify = (f'<section><h2>Verify</h2>{md_lite(r["verify"])}</section>'
               if r.get("verify") else "")
 
-    body = f"""{masthead([r], depth=1)}
+    body = f"""{masthead(corpus, depth=1)}
 <main class="board" style="--gaccent:{acc}">
   <nav class="crumb"><a href="../index.html">BOARD</a> / <span>{e(cats.get(r['category'], r['category']))}</span></nav>
   <article class="detail">
@@ -200,7 +215,7 @@ def record_page(r, cats):
       <span class="sev">{e(r.get('severity',''))}</span>
       <span class="sev">{e(r.get('frequency',''))}</span>
     </div>
-    <h1>{e(r.get('title') or r['slug'])}</h1>
+    <h1>{e(heading(r))}</h1>
     <div class="tags">{tags}</div>
     {prov}
     {danger}
@@ -212,7 +227,7 @@ def record_page(r, cats):
     <div class="slug">{e(r['slug'])}</div>
   </article>
 </main>"""
-    return page(r.get("title") or r["slug"], body, depth=1,
+    return page(heading(r), body, depth=1,
                 subtitle=(r.get("symptom") or "")[:150])
 
 
@@ -229,7 +244,7 @@ def index_page(recs, cats):
             cards.append(
                 f'<a class="card {cls}" href="records/{e(r["slug"])}.html">'
                 f'<div class="c-head"><span class="led"></span>'
-                f'<span class="c-name">{e(r.get("title") or r["slug"])}</span></div>'
+                f'<span class="c-name">{e(heading(r))}</span></div>'
                 f'<div class="c-meta"><span class="c-lab">{label}</span>'
                 f'<span class="c-sev">{e(r.get("severity",""))}</span></div></a>')
         n = len(by[cat])
@@ -279,7 +294,7 @@ def index_page(recs, cats):
 def search_index(recs):
     """Compact: what a symptom search needs and nothing else. Read by search.js in the
     browser; the AGENT-side path is FTS5 over problems.db, which ranks instead of filtering."""
-    return [{"s": r["slug"], "t": r.get("title") or r["slug"], "c": r["category"],
+    return [{"s": r["slug"], "t": heading(r), "c": r["category"],
              "a": r.get("audit_status"), "y": (r.get("symptom") or "")[:220],
              "g": " ".join(r.get("applies_to") or [])} for r in recs]
 
@@ -306,7 +321,7 @@ def main():
     for f in ("DepartureMono-Regular.woff2", "DepartureMono-LICENSE.txt"):
         shutil.copy2(src / f, fonts / f)
     for r in recs:
-        w(OUT / "records" / f"{r['slug']}.html", record_page(r, cats))
+        w(OUT / "records" / f"{r['slug']}.html", record_page(r, cats, recs))
 
     kb = sum(f.stat().st_size for f in OUT.rglob("*")) / 1024
     print(f"built {OUT.relative_to(REPO)}: {len(recs)} records, {kb:.0f} KB total")
@@ -369,7 +384,9 @@ a{color:inherit;text-decoration:none}
 /* Motif 3: phosphor traces. Stroked path, teal drop-shadow, soft fill beneath. */
 .wave-line{fill:none;stroke:var(--signal);stroke-width:1.4;
   filter:drop-shadow(0 0 4px rgba(70,224,192,.6))}
-.wave-fill{fill:var(--signal-soft);stroke:none}
+.wave-fill{fill:rgba(70,224,192,.06);stroke:none}   /* subtler than a card sparkline:
+   audit coverage sits at 97-100%, so the area under the line is nearly the whole box and
+   --signal-soft (.14) read as a solid slab rather than a trace */
 .wave-lab{font:8px var(--crt);letter-spacing:.18em;fill:var(--muted)}
 .meter{display:flex;height:3px;border-radius:2px;overflow:hidden;flex:0 0 84px;
   background:var(--line)}
