@@ -68,7 +68,7 @@ def main():
     payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     results = payload.get("results") or []
     if not results:
-        sys.exit("no results in payload — inspect the workflow journal before rerunning")
+        sys.exit("no results in payload; inspect the workflow journal before rerunning")
 
     existing = read_jsonl(JSONL)
     by_slug = {r["slug"]: r for r in existing}

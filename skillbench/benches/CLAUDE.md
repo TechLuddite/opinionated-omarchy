@@ -16,12 +16,12 @@ disposable machine. It is not a sandbox.
 
 Which one you want is not a style choice: **the chat lane can only ask whether a model
 *mentions* the right thing.** If the claim you want to test is that an agent *does* the
-right thing — edits the user tree, leaves the system tree alone — it has to be agentic.
+right thing (edits the user tree, leaves the system tree alone), it has to be agentic.
 
 Two rules the loader enforces, and both exist because of real bugs:
 
 - An agentic bench where no task has a `post:` block is **refused**. It would run an agent
-  for minutes and grade only its prose — a chat bench in a costume.
+  for minutes and grade only its prose: a chat bench in a costume.
 - `name:` must equal the filename stem, so a run can never be recorded under a name that
   does not resolve back to a file.
 
@@ -61,10 +61,10 @@ tasks:
       - { type: regex_required, pattern: '(?i)hyprctl' }
 ```
 
-## `post:` assertion types — what the agent DID
+## `post:` assertion types (what the agent DID)
 
 Evaluated over ssh after the agent stops; each yields one `grader='post'` row. A malformed
-assertion **fails** with the config error in its note — a typo must be visible in the UI,
+assertion **fails** with the config error in its note. A typo must be visible in the UI,
 never silently green.
 
 | type | fields | passes when |
@@ -81,8 +81,8 @@ never silently green.
 
 ### Two traps that already invalidated a paired run
 
-Both were caught by a control scoring **exactly 0.500 on every task in both variants** — a
-constant, not a measurement — and both are now regression-tested. They are the reason to
+Both were caught by a control scoring **exactly 0.500 on every task in both variants**, a
+constant rather than a measurement, and both are now regression-tested. They are the reason to
 distrust any assertion that looks green on first outing.
 
 - **Tilde paths.** `shlex.quote("~/x")` yields `'~/x'`, which the shell never expands, so
@@ -98,7 +98,7 @@ distrust any assertion that looks green on first outing.
 **Write every assertion so it fails before the fix and passes after, and check both on a
 VM by hand.** A control that passes trivially is not evidence of anything.
 
-## `checks:` types — what the model SAID
+## `checks:` types (what the model SAID)
 
 `json_valid`, `json_schema` (`schema`), `regex_required` / `regex_forbidden` (`pattern`,
 `case_sensitive?`), `contains` / `not_contains` (`value`, `case_sensitive?`),
@@ -110,7 +110,7 @@ JSON checks strip a ```` ```json ```` fence first unless `strict_json: true`.
 **Do not put `checks:` on an agentic bench.** The first agentic run taught this:
 `devstral-small-2` scored 3/3 on the monitor task while its entire transcript was *"Task
 completed."* Prose checks were scoring **verbosity** and marking the best-performing agent
-down for being terse — and forbidden-pattern checks are worse, because a silent agent
+down for being terse. Forbidden-pattern checks are worse, because a silent agent
 passes them all and reads as 100%. In this lane the machine is the measurement.
 
 ## Isolation, and its honest limit
@@ -127,7 +127,7 @@ between runs is an operator action (`tools/golden-test-vm.sh`).
 - `./tests/run.sh`. Three tests cover every shipped bench, so a broken spec is caught
   here rather than in a run: `test_every_shipped_bench_loads_and_its_checks_compile`,
   `test_no_shipped_post_assertion_can_pass_trivially` (every `post:` path must be
-  absolute or `~/`-rooted — a path that cannot resolve makes `file_absent` green no
+  absolute or `~/`-rooted; a path that cannot resolve makes `file_absent` green no
   matter what the agent did), and `test_control_benches_are_flagged`.
 - **A bench edit needs no rebuild; an app edit does.** `compose.yaml` mounts `./benches`
   and `./data` but not `./app`, so a new or edited YAML is picked up on the next run while a
@@ -143,19 +143,19 @@ between runs is an operator action (`tools/golden-test-vm.sh`).
 `omarchy-agentic-root-config` are **saturated**, and the 2026-09-02 model scan explains why
 in a way that changes what you should write: only **4 of 14** local models can drive the
 agent loop at all, and all four already score full marks. The other ten score the untouched
-floor for reasons no skill addresses — tool calls emitted as prose, empty transcripts, VRAM
+floor for reasons no skill addresses: tool calls emitted as prose, empty transcripts, VRAM
 spill. **Making a task harder does not create headroom**; it lowers the four capable models
 while the other ten stay at the floor.
 
 The one seam left is **not difficulty but wrongness**: a task where the widely-published
 answer is confidently wrong on Omarchy 4. `omarchy-agentic-stale-advice` is the first of
-these — Omarchy 3's `~/.local/share/omarchy` git checkout, and hyprlang config that
+these, built on Omarchy 3's `~/.local/share/omarchy` git checkout and hyprlang config that
 Hyprland 0.55 deprecated for Lua. Both prompts say the change "must survive an
 `omarchy update`", which is satisfiable only from the user tree and never names the answer.
 
 If you write another, copy that shape: **make the wrong answer score BELOW doing nothing.**
 In `omarchy-agentic-stale-advice` the floor is 4/6, a hyprlang answer is 3/6 and a correct
-one is 6/6, so the grader separates "did nothing" from "did the wrong thing" — which a
+one is 6/6, so the grader separates "did nothing" from "did the wrong thing", which a
 pass/fail assertion cannot.
 
 **And hand-verify against the SHIPPED config templates, not an empty file.** Both of that

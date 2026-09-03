@@ -2060,7 +2060,7 @@ vmshare  /mnt/vmshare  9p  trans=virtio,version=9p2000.L  0 0
 
 **Verify.** The VM starts without the shared-memory error, and in the guest `mount | grep virtiofs` shows the share and files created on either side appear on the other.
 
-> *Not independently audited — verify before running.*
+> *Not independently audited: verify before running.*
 
 Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/QEMU>
 

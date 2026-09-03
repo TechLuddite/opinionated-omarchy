@@ -1,4 +1,4 @@
-# Skill-efficacy baseline — nexus1 Skill Bench, 2026-08-25 → 08-27
+# Skill-efficacy baseline: nexus1 Skill Bench, 2026-08-25 → 08-27
 
 What the Omarchy skill is worth, measured. 911 graded cases, ten local models, twelve
 runs, zero errors. Every number here was computed from [`raw/nexus1-cases.json`](raw/nexus1-cases.json).
@@ -6,7 +6,7 @@ runs, zero errors. Every number here was computed from [`raw/nexus1-cases.json`]
 ## Provenance and trust
 
 Measured on the lab host `nexus1` by its Skill Bench (FR-011), which prompts a model
-through LiteLLM and grades the reply with deterministic checks — regexes, required and
+through LiteLLM and grades the reply with deterministic checks: regexes, required and
 forbidden strings, length caps. Runs 31–43, 2026-08-25 to 08-27, all local models, no
 paid spend.
 
@@ -21,8 +21,8 @@ Three things to hold onto before using any of it:
    guides were not in the prompt. Any instruction that lives only in a topic guide could
    not possibly lift a score, so **every lift below is a floor**, not the real-harness
    number. A keybinding bench was abandoned mid-design over precisely this.
-3. **Nobody hand-checked the model outputs.** The checks were verified sound — a regrade
-   reported zero bad check configs across 133 patterns — but "the check passed" is not
+3. **Nobody hand-checked the model outputs.** The checks were verified sound (a regrade
+   reported zero bad check configs across 133 patterns), but "the check passed" is not
    "the answer was good".
 
 ## Headline
@@ -37,7 +37,7 @@ The skill helps, and it helps *specifically*.
 | `linux-desktop-gauntlet` | 34 | 10 models | 0.574 | **0.732** | +15.8 pt |
 | `linux-desktop-gauntlet` | 43 | 10 models | 0.579 | **0.718** | +13.9 pt |
 
-## The discrimination result — the one that matters
+## The discrimination result, the one that matters
 
 `linux-desktop-gauntlet` carries one task from each of ten single-problem benches: six
 Omarchy-specific, four general Linux. The general four are a **control**: the skill says
@@ -61,7 +61,7 @@ three gauntlet runs (34, 41, 43):
 
 That gap is the evidence the lift is real. A skill that merely made answers longer, or
 that made the model more agreeable to regex matching in general, would lift the controls
-too. It does the opposite — it drifts them slightly negative, which is what you would
+too. It does the opposite; it drifts them slightly negative, which is what you would
 expect from spending context on something irrelevant to the question.
 
 ## Per-model lift (gauntlet, runs 34/41/43)
@@ -80,7 +80,7 @@ expect from spending context on something irrelevant to the question.
 | muse-glimmer | 0.421 | 0.430 | +0.9 |
 
 Every model improves; none is harmed. The strongest bare models gain least
-(`qwen3-coder` 0.816 → 0.904) and `muse-glimmer` barely moves at all — a skill cannot
+(`qwen3-coder` 0.816 → 0.904) and `muse-glimmer` barely moves at all. A skill cannot
 help a model that will not follow instructions in the first place.
 
 ## What the bare models actually get wrong
@@ -101,7 +101,7 @@ useful part: it is a list of the specific facts the skill supplies.
 | 24/30 | `command-discovery` | `omarchy commands` |
 | 24/30 | `monitor-config` | `hyprctl` |
 
-Four of these fail **30 out of 30** — every model, every time. Omarchy 4 replaced waybar
+Four of these fail **30 out of 30**, every model, every time. Omarchy 4 replaced waybar
 with its own Quickshell bar (`~/.config/omarchy/shell.json`, `omarchy refresh shell`),
 and no bare model knows it; they answer "waybar" from memory. That single fact is most
 of the `shell-bar` +49.3.
@@ -134,7 +134,7 @@ skill is not buying the score with verbosity.
 
 ## Reading these numbers against the lab's own write-ups
 
-The nexus1 handoffs quote slightly different figures for the same runs — e.g. run 31 as
+The nexus1 handoffs quote slightly different figures for the same runs, e.g. run 31 as
 `0.521 → 0.792` with `334 → 13066` prompt tokens, where this document says
 `0.500 → 0.786` and `84 → 3266`. **Both are correct; the conventions differ**, and it is
 worth knowing which before anyone "fixes" one to match the other:
@@ -144,7 +144,7 @@ worth knowing which before anyone "fixes" one to match the other:
 - This document **micro-averages** (pooled checks: total passed ÷ total checks) and
   quotes **mean** prompt tokens per case.
 
-Verified: run 31 micro 0.500 / macro 0.521, tokens mean 84 / total 334 — both reproduce
+Verified: run 31 micro 0.500 / macro 0.521, tokens mean 84 / total 334. Both reproduce
 exactly from `raw/nexus1-cases.json`.
 
 ## Replication on this workstation, 2026-08-29

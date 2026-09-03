@@ -1,7 +1,7 @@
 # Two silent defects in `merge_gapfill.py`
 
 **Date:** 2026-09-01
-**Found while:** closing JOURNAL.md "What's left" item 2 — auditing the last 28
+**Found while:** closing JOURNAL.md "What's left" item 2, auditing the last 28
 `gapfill-unaudited` records.
 **Status:** both fixed and verified. Nothing was lost, because neither ever ran.
 
@@ -16,7 +16,7 @@ record survived" has a specific class of bug it cannot afford, and this is that 
 
 **There were none.** That is the point, and the reason this is worth keeping.
 
-`merge_gapfill.py` had been run successfully before — the 2026-08-29 gap-fill pass used it
+`merge_gapfill.py` had been run successfully before: the 2026-08-29 gap-fill pass used it
 to merge 143 records. It exits 0, prints a plausible summary, and produces a corpus that
 loads, builds, searches and renders correctly. Nothing in `build_db.py`, `ask.py`, the
 schema, or the 43-test suite would have flagged either defect.
@@ -27,7 +27,7 @@ corpus before being pointed at the real one**, specifically to check what it did
 
 ## Root cause
 
-### Defect 1 — the writer silently dropped `cause_reconciled`
+### Defect 1: the writer silently dropped `cause_reconciled`
 
 `merge_gapfill.py` does not write records back as it read them. It projects each one onto
 an explicit allowlist:
@@ -47,17 +47,17 @@ record's cause was never revisited". 22 records were stamped with it.
 `schema.sql`, `build_db.py` and `ask.py` were all updated. **`merge_gapfill.py` was not**,
 because it is not part of the build path and nothing exercised it that day.
 
-`{k: r.get(k) for k in FIELDS}` does not fail on an unknown field — it just doesn't copy
+`{k: r.get(k) for k in FIELDS}` does not fail on an unknown field; it just doesn't copy
 it. So the next merge would have written all 456 records back **without the field**, and
 `r.get(k)` would have supplied `None` for anything else missing. All 22 stamps gone, with
 a summary line reporting success.
 
-**Why an allowlist and not `dict(r)`:** the projection is deliberate and worth keeping —
-it guarantees field order and stops a harvester's stray keys entering the corpus. The bug
+**Why an allowlist and not `dict(r)`:** the projection is deliberate and worth keeping.
+It guarantees field order and stops a harvester's stray keys entering the corpus. The bug
 is not the allowlist; it is that adding a schema field had no single place that forced
 every consumer to be updated.
 
-### Defect 2 — it rewrote causes without stamping them
+### Defect 2: it rewrote causes without stamping them
 
 `apply_verdict()` honours an auditor's `corrected_cause`:
 
@@ -68,8 +68,8 @@ if v.get("corrected_cause"):
 ```
 
 It replaces the cause and never sets `cause_reconciled`. That matters because the
-disclaimer printed under an audit note is **conditional on that field** in both renderers
-— `build_db.py:221-231` and `ask.py:97-105`:
+disclaimer printed under an audit note is **conditional on that field** in both renderers,
+`build_db.py:221-231` and `ask.py:97-105`:
 
 ```python
 if r["cause_reconciled"]:
@@ -93,7 +93,7 @@ it would have been reintroduced by the tooling rather than by a human.
 
 Together they are worse than separately. Defect 2 creates records needing the stamp;
 defect 1 guarantees the stamp cannot persist. A reader would have seen a corpus asserting
-that **no** cause had ever been reconciled — quietly erasing the distinction the field was
+that **no** cause had ever been reconciled, quietly erasing the distinction the field was
 added to protect, while looking completely healthy.
 
 ## What was changed
@@ -111,12 +111,12 @@ One unrelated fix in the same path,
 still pointed at `c:/Projects/Personal/skills/omarchy/research`, left over from before the
 repo was converted off Windows. Agents read the corpus off disk by absolute path, so every
 gap-fill and audit agent would have failed on the read. This one *would* have failed
-loudly — it is listed here only because it sat in the same five lines of the same task.
+loudly. It is listed here only because it sat in the same five lines of the same task.
 
 ## How it was verified
 
 Before the real merge, against a `tempfile` copy of `data/problems.jsonl`, with
-`merge_gapfill.JSONL` monkeypatched at the module global — the real corpus was never
+`merge_gapfill.JSONL` monkeypatched at the module global, so the real corpus was never
 touched. Synthetic verdicts covered one of each verdict shape: `ok`, `corrected` with
 `corrected_fix` only, `corrected` with `corrected_cause`, and `reject`.
 
@@ -132,7 +132,7 @@ touched. Synthetic verdicts covered one of each verdict shape: `ok`, `corrected`
 
 Then confirmed on the real run: 29 stamps across two dates (`2026-08-30`: 22,
 `2026-09-01`: 7), and the conditional disclaimer rendering the *rewritten* branch exactly
-7 times in the generated docs — 4 in `network.md`, 3 in `wayland-compat.md` — matching
+7 times in the generated docs (4 in `network.md`, 3 in `wayland-compat.md`), matching
 `cause-corrected=7`.
 
 ### The property that dry run also exposed
@@ -151,7 +151,7 @@ for rec in existing:
 ```
 
 Records with no verdict fall into the `v is None` branch and keep their existing status, so
-this is safe — *provided the verdict set is scoped*. A stray or hallucinated slug from an
+this is safe, *provided the verdict set is scoped*. A stray or hallucinated slug from an
 auditor would silently overwrite an already-audited record's `audit_status`. In this run,
 34 already-audited `network` and `wayland-compat` records sat in that blast radius.
 
@@ -162,7 +162,7 @@ byte-identical afterwards rather than merely present.
 ## Outstanding / worth knowing next time
 
 - **`merge_gapfill.py` is not covered by any test.** `skillbench/tests/` covers the bench;
-  nothing covers the corpus tooling. The dry-run script used here was thrown away — a
+  nothing covers the corpus tooling. The dry-run script used here was thrown away. A
   cheap first test would be to keep it, as a fixture-based round-trip asserting that every
   schema field survives a merge.
 - **Adding a schema field still has no checklist.** The four consumers are `schema.sql`,

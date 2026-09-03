@@ -2326,7 +2326,7 @@ sudo mkinitcpio -P         # plain Arch
 
 **Verify.** `lsinitcpio /boot/initramfs-linux.img | grep -n resume` (or inspect the UKI) shows the resume hook, and `sudo systemctl hibernate` followed by power-on returns you to your open windows. `journalctl -b | grep -i 'resume'` shows the resume device being used.
 
-> *Not independently audited — verify before running.*
+> *Not independently audited: verify before running.*
 
 Sources: <https://github.com/basecamp/omarchy/issues/8471> · <https://github.com/basecamp/omarchy/issues/8352> · <https://man.archlinux.org/man/mkinitcpio.conf.5>
 

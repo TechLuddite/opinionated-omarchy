@@ -1,4 +1,4 @@
-# Corpus validation — exercising records against a real Omarchy install
+# Corpus validation: exercising records against a real Omarchy install
 
 Induce a problem on a throwaway VM, apply a fix, assert on the machine. One record,
 one scenario, one appended line in [runs.jsonl](runs.jsonl).
@@ -9,7 +9,7 @@ one scenario, one appended line in [runs.jsonl](runs.jsonl).
 ```
 
 **Run this only against a disposable test VM.** Scenarios edit `/etc` and rebuild the
-initramfs as root. Reset with `../../tools/golden-test-vm.sh reset 1` — measured at
+initramfs as root. Reset with `../../tools/golden-test-vm.sh reset 1`, measured at
 **0.76 s to reset and ~7 s more to ssh**, so a clean machine per run is essentially free.
 
 ## What a green run means, and what it does not
@@ -24,7 +24,7 @@ this hardware, or pass while its stated *cause* is wrong. So:
 
 - **Validation never touches `audit_status`.** That field means "checked against its
   sources", and one VM agreeing is not a source confirming. Widening it to "…and it
-  worked once in a VM" would destroy the distinction the corpus is built on — the same
+  worked once in a VM" would destroy the distinction the corpus is built on. That is the same
   laundering that made a blanket disclaimer stop carrying information in the 2026-08-30
   session.
 - **Results live here, not in `problems.jsonl`.** A record has one audit but many runs,
@@ -32,7 +32,7 @@ this hardware, or pass while its stated *cause* is wrong. So:
   not fit a record field. `build_db.py` also deletes and regenerates its outputs, so an
   append-only log has to live outside it.
 - **`repair:` is an operator's reading, not the record.** Record fixes are prose with
-  branches — triage, a primary path, a conditional fallback, an Omarchy-specific
+  branches: triage, a primary path, a conditional fallback, an Omarchy-specific
   variant. Only 6 of 456 records have a fenced `verify` block; the rest describe
   verification in sentences. Nothing here executes "the fix"; it executes one
   interpretation of it, and the scenario says so at the top.
@@ -41,7 +41,7 @@ this hardware, or pass while its stated *cause* is wrong. So:
 
 Not 456. Every scenario needs a hand-written seed and hand-written assertions, and the
 expensive part is neither: it is establishing ground truth on a live machine first.
-Roughly a third of the corpus is also structurally out of reach of these VMs — 67
+Roughly a third of the corpus is also structurally out of reach of these VMs. That is 67
 `nvidia` / 49 `intel` / 47 `amd` records against a virtio GPU, 297 `laptop` and most of
 `power-suspend` with no lid and no battery, and much of `network` on a NAT-only bridge.
 
@@ -65,10 +65,10 @@ Four traps, all of which bit during the first spike:
   `limine-mkinitcpio` to read its log rebuilds the boot image just to grade it. Use
   `repair_output_*` against the captured output instead.
 - **Assert the artifact this system actually boots.** There is no `/boot/vmlinuz-linux`
-  on Omarchy 4 — it boots a UKI at `/boot/EFI/Linux/omarchy_linux.efi`.
+  on Omarchy 4; it boots a UKI at `/boot/EFI/Linux/omarchy_linux.efi`.
 - **Use a login shell.** `run.py` wraps everything in `bash -lc` because `OMARCHY_PATH`
   comes from `~/.bashrc`, and sudo authenticates via `SUDO_ASKPASS` rather than
-  `sudo -S` — `-S` consumes stdin, so a `printf ... | sudo tee file` in a seed writes
+  `sudo -S`, which consumes stdin: a `printf ... | sudo tee file` in a seed writes
   the *password* into the file and still exits 0.
 
 Prove an assertion can fail before trusting it. The `mkinitcpio-pacnew` scenario's two
@@ -82,7 +82,7 @@ kernel `7.1.9-arch1-2`. **6/6 assertions pass.** The record's remediation advice
 sound and its Omarchy-vs-plain-Arch branch is confirmed by the system itself:
 `/usr/local/bin/mkinitcpio` is a wrapper shipped by `limine-mkinitcpio-hook` that warns
 `This does not update Limine boot entries` and offers to run `limine-mkinitcpio`
-instead — exactly what the record tells you to do.
+instead, exactly what the record tells you to do.
 
 **Three claims in the same record are wrong for Omarchy 4, and none was caught by the
 source audit.** They are recorded here rather than edited into the corpus, because a
@@ -99,14 +99,14 @@ correction needs an `audit_note` and a `cause_reconciled` stamp through
 2. **`/etc/mkinitcpio.conf` is `[unmodified]` on a stock install**, so it too generates
    no `.pacnew`. Of 30 locally-modified backup files on a fresh VM, it is not one.
 3. **The danger claim overstates for Omarchy 4.** "Overwriting `/etc/mkinitcpio.conf`
-   with the `.pacnew` removes your encryption, plymouth and btrfs hooks" — it does not.
+   with the `.pacnew` removes your encryption, plymouth and btrfs hooks". It does not.
    Those hooks are set by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` (owned by
    `omarchy-settings`), which is sourced *after* the main file and assigns `HOOKS=`
    wholesale. Measured effective hooks are unchanged by anything done to
    `mkinitcpio.conf`.
 
 This is the "generic Arch advice, mis-specialised to Omarchy" pattern the project keeps
-finding — the same family as the Omarchy 3 → 4 tree split.
+finding, the same family as the Omarchy 3 → 4 tree split.
 
 **One thing deliberately not called a defect.** `limine-mkinitcpio` reports
 `Unified kernel image generation successful` while leaving the ESP's UKI untouched. That
@@ -118,7 +118,7 @@ asserted from the first observation.
 
 **A lead, not a finding.** `/etc/mkinitcpio.conf.d/omarchy_resume.conf` is
 `HOOKS+=(resume)`, which appends `resume` *after* `filesystems`, `fsck` and
-`btrfs-overlayfs` — the exact ordering that corpus record
+`btrfs-overlayfs`. That is the exact ordering corpus record
 `resume-hook-after-filesystems-hibernation` (one of the 4 remaining `unaudited` records)
 describes as a problem. Either the record is wrong or Omarchy ships the broken ordering
 by default. **This needs a source check before anyone claims either**; observing the

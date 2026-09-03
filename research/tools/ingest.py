@@ -40,7 +40,7 @@ def main():
 
     problems = payload.get("problems") or []
     if not problems:
-        sys.exit("no problems in payload — check the workflow journal before rerunning")
+        sys.exit("no problems in payload; check the workflow journal before rerunning")
 
     data = ROOT / "data"
     raw = ROOT / "raw"

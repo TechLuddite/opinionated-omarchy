@@ -105,7 +105,7 @@ def show(conn, row, verbose):
     if row["danger"]:
         print(f"  {YELLOW}!! RISK  {row['danger']}{RESET}")
     if row["audit_status"] in ("unaudited", "gapfill-unaudited"):
-        print(f"  {YELLOW}!! NOT INDEPENDENTLY AUDITED — verify before running{RESET}")
+        print(f"  {YELLOW}!! NOT INDEPENDENTLY AUDITED: verify before running{RESET}")
     print("\n  FIX")
     for line in (row["fix"] or "").splitlines():
         print(f"    {line}")

@@ -25,11 +25,11 @@ This was built in three passes. The first harvested 314 records but hit the acco
 limit, which killed the gap-fill stage and left `apps-services` unaudited. The second
 pass closed both: it audited those 26 records and filled 143 new records against the 117
 gaps the first pass's auditors had named. Only two of the second pass's audits failed
-(`wayland-compat`, `network` — API errors, not budget), leaving 28 records harvested but
-never reviewed.
+(`wayland-compat`, `network`: API errors rather than budget), leaving 28 records harvested
+but never reviewed.
 
 The third pass, on 2026-09-01, audited exactly those 28: **12 `ok`, 15 `corrected`, and 1
-rejected and removed** — which is why the corpus is 456 records rather than 457. Since
+rejected and removed**, which is why the corpus is 456 records rather than 457. Since
 then no record carries `gapfill-unaudited`.
 
 The second pass also fixed a flaw in the first: its auditors could return a
@@ -41,8 +41,7 @@ records across two dates. See the trust model below.
 
 ## Datastore design
 
-You asked whether SQLite fits. It does, but only for one job — so it isn't the source
-of truth:
+SQLite fits, but only for one job, so it isn't the source of truth:
 
 - **`data/problems.jsonl` is authoritative.** One JSON object per line. It diffs
   cleanly in git, appends without rewriting, and stays readable when the tooling
@@ -124,7 +123,7 @@ colour alone.
 }
 ```
 
-## Trust model — read this before running anything
+## Trust model: read this before running anything
 
 These fixes were gathered by agents from wikis, issue trackers, and forums, then put
 through a second adversarial audit pass against the Arch and Hyprland wikis. The audit
@@ -134,26 +133,26 @@ up, and corrects ones that are salvageable. Every record carries what it survive
 | `audit_status` | meaning |
 | --- | --- |
 | `ok` | audited and confirmed accurate |
-| `corrected` | problem was real, fix was wrong — the audited version is stored |
+| `corrected` | problem was real, fix was wrong; the audited version is stored |
 | `unaudited` | the auditor never returned a verdict for it |
-| `gapfill-unaudited` | added in a later gap-fill pass, never audited — none remain, but `merge_gapfill.py` still assigns it when an audit agent dies |
+| `gapfill-unaudited` | added in a later gap-fill pass, never audited; none remain, but `merge_gapfill.py` still assigns it when an audit agent dies |
 
 `unaudited` and `gapfill-unaudited` records are flagged in both `ask.py` output and the
 generated markdown. Treat them as leads, not instructions.
 
 **One limitation of `corrected` records from the first pass.** Those audits rewrote only
-the `fix` field. Where the auditor's objection was really about the `cause` — a wrong
-mechanism, an outdated architecture claim — that stale text was left sitting in `cause`.
+the `fix` field. Where the auditor's objection was really about the `cause` (a wrong
+mechanism, an outdated architecture claim), that stale text was left sitting in `cause`.
 The second pass fixed this going forward: its auditors supply `corrected_cause`, and 20
 causes were replaced. The first pass's 130 corrected records were not covered by that.
 
 **All 130 were reviewed on 2026-08-30, and 22 were found to have a cause its own audit
-note contradicts.** Those 22 have been rewritten from the note — the auditor had already
-done the source work; the first pass simply had nowhere to put the result — and each is
+note contradicts.** Those 22 have been rewritten from the note (the auditor had already
+done the source work; the first pass simply had nowhere to put the result) and each is
 stamped `cause_reconciled`. The other 108 were left alone: their notes affirm the cause
 ("the diagnosis is right", "cause verified exactly") and object only to the fix. The
 worst offenders were the Omarchy 3 → 4 tree split (`~/.local/share/omarchy` git checkout
-vs the pacman-owned `/usr/share/omarchy`) and fabricated precision — a version boundary
+vs the pacman-owned `/usr/share/omarchy`) and fabricated precision: a version boundary
 or a config filename asserted with more confidence than the source supports.
 
 So the "~130 possibly-stale causes" figure that appeared in earlier notes was a
@@ -162,19 +161,19 @@ is 22.
 
 The 2026-09-01 audit stamped a further **7**, so 29 records carry `cause_reconciled`
 across two dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
-whenever an auditor supplies a `corrected_cause` — it previously rewrote the cause and
+whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See
 [../writeups/2026-09-01-merge-gapfill-silent-defects.md](../writeups/2026-09-01-merge-gapfill-silent-defects.md).
 
 Both `ask.py` and the generated markdown still print the full audit note directly
-beneath the cause. The line that follows it now says which case you are in — cause
+beneath the cause. The line that follows it now says which case you are in: cause
 rewritten to match the note, or cause not rewritten and possibly still wrong. Read the
 note before trusting the cause on any corrected record; the fix itself is always the
 audited version.
 
 This is a research corpus, not a warranty. It is worth reading `danger` and confirming
-against the cited source before running anything as root — particularly for anything
+against the cited source before running anything as root, particularly for anything
 touching pacman, the bootloader, initramfs, or partitions.
 
 ### Exercising a record on a real machine is a different signal
@@ -184,19 +183,19 @@ fix, and asserts on the machine. It answers a question the audit cannot: **does 
 on Omarchy 4?**
 
 **It never touches `audit_status`, and the two must not be conflated.** `audit_status`
-means "checked against its sources". One VM agreeing is not a source confirming — a fix
+means "checked against its sources". One VM agreeing is not a source confirming. A fix
 can pass by accident, pass only on that hardware, or pass while its stated `cause` is
 wrong. Results live in `validation/runs.jsonl`, an append-only log, because a record has
 one audit but many runs, each with its own date and Omarchy version.
 
 **Being source-audited does not mean being right about the machine, and the first run
 proved it.** `mkinitcpio-pacnew-unhandled-breaks-next-boot` is `audit_status: ok` and its
-remediation advice checks out — but three of its specifics are false on Omarchy 4:
+remediation advice checks out, but three of its specifics are false on Omarchy 4:
 `/etc/default/limine` is owned by no package and so can never produce the `.pacnew` its
 symptom block quotes, `/etc/mkinitcpio.conf` is `[unmodified]` on a stock install and so
 cannot either, and overwriting that file does not remove the encryption/plymouth/btrfs
 hooks, because those are set by a package-owned drop-in sourced afterwards that assigns
-`HOOKS=` wholesale. Generic Arch advice mis-specialised to Omarchy — the same family as
+`HOOKS=` wholesale. Generic Arch advice mis-specialised to Omarchy, the same family as
 the Omarchy 3 → 4 tree split, and invisible to an auditor reading sources.
 
 Scale expectations accordingly: every scenario needs a hand-written seed and assertions,
@@ -207,13 +206,13 @@ most network records). This is **spot-check and bench-source**, not corpus valid
 
 `tools/corpus.py` owns `FIELDS` and the only `read_jsonl` / `write_jsonl`. Both writers
 import it. Before 2026-09-01 each kept a private copy, and `ingest.py`'s was missing
-`cause_reconciled` — the replace path would have dropped that provenance silently.
+`cause_reconciled`; the replace path would have dropped that provenance silently.
 
 `FIELDS` order is load-bearing: it is the key order of every line in `problems.jsonl`.
 Append, never reorder. An unrecognised key raises rather than being dropped; harvest
 working notes the corpus deliberately discards (`cause_note`, `cause_extra`,
 `verify_note`) are enumerated in `WORKFLOW_ONLY`. Adding a schema field still means
-editing four things by hand — `schema.sql`, `build_db.py`, `ask.py`, `corpus.py` — but
+editing four things by hand (`schema.sql`, `build_db.py`, `ask.py`, `corpus.py`), but
 `tests/` now asserts `FIELDS` against both `schema.sql` and the live corpus, so the
 2026-08-30 mistake fails the suite instead of destroying data.
 
@@ -243,13 +242,13 @@ git diff --exit-code docs/
 
 ### Nothing hand-written may live in `docs/`
 
-`write_docs()` begins with `for old in DOCS.glob("*.md"): old.unlink()` — it deletes
+`write_docs()` begins with `for old in DOCS.glob("*.md"): old.unlink()`. That deletes
 **every** markdown file in `docs/`, including `docs/README.md`, before regenerating from
 the JSONL. Anything hand-written there survives exactly until the next build, silently.
 
 That is why [`bench/`](bench/) is a sibling of `docs/` rather than a page inside it. It
-holds skill-efficacy measurements — whether giving a model the Omarchy skill measurably
-improves its answers — which is research, but **not corpus**: no `audit_status`, no slug,
+holds skill-efficacy measurements (whether giving a model the Omarchy skill measurably
+improves its answers), which is research but **not corpus**: no `audit_status`, no slug,
 no source list, and no tooling reads it. It is hand-written and stays that way.
 
 ## Refreshing the corpus
@@ -268,14 +267,20 @@ python3 tools/build_db.py
 ```
 
 `ingest.py` replaces the corpus; `merge_gapfill.py` extends it in place and is the one to
-use for incremental work. To close the remaining 28 unaudited records, run
-`gapfill-workflow.js` with `GAP_CATEGORIES` cut down to `wayland-compat` and `network`.
+use for incremental work.
+
+Pick the workflow by what the records need, not by category. `gapfill-workflow.js`
+**harvests new records** against named gaps; it audits nothing that already exists.
+To audit records already in the corpus, use `tools/audit-existing-workflow.js` and edit
+its `BATCHES`. Pointing `GAP_CATEGORIES` at an unaudited category instead re-harvests the
+same topics as `-2` suffixed duplicates and audits none of the originals. The 28
+`gapfill-unaudited` records that used to be outstanding here were closed on 2026-09-01.
 
 A note on resuming: `resumeFromRunId` did **not** cleanly replay only the failed agents
-here — stalled-agent retries caused it to re-run work and burn budget, and it had to be
+here: stalled-agent retries caused it to re-run work and burn budget, and it had to be
 stopped. Prefer editing the script to target just the failing categories over resuming.
 
 `raw/deep-research-report.json` is a separate, more heavily verified pass over the same
 territory: 13 findings that each survived 3-vote adversarial verification, plus 12
-refuted claims. The refuted list is worth reading on its own — it is mostly widely
+refuted claims. The refuted list is worth reading on its own; it is mostly widely
 repeated folk fixes that primary sources actually contradict.

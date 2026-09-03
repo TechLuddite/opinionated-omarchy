@@ -243,12 +243,12 @@ def index_page(recs, cats):
 <main class="board">
   <section class="intro">
     <p class="lede">Real Omarchy and Arch desktop problems with verified, copy-pasteable
-    fixes &mdash; and, for every one of them, a record of how much scrutiny it survived.</p>
+    fixes. Every one of them carries a record of how much scrutiny it survived.</p>
 
     <p class="body">Omarchy is DHH's opinionated Arch + Hyprland distribution. It moves
     fast, and most of the advice you will find for it was written for Omarchy&nbsp;3 or for
-    Hyprland before 0.55 &mdash; so it sends you to a git checkout that no longer exists, or
-    to config syntax that was deprecated. Every record here was researched against primary
+    Hyprland before 0.55. That advice sends you to a git checkout that no longer exists,
+    or to config syntax that was deprecated. Every record here was researched against primary
     sources, then <b>audited adversarially by a second pass</b> whose job was to find the
     command that does not exist, the path that moved, and the confident specific the source
     never supported. {corrected_n} of them failed that audit and were rewritten. The
@@ -263,8 +263,8 @@ def index_page(recs, cats):
     wrong or incomplete and rewrote it, and the objection is published with the record. An
     <b>unchecked</b> record was never reviewed by anyone and says so. <b>And
     <i>audited</i> means checked against its sources, not guaranteed true on your
-    machine</b> &mdash; one clean record, exercised on a real VM, turned out to name two
-    files that cannot occur on Omarchy&nbsp;4 at all. Nothing here is a warranty. Anything
+    machine</b>: one clean record, exercised on a real VM, turned out to quote two
+    .pacnew files that cannot occur on Omarchy&nbsp;4 at all. Nothing here is a warranty. Anything
     touching pacman, the bootloader, initramfs or partitions deserves a look at the cited
     source before it runs as root.</p>
 
@@ -284,7 +284,7 @@ def index_page(recs, cats):
         <div class="c-head"><span class="c-name">Post-mortems: defects found, and how they were caught</span></div>
         <div class="c-meta"><span class="c-lab">WRITEUPS</span></div></a>
       <a class="card" href="{gh}/blob/HEAD/JOURNAL.md">
-        <div class="c-head"><span class="c-name">The working record &mdash; every session, including the dead ends</span></div>
+        <div class="c-head"><span class="c-name">Every session so far, including the dead ends</span></div>
         <div class="c-meta"><span class="c-lab">JOURNAL</span></div></a>
       <a class="card" href="{gh}">
         <div class="c-head"><span class="c-name">Source, licence and how to rebuild all of this</span></div>
@@ -292,7 +292,7 @@ def index_page(recs, cats):
     </div>
   </section>
   <div class="searchbar">
-    <input id="q" type="search" placeholder="SEARCH BY SYMPTOM &mdash; e.g. screen share is a black rectangle"
+    <input id="q" type="search" placeholder="SEARCH BY SYMPTOM, e.g. screen share is a black rectangle"
            autocomplete="off" spellcheck="false">
     <div id="qcount" class="qcount"></div>
   </div>
@@ -300,8 +300,9 @@ def index_page(recs, cats):
   <div id="groups">{''.join(groups)}</div>
 </main>
 <script src="search.js"></script>"""
-    return page("Opinionated Omarchy — troubleshooting corpus", body,
-                subtitle="456 verified Omarchy/Arch fixes, each labelled with how much scrutiny it survived.")
+    return page("Opinionated Omarchy troubleshooting corpus", body,
+                subtitle=f"{len(recs)} verified Omarchy/Arch fixes, each labelled with "
+                         "how much scrutiny it survived.")
 
 
 def search_index(recs):

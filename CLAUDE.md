@@ -8,19 +8,19 @@ outstanding, read [JOURNAL.md](JOURNAL.md).
 A working directory for **Omarchy Linux** agent skills and supporting research. Omarchy
 is DHH's opinionated Arch + Hyprland distro. Two things live here:
 
-1. **Upstream skills**, downloaded from `basecamp/omarchy` — [omarchy/](omarchy/) (system
+1. **Upstream skills**, downloaded from `basecamp/omarchy`: [omarchy/](omarchy/) (system
    customization: Hyprland, theming, keybindings) and [diagnose-crash/](diagnose-crash/)
    (crash diagnosis from systemd-coredump). Both are redistributed **unmodified** under
-   upstream's MIT licence, whose notice is reproduced inside each directory — see
+   upstream's MIT licence, whose notice is reproduced inside each directory; see
    [NOTICE](NOTICE). Keep `omarchy/SKILL.md` byte-identical: the +29.3 pt baseline was
    measured against that exact content.
-2. **A troubleshooting corpus** in [research/](research/) — 456 real Omarchy/Arch
+2. **A troubleshooting corpus** in [research/](research/): 456 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
 This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
 <https://techluddite.github.io/opinionated-omarchy/>. The site is built from the corpus by
 `research/tools/build_site.py` and deployed by `.github/workflows/pages.yml` on any change
-to `problems.jsonl` — the generated `docs/` is **gitignored**, so the 4.3 MB never enters
+to `problems.jsonl`. The generated `docs/` is **gitignored**, so the 4.3 MB never enters
 history. The default branch is `main` (renamed from `claude/greenfield-repo-setup-l5fzae`
 on 2026-09-03; GitHub redirects the old name, but update any local clone with
 `git branch -m` and `git branch --set-upstream-to=origin/main`). Work happens on
@@ -70,12 +70,12 @@ docs/                    DERIVED public site; NOT tracked, built by build_site.p
 JOURNAL.md               where we stopped, what's left
 ```
 
-`opinionated-omarchy/` is **the destination for the skill this repo exists to produce** —
+`opinionated-omarchy/` is **the destination for the skill this repo exists to produce**,
 the one that makes the corpus agent-consumable. It is still several steps out, so no skill
 is written there yet, but the slot is not speculative. It now holds
 [opinionated-omarchy/CLAUDE.md](opinionated-omarchy/CLAUDE.md), which records what the skill
 has to be, the +29.3 pt / −2.3 pt baseline it has to beat, and the provenance it must not
-launder — read that before writing anything there. (That file also replaced the zero-byte
+launder. Read that before writing anything there. (That file also replaced the zero-byte
 `.gitkeep` that used to hold the directory open, since git tracks files, not directories.)
 
 A second placeholder, `omarchy-old/`, was deleted on 2026-08-28: nobody could recall what it
@@ -104,7 +104,7 @@ Scripts in `research/tools/` carry `#!/usr/bin/env python3` and are executable, 
 anything written here: on Arch they are the same binary, but on a bare container often
 only `python3` exists.
 
-Python is not version-pinned — 3.11 through 3.14 all run the tooling, and every one of
+Python is not version-pinned: 3.11 through 3.14 all run the tooling, and every one of
 them bundles a `sqlite3` with FTS5. A standalone `sqlite3` CLI exists on this machine but
 nothing requires it; query through Python so the tooling stays self-contained.
 
@@ -117,19 +117,19 @@ partition costs a rebuild instead of a machine.
 Mind the version skew: `pacman -Q omarchy` reports **4.0.1-1** in the VMs and **4.0.0-1**
 on this workstation, so a VM is not a mirror of the dev box and a difference between them
 may be a release change rather than a bug. Read that from pacman, not from
-`/usr/share/omarchy/version` — that file says `4.0.0.alpha` on *both* and is branding, not
+`/usr/share/omarchy/version`; that file says `4.0.0.alpha` on *both* and is branding, not
 the package version.
 
 It does not change the corpus's trust model. `audit_status` records how a record was
 verified **against its sources**, and one VM agreeing is not the same as a source
-confirming — a fix can work by accident, or work only on that hardware. If you validate a
+confirming. A fix can work by accident, or work only on that hardware. If you validate a
 record live, say so explicitly in the record rather than silently upgrading its status.
 
 ## Test VMs
 
 Two throwaway libvirt VMs. They do two jobs: verifying corpus fixes against a real
 Omarchy install without risking the workstation, and serving as the targets the Skill
-Bench's **agentic lane** drives. They are **disposable by design** — break one, delete it
+Bench's **agentic lane** drives. They are **disposable by design**: break one, delete it
 and rebuild with `tools/make-test-vm.sh`, then re-provision:
 
 ```sh
@@ -145,12 +145,12 @@ tools/golden-test-vm.sh save 2     # ONE VM PER INVOCATION — see below
 ```
 
 **`golden-test-vm.sh` takes a single VM number; the other two take a list.** `save 1 2`
-does not error — it saves VM 1 and silently ignores the `2`. Same for `reset`. That is how
+does not error; it saves VM 1 and silently ignores the `2`. Same for `reset`. That is how
 both golden images went stale on 2026-09-02: a `reset` restored disks to a state captured
 before `install-bench-key.sh` had ever run, so the pool came back with no bench key and no
 tmux units and `/readyz` reported `ready:false` on both machines.
 
-**Save the golden AFTER provisioning, not before**, and verify with a reboot — the units
+**Save the golden AFTER provisioning, not before**, and verify with a reboot, because the units
 are user-level and the honest test is that they come back on their own:
 
 ```sh
@@ -158,7 +158,7 @@ sudo virsh reboot opinionated-omarchy-test1
 curl -s http://127.0.0.1:8878/readyz     # both VMs must be ready:true, tmux:true
 ```
 
-Both are **provisioned to autologin and never lock**, which is not cosmetic — see the
+Both are **provisioned to autologin and never lock**, which is not cosmetic; see the
 lock trap under "Domain facts".
 
 | | |
@@ -198,13 +198,13 @@ tools/view-test-vms.sh                    # open a VNC window for each
 `/var/lib/libvirt/images` is btrfs with no `NOCOW` flag, so `cp --reflink=always` shares
 extents instead of copying bytes: capturing or restoring a 6.8 GiB VM disk takes **about a
 second and charges no additional space** until one side is written. That is why
-`tools/golden-test-vm.sh` exists and why libvirt snapshots — awkward on these UEFI/pflash
-domains — were dropped rather than fought.
+`tools/golden-test-vm.sh` exists and why libvirt snapshots (awkward on these UEFI/pflash
+domains) were dropped rather than fought.
 
 Measured, with a marker file to prove the reset was real: reset 1 s, boot to ssh 14 s, a
 full cycle about 30 s, against *minutes* for a rebuild from the 5.9 GB ISO. The VM must be
 **shut off** for both save and reset; a copy from a running domain is only crash-consistent.
-`virsh shutdown` (ACPI) is ignored by these VMs — use `ssh <vm> 'sudo systemctl poweroff'`.
+`virsh shutdown` (ACPI) is ignored by these VMs; use `ssh <vm> 'sudo systemctl poweroff'`.
 
 ### The host firewall has to allow the VM bridge
 
@@ -226,7 +226,7 @@ network at all and the machine only looks broken once it boots.
 **The same gap catches Docker containers reaching Ollama**, and it is worth recognising as
 one family rather than two incidents: libvirt and Docker both manage only forwarding, so
 neither opens anything on the host's `INPUT` chain, which is `DROP`. The Skill Bench pins
-its compose network to a fixed subnet precisely so the rule can name it — without that,
+its compose network to a fixed subnet precisely so the rule can name it. Without that,
 Compose allocates a fresh bridge whose name and range move, and an interface-scoped rule
 silently stops matching:
 
@@ -235,21 +235,21 @@ sudo ufw allow from 172.28.7.0/24 to any port 11434 proto tcp \
   comment 'ollama api - omarchy skillbench container'
 ```
 
-Symptom: `/readyz` reports `{"db":true,"ollama":false}` with an empty error string — a
+Symptom: `/readyz` reports `{"db":true,"ollama":false}` with an empty error string, a
 connect timeout rather than a refusal.
 
 ### The VMs have no pacman sync databases
 
 A consequence of that offline install: `pacman -Q` works but `pacman -S` cannot resolve
 anything until the databases are fetched. Run `omarchy update` in the VM first. Do not
-reach for `pacman -Sy` — see "Domain facts" below.
+reach for `pacman -Sy`; see "Domain facts" below.
 
 ### How they were built
 
 Not by hand. The Omarchy ISO supports unattended install from a drive labelled `cidata`
 (the cloud-init NoCloud convention). `/usr/local/bin/omarchy-cidata-load` on the ISO looks
 for one and, finding it, skips the `gum` configurator entirely and installs from the files
-it carries — the same files the wizard would have written:
+it carries, the same files the wizard would have written:
 
 ```
 user_configuration.json     archinstall config + an omarchy_install section
@@ -264,13 +264,13 @@ authorized_keys             public keys; the installer writes them, runs
 ```
 
 `tools/make-test-vm.sh` generates that drive and defines the domain. Rebuild through it
-rather than clicking the installer: the schema is unforgiving — partition sizes are
+rather than clicking the installer: the schema is unforgiving: partition sizes are
 **bytes**, and the layout must match what the ISO's own configurator emits or archinstall
 fails late with an unhelpful error.
 
 Two notes on the domain definition. Boot order is HD-then-CD, so the empty disk falls
 through to the installer on first boot and boots the installed system afterwards with no
-need to eject anything. And the VMs were converted from SPICE to VNC afterwards — if you
+need to eject anything. And the VMs were converted from SPICE to VNC afterwards. If you
 do that yourself, `<channel type='spicevmc'>`, the USB `<redirdev>`s and
 `<audio type='spice'>` all have to go at the same time, because libvirt refuses a domain
 that keeps any of them without SPICE graphics.
@@ -298,25 +298,25 @@ load-bearing:
   collapsing them would hide a model that describes the right edit and never makes it.
 - **It runs on the HOST network** (`network_mode: host`). libvirt rejects every new
   forwarded connection into `192.168.122.0/24`, so a bridged container cannot reach the
-  test VMs at all — and nothing in ufw can override it, because in nftables only
+  test VMs at all, and nothing in ufw can override it, because in nftables only
   `reject`/`drop` are terminal. This also removed the old pinned-subnet ufw rule for
   Ollama entirely; the app binds `127.0.0.1:8878` itself.
-- **Five benches are controls** (`linux-disk-full`, `-runaway-process`,
-  `-boot-partition-full`, `-pacman-keyring`, and `-agentic-triage` for the agentic lane),
-  flagged `control: true`. They are general Linux the skill says nothing about, so the
+- **Six benches are controls** (`linux-disk-full`, `-runaway-process`,
+  `-boot-partition-full`, `-pacman-keyring`, and both `-agentic-triage` and
+  `-agentic-deep-triage` for the agentic lane), flagged `control: true`. They are general Linux the skill says nothing about, so the
   skill should barely move them. If a change lifts the controls as much as the Omarchy
   benches, it is measuring answer length rather than skill efficacy. **Do not delete them
-  to tidy the suite** — they are the evidence, and every lane needs at least one (a test
+  to tidy the suite**: they are the evidence, and every lane needs at least one (a test
   enforces this).
 - **Everything is sha-pinned.** Edit a bench and the next run is a new series; edit a skill
   and resume refuses. Regrade re-scores from stored output with zero model calls.
 
-### What the local models can actually do — check before designing a bench around them
+### What the local models can actually do: check before designing a bench around them
 
 Three independent gates decide whether a model can be measured on the agentic lane at
 all, and they fail in different ways. `skillbench/tools/probe_models.py` reports the two
 that are static; only a run answers the third. The full ladder, and which models sit
-where, is [skillbench/MODELS.md](skillbench/MODELS.md) — **read it before concluding a
+where, is [skillbench/MODELS.md](skillbench/MODELS.md). **Read it before concluding a
 bench is too easy**, because "no lift" and "the model cannot drive the loop" look
 identical in the score column.
 
@@ -329,22 +329,22 @@ systemctl show ollama -p Environment      # OLLAMA_CONTEXT_LENGTH, KV cache type
 
 - **`OLLAMA_CONTEXT_LENGTH=32768`** is the number that matters, and it is a *server* cap
   applied to every model. Ollama's own default is 4096. `pi --list-models` on a VM
-  cheerfully reports `128K` — that is pi's client-side belief and it is **cosmetic**,
+  cheerfully reports `128K`; that is pi's client-side belief and it is **cosmetic**,
   because pi talks OpenAI-compat (`/v1`), which has no way to set `num_ctx`. Trust the
   server, not the client. At 32K the `omarchy` skill body (~3.1k tokens) is about 10% of
   the budget and `omarchy-full` (~6.6k) about 20%.
 - **`OLLAMA_KV_CACHE_TYPE=q8_0` and `OLLAMA_FLASH_ATTENTION=1`** keep the KV cache small
   enough that a 30B Q4 model fits. Without them the same model spills to CPU.
 - **`OLLAMA_MAX_LOADED_MODELS=1`** is why the runner finishes an entire suite on one model
-  before touching the next — interleaving would evict and reload weights every case.
+  before touching the next: interleaving would evict and reload weights every case.
 - **The card is a 24 GiB RTX 3090, and the 30B class already uses ~20.2 GiB at 32K.**
   That is the real ceiling: a 32B model may not fit, and a model that does not fit does
-  not fail cleanly — it spills to CPU and the case dies on the agent timeout, which reads
+  not fail cleanly. It spills to CPU and the case dies on the agent timeout, which reads
   as a capability failure rather than a memory one. Check with `curl -s
   localhost:11434/api/ps` while a case is running.
 
-The prior measurements this was built against — 911 graded cases from the lab's own bench,
-on a byte-identical copy of `omarchy/SKILL.md` — are in
+The prior measurements this was built against (911 graded cases from the lab's own bench,
+on a byte-identical copy of `omarchy/SKILL.md`) are in
 [research/bench/](research/bench/). That directory is hand-written and **not** generated:
 `build_db.py` deletes every `*.md` in `research/docs/` on each build, so a hand-written
 page cannot live there.
@@ -405,7 +405,7 @@ dry-run against a copy before pointing it at `data/problems.jsonl`.
 
 Every record carries an `audit_status` (`ok` / `corrected` / `unaudited` /
 `gapfill-unaudited`) recording how much scrutiny it survived. Unaudited records are
-flagged in both the CLI and the markdown. **Preserve that honesty** — if you add records,
+flagged in both the CLI and the markdown. **Preserve that honesty**: if you add records,
 mark their provenance rather than letting them blend in with audited ones. As of
 2026-09-01 no record carries `gapfill-unaudited`; the status stays reachable because
 `merge_gapfill.py` still assigns it when an audit agent dies.
@@ -416,7 +416,7 @@ could therefore keep a `cause` its own `audit_note` disproved. All 130 such reco
 read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from their notes.
 A further 7 were stamped on 2026-09-01 by the audit of the last unaudited records, so
 **29 records carry the stamp across two dates**. **The disclaimer printed under the audit
-note is conditional on this field** in both `ask.py` and the generated markdown — if you
+note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
 `merge_gapfill.py` now sets it automatically whenever it applies a `corrected_cause`;
@@ -428,7 +428,7 @@ it did not always, and the consequences are written up in
 Both corpus writers used to keep a **private copy** of the field list they project
 records onto, so a field missing from that copy was dropped with no error and no
 warning. `cause_reconciled` reached `schema.sql`, `build_db.py` and `ask.py` on
-2026-08-30 and never reached `ingest.py`'s copy — the replace path would have thrown the
+2026-08-30 and never reached `ingest.py`'s copy; the replace path would have thrown the
 provenance away silently.
 
 There is now one definition, in **[research/tools/corpus.py](research/tools/corpus.py)**,
@@ -444,8 +444,8 @@ either. Three rules it enforces:
   (`cause_note`, `cause_extra`, `verify_note`) is enumerated in `WORKFLOW_ONLY`; anything
   else is an unfinished schema change and fails loudly.
 
-Adding a field to the schema still touches **four** consumers — `schema.sql`,
-`build_db.py`, `ask.py`, `corpus.py` — but two of those are now checked automatically.
+Adding a field to the schema still touches **four** consumers (`schema.sql`,
+`build_db.py`, `ask.py`, `corpus.py`), but two of those are now checked automatically.
 `research/tests/` asserts `FIELDS` against `schema.sql` and against the live corpus, so
 the 2026-08-30 mistake fails the suite instead of destroying data. Run it before
 committing anything that touches the tooling:
@@ -462,7 +462,7 @@ against primary sources during the research and repeatedly caught stale advice.
 - **`basecamp/omarchy`'s default branch is `quattro`, not `master`.** `master` is still
   the Omarchy 3 tree; several raw URLs 404 against it. Fetch from `quattro`.
 - **Omarchy 4 ("Quattro") is pacman-packaged at `/usr/share/omarchy`**, with state in
-  `~/.local/state/omarchy`. It is *not* a git checkout at `~/.local/share/omarchy` —
+  `~/.local/state/omarchy`. It is *not* a git checkout at `~/.local/share/omarchy`;
   that was Omarchy 3, and most advice online still assumes it.
 - **Hyprland 0.55+ deprecated hyprlang in favour of Lua.** Config is `hyprland.lua` using
   the `hl.*` API (`hl.bind`, `hl.monitor`, `hl.window_rule`). Old `hyprland.conf` syntax
@@ -483,12 +483,12 @@ against primary sources during the research and repeatedly caught stale advice.
   tmux: a window inherits the tmux *server's* environment, and a server started by a
   systemd user unit has no profile sourced at all.
 - **Omarchy 4's lock screen cannot be released headlessly, and it outlives its client.**
-  It is an `ext-session-lock` surface drawn by `omarchy-shell` (Quickshell) — `hyprlock` is
+  It is an `ext-session-lock` surface drawn by `omarchy-shell` (Quickshell). `hyprlock` is
   not even installed. Its IPC exposes `lock()`, `status()`, `isLocked()` and deliberately
   **no `unlock()`**, so the only ways back in are typing the password (`virsh send-key`) or
   a rebuild. `pkill`ing the lock client makes it worse: the compositor stays locked with a
   stale frame, which `omarchy-hyprland-session-locked` documents as the case worth
-  detecting (`LOCK` in `solitaryBlockedBy`). Prevention is the only real fix —
+  detecting (`LOCK` in `solitaryBlockedBy`). Prevention is the only real fix:
   `omarchy-toggle-idle stay-awake`, as `tools/provision-bench-vm.sh` does.
 
 ## Fetching sources
@@ -513,13 +513,62 @@ silently changes what was benched and invalidates the baseline comparison.
 
 **Check the licence file, not the metadata.** GitHub's API reports **no licence** for
 `basecamp/omarchy`; its `LICENSE` file is MIT. The same field claimed MIT for Departure
-Mono, whose bundled licence is OFL 1.1. Twice now — read the file.
+Mono, whose bundled licence is OFL 1.1. Twice now. Read the file.
+
+## Writing
+
+Everything written here follows the **`writing-and-responding`** skill
+(`~/.grok/skills/writing-and-responding/`, symlinked into `~/.claude/skills/`, so
+`Skill(writing-and-responding)` loads it). Load it before writing or editing prose in this
+repo, including commit messages and PR bodies. The whole corpus was audited against it on
+2026-09-03; a file that drifts back is a regression, not a style preference.
+
+Three things are specific to this repo and are the ones that get got wrong:
+
+- **The public site's prose lives in `research/tools/build_site.py`, not in `docs/`.**
+  `docs/` is deleted and regenerated on every build, so an edit there survives until the
+  next `build_site.py` run and no longer. Same for `research/docs/*.md`, which
+  `build_db.py` regenerates from the JSONL.
+- **Do not restyle text this repo is reproducing rather than composing.** The skill's
+  pass-through rule covers more here than usual, and altering any of it is either a
+  licence breach or a misrepresentation:
+  `omarchy/` and `diagnose-crash/` (upstream, and `omarchy/SKILL.md` must stay
+  byte-identical), `research/assets/fonts/DepartureMono-LICENSE.txt` and every copyright
+  notice quoting it, and the loose Hyprland wiki pages in `research/*.md` / `*.txt`.
+  Code, fenced blocks, paths, commands and log output are exempt as usual.
+- **Every number in prose here is checkable against the corpus, so check it.** Record
+  counts, audit-status splits, source counts, bench and control counts, model counts.
+  Compute them rather than copying a figure from a neighbouring file: the 2026-09-03 audit
+  found the control count wrong in `CLAUDE.md`, a hardcoded `456` in the site's meta
+  description, a bullet list of three introduced as "two ways", and a `README` recipe
+  naming the workflow that does the opposite of what it claimed.
+
+**`research/data/problems.jsonl` is deliberately excluded for now.** 1,891 em and en dashes
+sit across 424 of its 456 records, and cleaning them means rewriting the source of truth
+and regenerating `research/docs/` in the same commit. Tracked in
+[JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose
+piecemeal: a partial pass makes the remaining records look like a deliberate choice.
+
+The skill's own checker, `scripts/check-writing.ps1`, needs PowerShell, which is not
+installed on this machine. Until something replaces it, this is the mechanical check over
+the audited set:
+
+```sh
+git ls-files '*.md' NOTICE research/tools/build_site.py \
+  | grep -vE '^(research/(docs|raw|[^/]+\.md)|omarchy/|diagnose-crash/|research/bench/raw/)' \
+  | xargs grep -n "—\|–"
+```
+
+Every hit it returns as of 2026-09-03 is correct, and they are the only exempt shapes:
+lines inside `CLAUDE.md` code fences, the copyright ranges reproducing Departure Mono's
+OFL notice, and numeric ranges such as `30–45 minutes` and `Runs 31–43`. Anything else
+the command prints is a regression.
 
 ## Conventions
 
 - Never invent a source URL. A record cites only pages actually retrieved; `build_db.py`
   filters anything that isn't `http(s)://` and warns on records with no usable source.
-- Fixes must be concrete — real commands, real paths, real config in fenced blocks. "Check
+- Fixes must be concrete: real commands, real paths, real config in fenced blocks. "Check
   your configuration" is not a fix and the audit rejects it.
 - Fill `danger` whenever a fix can lose data, break boot, or cause a partial upgrade.
 - The corpus is research, not a warranty. Anything touching pacman, the bootloader,
@@ -529,7 +578,7 @@ Mono, whose bundled licence is OFL 1.1. Twice now — read the file.
 ## Regenerating the corpus
 
 All three workflow scripts live in `research/tools/` and run via the `Workflow` tool
-pointed at their `scriptPath`. **Pass the corpus root in `args`** — the path used to be
+pointed at their `scriptPath`. **Pass the corpus root in `args`.** The path used to be
 hardcoded to one developer's home directory, and a wrong root fails *inside an agent* as a
 missing file rather than at launch:
 
@@ -540,12 +589,12 @@ Workflow({ scriptPath: "research/tools/audit-existing-workflow.js",
 
 **They do different jobs and the difference is not obvious from the names:**
 
-- `harvest-workflow.js` — full harvest from scratch: one harvester per category, each
+- `harvest-workflow.js`: full harvest from scratch, one harvester per category, each
   audited, plus a gap-fill pass. ~35 agents, expensive.
-- `gapfill-workflow.js` — **harvests new records** against auditor-named gaps and audits
+- `gapfill-workflow.js`: **harvests new records** against auditor-named gaps and audits
   only those new records. ~25 agents. Its `GAP_CATEGORIES` list drives the *harvest*
   phase; its only audit-existing path is Track A, hardcoded to `apps-services`.
-- `audit-existing-workflow.js` — **audits records already in the corpus** and harvests
+- `audit-existing-workflow.js`: **audits records already in the corpus** and harvests
   nothing. Retarget by editing `BATCHES`. ~1 agent per 6-8 records.
 
 Pick by what the records need, not by category. Records that exist but are unaudited need
@@ -555,5 +604,5 @@ written into JOURNAL.md as the recipe for a whole session before anyone caught i
 
 These consume a lot of budget (the first harvest died partway through on a spend limit).
 Check `/usage-credits` before launching, and prefer trimming a workflow's category list
-over re-running everything. `resumeFromRunId` did **not** behave well here — see
+over re-running everything. `resumeFromRunId` did **not** behave well here; see
 [JOURNAL.md](JOURNAL.md).

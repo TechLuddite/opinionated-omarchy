@@ -14,13 +14,13 @@ xdg-open http://127.0.0.1:8878
 ## What it does
 
 A **bench** (`benches/<name>.yaml`) is a set of tasks: a prompt plus deterministic checks
-— required and forbidden patterns, required strings, length caps. A **skill** is a bundle
+(required and forbidden patterns, required strings, length caps). A **skill** is a bundle
 of markdown files injected as a system-prompt prefix. A **variant** is an ordered stack of
 skills (`none`, `skill:omarchy`, `skill:omarchy+diagnose-crash`). A **run** executes the
 {task × model × variant × repeat} matrix and grades every answer.
 
-You pick a bench, some local models, and two variants — typically `none` versus
-`skill:omarchy` — and get back a pass rate for each side, per model and per task, with the
+You pick a bench, some local models, and two variants (typically `none` versus
+`skill:omarchy`) and get back a pass rate for each side, per model and per task, with the
 context cost attached.
 
 ## The methodology, and its limits
@@ -33,7 +33,7 @@ would then fumble the edit scores identically to one that would not. That ceilin
 inherent to prompting a model and reading its reply.
 
 **The agentic lane grades what an agent does.** It runs `pi` on a real Omarchy VM, lets
-it act on the machine, and then asserts on the machine — see "The agentic lane" below.
+it act on the machine, and then asserts on the machine. See "The agentic lane" below.
 
 It has a control of its own (`linux-agentic-triage`), and the first paired run at 3 repeats
 says plainly that **`omarchy-agentic-config` is saturated**: `devstral-small-2:24b` scores
@@ -49,8 +49,8 @@ than a choice: the bench drives its VMs over ssh with **no tty**, and the bench 
 passwordless sudo, so nothing requiring root could be seeded, performed by the agent, or
 asserted. Userspace config is the easy end of Omarchy. `tools/provision-bench-vm.sh` now
 installs NOPASSWD sudo and the golden images carry it;
-`omarchy-agentic-root-config` is the first bench built on that, and it is **not yet run
-against a model** — a validated instrument, not a result.
+`omarchy-agentic-root-config` is the first bench built on that, and the 2026-09-02 model
+scan ran it bare against all 14 tool-capable models ([MODELS.md](MODELS.md)).
 
 Three things keep the numbers honest:
 
@@ -59,15 +59,15 @@ Three things keep the numbers honest:
   `linux-agentic-deep-triage` for the agentic lane) are general Linux that the skill says
   nothing about. A bare model should already score well and the skill should barely
   move them. They are flagged `control: true` and labelled in the UI. If a change lifts
-  the controls as much as the Omarchy benches, it is not measuring skill efficacy — it is
-  measuring answer length. In the baseline this separation is stark: **+29.3 pt mean on
+  the controls as much as the Omarchy benches, it is measuring answer length rather than
+  skill efficacy. In the baseline this separation is stark: **+29.3 pt mean on
   Omarchy tasks, −2.3 pt on controls.**
 - **Symmetric comparison.** A run compares its own variants against each other. Better is
   green and worse is orange on both rows; red is reserved for errors. There is no "grade
   against a base" framing.
 - **Content pinning.** Every run records the bench's `spec_sha` and each skill's sha. Edit
   a bench and the next run is a new series rather than a quiet extension of the old one.
-  Edit a skill and resume refuses — start a fresh run instead.
+  Edit a skill and resume refuses; start a fresh run instead.
 
 ### The one input that cannot be pinned
 
@@ -77,7 +77,7 @@ scores with nothing in the run record to show why.
 
 This is not hypothetical. Replicating nexus1's ten-model run of `omarchy-monitor-config`
 here gave `0.729 → 0.971` where the lab measured `0.529 → 0.800`. The **lift** reproduced
-closely — **+24.3 pt against +27.1 pt**, with every model improving or tying in both — but
+closely (**+24.3 pt against +27.1 pt**, with every model improving or tying in both), but
 both absolute levels landed higher, most likely from the serving path (direct Ollama here,
 LiteLLM there) and possible weight updates in between.
 
@@ -91,7 +91,7 @@ Full baseline and prior art: [`research/bench/`](../research/bench/).
 
 `skills.yaml` declares each skill as a list of files concatenated in order, with YAML
 frontmatter stripped. This is the deliberate difference from the lab bench this descends
-from, which could inject only a single `SKILL.md` — so an instruction living in a topic
+from, which could inject only a single `SKILL.md`, so an instruction living in a topic
 guide could never lift a score, and its own backlog recorded every measured lift as *"a
 floor, not the real-harness number."*
 
@@ -99,13 +99,13 @@ Both forms ship, so the difference is measurable:
 
 | Variant | What it injects |
 | --- | --- |
-| `skill:omarchy` | `SKILL.md` only — comparable with the nexus1 baseline |
+| `skill:omarchy` | `SKILL.md` only, comparable with the nexus1 baseline |
 | `skill:omarchy-full` | `SKILL.md` + all six topic guides |
 
 Running one against the other answers "what are the topic guides actually worth?"
 
-The bundles are mounted read-only from this repo — `../omarchy` and `../diagnose-crash`,
-the real skills, not copies. Editing them changes the next run.
+The bundles are mounted read-only from this repo: `../omarchy` and `../diagnose-crash`,
+the real skills rather than copies. Editing them changes the next run.
 
 ## Checks
 
@@ -132,13 +132,13 @@ second. Raw output is kept on every case precisely so this is possible.
 ## Model affinity is mandatory here
 
 Ollama on this workstation runs `OLLAMA_MAX_LOADED_MODELS=1`. The runner therefore
-finishes a model's entire suite before touching the next one — otherwise a multi-model run
+finishes a model's entire suite before touching the next one. Otherwise a multi-model run
 would evict and reload 18 GB of weights between individual cases. `SB_CONCURRENCY` (2) is
 parallelism *within* the current model, where the weights are already resident.
 
 There is no cost column and no budget guard, because every model is local and free. What a
 skill costs shows up as **prompt tokens**, which is the number worth watching: the baseline
-skill adds ~3.2k tokens of context to every single call.
+skill adds ~3.1k tokens of context to every single call.
 
 ## Why this runs on the host network
 
@@ -153,13 +153,13 @@ oif "virbr0"                                    reject
 ```
 
 No rule elsewhere can undo that. In nftables an `accept` in one base chain does not stop
-another base chain at the same hook from rejecting, and only `reject`/`drop` are terminal —
+another base chain at the same hook from rejecting, and only `reject`/`drop` are terminal,
 so a bridged container cannot reach the test VMs at all, and gets `Connection refused`.
 Traffic originating in the host namespace never passes the forward hook, so it simply works.
 
 This **removed** a trap rather than adding one. On the host network the bench reaches Ollama
 at `127.0.0.1`, so the ufw rule that bridged networking needed (`ufw allow from 172.28.7.0/24
-to any port 11434`) is no longer part of the story at all — one less invisible host-level
+to any port 11434`) is no longer part of the story at all, one less invisible host-level
 dependency of the kind that has already bitten twice here (see the `virbr0` DHCP gap in
 [CLAUDE.md](../CLAUDE.md)). That rule can be deleted if nothing else uses it.
 
@@ -171,14 +171,14 @@ of relying on a loopback port publish.
 Plain HTTP, no authentication, and that is deliberate for what this is:
 
 - The app binds **127.0.0.1 only** (`SB_HOST`). Nothing on the LAN can reach it. That
-  binding, not TLS, is what actually contains this service — if you ever change it to
+  binding, not TLS, is what actually contains this service. If you ever change it to
   `0.0.0.0`, you are publishing an unauthenticated remote-code-adjacent surface on your
   network, and TLS would not help. On host networking this is the *only* thing containing
   it, since there is no port publish to fall back on.
 - **It holds one credential, and only for the agentic lane.** `secrets/bench_ed25519` is
   an ssh key generated by `tools/install-bench-key.sh`, mounted read-only, and accepted by
   nothing but the two disposable test VMs. It is deliberately **not** the operator's own
-  key, and it is gitignored. No API keys, no tokens — local Ollama needs none.
+  key, and it is gitignored. No API keys, no tokens; local Ollama needs none.
 - The container drops all capabilities, sets `no-new-privileges`, and has memory and pid
   limits. It writes only to `./data`.
 
@@ -188,7 +188,7 @@ Two things to be aware of, both consequences of the agentic lane:
   stack. Capabilities are still dropped and `no-new-privileges` is still set.
 - **A bench spec is code.** `seed:` scripts and `post:` assertions are shell, run on a VM
   as the bench user. That is fine for specs authored in this repo against disposable
-  machines, and it is not a sandbox — a bench is not the place to run something you would
+  machines, and it is not a sandbox. A bench is not the place to run something you would
   not run by hand.
 
 ## Layout
@@ -218,7 +218,7 @@ tests/        run with tests/run.sh
 
 ## The UI
 
-Dropdowns, chips, buttons, tables and bar charts — nothing bespoke. The 8-bit look comes
+Dropdowns, chips, buttons, tables and bar charts. Nothing bespoke. The 8-bit look comes
 from geometry (hard corners, 3px edges, offset shadows, segmented meters) rather than a
 downloaded font, so it renders identically offline.
 
@@ -226,7 +226,7 @@ Chrome colors are read live from `/usr/share/omarchy/themes/<name>/colors.toml`;
 dropdown switches the whole UI and 22 themes are available.
 
 **Chart series colors are deliberately *not* theme-derived.** A theme's `colors.toml` is a
-terminal palette — its colors are chosen to be legible as text on that background, not to
+terminal palette: its colors are chosen to be legible as text on that background, not to
 be distinguishable from each other as adjacent bars, and several themes have pairs that
 collapse under color-vision deficiency. The categorical slots are a fixed set validated
 against the extreme surfaces on this machine (`#000000` and `#ffffff`) for lightness band,
@@ -245,7 +245,7 @@ acquire a VM  ->  restore declared paths  ->  run seed:  ->  pi --print --skill 
 
 **The agent runs as root, and that is recent.** Seeds, the agent, and `post:` assertions
 all reach the VM through `bash -lc` over ssh with nothing on stdin, so a sudo password
-prompt can never be answered — a bench that needs root needs
+prompt can never be answered. A bench that needs root needs
 `/etc/sudoers.d/99-bench-nopasswd`, which `tools/provision-bench-vm.sh` installs and both
 golden images now carry. If a `sudo` assertion starts failing on a freshly reset VM, check
 that file first. Safe only because these VMs are disposable, NAT-only and carry no real
@@ -253,7 +253,7 @@ data; the cost of an agent breaking one is a 0.76 s `golden-test-vm.sh reset`.
 
 **What it measures that the chat lane cannot.** `omarchy-agentic-config` asks an agent to
 add a keybinding, switch a theme, and configure a monitor. Every task also asserts
-`pacman -Qkk omarchy` reports **0 altered files** — a hard statement that the agent stayed
+`pacman -Qkk omarchy` reports **0 altered files**, a hard statement that the agent stayed
 out of `/usr/share/omarchy`, which is where Omarchy-3-era advice sends it. A chat bench can
 only ask whether a model *mentions* the right directory; this asks whether it stayed out of
 the wrong one while actually doing the work.
@@ -288,7 +288,7 @@ a terminal attached to that session **read-only**. Put the two VNC windows on sc
 working on, with no second copy of anything.
 
 Read-only is load-bearing in both directions: a watcher cannot type into a running case, and
-the runner therefore must never use `tmux send-keys` — tmux refuses it outright while a
+the runner therefore must never use `tmux send-keys`: tmux refuses it outright while a
 read-only client is attached. Launching each case *as* a window is the supported path.
 
 ### Isolation, and its honest limit
@@ -298,7 +298,7 @@ bench declares under `defaults.vm.restore`. **Anything outside those paths persi
 
 It is not a disk rollback, and that is a deliberate trade. A rollback would be stronger and
 on btrfs costs about a second (`tools/golden-test-vm.sh`), but the container would have to
-drive libvirt — and it runs with `cap_drop: ALL`, `no-new-privileges` and no libvirt socket.
+drive libvirt, and it runs with `cap_drop: ALL`, `no-new-privileges` and no libvirt socket.
 Handing it the host's hypervisor would trade a real security property for convenience. The
 disk-level reset stays an operator action between runs:
 
@@ -313,11 +313,11 @@ tools/golden-test-vm.sh reset 1    # ~1s, VM must be shut off
   a plain `ssh host omarchy ...` runs with it unset and every omarchy subcommand fails with
   `find: '/themes/': No such file or directory`. It matters twice: a tmux window inherits
   the *tmux server's* environment, and that server is started by a systemd user unit with no
-  profile sourced at all — so without `bash -l` the **agent** is the thing running without
+  profile sourced at all, so without `bash -l` the **agent** is the thing running without
   `OMARCHY_PATH`.
 - **The console locks itself if you let it.** Omarchy 4's lock is an `ext-session-lock`
   surface owned by `omarchy-shell`; it exposes `lock()` but deliberately no `unlock()`, and
-  it survives its client's death. A locked headless VM cannot be unlocked — only prevention
+  it survives its client's death. A locked headless VM cannot be unlocked; only prevention
   works, which is what `provision-bench-vm.sh` does. Do not `pkill` the lock client.
 - **A case is minutes, not seconds**, and concurrency is the size of the VM pool, not
   `SB_CONCURRENCY`: a case owns the machine it runs on. Agentic runs must be narrow by

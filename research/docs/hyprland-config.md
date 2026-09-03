@@ -1816,7 +1816,7 @@ sudo pacman -S --needed gamescope
 
 **Verify.** `hyprctl getoption general.allow_tearing` is 1 and `hyprctl getoption misc.vrr` matches what you set; `hyprctl -j monitors | jq -r '.[] | "\(.name) vrr=\(.vrr)"'` shows the per-output state; in a fullscreen game the reported refresh rate tracks the framerate and the desktop no longer pulses.
 
-> *Not independently audited — verify before running.*
+> *Not independently audited: verify before running.*
 
 Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Tearing/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.archlinux.org/title/Variable_refresh_rate> · <https://github.com/hyprwm/Hyprland/issues/11712> · <https://wiki.archlinux.org/title/Gaming>
 

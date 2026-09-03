@@ -1153,7 +1153,7 @@ hl.set("render:direct_scanout", 0)
 
 **Verify.** `pacman -Q xorg-xwayland wayland-protocols nvidia-utils` meets the version floors above, and the game renders cleanly. `hyprctl systeminfo` reports the NVIDIA driver version in use.
 
-> *Not independently audited — verify before running.*
+> *Not independently audited: verify before running.*
 
 Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/NVIDIA> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Variables.md>
 
