@@ -350,8 +350,12 @@ STYLE = r"""/* Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Licenc
      legible at these sizes on all three platforms and costs no third party. */
   --crt:'Departure Mono',var(--mono);
 }
-/* A pixel font must not be smoothed into mush, and must sit on WHOLE pixel sizes --
-   the transcribed spec's 8.5px and 9.5px labels blur badly, so the CRT rules round. */
+/* A pixel font must not be smoothed into mush, and Departure Mono is designed on an 11px
+   grid -- its own README: "For pixel-perfect results, set the font size to increments of
+   11px." Every rule below therefore sits at 11px (22px for the wordmark). The transcribed
+   spec's 8.5-10px labels were both OFF-GRID and genuinely too small to read; snapping to
+   the grid fixes legibility and crispness with one change. Do not reintroduce 8/9/10px
+   here -- it will look soft as well as tiny. */
 .crt,.wordmark,.sub,.v-lab,.mast-status,.g-head,.c-lab,.c-sev,.sev,.n-lab,.crumb,
 footer,.tag,.slug,.qcount,.abbr,.legend,.wave-lab{
   font-family:var(--crt);
@@ -374,12 +378,12 @@ a{color:inherit;text-decoration:none}
 .mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto auto;
   gap:20px;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);
   background:rgba(10,14,19,.82);backdrop-filter:blur(8px)}
-.wordmark{font:17px/1 var(--crt);letter-spacing:.20em;color:var(--ink)}
-.sub{font:9px/1.6 var(--crt);letter-spacing:.40em;color:var(--signal)}
+.wordmark{font:22px/1 var(--crt);letter-spacing:.20em;color:var(--ink)}
+.sub{font:11px/1.4 var(--crt);letter-spacing:.40em;color:var(--signal)}
 .vitals{display:flex;gap:26px;justify-content:center}
 .v-num{font:600 19px/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .v-num small{font:11px var(--mono);color:var(--dim);margin-left:2px}
-.v-lab{font:9px var(--crt);letter-spacing:.22em;color:var(--muted);margin-top:4px}
+.v-lab{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin-top:4px}
 .wave{display:block;width:240px;height:40px}
 /* Motif 3: phosphor traces. Stroked path, teal drop-shadow, soft fill beneath. */
 .wave-line{fill:none;stroke:var(--signal);stroke-width:1.4;
@@ -387,14 +391,14 @@ a{color:inherit;text-decoration:none}
 .wave-fill{fill:rgba(70,224,192,.06);stroke:none}   /* subtler than a card sparkline:
    audit coverage sits at 97-100%, so the area under the line is nearly the whole box and
    --signal-soft (.14) read as a solid slab rather than a trace */
-.wave-lab{font:8px var(--crt);letter-spacing:.18em;fill:var(--muted)}
+.wave-lab{font:11px var(--crt);letter-spacing:.18em;fill:var(--muted)}
 .meter{display:flex;height:3px;border-radius:2px;overflow:hidden;flex:0 0 84px;
   background:var(--line)}
 .meter span{display:block;height:100%}
 .m-ok{background:var(--signal);box-shadow:0 0 6px rgba(70,224,192,.7)}
 .m-corr{background:var(--warn)}
 .m-un{background:var(--alert)}
-.mast-status{display:flex;align-items:center;gap:7px;font:10px var(--crt);
+.mast-status{display:flex;align-items:center;gap:7px;font:11px var(--crt);
   letter-spacing:.24em;color:var(--signal)}
 .mast-status i{width:8px;height:8px;border-radius:50%;background:var(--signal);
   box-shadow:0 0 7px rgba(70,224,192,.8);animation:pulse 2.4s infinite}
@@ -404,7 +408,7 @@ a{color:inherit;text-decoration:none}
 .intro{max-width:720px;margin:14px 0 22px}
 .lede{font:16px/1.55 var(--body);color:var(--ink);margin:0 0 14px}
 .fine{font:12px/1.6 var(--body);color:var(--dim);margin:12px 0 0}
-.legend{display:flex;gap:18px;flex-wrap:wrap;font:9px var(--crt);letter-spacing:.14em;
+.legend{display:flex;gap:18px;flex-wrap:wrap;font:11px var(--crt);letter-spacing:.14em;
   color:var(--muted);margin:10px 0}
 .legend span{display:flex;align-items:center;gap:6px}
 
@@ -413,16 +417,16 @@ a{color:inherit;text-decoration:none}
   padding:11px 13px;color:var(--ink);font:12px var(--mono);letter-spacing:.02em}
 #q::placeholder{color:var(--faint)}
 #q:focus{outline:none;border-color:var(--line-2);box-shadow:0 0 0 3px rgba(70,224,192,.10)}
-.qcount{font:9px var(--crt);letter-spacing:.14em;color:var(--muted);white-space:nowrap}
+.qcount{font:11px var(--crt);letter-spacing:.14em;color:var(--muted);white-space:nowrap}
 
 .group{margin-top:26px}
 .group:first-child{margin-top:8px}
 .g-head{display:flex;align-items:center;gap:10px;margin:0 0 11px;
-  font:12px var(--crt);letter-spacing:.28em;color:var(--dim);text-transform:uppercase}
+  font:11px var(--crt);letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
 .g-head i{width:9px;height:9px;transform:rotate(45deg);background:var(--gaccent)}
 .g-head::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
 .g-head .meter{margin-left:2px}
-.g-count{font:10px var(--crt);letter-spacing:.14em;color:var(--muted)}
+.g-count{font:11px var(--crt);letter-spacing:.14em;color:var(--muted)}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:11px}
 .grid.hide{display:none}
@@ -437,7 +441,7 @@ a{color:inherit;text-decoration:none}
 .c-name{font:500 13.5px/1.35 var(--disp);color:var(--ink)}
 .c-meta{display:flex;justify-content:space-between;margin-top:9px;padding-top:8px;
   border-top:1px solid var(--line)}
-.c-lab,.c-sev{font:9px var(--crt);letter-spacing:.14em;color:var(--muted)}
+.c-lab,.c-sev{font:11px var(--crt);letter-spacing:.14em;color:var(--muted)}
 
 /* Motif 4: glowing LEDs. The colour IS the provenance. */
 .led{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-top:4px}
@@ -446,31 +450,31 @@ a{color:inherit;text-decoration:none}
 .h-down .led,.h-down>.led{background:var(--alert);box-shadow:0 0 7px rgba(255,93,115,.8)}
 .h-down.card{opacity:.72}
 
-.crumb{font:9px var(--crt);letter-spacing:.22em;color:var(--muted);margin:6px 0 16px}
+.crumb{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin:6px 0 16px}
 .crumb a{color:var(--signal)}
 .detail{max-width:860px;border:1px solid var(--line);border-radius:8px;padding:22px 24px 26px;
   background:linear-gradient(var(--panel),var(--panel-2));position:relative}
 .detail::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--gaccent);opacity:.5;border-radius:8px 0 0 8px}
 .d-head{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.abbr{font:10px var(--crt);letter-spacing:.06em;color:var(--gaccent);padding:3px 7px;
+.abbr{font:11px var(--crt);letter-spacing:.06em;color:var(--gaccent);padding:3px 7px;
   border-radius:4px;border:1px solid color-mix(in srgb,var(--gaccent) 40%,var(--line));
   background:color-mix(in srgb,var(--gaccent) 8%,transparent)}
-.sev{font:9px var(--crt);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.sev{font:11px var(--crt);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
 .detail h1{font:700 22px/1.3 var(--disp);margin:0 0 10px}
 .detail h2{font:11px var(--crt);letter-spacing:.28em;color:var(--dim);
   text-transform:uppercase;margin:26px 0 8px}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-.tag{font:9px var(--crt);letter-spacing:.1em;color:var(--muted);border:1px solid var(--line);
+.tag{font:11px var(--crt);letter-spacing:.1em;color:var(--muted);border:1px solid var(--line);
   border-radius:3px;padding:2px 6px}
-.prov{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:14px 0;
-  display:flex;align-items:flex-start;gap:9px;font:10px var(--mono);letter-spacing:.06em;
+.prov{border:1px solid var(--line);border-radius:6px;padding:11px 13px;margin:14px 0;
+  display:flex;align-items:flex-start;gap:9px;font:12px var(--mono);letter-spacing:.06em;
   color:var(--dim);flex-wrap:wrap}
 .prov b{letter-spacing:.16em;color:var(--ink)}
 .note,.danger{border-left:2px solid var(--warn);background:rgba(242,179,75,.05);
   padding:10px 13px;margin:12px 0;border-radius:0 6px 6px 0;font:12px/1.6 var(--body);color:var(--dim)}
 .danger{border-left-color:var(--alert);background:rgba(255,93,115,.06)}
-.n-lab{font:9px var(--crt);letter-spacing:.22em;color:var(--muted);margin-bottom:5px}
+.n-lab{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin-bottom:5px}
 .n-tail{margin-top:8px;font-style:italic;color:var(--muted)}
 pre{background:#070b10;border:1px solid var(--line);border-radius:6px;padding:12px 14px;
   overflow-x:auto;margin:10px 0}
@@ -480,9 +484,9 @@ code{font:12px/1.55 var(--mono);color:var(--ink);font-variant-numeric:tabular-nu
 .src{margin:8px 0;padding-left:18px}
 .src a{color:var(--signal);font:11px var(--mono);word-break:break-all}
 .slug{margin-top:24px;padding-top:12px;border-top:1px solid var(--line);
-  font:9px var(--crt);letter-spacing:.14em;color:var(--faint)}
+  font:11px var(--crt);letter-spacing:.14em;color:var(--faint)}
 footer{position:relative;z-index:2;text-align:center;padding:26px 20px 34px;
-  border-top:1px solid var(--line);font:10px var(--crt);letter-spacing:.14em;color:var(--muted)}
+  border-top:1px solid var(--line);font:11px var(--crt);letter-spacing:.14em;color:var(--muted)}
 footer a{color:var(--signal)}
 
 @media(max-width:760px){
@@ -490,7 +494,13 @@ footer a{color:var(--signal)}
   .vitals{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
   .wave{display:none}          /* the spec hides the waveform at this breakpoint */
 }
-@media(max-width:420px){.vitals{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:420px){
+  .vitals{grid-template-columns:repeat(2,1fr)}
+  /* 22px x 19 characters at .20em overruns a phone. Tracking is spacing, not glyph size,
+     so tightening it keeps the wordmark ON the 11px grid -- dropping to 11px would fit but
+     would make the masthead read as a caption. */
+  .wordmark{letter-spacing:.06em}
+}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 """
 
