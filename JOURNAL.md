@@ -1,6 +1,70 @@
 # Journal — handoff
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
+
+## Session of 2026-09-03 — n=10, and the lift does not survive it
+
+Runs 25 and 26 replicate runs 23/24 at ten repeats. **The +11.1 pt lift does not hold.**
+
+| bench | none | skill | lift | 95% CI | p |
+| --- | ---: | ---: | ---: | --- | ---: |
+| `omarchy-agentic-stale-advice` | 0.800 | 0.883 | +8.3 pt | [−1.7, +18.3] | 0.205 |
+| `linux-agentic-triage` (control) | 0.950 | 1.000 | +5.0 pt | [+0.0, +13.3] | 0.491 |
+| **difference in differences** | | | **+3.3 pt** | | **0.807** |
+
+Read the last row. **The skill lifts the general-Linux control nearly as much as it lifts
+the Omarchy bench**, and that is precisely the condition the controls exist to detect: by
+this repo's own rule it is measuring answer length, not Omarchy knowledge. The n=3 figures
+(+11.1 vs +5.6, a +5.6 gap) shrank to +8.3 vs +5.0, a **+3.3 gap at p = 0.81**. Classic
+small-sample optimism, caught by doing the obvious thing and running it again bigger.
+
+The binary framing agrees exactly and is easier to hold onto: **solved outright, 8/20 bare
+vs 13/20 with the skill, Fisher exact p = 0.205.**
+
+### 1. n=10 was underpowered by about 3x, and that is computable
+
+At the observed effect (0.40 → 0.65 solved) and its variance, 80% power at α=0.05 needs
+**~62 cases per variant ≈ 31 repeats**. We ran 10. So "not significant" here is **not**
+evidence the skill does nothing — it is evidence the experiment was too small to tell, and
+the honest next step is either 31 repeats or accepting that this effect size is not worth
+the hours.
+
+[skillbench/tools/lift_test.py](skillbench/tools/lift_test.py) now does this properly:
+permutation test, bootstrap CI, and the difference-in-differences, stdlib only. **The unit
+is the case, not the assertion** — the 6 post assertions inside a case are heavily
+correlated, and treating 60 assertions as 60 independent samples would have manufactured
+significance out of nothing.
+
+### 2. The control is saturated, which is a real limit on this comparison
+
+`linux-agentic-triage` scores **0.950 bare**, so it has 5 points of headroom and cannot
+show a large lift by construction. That caps how much signal the difference-in-differences
+can ever carry, and it means the DiD test here is weak in both directions.
+
+**A control needs headroom for the comparison to mean anything.** Every existing control
+was chosen to be *easy general Linux*; none was chosen to be *hard* general Linux. That is
+the flaw to fix before spending 31 repeats on anything.
+
+### 3. What did hold up
+
+- **The trap bench has real headroom** and is the only agentic bench that does: bare solves
+  it 8/20, against saturation at 8/8 everywhere else. The bench design works even though
+  the skill result was negative.
+- **Scores are cleanly bimodal** — 4/6 (did nothing) or 6/6 (did it right), almost nothing
+  between. The "wrong answer scores below the floor" design gives a grader that separates
+  the three outcomes, and the data shows agents really do land in exactly those bins.
+- **`skill:omarchy` halves the error rate**: 6 of 20 bare cases errored, against 2 of 20
+  with the skill. That is a real and separate effect from the STATE lift, and it is what
+  drove the +20 pt `success` difference. Worth measuring deliberately rather than as a
+  by-product.
+
+### 4. The latency fix is NOT live, and runs 25/26 still carry the old semantics
+
+`compose.yaml` mounts `./benches` and `./data` but **not `./app`**, so `app/runner.py` is
+baked into the image. The queue-wait fix committed on 2026-09-02 therefore did not take
+effect for runs 25 and 26 — **it needs `docker compose up -d --build`**. Correcting the
+previous entry: the old latency semantics apply through **run 26**, not run 24. (This is
+also why a new bench YAML is picked up with no rebuild but an app change is not.)
 
 ## Session of 2026-09-02 (second) — the trap seam, and the first agentic lift
 
@@ -90,8 +154,9 @@ means the **"3.0x latency" reported for run 18 overstates the skill's cost** —
 should not be quoted.
 
 Fixed: the clock starts after `acquire()`, and `queue_wait_s` is recorded separately.
-**Runs up to and including 24 carry the old semantics** and their agentic latencies are not
-comparable with later ones.
+**Corrected 2026-09-03: the fix is not live.** `compose.yaml` does not mount `./app`, so
+the runner is baked into the image and needs `docker compose up -d --build`. The old
+semantics therefore apply through **run 26**, not run 24.
 
 ## Session of 2026-09-02 — what the local models can actually do
 
@@ -723,31 +788,28 @@ runs.
 
 ## What's left
 
-### 1. Confirm the agentic lift, or show it is noise
+### 1. Give the agentic lane a control with headroom, then decide if the lift is worth chasing
 
-**Changed 2026-09-02 (second session).** This item previously said the lane *cannot* measure
-skill lift. That is now too strong: `omarchy-agentic-stale-advice` produced
-**+11.1 pt** against a control that moved **+5.6 pt** — the first positive agentic signal.
+**Answered 2026-09-03, negatively.** Runs 25/26 replicated at n=10: the Omarchy lift is
++8.3 pt (p = 0.21) against a control that moved +5.0 pt, a difference-in-differences of
+**+3.3 pt at p = 0.81**. Not confirmed, and the control moving nearly as much is the exact
+signature the controls exist to catch.
 
-It is **not** a result yet. Both deltas are a couple of assertion flips at n=3, and the
-control moving at all is exactly what the controls exist to warn about. The next step is
-simply **more repeats** on runs 23/24's design (`devstral-small-2:24b`, `none` vs
-`skill:omarchy`, the trap bench against `linux-agentic-triage`). If the gap holds at n=10 it
-is real; if the control catches up it was answer length.
+Do **not** simply re-run at n=31 (the power calculation's answer). Fix the measurement first:
 
-Two things to fold in when re-running:
+- **The control is saturated at 0.950 and cannot show a large lift.** Every control in the
+  suite is *easy* general Linux. One that is *hard* general Linux — same difficulty profile
+  as the trap bench, still nothing the skill mentions — would give the
+  difference-in-differences something to work with. This is the highest-value change on the
+  lane and it is cheap.
+- **Measure the error-rate effect separately.** The skill cut errors from 6/20 to 2/20. If
+  that reproduces it is a genuine finding about the skill keeping an agent on track, and it
+  is currently buried inside `success`.
+- Only then spend the ~31 repeats, and only on `rebind-packaged-default`-shaped tasks.
 
-- **Weight toward `rebind-packaged-default`.** It has the headroom (bare 4/6, 4/6, 6/6);
-  `looknfeel-not-hyprlang` is nearly saturated bare (6/6, 6/6, 4/6).
-- **Raise `agent_timeout` above 600 s.** Several cases in run 23 timed out *having already
-  solved the task* (one scored 6/6 and still errored), which drags `success` down for a
-  reason that is not capability. Pass it as a launch param rather than editing the bench, or
-  the spec sha changes and the series restarts.
-
-Still open, and unchanged: only **4 of 14** local models can drive the loop at all
-([skillbench/MODELS.md](skillbench/MODELS.md)), so difficulty is not a lever — *wrongness*
-is. And whether `skill:omarchy-full` (~6.6k tokens, ~20% of the 32K budget) is loadable in
-an agentic loop at all is untested.
+Still open and unchanged: only **4 of 14** local models can drive the loop
+([skillbench/MODELS.md](skillbench/MODELS.md)), so difficulty is not the lever — *wrongness*
+is. And whether `skill:omarchy-full` is loadable in an agentic loop at all is untested.
 
 ### 2. Finish auditing 28 records  — **DONE 2026-09-01**
 
