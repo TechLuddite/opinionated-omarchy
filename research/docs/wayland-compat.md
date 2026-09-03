@@ -2,7 +2,7 @@
 
 37 problems. Sorted by severity, then by how often users hit it.
 
-## screenshare-black-screen-no-portal
+## Fix screen share showing a black rectangle or no picker at all
 
 `screenshare-black-screen-no-portal` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -61,7 +61,7 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 ---
 
-## discord-screenshare-stops-after-one-second
+## Fix Discord screen share stopping after about a second
 
 `discord-screenshare-stops-after-one-second` · severity: **high** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
@@ -186,7 +186,7 @@ Sources: <https://wiki.archlinux.org/title/Chromium> · <https://wiki.archlinux.
 
 ---
 
-## obs-no-screen-capture-source
+## Add a working PipeWire screen capture source to OBS
 
 `obs-no-screen-capture-source` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -233,7 +233,7 @@ Sources: <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https:
 
 ---
 
-## share-picker-crashes-missing-qt6-wayland
+## Fix the share picker crashing on a missing Qt6 Wayland library
 
 `share-picker-crashes-missing-qt6-wayland` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -292,7 +292,7 @@ Sources: <https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/367> · <
 
 ---
 
-## steam-games-xwayland-fullscreen-flicker
+## Stop Steam games flickering between sizes instead of going fullscreen
 
 `steam-games-xwayland-fullscreen-flicker` · severity: **high** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`, `xwayland`
 
@@ -365,7 +365,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/4595> · <https://wiki.hypr
 
 ---
 
-## xwayland-app-cannot-share-wayland-windows
+## Fix an XWayland app that can only offer other X11 windows to share
 
 `xwayland-app-cannot-share-wayland-windows` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
 
@@ -431,7 +431,7 @@ Sources: <https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/> · <https://w
 
 ---
 
-## zoom-screen-share-not-working-wayland
+## Fix Zoom offering no screens to share, or sharing a black window
 
 `zoom-screen-share-not-working-wayland` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -474,7 +474,7 @@ Sources: <https://wiki.archlinux.org/title/Zoom_Meetings> · <https://wiki.archl
 
 ---
 
-## chromium-xwayland-nvidia-gpu-crash
+## Stop Chromium's GPU process crashing repeatedly on NVIDIA
 
 `chromium-xwayland-nvidia-gpu-crash` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`, `xwayland`
 
@@ -520,7 +520,7 @@ Sources: <https://wiki.archlinux.org/title/Chromium> · <https://github.com/base
 
 ---
 
-## electron-app-no-window-ozone-wayland
+## Fix an Electron app that runs but never shows a window
 
 `electron-app-no-window-ozone-wayland` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `electron`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -581,7 +581,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/7642> · <https://github.co
 
 ---
 
-## java-gray-window-nonreparenting
+## Fix a Java app opening as a blank grey box that never draws
 
 `java-gray-window-nonreparenting` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
 
@@ -638,7 +638,7 @@ Sources: <https://wiki.archlinux.org/title/Java>
 
 ---
 
-## share-picker-outputs-tab-empty
+## Fix an empty Outputs tab in the screen-share picker
 
 `share-picker-outputs-tab-empty` · severity: **high** · frequency: **occasional** · applies to: `amd`, `desktop`, `hyprland`, `intel`, `laptop`, `omarchy`, `wayland`
 
@@ -682,7 +682,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/4097> · <https://github.co
 
 ---
 
-## chrome-sharing-indicator-stuck-center-screen
+## Move Chrome's screen-sharing bar off the centre of the display
 
 `chrome-sharing-indicator-stuck-center-screen` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -867,7 +867,7 @@ Sources: <https://wiki.archlinux.org/title/Chromium> · <https://wiki.archlinux.
 
 ---
 
-## clipboard-lost-when-source-app-closes
+## Keep the clipboard after closing the app you copied from
 
 `clipboard-lost-when-source-app-closes` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -941,7 +941,7 @@ Sources: <https://wiki.archlinux.org/title/Clipboard> · <https://wiki.archlinux
 
 ---
 
-## gdk-scale-mismatch-oversized-xwayland
+## Fix XWayland and Java apps rendering at double size on stock Omarchy
 
 `gdk-scale-mismatch-oversized-xwayland` · severity: **medium** · frequency: **very-common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`, `xwayland`
 
@@ -1162,7 +1162,7 @@ Sources: <https://github.com/hyprwm/Hyprland/discussions/13083> · <https://gith
 
 ---
 
-## xwayland-apps-blurry-hidpi
+## Sharpen blurry XWayland apps on a HiDPI display
 
 `xwayland-apps-blurry-hidpi` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`, `xwayland`
 
@@ -1234,7 +1234,7 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/> · <ht
 
 ---
 
-## apps-slow-to-launch-multiple-portals
+## Fix apps taking 20 to 30 seconds to open with several portals installed
 
 `apps-slow-to-launch-multiple-portals` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1303,7 +1303,7 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 ---
 
-## chromium-hangs-pasting-from-xwayland-app
+## Fix Chromium freezing when you paste from an XWayland app
 
 `chromium-hangs-pasting-from-xwayland-app` · severity: **medium** · frequency: **common** · applies to: `arch`, `electron`, `hyprland`, `omarchy`, `wayland`, `xwayland`
 
@@ -1365,7 +1365,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/2903> · <https://wiki.arch
 
 ---
 
-## chromium-window-shrinks-fractional-scaling
+## Stop a Chromium window shrinking a little on every interaction
 
 `chromium-window-shrinks-fractional-scaling` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `electron`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1403,7 +1403,7 @@ Sources: <https://wiki.archlinux.org/title/Chromium> · <https://wiki.archlinux.
 
 ---
 
-## discord-global-keybinds-not-working
+## Get Discord push-to-talk working when its keybind recorder captures nothing
 
 `discord-global-keybinds-not-working` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `electron`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1536,7 +1536,7 @@ Sources: <https://hypr.land/news/update46/> · <https://github.com/hyprwm/Hyprla
 
 ---
 
-## firefox-no-download-save-dialog
+## Get Firefox to ask where to save downloads again
 
 `firefox-no-download-save-dialog` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1573,7 +1573,7 @@ Sources: <https://wiki.archlinux.org/title/Firefox> · <https://wiki.archlinux.o
 
 ---
 
-## gtk-file-chooser-does-nothing-xwayland
+## Fix an X11 app never receiving the file you picked in the GTK dialog
 
 `gtk-file-chooser-does-nothing-xwayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
 
@@ -1627,7 +1627,7 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 ---
 
-## java-swing-apps-oversized
+## Bring oversized Java apps like Ghidra and Burp Suite back to normal size
 
 `java-swing-apps-oversized` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
 
@@ -1680,7 +1680,7 @@ Sources: <https://wiki.archlinux.org/title/HiDPI> · <https://github.com/basecam
 
 ---
 
-## obs-global-hotkeys-dont-work
+## Make OBS hotkeys fire while another window is focused
 
 `obs-global-hotkeys-dont-work` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1734,7 +1734,7 @@ Sources: <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https:
 
 ---
 
-## screenshot-tool-broken-multimonitor
+## Replace an X11-era screenshot tool that breaks on multiple monitors
 
 `screenshot-tool-broken-multimonitor` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -1791,7 +1791,7 @@ Sources: <https://wiki.hypr.land/0.54.0/FAQ/> · <https://wiki.hypr.land/Useful-
 
 ---
 
-## screen-recording-fails-hybrid-gpu-external-monitor
+## Fix screen recording producing nothing on a hybrid-GPU external monitor
 
 `screen-recording-fails-hybrid-gpu-external-monitor` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `wayland`
 

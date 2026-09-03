@@ -2,7 +2,7 @@
 
 34 problems. Sorted by severity, then by how often users hit it.
 
-## clamshell-lid-close-kills-all-gui-clients
+## Stop closing the lid from killing every GUI app at once
 
 `clamshell-lid-close-kills-all-gui-clients` · severity: **critical** · frequency: **common** · applies to: `hyprland`, `intel`, `laptop`, `omarchy`, `wayland`
 
@@ -48,7 +48,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/7853> · <https://github.co
 
 ---
 
-## explicit-rule-on-disconnected-connector-freezes
+## Fix Hyprland hanging at startup from a rule on a disconnected port
 
 `explicit-rule-on-disconnected-connector-freezes` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
 
@@ -84,7 +84,7 @@ Sources: <https://github.com/hyprwm/Hyprland/issues/13310> · <https://github.co
 
 ---
 
-## nvidia-external-monitor-no-signal-hybrid-laptop
+## Fix No Signal on a hybrid laptop's dGPU-wired HDMI or USB-C port
 
 `nvidia-external-monitor-no-signal-hybrid-laptop` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
@@ -150,7 +150,7 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Nvidia/_inde
 
 ---
 
-## displaylink-dock-monitors-not-redetected
+## Get DisplayLink dock monitors redetected after a replug
 
 `displaylink-dock-monitors-not-redetected` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `dock`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -256,7 +256,7 @@ Sources: <https://github.com/hyprwm/Hyprland/issues/2437> · <https://github.com
 
 ---
 
-## external-display-dark-after-long-suspend-dock
+## Fix a docked external display staying dark after a long suspend
 
 `external-display-dark-after-long-suspend-dock` · severity: **high** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `dock`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -357,7 +357,7 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Hy
 
 ---
 
-## internal-scale-snaps-back-to-2-nwg-displays
+## Stop a docked laptop's internal scale jumping back to 2 by itself
 
 `internal-scale-snaps-back-to-2-nwg-displays` · severity: **high** · frequency: **common** · applies to: `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -395,7 +395,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/8335> · <https://github.co
 
 ---
 
-## laptop-display-stays-dark-after-external-unplug
+## Bring the laptop panel back after unplugging the external monitor
 
 `laptop-display-stays-dark-after-external-unplug` · severity: **high** · frequency: **common** · applies to: `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -429,7 +429,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/7228> · <https://github.co
 
 ---
 
-## monitor-powered-off-at-boot-black-0x0
+## Recover a monitor that stays black because it was switched off at boot
 
 `monitor-powered-off-at-boot-black-0x0` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
 
@@ -472,7 +472,7 @@ Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-hyprland-
 
 ---
 
-## nvidia-black-screen-external-after-suspend
+## Fix NVIDIA monitors staying black or corrupted after suspend
 
 `nvidia-black-screen-external-after-suspend` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `systemd-boot`, `wayland`
 
@@ -576,7 +576,7 @@ Sources: <https://wiki.archlinux.org/rest.php/v1/page/Kernel_mode_setting> · <h
 
 ---
 
-## hdmi-tv-flickers-black-on-every-click
+## Stop an HDMI TV blanking for a moment on every click
 
 `hdmi-tv-flickers-black-on-every-click` · severity: **high** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `omarchy`, `wayland`
 
@@ -618,7 +618,7 @@ Sources: <https://github.com/hyprwm/Hyprland/issues/13338> · <https://github.co
 
 ---
 
-## electron-chromium-blurry-fractional-scale
+## Fix Chromium and Electron apps looking soft on a fractionally scaled monitor
 
 `electron-chromium-blurry-fractional-scale` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -671,7 +671,7 @@ Sources: <https://wiki.archlinux.org/title/HiDPI> · <https://wiki.archlinux.org
 
 ---
 
-## hyprctl-keyword-monitor-non-legacy-parser
+## Fix 'keyword can't work with non-legacy parsers' from monitor scripts
 
 `hyprctl-keyword-monitor-non-legacy-parser` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
 
@@ -709,7 +709,7 @@ Sources: <https://github.com/basecamp/omarchy/pull/7036> · <https://github.com/
 
 ---
 
-## hyprland-invalid-scale-not-divisible
+## Pick a fractional scale Hyprland accepts instead of 'Invalid scale'
 
 `hyprland-invalid-scale-not-divisible` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -828,7 +828,7 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Co
 
 ---
 
-## monitor-stuck-at-60hz-high-refresh
+## Get a 120, 144 or 165 Hz panel out of 60 Hz
 
 `monitor-stuck-at-60hz-high-refresh` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
@@ -926,7 +926,7 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Co
 
 ---
 
-## xwayland-apps-blurry-or-tiny-on-hidpi
+## Fix X11 apps being blurry or unreadably tiny on a HiDPI screen
 
 `xwayland-apps-blurry-or-tiny-on-hidpi` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -979,7 +979,7 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/
 
 ---
 
-## disable-monitor-loses-windows-and-workspaces
+## Stop losing windows and workspaces when you disable a monitor
 
 `disable-monitor-loses-windows-and-workspaces` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -1030,7 +1030,7 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/
 
 ---
 
-## env-vars-in-hyprland-config-ignored-uwsm
+## Set environment variables where a uwsm session will actually see them
 
 `env-vars-in-hyprland-config-ignored-uwsm` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
 
@@ -1126,7 +1126,7 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Co
 
 ---
 
-## monitor-rules-break-when-ports-swap
+## Write monitor rules that survive a cable swap or a dock replug
 
 `monitor-rules-break-when-ports-swap` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `dock`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -1160,7 +1160,7 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/
 
 ---
 
-## monitor-scale-reverts-instantly-per-monitor-rule
+## Stop the display scale snapping straight back after you change it
 
 `monitor-scale-reverts-instantly-per-monitor-rule` · severity: **medium** · frequency: **common** · applies to: `hyprland`, `omarchy`, `wayland`
 
@@ -1196,7 +1196,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/7242> · <https://github.co
 
 ---
 
-## vrr-flicker-and-brightness-pumping
+## Stop VRR flicker and backlight pumping with adaptive sync on
 
 `vrr-flicker-and-brightness-pumping` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
@@ -1239,7 +1239,7 @@ Sources: <https://wiki.archlinux.org/title/Variable_refresh_rate> · <https://gi
 
 ---
 
-## usb4-displayport-no-signal-after-reboot
+## Fix a USB4 or Thunderbolt monitor reporting No signal after a reboot
 
 `usb4-displayport-no-signal-after-reboot` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `dock`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -1300,7 +1300,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/374> · <https://wiki.archl
 
 ---
 
-## monitor-positions-wrong-order-with-scaling
+## Fix monitors in the wrong order or with a dead gap between them
 
 `monitor-positions-wrong-order-with-scaling` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1389,7 +1389,7 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Hy
 
 ---
 
-## cursor-wrong-size-on-scaled-or-mixed-monitors
+## Fix a cursor that changes size between mixed-DPI monitors
 
 `cursor-wrong-size-on-scaled-or-mixed-monitors` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `nvidia`, `omarchy`, `wayland`
 
@@ -1430,7 +1430,7 @@ Sources: <https://github.com/basecamp/omarchy/blob/quattro/default/hypr/envs.lua
 
 ---
 
-## firefox-blurry-or-double-scaled-wayland
+## Fix Firefox rendering blurry or double-scaled on a fractional scale
 
 `firefox-blurry-or-double-scaled-wayland` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
@@ -1520,7 +1520,7 @@ Sources: <https://github.com/hyprwm/Hyprland/pull/12418> · <https://raw.githubu
 
 ---
 
-## screen-tearing-in-games-not-enabled
+## Allow tearing in games without tearing the desktop
 
 `screen-tearing-in-games-not-enabled` · severity: **low** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `nvidia`, `omarchy`, `wayland`
 

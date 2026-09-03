@@ -2,7 +2,7 @@
 
 35 problems. Sorted by severity, then by how often users hit it.
 
-## nvidia-dkms-login-loop-after-update
+## Break out of an SDDM login loop after an NVIDIA DKMS update
 
 `nvidia-dkms-login-loop-after-update` · severity: **critical** · frequency: **common** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `nvidia`, `omarchy`, `wayland`
 
@@ -176,7 +176,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-
 
 ---
 
-## black-screen-after-install-old-nvidia
+## Fix a permanent black screen after install on an older NVIDIA card
 
 `black-screen-after-install-old-nvidia` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `desktop`, `nvidia`, `omarchy`
 
@@ -246,7 +246,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/2434> · <https://archlinux
 
 ---
 
-## limine-boot-entry-missing-after-install
+## Add the missing Limine boot entry after a suspiciously fast install
 
 `limine-boot-entry-missing-after-install` · severity: **critical** · frequency: **occasional** · applies to: `amd`, `arch`, `desktop`, `laptop`, `nvidia`, `omarchy`
 
@@ -306,7 +306,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/4152> · <https://github.co
 
 ---
 
-## luks-prompt-then-no-desktop
+## Fix a black screen after the LUKS passphrase is accepted
 
 `luks-prompt-then-no-desktop` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -371,7 +371,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/688> · <https://github.com
 
 ---
 
-## nvidia-initramfs-migration-breaks-boot
+## Recover a black screen after an update migration rebuilt the initramfs
 
 `nvidia-initramfs-migration-breaks-boot` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `hyprland`, `nvidia`, `omarchy`, `wayland`
 
@@ -562,7 +562,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-
 
 ---
 
-## omarchy-update-aborted-midway
+## Finish an omarchy update that aborted partway with a red banner
 
 `omarchy-update-aborted-midway` · severity: **high** · frequency: **very-common** · applies to: `omarchy`
 
@@ -616,7 +616,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-
 
 ---
 
-## secure-boot-blocks-omarchy-install
+## Get past Secure Boot blocking the Omarchy ISO or the installed system
 
 `secure-boot-blocks-omarchy-install` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
 
@@ -655,7 +655,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <h
 
 ---
 
-## bluetooth-keyboard-cannot-unlock-luks
+## Enter the LUKS passphrase when only a Bluetooth keyboard is available
 
 `bluetooth-keyboard-cannot-unlock-luks` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
 
@@ -700,7 +700,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <h
 
 ---
 
-## limine-snapshot-rollback
+## Roll back to a Limine snapshot after an update broke the desktop
 
 `limine-snapshot-rollback` · severity: **high** · frequency: **common** · applies to: `desktop`, `laptop`, `omarchy`, `systemd-boot`
 
@@ -760,7 +760,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots> · 
 
 ---
 
-## locked-out-faillock-too-many-attempts
+## Unlock an account faillock locked after failed password attempts
 
 `locked-out-faillock-too-many-attempts` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `manjaro`, `omarchy`
 
@@ -814,7 +814,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting> · <h
 
 ---
 
-## omarchy-keyring-signature-unknown-trust
+## Fix unknown-trust signatures on packages from the omarchy repository
 
 `omarchy-keyring-signature-unknown-trust` · severity: **high** · frequency: **common** · applies to: `arch`, `omarchy`
 
@@ -1074,7 +1074,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
-## yay-libalpm-shared-library-error
+## Fix yay failing with a libalpm.so shared library error
 
 `yay-libalpm-shared-library-error` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `manjaro`, `omarchy`
 
@@ -1203,7 +1203,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
-## limine-snapper-wrong-config-path
+## Fix 'Limine config not found' when the installer wrote a working one
 
 `limine-snapper-wrong-config-path` · severity: **high** · frequency: **occasional** · applies to: `arch`, `omarchy`
 
@@ -1267,7 +1267,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/3543>
 
 ---
 
-## customizations-lost-editing-omarchy-defaults
+## Stop omarchy update wiping your config edits every time
 
 `customizations-lost-editing-omarchy-defaults` · severity: **medium** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `wayland`
 
@@ -1422,7 +1422,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
-## pacman-syu-instead-of-omarchy-update
+## Repair the menu and keybindings after updating with pacman instead of omarchy
 
 `pacman-syu-instead-of-omarchy-update` · severity: **medium** · frequency: **very-common** · applies to: `omarchy`
 
@@ -1480,7 +1480,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/68/updates> · <https://r
 
 ---
 
-## chromium-video-black-after-update
+## Fix Chromium playing video as a black rectangle after an update
 
 `chromium-video-black-after-update` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `hyprland`, `intel`, `nvidia`, `omarchy`, `wayland`
 
@@ -1543,7 +1543,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/3891> · <https://github.co
 
 ---
 
-## dev-channel-broke-my-desktop
+## Get back to the stable update channel after dev broke the desktop
 
 `dev-channel-broke-my-desktop` · severity: **medium** · frequency: **common** · applies to: `omarchy`
 
@@ -1597,7 +1597,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/68/updates> · <https://g
 
 ---
 
-## hibernation-fails-no-swap-space
+## Set up enough swap for hibernation to actually resume
 
 `hibernation-fails-no-swap-space` · severity: **medium** · frequency: **common** · applies to: `arch`, `laptop`, `omarchy`
 
@@ -1662,7 +1662,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/103/system-sleep> · <htt
 
 ---
 
-## omarchy-in-vm-no-gpu-acceleration
+## Make Omarchy usable in a VM without GPU acceleration
 
 `omarchy-in-vm-no-gpu-acceleration` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
 
@@ -1719,7 +1719,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/79/omarchy-on> · <https:
 
 ---
 
-## snapshot-restore-does-not-restore-home
+## Understand why a snapshot rollback leaves your home directory broken
 
 `snapshot-restore-does-not-restore-home` · severity: **medium** · frequency: **common** · applies to: `omarchy`
 
@@ -2094,7 +2094,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
-## keyring-reset-after-update-logins-cleared
+## Recover logins after an update reset the keyring
 
 `keyring-reset-after-update-logins-cleared` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
 
@@ -2206,7 +2206,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
-## caps-lock-does-nothing
+## Understand and restore a Caps Lock key that appears dead
 
 `caps-lock-does-nothing` · severity: **low** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `wayland`
 
@@ -2275,7 +2275,7 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting> · <h
 
 ---
 
-## everything-too-big-gdk-scale
+## Fix every application being enormous on first boot
 
 `everything-too-big-gdk-scale` · severity: **low** · frequency: **very-common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
 

@@ -93,7 +93,7 @@ Sources: <https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support> · <ht
 
 ---
 
-## partial-upgrade-broken-shared-libraries
+## Recover from a partial upgrade that broke shared libraries
 
 `partial-upgrade-broken-shared-libraries` · severity: **critical** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -322,7 +322,7 @@ Sources: <https://man.archlinux.org/man/alpm-hooks.5> · <https://wiki.archlinux
 
 ---
 
-## interrupted-upgrade-unbootable-pacman-broken
+## Recover a system left unbootable by an interrupted pacman upgrade
 
 `interrupted-upgrade-unbootable-pacman-broken` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `laptop`, `manjaro`, `omarchy`, `systemd-boot`
 
@@ -396,7 +396,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.or
 
 ---
 
-## local-package-database-corrupted
+## Rebuild a corrupted local pacman database
 
 `local-package-database-corrupted` · severity: **critical** · frequency: **rare** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -463,7 +463,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Restore_local_database> · <ht
 
 ---
 
-## aur-package-needs-rebuild-after-soname-bump
+## Rebuild AUR packages after a soname bump blocks the upgrade
 
 `aur-package-needs-rebuild-after-soname-bump` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -530,7 +530,7 @@ Sources: <https://wiki.archlinux.org/title/System_maintenance> · <https://wiki.
 
 ---
 
-## conflicting-files-exists-in-filesystem
+## Resolve a 'conflicting files, exists in filesystem' upgrade abort
 
 `conflicting-files-exists-in-filesystem` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -576,7 +576,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.or
 
 ---
 
-## signature-unknown-trust-keyring-out-of-date
+## Fix 'signature is unknown trust' from an out-of-date keyring
 
 `signature-unknown-trust-keyring-out-of-date` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -804,7 +804,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://man.archlinux.org
 
 ---
 
-## linux-firmware-nvidia-exists-in-filesystem
+## Fix the linux-firmware-nvidia file conflict during an upgrade
 
 `linux-firmware-nvidia-exists-in-filesystem` · severity: **high** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`
 
@@ -843,7 +843,7 @@ Sources: <https://archlinux.org/news/linux-firmware-2025061312fe085f-5-upgrade-r
 
 ---
 
-## omarchy-mirror-outage-tls-404-sig
+## Work around an Omarchy mirror outage returning TLS errors or 404s
 
 `omarchy-mirror-outage-tls-404-sig` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
 
@@ -1026,7 +1026,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://w
 
 ---
 
-## yay-paru-libalpm-so-mismatch
+## Fix yay or paru dying on a libalpm.so version mismatch
 
 `yay-paru-libalpm-so-mismatch` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1075,7 +1075,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/3877> · <https://github.co
 
 ---
 
-## restore-whole-system-to-earlier-date-ala
+## Roll the whole system back to how it was on a given date
 
 `restore-whole-system-to-earlier-date-ala` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `laptop`, `omarchy`, `systemd-boot`
 
@@ -1123,7 +1123,7 @@ Sources: <https://wiki.archlinux.org/title/Arch_Linux_Archive> · <https://wiki.
 
 ---
 
-## aur-pgp-signature-could-not-be-verified
+## Import the key an AUR build needs when signature verification fails
 
 `aur-pgp-signature-could-not-be-verified` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1175,7 +1175,7 @@ Sources: <https://wiki.archlinux.org/title/Makepkg> · <https://wiki.archlinux.o
 
 ---
 
-## failed-retrieving-file-404-stale-mirror
+## Fix 404s from a stale mirror during an upgrade
 
 `failed-retrieving-file-404-stale-mirror` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1301,7 +1301,7 @@ Sources: <https://wiki.archlinux.org/title/Makepkg> · <https://wiki.archlinux.o
 
 ---
 
-## pacman-cache-filling-disk
+## Reclaim a disk filled by the pacman package cache
 
 `pacman-cache-filling-disk` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1357,7 +1357,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.or
 
 ---
 
-## pacman-unable-to-lock-database
+## Clear a stale pacman lock after 'unable to lock database'
 
 `pacman-unable-to-lock-database` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1392,7 +1392,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://man.archlinux.org
 
 ---
 
-## pacnew-files-left-unmerged
+## Find and merge the .pacnew files an upgrade left behind
 
 `pacnew-files-left-unmerged` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1450,7 +1450,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Pacnew_and_Pacsave> · <https:
 
 ---
 
-## aur-build-fails-missing-base-devel
+## Fix AUR builds failing because base-devel is missing
 
 `aur-build-fails-missing-base-devel` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1564,7 +1564,7 @@ Sources: <https://wiki.archlinux.org/title/Arch_User_Repository> · <https://aur
 
 ---
 
-## aur-validity-check-failed-checksums
+## Fix an AUR build failing its sha256sums validity check
 
 `aur-validity-check-failed-checksums` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1605,7 +1605,7 @@ Sources: <https://wiki.archlinux.org/title/Makepkg> · <https://wiki.archlinux.o
 
 ---
 
-## automatic-orphan-removal-removes-wanted-packages
+## Get back a package that automatic orphan removal deleted
 
 `automatic-orphan-removal-removes-wanted-packages` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1661,7 +1661,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Tips_and_tricks> · <https://r
 
 ---
 
-## corrupted-package-checksum-part-files
+## Clear corrupted packages and .part files from the pacman cache
 
 `corrupted-package-checksum-part-files` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1705,7 +1705,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://github.com/baseca
 
 ---
 
-## downgrade-a-broken-package
+## Downgrade a package that an update broke
 
 `downgrade-a-broken-package` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`
 
@@ -1758,7 +1758,7 @@ Sources: <https://wiki.archlinux.org/title/Downgrading_packages> · <https://wik
 
 ---
 
-## gpgme-error-no-data-captive-portal
+## Fix 'GPGME error: No data' behind a captive portal or proxy
 
 `gpgme-error-no-data-captive-portal` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1812,7 +1812,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.or
 
 ---
 
-## omarchy-update-overwrites-pacman-conf
+## Stop omarchy-update wiping custom repositories from pacman.conf
 
 `omarchy-update-overwrites-pacman-conf` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
 
@@ -1861,7 +1861,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/3497> · <https://raw.githu
 
 ---
 
-## pgp-signature-invalid-wrong-system-clock
+## Fix invalid PGP signatures caused by a wrong system clock
 
 `pgp-signature-invalid-wrong-system-clock` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
@@ -1898,7 +1898,7 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://w
 
 ---
 
-## mise-shims-break-aur-builds
+## Stop mise shims breaking AUR builds that need Python, Node or Go
 
 `mise-shims-break-aur-builds` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
 
@@ -1940,7 +1940,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/3528> · <https://wiki.arch
 
 ---
 
-## pacman7-local-repo-alpm-download-user
+## Fix a local or file:// repository after the pacman 7.0.0 upgrade
 
 `pacman7-local-repo-alpm-download-user` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
 

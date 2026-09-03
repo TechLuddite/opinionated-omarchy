@@ -2,7 +2,7 @@
 
 35 problems. Sorted by severity, then by how often users hit it.
 
-## alsa-muted-after-reboot-or-headphones
+## Unmute the ALSA channel that silences sound after a reboot or headphones
 
 `alsa-muted-after-reboot-or-headphones` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -59,7 +59,7 @@ Sources: <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture/Tro
 
 ---
 
-## hyprland-055-lua-config-input-ignored
+## Fix keyboard and touchpad settings ignored after the Hyprland 0.55 Lua switch
 
 `hyprland-055-lua-config-input-ignored` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -123,7 +123,7 @@ Sources: <https://wiki.hypr.land/Configuring/Start/> · <https://wiki.hypr.land/
 
 ---
 
-## microphone-not-detected-pipewire
+## Fix a microphone PipeWire never lists as an input source
 
 `microphone-not-detected-pipewire` · severity: **high** · frequency: **very-common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -181,7 +181,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https:/
 
 ---
 
-## no-sound-missing-sof-firmware
+## Fix a laptop with no sound card at all from missing SOF firmware
 
 `no-sound-missing-sof-firmware` · severity: **high** · frequency: **very-common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -227,7 +227,7 @@ Sources: <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture> ·
 
 ---
 
-## pipewire-no-sinks-service-not-started
+## Fix no sound at all when PipeWire reports no audio sinks
 
 `pipewire-no-sinks-service-not-started` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -270,7 +270,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.
 
 ---
 
-## bluetooth-br-connection-profile-unavailable
+## Fix Bluetooth audio refusing to connect with br-connection-profile-unavailable
 
 `bluetooth-br-connection-profile-unavailable` · severity: **high** · frequency: **common** · applies to: `arch`, `bluetooth`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -316,7 +316,7 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth>
 
 ---
 
-## bluetoothctl-no-default-controller
+## Fix bluetoothctl reporting No default controller available
 
 `bluetoothctl-no-default-controller` · severity: **high** · frequency: **common** · applies to: `arch`, `bluetooth`, `cachyos`, `desktop`, `endeavouros`, `grub`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `systemd-boot`, `wayland`
 
@@ -494,7 +494,7 @@ Sources: <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture/Tro
 
 ---
 
-## synaptics-touchpad-dead-needs-intertouch
+## Revive a dead Synaptics touchpad after a kernel upgrade
 
 `synaptics-touchpad-dead-needs-intertouch` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -539,7 +539,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/5991> · <https://wiki.arch
 
 ---
 
-## audio-pop-crack-when-playback-starts
+## Stop the loud pop or crack every time audio starts or stops
 
 `audio-pop-crack-when-playback-starts` · severity: **medium** · frequency: **very-common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -598,7 +598,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https:/
 
 ---
 
-## bluetooth-headset-mic-hfp-a2dp-profile
+## Use a Bluetooth headset's microphone without wrecking the audio quality
 
 `bluetooth-headset-mic-hfp-a2dp-profile` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `bluetooth`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -661,7 +661,7 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth_headset> · <https://wiki.a
 
 ---
 
-## bluetooth-not-reconnecting-after-suspend
+## Make Bluetooth devices reconnect on their own after suspend
 
 `bluetooth-not-reconnecting-after-suspend` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `bluetooth`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -702,7 +702,7 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://github.com/blu
 
 ---
 
-## keyboard-layout-not-applied-wayland
+## Set a keyboard layout Hyprland actually applies, not setxkbmap
 
 `keyboard-layout-not-applied-wayland` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -914,7 +914,7 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Devices/> · <htt
 
 ---
 
-## no-auto-switch-to-new-audio-device
+## Make audio switch automatically to a headset or dock when you plug it in
 
 `no-auto-switch-to-new-audio-device` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `bluetooth`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -958,7 +958,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https:/
 
 ---
 
-## touchpad-tap-to-click-and-gestures-missing
+## Turn on touchpad tap-to-click, natural scrolling and palm rejection
 
 `touchpad-tap-to-click-and-gestures-missing` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -1013,7 +1013,7 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki
 
 ---
 
-## wrong-default-sink-audio-goes-to-hdmi
+## Stop audio going out over HDMI instead of the speakers or headphone jack
 
 `wrong-default-sink-audio-goes-to-hdmi` · severity: **medium** · frequency: **very-common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `pipewire`, `wayland`
 
@@ -1064,7 +1064,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.
 
 ---
 
-## audio-crackling-underruns-multiple-streams
+## Fix audio crackling and stuttering when a second stream starts
 
 `audio-crackling-underruns-multiple-streams` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -1120,7 +1120,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting>
 
 ---
 
-## bluetooth-audio-stutters-codec
+## Fix Bluetooth music stuttering, skipping or sounding low-bitrate
 
 `bluetooth-audio-stutters-codec` · severity: **medium** · frequency: **common** · applies to: `arch`, `bluetooth`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -1198,7 +1198,7 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://raw.githubuser
 
 ---
 
-## fcitx5-cjk-input-not-working-wayland
+## Get CJK input working in Electron and XWayland apps under Hyprland
 
 `fcitx5-cjk-input-not-working-wayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -1247,7 +1247,7 @@ Sources: <https://wiki.archlinux.org/title/Fcitx5>
 
 ---
 
-## fingerprint-reader-not-used-for-login-sudo
+## Make the fingerprint reader authenticate sudo, polkit and the lock screen
 
 `fingerprint-reader-not-used-for-login-sudo` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -1388,7 +1388,7 @@ Sources: <https://wiki.archlinux.org/title/Gamepad> · <https://wiki.archlinux.o
 
 ---
 
-## hdmi-displayport-audio-no-output
+## Get audio out of an HDMI or DisplayPort monitor that offers none
 
 `hdmi-displayport-audio-no-output` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `pipewire`, `wayland`
 
@@ -1571,7 +1571,7 @@ Sources: <https://docs.pipewire.org/page_module_echo_cancel.html> · <https://ra
 
 ---
 
-## microphone-too-quiet-or-distorted
+## Fix a microphone that is inaudible or clipped and distorted on calls
 
 `microphone-too-quiet-or-distorted` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -1617,7 +1617,7 @@ Sources: <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture/Tro
 
 ---
 
-## omarchy-touchpad-right-click-broken
+## Restore touchpad right-click after updating to Omarchy 4.0
 
 `omarchy-touchpad-right-click-broken` · severity: **medium** · frequency: **common** · applies to: `hyprland`, `laptop`, `omarchy`, `wayland`
 
@@ -1666,7 +1666,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/6935> · <https://wiki.hypr
 
 ---
 
-## webcam-black-image-ipu6-wrong-node
+## Pick the webcam node that works when one of two cameras is black
 
 `webcam-black-image-ipu6-wrong-node` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `omarchy`, `wayland`
 
@@ -1714,7 +1714,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/5722> · <https://wiki.arch
 
 ---
 
-## wireplumber-state-corrupt-devices-missing
+## Recover an audio device that vanished after WirePlumber state went bad
 
 `wireplumber-state-corrupt-devices-missing` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -1754,7 +1754,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https:/
 
 ---
 
-## fprintd-broken-after-suspend
+## Fix a fingerprint reader that stops working after the first suspend
 
 `fprintd-broken-after-suspend` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
@@ -1812,7 +1812,7 @@ Sources: <https://wiki.archlinux.org/title/Fprint>
 
 ---
 
-## bluetooth-volume-jumps-to-max
+## Fix Bluetooth headphones being painfully loud at the lowest volume step
 
 `bluetooth-volume-jumps-to-max` · severity: **low** · frequency: **common** · applies to: `arch`, `bluetooth`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
@@ -1940,7 +1940,7 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https:/
 
 ---
 
-## system-wide-key-remap-wayland-keyd
+## Remap keys system-wide with keyd, including the TTY and login screen
 
 `system-wide-key-remap-wayland-keyd` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
