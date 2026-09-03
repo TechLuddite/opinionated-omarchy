@@ -12,7 +12,15 @@ export const meta = {
 // Agents read the corpus off disk by absolute path rather than receiving it
 // through `args`: the apps-services records alone are ~50KB, and round-tripping
 // them through the tool call would cost more than the audit itself.
-const ROOT = '/home/techluddite/Projects/opinionated-omarchy/research'
+// The corpus path, supplied by the caller. Pass it as the Workflow tool's `args`:
+//     Workflow({ scriptPath: "...", args: { root: "/abs/path/to/research" } })
+// This was a hardcoded absolute path under one developer's home directory, which is both
+// unportable in a public clone and a silent failure: agents read the corpus off disk, so a
+// wrong root produces "file not found" inside an agent rather than an error here. Failing
+// loudly at launch is the whole point.
+const ROOT = (typeof args === 'object' && args && args.root) || (() => {
+  throw new Error("pass args { root: '/abs/path/to/research' } -- see the note above")
+})()
 const JSONL = ROOT + '/data/problems.jsonl'
 const TODO = ROOT + '/raw/gapfill-todo.json'
 
