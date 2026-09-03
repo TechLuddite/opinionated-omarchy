@@ -153,6 +153,7 @@ def page(title, body, depth=0, subtitle=""):
 {body}
 <footer>OPINIONATED OMARCHY &middot; CORPUS IS RESEARCH, NOT A WARRANTY &middot;
 <a href="https://github.com/TechLuddite/opinionated-omarchy">SOURCE</a> &middot;
+<a href="https://github.com/TechLuddite/opinionated-omarchy/blob/HEAD/LICENSE">MIT</a> &middot;
 SET IN <a href="{up}fonts/DepartureMono-LICENSE.txt">DEPARTURE MONO</a></footer>
 </body></html>
 """
