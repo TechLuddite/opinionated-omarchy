@@ -621,7 +621,7 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hy
 
 ---
 
-## hyprctl keyword silently does nothing under a Lua config — use eval / repl
+## hyprctl keyword silently does nothing under a Lua config, so use eval or repl
 
 `hyprctl-keyword-noop-under-lua` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
