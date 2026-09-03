@@ -1,0 +1,89 @@
+name: Dispute a record
+description: A fix did not work, is dangerous, is out of date, or the diagnosis is wrong.
+title: "[record] "
+labels: ["record-dispute"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time. Disputes are how this corpus stays honest, and a
+        record that is wrong on a real machine is worth more to us than one that reads well.
+
+        The first three fields are filled in for you if you arrived from the site. Please
+        leave them as they are, because they are how the record gets found again.
+
+  - type: input
+    id: record
+    attributes:
+      label: Record
+      description: The record's stable slug.
+      placeholder: e.g. screenshare-black-screen-no-portal
+    validations:
+      required: true
+
+  - type: input
+    id: status
+    attributes:
+      label: Audit status at the time you read it
+      description: >
+        What the record claimed about its own provenance. `ok` means it was checked against
+        its sources, which is not the same as being true on your machine.
+      placeholder: ok | corrected | unaudited
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong with it
+      options:
+        - The fix did not work
+        - The fix worked but caused damage or a side effect
+        - The fix is dangerous and the risk is understated
+        - The diagnosis or cause is wrong
+        - It is out of date for the current Omarchy or Hyprland
+        - A cited source does not support the claim, or the link is dead
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: What happened
+      description: >
+        What you ran, what you expected, and what you got. Exact error text helps more than
+        a description of it. If a command failed, paste the command and its output.
+      placeholder: |
+        I ran:
+            systemctl --user restart xdg-desktop-portal-hyprland.service
+        Expected the share picker to appear. Instead:
+            Failed to restart: Unit not found
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Output of `pacman -Q omarchy hyprland` and `uname -r` if you have it. Note that
+        `/usr/share/omarchy/version` is branding rather than the package version.
+      placeholder: |
+        omarchy 4.0.1-1
+        hyprland 0.56.2-1
+        7.1.8-arch1-3
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: verified
+    attributes:
+      label: Before submitting
+      options:
+        - label: >
+            I read the record's own audit note and risk warning, where it had them.
+          required: false
+        - label: >
+            I am reporting what actually happened on a machine, not what I expect would happen.
+          required: false
