@@ -57,6 +57,10 @@ jobs:
           # ever stops emitting it, fail loudly rather than publish a corpus that reads
           # as uniformly trustworthy.
           grep -qr 'UNAUDITED' docs/records/ || { echo "no UNAUDITED provenance rendered"; exit 1; }
+          # OFL clause 2: every copy of the font must carry its licence. If the generator
+          # ever ships the woff2 without it, that is a licence breach, so fail the build.
+          test -f docs/fonts/DepartureMono-Regular.woff2
+          test -f docs/fonts/DepartureMono-LICENSE.txt
 
       - uses: actions/upload-pages-artifact@v3
         with:
