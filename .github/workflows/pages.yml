@@ -11,7 +11,7 @@ name: Build and publish the corpus site
 
 on:
   push:
-    branches: [claude/greenfield-repo-setup-l5fzae, main]
+    branches: [main]
     paths:
       - 'research/data/problems.jsonl'
       - 'research/data/categories.json'

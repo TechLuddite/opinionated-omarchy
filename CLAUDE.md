@@ -21,7 +21,9 @@ This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, publ
 <https://techluddite.github.io/opinionated-omarchy/>. The site is built from the corpus by
 `research/tools/build_site.py` and deployed by `.github/workflows/pages.yml` on any change
 to `problems.jsonl` — the generated `docs/` is **gitignored**, so the 4.3 MB never enters
-history. Work happens on
+history. The default branch is `main` (renamed from `claude/greenfield-repo-setup-l5fzae`
+on 2026-09-03; GitHub redirects the old name, but update any local clone with
+`git branch -m` and `git branch --set-upstream-to=origin/main`). Work happens on
 `claude/greenfield-repo-setup-l5fzae`. Everything below about what is tracked and what is
 generated is enforced by [.gitignore](.gitignore) and [.gitattributes](.gitattributes).
 
