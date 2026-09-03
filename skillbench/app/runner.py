@@ -192,7 +192,17 @@ async def _one_agentic_case(pool, run_id, bench, task, model, variant, repeat_id
                        error=f"{type(e).__name__}: {e}"[:500],
                        latency_s=round(time.monotonic() - t0, 3))
     finally:
-        pool.release(machine)
+        # Only hand back a machine that is still answering. A case can leave its VM
+        # unreachable -- rebooted, networking broken, session gone -- and releasing it blind
+        # feeds every subsequent case to a dead host.
+        if await machine.ready():
+            pool.release(machine)
+        else:
+            # Do NOT record a case here: this runs on the success path too, and the case
+            # that just scored already has its row. The loss is reported on the RUN, below,
+            # because a run that quietly finished on half its machines is the thing that
+            # produced a fake 5.5 point regression in run 29.
+            pool.drain(machine)
 
 
 async def _execute_agentic(run_id, bench, models, variants, repeats, params, resume):
@@ -235,9 +245,19 @@ async def _execute(run_id, bench, models, variants, repeats, params, resume):
     try:
         if bench.get("lane") == "agentic":
             await _execute_agentic(run_id, bench, models, variants, repeats, params, resume)
-            db.finish_run(run_id, "aborted" if run_id in _stopping else "done",
-                          "stopped by operator - partial matrix kept"
-                          if run_id in _stopping else None)
+            note = ("stopped by operator - partial matrix kept"
+                    if run_id in _stopping else None)
+            drained = getattr(vm.POOL, "drained", [])
+            if drained:
+                # A run finished on fewer machines than it started with. Say so on the run
+                # itself: the cases lost are not distributed evenly across variants, because
+                # variants run in order, so the arithmetic is biased and not merely thinner.
+                lost = ", ".join(f"{v.name} ({v.host})" for v in drained)
+                note = ((note + " | ") if note else "") + (
+                    f"DEGRADED: {len(drained)} VM(s) drained mid-run after a case left them "
+                    f"unreachable ({lost}). Cases lost are variant-correlated; treat any "
+                    f"comparison from this run as unsafe.")
+            db.finish_run(run_id, "aborted" if run_id in _stopping else "done", note)
             return
         await _execute_chat(run_id, bench, models, variants, repeats, params, resume)
         db.finish_run(run_id, "aborted" if run_id in _stopping else "done",
