@@ -16,6 +16,10 @@ on:
       - 'research/data/problems.jsonl'
       - 'research/data/categories.json'
       - 'research/tools/build_site.py'
+      # The generator COPIES these into the site, so a font or licence change must
+      # republish -- otherwise the live site keeps serving the old pair and, worse, could
+      # serve a font whose licence file no longer matches it.
+      - 'research/assets/fonts/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
