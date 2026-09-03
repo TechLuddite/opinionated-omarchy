@@ -256,6 +256,10 @@ class Pool:
         raw = os.environ.get("SB_VMS", "")
         self.vms = [VM(n, h) for n, h in _parse_targets(targets if targets is not None else raw)]
         self._free = None
+        # VMs a case left unreachable. Held out of rotation rather than handed to the next
+        # case, and reported so a run that lost machines says so instead of looking like a
+        # model result. See drain().
+        self.drained = []
 
     def __len__(self):
         return len(self.vms)
@@ -275,11 +279,33 @@ class Pool:
 
     async def acquire(self):
         if not self.vms:
+            if self.drained:
+                # Every machine died. Without this the queue is empty forever and the run
+                # hangs, which is worse than stopping: it looks like slowness, not failure.
+                raise VMError(
+                    "every VM was drained after a case left it unreachable: "
+                    + ", ".join(f"{v.name} ({v.host})" for v in self.drained)
+                    + ". Reset them from a golden image and re-run.")
             raise VMError("no VMs configured; set SB_VMS (name=host,...)")
         return await self._queue().get()
 
     def release(self, vm):
         self._queue().put_nowait(vm)
+
+    def drain(self, vm):
+        """Remove a VM from rotation because a case left it unreachable.
+
+        Run 29 is why this exists. An agent left test1 without a session or an IP, the
+        `finally` handed it straight back to the pool, and the next ELEVEN cases failed on
+        it with `No route to host`. Because the runner finishes one variant before the next,
+        every one of those was `skill:omarchy`, so an infrastructure failure arrived looking
+        exactly like a 5.5 point regression caused by the skill. Losing a machine must cost
+        the cases that cannot run, never the ones that already did.
+        """
+        if vm in self.vms:
+            self.vms.remove(vm)
+        if vm not in self.drained:
+            self.drained.append(vm)
 
     async def status(self):
         """-> [{name, host, ready, tmux}] for /readyz and the UI."""

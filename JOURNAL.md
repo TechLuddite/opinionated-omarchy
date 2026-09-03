@@ -2,6 +2,85 @@
 
 Last updated: 2026-09-03
 
+## Session of 2026-09-03 (fourth): the incumbent's agentic lift is not real, and one case can poison a run
+
+### 1. Run 28, n=31: the lift decays to nothing
+
+`omarchy-agentic-stale-advice`, `devstral-small-2:24b`, 31 repeats, `agent_timeout` raised
+to 900 s as a launch param:
+
+| variant | n | STATE (ok-only) |
+| --- | ---: | ---: |
+| `none` | 62 | 0.887 |
+| `skill:omarchy` | 62 | 0.907 |
+
+**Lift +1.9 pt, p = 0.59, 95% CI [-3.8, +7.5].** The interval spans zero.
+
+The decay is the finding, not the endpoint:
+
+| run | n | lift | p |
+| --- | ---: | ---: | ---: |
+| 23 | 3 | +11.1 pt | 0.55 |
+| 25 | 10 | +8.3 pt | 0.21 |
+| 28 | 31 | **+1.9 pt** | **0.59** |
+
+This is not an underpowered null. The power calculation from run 25 asked for about 62
+cases per variant and that is exactly what run 28 has. Had the n=3 figure been published,
+this project would have claimed an eleven point lift that does not exist.
+
+The residue is confined to one task. `rebind-packaged-default` moved from 12/31 solved to
+16/31; `looknfeel-not-hyprlang` went backwards, 26/31 to 25/31. A real skill effect does
+not appear in one task and reverse in the other.
+
+### 2. Run 29 is void, and the reason matters more than the run
+
+The control run lost **11 consecutive cases** to `No route to host` on test1, starting at
+case 786. Every one was `skill:omarchy` on `dropin-shadows-unit`.
+
+test1 was found at a TTY login prompt rather than in its autologin session; test2 had its
+tmux session but no IP. The host was healthy throughout: dnsmasq listening on 67 and 53,
+all three `virbr0` ufw rules present, libvirtd not restarted since 28 August. A reset from
+the golden image recovered both machines immediately.
+
+**The mechanism is not established.** The most plausible reading is that a case rebooted or
+otherwise disrupted test1, which is notable because rebooting is exactly the wrong answer
+`dropin-shadows-unit` exists to catch. An earlier guess that the guest kernel showed an
+agent-run system update was **wrong**: the golden image carries the same 7.1.9-arch1-2.
+
+**The bug the incident exposed is in the runner, not the VM.** `_one_agentic_case` released
+its machine back to the pool in a `finally`, unconditionally, so a dead VM was handed to
+case after case. Because the runner finishes one variant before starting the next, the
+losses land on whichever variant was running late. An infrastructure failure therefore
+arrives looking exactly like a model result, and here it looked like the skill degrading
+general Linux performance by 5.5 points. That number would have been reported.
+
+Fixed three ways:
+
+- A machine is only released if `ready()` still answers. Otherwise `Pool.drain()` removes
+  it from rotation.
+- `acquire()` on a fully drained pool raises and names the dead hosts, rather than blocking
+  on an empty queue forever, which reads as a slow run instead of a failed one.
+- A run that drained any machine finishes with **DEGRADED** on the run record, saying the
+  losses are variant-correlated and the comparison is unsafe. A run quietly finishing on
+  half its machines was the actual failure here.
+
+Two regression tests pin it, 45 total now. The second is deliberately synchronous, driven
+through `asyncio.run`, because the test image installs plain pytest and an `asyncio`-marked
+test would be collected, skipped, and prove nothing.
+
+**Remember the rebuild.** `compose.yaml` does not mount `./app`, so this fix needed
+`docker compose up -d --build` to take effect. A bench YAML is picked up live; an app change
+is not.
+
+### 3. What this means for the skill
+
+The bar in `opinionated-omarchy/CLAUDE.md` said "do not regress the incumbent on the
+agentic lane". That bar is now trivially low: there is no incumbent lift on that lane to
+regress. The chat lane's **+29.3 pt** remains the only demonstrated skill effect in this
+repository, which strengthens the case for the token-light resident core rather than
+weakening it. A corpus-backed skill that shows a surviving agentic lift at n=31 would be a
+new result, not a repeat of one.
+
 ## Session of 2026-09-03 (third): the writing standard, applied everywhere but the corpus
 
 Every prose file in the repo outside `research/data/problems.jsonl` now follows
@@ -1070,27 +1149,32 @@ runs.
 
 ## What's left
 
-### 1. Re-run the lift now that the control has headroom
+### 1. The agentic lane shows no incumbent lift, so decide what the bar actually is
 
-**Unblocked 2026-09-03.** The reason runs 25/26 could not settle anything was a saturated
-control (0.950 bare, five points of room). `linux-agentic-deep-triage` now scores **0.759
-bare**, so the difference-in-differences finally has something to work with.
+**Answered 2026-09-03 at full power.** Run 28, n=31: `skill:omarchy` lifts
+`omarchy-agentic-stale-advice` by **+1.9 pt, p = 0.59**, with the effect decaying
+monotonically as n grew (+11.1 at n=3, +8.3 at n=10). The power calculation asked for 62
+cases per variant and the run has exactly that, so this is a null rather than an
+underpowered result.
 
-The run to do: `omarchy-agentic-stale-advice` against `linux-agentic-deep-triage`,
-`devstral-small-2:24b`, `none` vs `skill:omarchy`. The power calculation from run 25 said
-**~31 repeats** for 80% power at the observed effect; that is ~124 cases on the trap bench
-plus the control's, so budget the hours or accept a smaller effect size.
+Run 29, the matching control, is **void**: a case left a VM unreachable and the runner fed
+eleven subsequent cases to the dead host, all of them the same variant. That is fixed and
+tested, so a re-run is now safe, but a difference-in-differences cannot rescue a null. The
+control is worth re-running only to answer a separate question, which is whether the skill
+actively *degrades* general Linux performance. The void run hinted at -5.5 pt. That number
+came from the corrupted arm and means nothing, but the question is real and cheap to settle
+at about four hours.
 
-Score it with `skillbench/tools/lift_test.py`, which reports the DiD and its p-value. Two
-things to fold in:
+What remains open is the bar itself, not the measurement:
 
-- **Weight toward `rebind-packaged-default`**; `looknfeel-not-hyprlang` is nearly saturated
-  bare.
-- **Raise `agent_timeout` above 600 s** as a launch param, not a bench edit: several run-23
-  cases timed out *having already solved the task*. Changing the YAML restarts the series.
+- The chat lane's **+29.3 pt** is the only demonstrated skill effect in this repository.
+- "Do not regress the incumbent on the agentic lane" is trivially satisfiable, because there
+  is nothing there to regress.
+- So a corpus-backed skill either shows a surviving agentic lift at n=31, which would be new,
+  or it competes on the chat lane where the incumbent actually wins.
 
-Also unmeasured: the skill halved the error rate (6/20 to 2/20) in run 25, which is a
-separate effect from the STATE lift and currently hides inside `success`.
+Still true and unchanged: only **4 of 14** local models can drive the loop at all
+([skillbench/MODELS.md](skillbench/MODELS.md)), so difficulty is not the lever, wrongness is.
 
 ### 2. 150 records have no `title` (**DONE 2026-09-03**)
 

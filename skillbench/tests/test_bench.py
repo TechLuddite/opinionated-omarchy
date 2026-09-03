@@ -4,6 +4,7 @@ The lab bench this descends from had tests only for its UI JavaScript; its own a
 logged "the Python graders/spec parser have no tests" as an open finding. These are the
 parts where a silent bug corrupts every number the bench produces, so they get tests here.
 """
+import asyncio
 import os
 import sys
 
@@ -11,7 +12,7 @@ import pytest
 import yaml
 
 sys.path.insert(0, "/app")
-from app import checks, spec  # noqa: E402
+from app import checks, spec, vm as vmmod  # noqa: E402
 
 
 # ----------------------------------------------------------------- graders
@@ -339,3 +340,38 @@ def test_no_shipped_post_assertion_can_pass_trivially():
                 if path:
                     assert path.startswith(("~/", "/")), \
                         f"{b['name']}/{t['id']}: post path {path!r} is not absolute"
+
+
+# ------------------------------------------------------- the VM pool after a bad case
+
+def test_a_drained_vm_leaves_the_pool_and_the_rest_keep_working():
+    """Run 29 is why this exists.
+
+    A case left test1 with no session and no IP. The runner's `finally` handed it straight
+    back to the pool, and the next ELEVEN cases failed on it with `No route to host`. Every
+    one was `skill:omarchy`, because variants run in order, so an infrastructure failure
+    arrived looking exactly like a 5.5 point regression caused by the skill.
+    """
+    pool = vmmod.Pool(targets="a=10.0.0.1,b=10.0.0.2")
+    assert len(pool) == 2
+    dead = pool.vms[0]
+    pool.drain(dead)
+    assert len(pool) == 1
+    assert dead not in pool.vms
+    assert dead in pool.drained
+    pool.drain(dead)                      # draining twice must not double-count
+    assert len(pool.drained) == 1
+
+
+def test_acquiring_from_a_fully_drained_pool_raises_rather_than_hangs():
+    """An empty queue blocks forever, which reads as a slow run rather than a failed one.
+
+    Driven with asyncio.run rather than pytest.mark.asyncio: the test image installs plain
+    pytest, so an async test would be collected, skipped, and quietly prove nothing.
+    """
+    pool = vmmod.Pool(targets="a=10.0.0.1")
+    pool.drain(pool.vms[0])
+    with pytest.raises(vmmod.VMError) as e:
+        asyncio.run(pool.acquire())
+    assert "drained" in str(e.value)
+    assert "10.0.0.1" in str(e.value)     # says WHICH machine, so it can be reset
