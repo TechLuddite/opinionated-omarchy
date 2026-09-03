@@ -103,7 +103,35 @@ sizes. The fallback chain now covers the three platforms properly
 Mono`), but the real fix is the one the source handoff already mandates: **self-host the
 woff2**. Left undone deliberately — it is a licensing and binary-assets decision.
 
-### 4. Scaling settled: per-record files, and FTS5 rather than grep
+### 4. Departure Mono, vendored — the CRT chrome, and only one third party
+
+The font question from section 3 is resolved, and not by finding a universal face. **One
+font is vendored, not two:** Departure Mono (22 KB woff2) carries the *chrome* — wordmark,
+micro-labels, group headings, the places letterforms are decoration — while readouts, code
+blocks and sources stay on the system `ui-monospace` stack, which is good on all three
+platforms and costs nothing. Vendoring a second family for the data would have doubled the
+licensing surface for no gain.
+
+**Licence, stated precisely because the metadata is wrong.** The upstream repo's GitHub API
+entry reports **MIT**; the bundled `LICENSE` is **SIL Open Font License 1.1**, © 2022–2024
+Helena Zhang, and that is the one that governs. No Reserved Font Name is declared, so
+redistributing the unmodified file is straightforward. OFL clause 2 requires each copy to
+carry the notice and licence, so `build_site.py` copies **both** into `docs/fonts/` and the
+CI job now **fails the build** if either is missing — a licence breach should not be able to
+ship quietly.
+
+**Pixel fonts need whole-pixel sizes.** The transcribed spec uses 8.5px and 9.5px labels;
+at fractional sizes a pixel face blurs into mush. Every rule that switched to the CRT face
+is rounded to an integer, and smoothing is disabled on those rules only. That is a
+deliberate divergence from the transcription, and the reason is recorded in
+`research/assets/fonts/README.md` next to the font.
+
+Self-hosted rather than fetched, for the reason the original handoff gives: the Control
+Room's own Dockerfile curled five woff2 files at build time with `|| true` on each, so a
+network blip produced a silently unstyled build. 22 KB in git removes that failure mode and
+every runtime third party at once.
+
+### 5. Scaling settled: per-record files, and FTS5 rather than grep
 
 **Per-category storage is already broken, not a future risk.** Seven of the twelve category
 pages exceed the 32K context window *today* at 456 records — `network.md` is 43.3k tokens.
