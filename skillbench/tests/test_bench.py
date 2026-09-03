@@ -166,7 +166,13 @@ def test_control_benches_are_flagged():
     assert controls == {"linux-disk-full", "linux-runaway-process",
                         "linux-boot-partition-full", "linux-pacman-keyring",
                         # the agentic lane's own null case
-                        "linux-agentic-triage"}
+                        "linux-agentic-triage",
+                        # ...which saturates at 0.950 bare, so it cannot show a large lift
+                        # and the difference-in-differences against an Omarchy bench is weak
+                        # in both directions. This one is hard general Linux, built to the
+                        # same shape as the trap bench, to give the DiD something to work
+                        # with. Added deliberately 2026-09-03.
+                        "linux-agentic-deep-triage"}
 
 
 def test_each_lane_has_at_least_one_control():
