@@ -27,7 +27,19 @@ reader must actually parse stay on the system `ui-monospace` stack, which is goo
 three platforms and costs nothing. Vendoring a second family for that would double the
 licensing surface to no benefit.
 
-**Pixel fonts need integer sizes.** The original design uses 8.5px and 9.5px labels;
-fractional sizes make a pixel font blur into mush, so every rule that switches to
-Departure Mono rounds to a whole pixel. That is why the CRT sizes differ slightly from the
-transcribed spec.
+**Departure Mono is designed on an 11px grid, and this is not optional.** Its own README
+says: *"For pixel-perfect results, set the font size to increments of 11px."* So every rule
+using `--crt` is **11px**, and the wordmark is **22px**. Nothing else.
+
+That single rule fixed two problems at once. The transcribed Control Room spec uses 8.5px
+and 9.5px micro-labels, which were *both* off-grid — so they rendered soft — **and simply
+too small to read**, which the operator flagged on seeing the first build. Snapping to the
+grid made them crisp and legible in one change.
+
+**Do not reintroduce 8, 9, 10 or 12px on a `--crt` rule.** It will look mushy as well as
+tiny, and the mushiness is the harder of the two to diagnose because it reads as a
+rendering problem rather than a CSS one.
+
+Tracking is exempt: `letter-spacing` is spacing between glyphs, not glyph size, so it can
+be tuned freely. That is how the wordmark fits a 400px viewport — at `≤420px` its tracking
+drops from `.20em` to `.06em` while the size stays 22px and on-grid.
