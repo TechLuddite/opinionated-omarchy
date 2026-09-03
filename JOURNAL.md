@@ -72,7 +72,38 @@ decision still open, along with self-hosting the two webfonts — the source han
 explicit that fetching Space Grotesk and IBM Plex Mono from a CDN at build time yields a
 silently unstyled page on a network blip, so the generator ships fallback stacks only.
 
-### 3. Scaling settled: per-record files, and FTS5 rather than grep
+### 3. CI publishes the site, and three theme defects fixed
+
+`.github/workflows/pages.yml` builds the site from the JSONL and publishes the artifact, so
+the 4.3 MB never enters history. It **sanity-checks before publishing**: one page per
+record (a silent drop would otherwise ship a smaller corpus that looks complete), and that
+`UNAUDITED` still renders — if the generator ever stops emitting provenance, that must fail
+the build rather than publish a corpus reading as uniformly trustworthy. Needs the repo
+public and Pages set to "GitHub Actions"; until then the deploy step fails, which is the
+honest failure mode.
+
+Three defects found by measuring rather than looking, all inherited from the original:
+
+- **`--muted` was 3.50:1 and used at 8-9.5px.** Micro labels, uptime, timestamps and the
+  footer all sit in it. Lifted to `#6b7c8e` (4.51:1, AA) keeping hue and saturation, so the
+  recessive hierarchy survives.
+- **`--faint` was 2.08:1**, an outright fail. Now `#516072` (3.01:1), and it is used for
+  placeholder text only.
+- **Only four of the five motifs were implemented.** The phosphor trace was missing because
+  a corpus record has no timeseries. It now plots **audit coverage per category** — the one
+  series this project has an opinion about — on a fixed 0-100 scale rather than the
+  original's autoscale, because autoscaling a percentage makes 100% and 60% look identical.
+  Each group heading also carries a stacked audited/corrected/unchecked meter.
+
+**The font question is not solvable by picking a universal font.** There is no widely
+installed face that is both CRT-flavoured and legible at 8px — Courier New is the only
+truly universal "old mono" and it is a thin, wide typewriter face that fails at label
+sizes. The fallback chain now covers the three platforms properly
+(`ui-monospace`/`SF Mono`/`Cascadia Mono`/`JetBrains Mono`/`DejaVu Sans Mono`/`Liberation
+Mono`), but the real fix is the one the source handoff already mandates: **self-host the
+woff2**. Left undone deliberately — it is a licensing and binary-assets decision.
+
+### 4. Scaling settled: per-record files, and FTS5 rather than grep
 
 **Per-category storage is already broken, not a future risk.** Seven of the twelve category
 pages exceed the 32K context window *today* at 456 records — `network.md` is 43.3k tokens.

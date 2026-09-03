@@ -1,0 +1,73 @@
+name: Build and publish the corpus site
+
+# The site is ~4.3 MB regenerated wholesale on every build, so it is NOT committed --
+# see the note on docs/ in .gitignore. CI builds it from the JSONL and publishes the
+# artifact, which keeps the churn out of history entirely.
+#
+# REQUIRES the repository to be public (or Pages enabled on a paid plan), and
+# Settings > Pages > Source set to "GitHub Actions". Until then this workflow builds and
+# uploads on push but the deploy step will fail -- which is the honest failure mode, since
+# a green build that published nothing would be worse.
+
+on:
+  push:
+    branches: [claude/greenfield-repo-setup-l5fzae, main]
+    paths:
+      - 'research/data/problems.jsonl'
+      - 'research/data/categories.json'
+      - 'research/tools/build_site.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a running deploy: a half-published site is worse than a stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'      # stdlib only; the generator has no dependencies
+
+      - name: Build the site
+        working-directory: research
+        run: python3 tools/build_site.py
+
+      - name: Sanity-check the output
+        run: |
+          set -euo pipefail
+          test -f docs/index.html
+          test -f docs/search.json
+          # One page per record, or something silently dropped records.
+          want=$(grep -c . research/data/problems.jsonl)
+          got=$(find docs/records -name '*.html' | wc -l)
+          echo "records in corpus: $want   pages built: $got"
+          test "$want" -eq "$got"
+          # The provenance disclaimer is the reason this site exists; if the generator
+          # ever stops emitting it, fail loudly rather than publish a corpus that reads
+          # as uniformly trustworthy.
+          grep -qr 'UNAUDITED' docs/records/ || { echo "no UNAUDITED provenance rendered"; exit 1; }
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

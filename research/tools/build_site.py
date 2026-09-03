@@ -93,6 +93,37 @@ def _inline(s):
     return "".join(res)
 
 
+def waveform(recs, cats):
+    """Motif 3, with real data: audit coverage per category as a phosphor trace.
+
+    The original Control Room drew container CPU here. A corpus record has no timeseries,
+    so the honest substitute is the one series this project actually has an opinion about:
+    what fraction of each category has been through an audit. A dip in the trace is a
+    category with unchecked records in it, which is exactly what a reader should notice.
+
+    Fixed 0-100 scale rather than the original's `max(20, max*1.15)` autoscale -- for a
+    percentage, autoscaling would make 100% and 60% look identical, which is the opposite
+    of informative.
+    """
+    order = sorted({r["category"] for r in recs})
+    if not order:
+        return ""
+    pts = []
+    for cat in order:
+        rs = [r for r in recs if r["category"] == cat]
+        audited = sum(1 for r in rs if r.get("audit_status") in ("ok", "corrected"))
+        pts.append(100.0 * audited / len(rs))
+    W, H, pad = 240.0, 40.0, 3.0
+    step = W / max(1, len(pts) - 1)
+    xy = [(i * step, H - pad - (v / 100.0) * (H - 2 * pad)) for i, v in enumerate(pts)]
+    line = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(xy))
+    fill = line + f" L{W:.1f},{H:.1f} L0,{H:.1f} Z"
+    worst = min(pts)
+    return (f'<svg class="wave" viewBox="0 0 {W:.0f} {H:.0f}" preserveAspectRatio="none" '
+            f'role="img" aria-label="Audit coverage by category, lowest {worst:.0f} percent">'
+            f'<path class="wave-fill" d="{fill}"/><path class="wave-line" d="{line}"/></svg>')
+
+
 def page(title, body, depth=0, subtitle=""):
     up = "../" * depth
     return f"""<!doctype html>
@@ -111,7 +142,7 @@ def page(title, body, depth=0, subtitle=""):
 """
 
 
-def masthead(recs, depth=0):
+def masthead(recs, depth=0, trace=None):
     up = "../" * depth
     st = Counter(r.get("audit_status") for r in recs)
     srcs = {s for r in recs for s in (r.get("sources") or [])}
@@ -125,6 +156,7 @@ def masthead(recs, depth=0):
   <div class="brand"><a href="{up}index.html" class="wordmark">OPINIONATED OMARCHY</a>
     <div class="sub">TROUBLESHOOTING CORPUS</div></div>
   <div class="vitals">{cells}</div>
+  {trace or ""}
   <div class="mast-status"><i></i>LIVE</div>
 </header>"""
 
@@ -199,14 +231,22 @@ def index_page(recs, cats):
                 f'<span class="c-name">{e(r.get("title") or r["slug"])}</span></div>'
                 f'<div class="c-meta"><span class="c-lab">{label}</span>'
                 f'<span class="c-sev">{e(r.get("severity",""))}</span></div></a>')
+        n = len(by[cat])
+        ok = sum(1 for r in by[cat] if r.get("audit_status") == "ok")
+        co = sum(1 for r in by[cat] if r.get("audit_status") == "corrected")
+        un = n - ok - co
+        meter = (f'<span class="meter" title="{ok} audited, {co} corrected, {un} unchecked">'
+                 f'<span class="m-ok" style="width:{100*ok/n:.1f}%"></span>'
+                 f'<span class="m-corr" style="width:{100*co/n:.1f}%"></span>'
+                 f'<span class="m-un" style="width:{100*un/n:.1f}%"></span></span>')
         groups.append(
             f'<section class="group" style="--gaccent:{acc}">'
             f'<h2 class="g-head"><i></i>{e(cats.get(cat, cat))}'
-            f'<span class="g-count">{len(by[cat])}</span></h2>'
+            f'<span class="g-count">{n}</span>{meter}</h2>'
             f'<div class="grid">{"".join(cards)}</div></section>')
 
     st = Counter(r.get("audit_status") for r in recs)
-    body = f"""{masthead(recs)}
+    body = f"""{masthead(recs, trace=waveform(recs, cats))}
 <main class="board">
   <section class="intro">
     <p class="lede">Real Omarchy and Arch desktop problems with verified, copy-pasteable
@@ -266,10 +306,11 @@ def main():
 
 STYLE = r""":root{
   --bg:#0a0e13; --panel:#10161f; --panel-2:#0c1119; --line:#1b2531; --line-2:#26374a;
-  --ink:#d2dcea; --dim:#8996a6; --muted:#5c6a7a; --faint:#3d4856;
+  --ink:#d2dcea; --dim:#8996a6; --muted:#6b7c8e; --faint:#516072;
   --signal:#46e0c0; --signal-soft:rgba(70,224,192,.14);
   --warn:#f2b34b; --alert:#ff5d73; --gaccent:var(--signal);
-  --mono:'Plex Mono',ui-monospace,'SFMono-Regular','Cascadia Code',Menlo,monospace;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono','Cascadia Mono','JetBrains Mono',
+         'DejaVu Sans Mono','Liberation Mono',Menlo,Consolas,monospace;
   --disp:'Space Grotesk',ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif;
   --body:ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif;
 }
@@ -287,7 +328,7 @@ body{margin:0;background:
 .scan::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 260px rgba(0,0,0,.55)}
 a{color:inherit;text-decoration:none}
 
-.mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto;
+.mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto auto;
   gap:20px;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);
   background:rgba(10,14,19,.82);backdrop-filter:blur(8px)}
 .wordmark{font:700 17px/1 var(--disp);letter-spacing:.20em;color:var(--ink)}
@@ -296,6 +337,18 @@ a{color:inherit;text-decoration:none}
 .v-num{font:600 19px/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .v-num small{font:11px var(--mono);color:var(--dim);margin-left:2px}
 .v-lab{font:8.5px var(--mono);letter-spacing:.22em;color:var(--muted);margin-top:3px}
+.wave{display:block;width:240px;height:40px}
+/* Motif 3: phosphor traces. Stroked path, teal drop-shadow, soft fill beneath. */
+.wave-line{fill:none;stroke:var(--signal);stroke-width:1.4;
+  filter:drop-shadow(0 0 4px rgba(70,224,192,.6))}
+.wave-fill{fill:var(--signal-soft);stroke:none}
+.wave-lab{font:7.5px var(--mono);letter-spacing:.18em;fill:var(--muted)}
+.meter{display:flex;height:3px;border-radius:2px;overflow:hidden;flex:0 0 84px;
+  background:var(--line)}
+.meter span{display:block;height:100%}
+.m-ok{background:var(--signal);box-shadow:0 0 6px rgba(70,224,192,.7)}
+.m-corr{background:var(--warn)}
+.m-un{background:var(--alert)}
 .mast-status{display:flex;align-items:center;gap:7px;font:10px var(--mono);
   letter-spacing:.24em;color:var(--signal)}
 .mast-status i{width:8px;height:8px;border-radius:50%;background:var(--signal);
@@ -323,6 +376,7 @@ a{color:inherit;text-decoration:none}
   font:500 12px var(--disp);letter-spacing:.28em;color:var(--dim);text-transform:uppercase}
 .g-head i{width:9px;height:9px;transform:rotate(45deg);background:var(--gaccent)}
 .g-head::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+.g-head .meter{margin-left:2px}
 .g-count{font:10px var(--mono);letter-spacing:.14em;color:var(--muted)}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:11px}
@@ -389,6 +443,7 @@ footer a{color:var(--signal)}
 @media(max-width:760px){
   .mast{position:static;grid-template-columns:1fr;gap:12px}
   .vitals{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .wave{display:none}          /* the spec hides the waveform at this breakpoint */
 }
 @media(max-width:420px){.vitals{grid-template-columns:repeat(2,1fr)}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
