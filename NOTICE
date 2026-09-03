@@ -1,0 +1,39 @@
+# Third-party content in this repository
+
+Everything not listed below is covered by [LICENSE](LICENSE) — MIT, © 2026 TechLuddite.
+
+## `omarchy/` and `diagnose-crash/` — MIT, © David Heinemeier Hansson
+
+Agent skills obtained from [`basecamp/omarchy`](https://github.com/basecamp/omarchy)
+(default branch `quattro`). They are redistributed here **unmodified**; `omarchy/SKILL.md`
+in particular is kept byte-identical because the +29.3 pt baseline in
+[research/bench/](research/bench/) was measured against that exact content, and changing it
+would silently invalidate the comparison.
+
+MIT requires the copyright and permission notice to accompany copies and substantial
+portions, so upstream's `LICENSE` is reproduced verbatim inside **each** directory rather
+than only summarised here — a reader who copies one skill directory out of this repo takes
+the notice with it.
+
+> **Check the file, not the metadata.** GitHub's API reports **no licence at all**
+> (`license: null`) for `basecamp/omarchy`; the repository's `LICENSE` file is MIT. This
+> project has now been misled twice by that field — Departure Mono's API entry says MIT
+> while its bundled licence is OFL 1.1. Verify against the file every time.
+
+## `research/assets/fonts/DepartureMono-Regular.woff2` — SIL OFL 1.1, © 2022–2024 Helena Zhang
+
+Upstream: <https://github.com/rektdeckard/departure-mono> (v1.500). OFL clause 2 requires
+each copy to carry the notice and licence, so `build_site.py` publishes
+`DepartureMono-LICENSE.txt` beside the font and CI fails the build if either is missing.
+See [research/assets/fonts/README.md](research/assets/fonts/README.md).
+
+## The corpus
+
+`research/data/problems.jsonl` is original research: problems and fixes written and audited
+by this project, each citing the public sources it was checked against. The **records** are
+MIT-licensed like the rest of the repository. The **cited sources** are not — they are
+third-party pages linked for verification, and their own terms govern them.
+
+It is research, not a warranty. Every record carries an `audit_status` saying how much
+scrutiny it survived, and `ok` means "checked against its sources", not "guaranteed correct
+on your machine".

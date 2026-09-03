@@ -10,7 +10,10 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
 
 1. **Upstream skills**, downloaded from `basecamp/omarchy` — [omarchy/](omarchy/) (system
    customization: Hyprland, theming, keybindings) and [diagnose-crash/](diagnose-crash/)
-   (crash diagnosis from systemd-coredump).
+   (crash diagnosis from systemd-coredump). Both are redistributed **unmodified** under
+   upstream's MIT licence, whose notice is reproduced inside each directory — see
+   [NOTICE](NOTICE). Keep `omarchy/SKILL.md` byte-identical: the +29.3 pt baseline was
+   measured against that exact content.
 2. **A troubleshooting corpus** in [research/](research/) — 456 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
@@ -494,6 +497,21 @@ against primary sources during the research and repeatedly caught stale advice.
 - **`wiki.hypr.land` is JS-only.** Fetch the markdown source from the
   `hyprwm/hyprland-wiki` repo instead (`content/...`), e.g. via the `gh` API.
 - `gh` CLI is authenticated and works for GitHub API queries.
+
+## Licensing
+
+This repository is **MIT**, © 2026 TechLuddite ([LICENSE](LICENSE)). Third-party content is
+enumerated in [NOTICE](NOTICE): the two vendored skill directories (MIT, © David Heinemeier
+Hansson) and the site's Departure Mono (OFL 1.1, © Helena Zhang).
+
+**`skillbench/skills.yaml` lists bundle files explicitly rather than globbing a directory**,
+which is what let a `LICENSE` be added to `omarchy/` and `diagnose-crash/` without moving a
+single bundle sha. If you ever change it to a glob, adding any file to those directories
+silently changes what was benched and invalidates the baseline comparison.
+
+**Check the licence file, not the metadata.** GitHub's API reports **no licence** for
+`basecamp/omarchy`; its `LICENSE` file is MIT. The same field claimed MIT for Departure
+Mono, whose bundled licence is OFL 1.1. Twice now — read the file.
 
 ## Conventions
 
