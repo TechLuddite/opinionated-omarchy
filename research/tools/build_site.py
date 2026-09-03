@@ -31,6 +31,7 @@ follow-up; the stacks degrade to system fonts meanwhile.
 import html
 import json
 import shutil
+import urllib.parse
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -152,6 +153,26 @@ def masthead(recs, depth=0):
 </header>"""
 
 
+def dispute_url(r):
+    """A pre-filled GitHub issue form for disputing one record.
+
+    Issue FORMS prefill by field id (`?template=x.yml&record=...`), not by body text, so
+    the ids here must track `.github/ISSUE_TEMPLATE/record-dispute.yml`. Every value is
+    urlencoded: slugs are safe but `audit_status` and the title are not guaranteed to be.
+
+    Carrying `status` matters as much as `record`. A dispute against a record that claimed
+    `ok` is a different and more serious thing than one against a record that already said
+    nobody had checked it, and asking the reporter to retype it invites a wrong answer.
+    """
+    q = urllib.parse.urlencode({
+        "template": "record-dispute.yml",
+        "title": f"[record] {heading(r)}",
+        "record": r["slug"],
+        "status": r.get("audit_status") or "unknown",
+    })
+    return f"https://github.com/TechLuddite/opinionated-omarchy/issues/new?{q}"
+
+
 def record_page(r, cats, corpus):
     acc = ACCENT.get(r["category"], FALLBACK_ACCENT)
     cls, label, meaning = LED.get(r.get("audit_status"), LED["unaudited"])
@@ -189,6 +210,8 @@ def record_page(r, cats, corpus):
       <span class="abbr">{e(r['category'])}</span>
       <span class="sev">{e(r.get('severity',''))}</span>
       <span class="sev">{e(r.get('frequency',''))}</span>
+      <a class="dispute" href="{e(dispute_url(r))}" rel="nofollow noopener"
+         title="Report that this record is wrong, dangerous or out of date">DISPUTE</a>
     </div>
     <h1>{e(heading(r))}</h1>
     <div class="tags">{tags}</div>
@@ -474,6 +497,15 @@ a{color:inherit;text-decoration:none}
 .detail::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--gaccent);opacity:.5;border-radius:8px 0 0 8px}
 .d-head{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+/* Pushed to the right of the header row so it sits with the record's own metadata rather
+   than competing with the title. Muted until hover: a corpus that invites correction should
+   not look like it is asking for complaints. */
+.dispute{margin-left:auto;font:11px var(--crt);letter-spacing:.14em;color:var(--muted);
+  border:1px solid var(--line);border-radius:4px;padding:4px 9px;
+  transition:color .15s,border-color .15s}
+.dispute:hover{color:var(--alert);border-color:var(--alert)}
+.dispute::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:currentColor;margin-right:7px;vertical-align:middle}
 .abbr{font:11px var(--crt);letter-spacing:.06em;color:var(--gaccent);padding:3px 7px;
   border-radius:4px;border:1px solid color-mix(in srgb,var(--gaccent) 40%,var(--line));
   background:color-mix(in srgb,var(--gaccent) 8%,transparent)}
