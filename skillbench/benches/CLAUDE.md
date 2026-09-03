@@ -129,6 +129,10 @@ between runs is an operator action (`tools/golden-test-vm.sh`).
   `test_no_shipped_post_assertion_can_pass_trivially` (every `post:` path must be
   absolute or `~/`-rooted — a path that cannot resolve makes `file_absent` green no
   matter what the agent did), and `test_control_benches_are_flagged`.
+- **A bench edit needs no rebuild; an app edit does.** `compose.yaml` mounts `./benches`
+  and `./data` but not `./app`, so a new or edited YAML is picked up on the next run while a
+  change to `runner.py`/`vmchecks.py` silently keeps running the old code until
+  `docker compose up -d --build`. A grader fix that appears to do nothing is usually this.
 - Editing a bench changes its `spec_sha`, which **starts a new run series**. That is the
   intended behaviour: it stops an edit from quietly polluting old results. Do not edit a
   bench to "fix" a run you have already taken.
