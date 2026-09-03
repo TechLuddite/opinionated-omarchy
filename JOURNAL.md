@@ -131,7 +131,28 @@ Room's own Dockerfile curled five woff2 files at build time with `|| true` on ea
 network blip produced a silently unstyled build. 22 KB in git removes that failure mode and
 every runtime third party at once.
 
-### 5. Pre-flight for going public, and what the screenshots caught
+### 5. The repo is public, the site is live, and the context files were re-audited
+
+<https://techluddite.github.io/opinionated-omarchy/>. Build and deploy both green on the
+first run, and the `paths` trigger works — writing the 150 titles rebuilt and republished
+the site with no manual step.
+
+Every context file was then re-checked **against the repo rather than copied forward**:
+456 records / `ok` 240 / `corrected` 212 / `unaudited` 4 / 0 titleless, 766 sources, 12
+categories, 29 `cause_reconciled` stamps, **17 bench specs (9 Omarchy, 6 controls, 5
+agentic)**, 3 workflow scripts, 43 skillbench tests, 13 corpus tests. What had drifted:
+
+- **The bench count.** Two benches were added this session, so `CLAUDE.md` and
+  `skillbench/README.md` both understated it — and both undercounted the *controls*, which
+  is the number that makes a lift interpretable.
+- **The repo's own status.** `CLAUDE.md` still described a private repo with no site.
+- **Three directories missing from the layout tree** — `docs/`, `.github/workflows/`,
+  `research/assets/fonts/` — plus `skillbench/tools/` and `MODELS.md`.
+- **[opinionated-omarchy/CLAUDE.md](opinionated-omarchy/CLAUDE.md) had none of this
+  session's architecture.** That is the file the skill session opens first, so it now
+  carries the three measured retrieval findings and the chat-lane contradiction. See below.
+
+### 6. Pre-flight for going public, and what the screenshots caught
 
 Rendering the site found three defects that reading the generator would not have:
 
@@ -157,7 +178,7 @@ history** (the bench key was never added — it is ignored by a nested
   VMs with loopback VNC and no real data, and the file says so. Anyone cloning this should
   change them before giving those machines a routable address.
 
-### 6. Scaling settled: per-record files, and FTS5 rather than grep
+### 7. Scaling settled: per-record files, and FTS5 rather than grep
 
 **Per-category storage is already broken, not a future risk.** Seven of the twelve category
 pages exceed the 32K context window *today* at 456 records — `network.md` is 43.3k tokens.
@@ -1885,6 +1906,10 @@ pins the network to `172.28.7.0/24` so the rule can name it.
 | Corpus design, schema, trust model | [research/README.md](research/README.md) |
 | The 456 records (source of truth) | `research/data/problems.jsonl` |
 | Generated per-category reading | `research/docs/*.md` |
+| The public site | <https://techluddite.github.io/opinionated-omarchy/> |
+| Site generator, and the CI that publishes it | `research/tools/build_site.py`, `.github/workflows/pages.yml` |
+| Which local models can run the agentic lane | [skillbench/MODELS.md](skillbench/MODELS.md) |
+| Is a measured lift real? | `skillbench/tools/lift_test.py` |
 | Search / build / ingest tooling | `research/tools/` |
 | Deep-research report (13 verified findings, 12 refuted folk fixes) | `research/raw/deep-research-report.json` |
 | Raw workflow output, kept for provenance | `research/raw/harvest-result.json`, `research/raw/gapfill-result.json`, `research/raw/audit-28-result.json` |

@@ -14,7 +14,11 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
 2. **A troubleshooting corpus** in [research/](research/) — 456 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
-This **is** a git repository: `TechLuddite/opinionated-omarchy`, work happening on
+This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
+<https://techluddite.github.io/opinionated-omarchy/>. The site is built from the corpus by
+`research/tools/build_site.py` and deployed by `.github/workflows/pages.yml` on any change
+to `problems.jsonl` — the generated `docs/` is **gitignored**, so the 4.3 MB never enters
+history. Work happens on
 `claude/greenfield-repo-setup-l5fzae`. Everything below about what is tracked and what is
 generated is enforced by [.gitignore](.gitignore) and [.gitattributes](.gitattributes).
 
@@ -32,8 +36,10 @@ research/                the troubleshooting corpus + its tooling
   data/categories.json   category key -> display label
   docs/*.md              DERIVED per-category markdown; tracked, see the rule below
   raw/                   unprocessed workflow output, kept for provenance
+  assets/fonts/          vendored Departure Mono (OFL) for the public site
   tools/                 build/search/ingest scripts + the three workflow scripts
     corpus.py            the record schema + the only corpus reader/writer
+    build_site.py        generates the public site into the repo-root docs/
   tests/                 stdlib-unittest tests for the writers; ./tests/run.sh
   bench/                 skill-efficacy measurements; NOT corpus, NOT generated
   validation/            induce a problem on a test VM, apply a fix, assert; runs.jsonl
@@ -41,9 +47,11 @@ research/                the troubleshooting corpus + its tooling
   *.md, *.html, hc.cpp   loose Hyprland wiki pages the user downloaded; NOT corpus
 skillbench/              the Skill Bench container — measures whether a skill helps
   app/                   FastAPI app: runner, graders, loader, themed UI
-  benches/               16 bench specs (9 Omarchy, 5 controls, gauntlet, crash)
+  benches/               17 bench specs (9 Omarchy, 6 controls, gauntlet, crash)
   benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
+  tools/                 probe_models.py (model feasibility), lift_test.py (significance)
+  MODELS.md              which local models can drive the agentic lane, and why most cannot
   data/                  DERIVED SQLite results DB; NOT tracked
 tools/                   host-side scripts, not part of the corpus
   make-test-vm.sh        build/rebuild a test VM, installed unattended
@@ -52,6 +60,8 @@ tools/                   host-side scripts, not part of the corpus
   install-bench-key.sh   generate + install the bench's own ssh key on a VM
   golden-test-vm.sh      save/reset a VM's disk as a golden image (btrfs reflink, ~1s)
 writeups/                post-mortems worth keeping outside the journal
+docs/                    DERIVED public site; NOT tracked, built by build_site.py + CI
+.github/workflows/       pages.yml - builds and publishes the site
 JOURNAL.md               where we stopped, what's left
 ```
 
