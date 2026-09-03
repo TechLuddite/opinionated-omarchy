@@ -263,11 +263,23 @@ def index_page(recs, cats):
             f'<div class="grid">{"".join(cards)}</div></section>')
 
     st = Counter(r.get("audit_status") for r in recs)
+    corrected_n = st["corrected"]
+    gh = "https://github.com/TechLuddite/opinionated-omarchy"
     body = f"""{masthead(recs, trace=waveform(recs, cats))}
 <main class="board">
   <section class="intro">
     <p class="lede">Real Omarchy and Arch desktop problems with verified, copy-pasteable
     fixes &mdash; and, for every one of them, a record of how much scrutiny it survived.</p>
+
+    <p class="body">Omarchy is DHH's opinionated Arch + Hyprland distribution. It moves
+    fast, and most of the advice you will find for it was written for Omarchy&nbsp;3 or for
+    Hyprland before 0.55 &mdash; so it sends you to a git checkout that no longer exists, or
+    to config syntax that was deprecated. Every record here was researched against primary
+    sources, then <b>audited adversarially by a second pass</b> whose job was to find the
+    command that does not exist, the path that moved, and the confident specific the source
+    never supported. {corrected_n} of them failed that audit and were rewritten. The
+    auditor's objection is published with the record.</p>
+
     <div class="legend">
       <span class="h-healthy"><i class="led"></i>AUDITED {st['ok']}</span>
       <span class="h-starting"><i class="led"></i>CORRECTED {st['corrected']}</span>
@@ -275,9 +287,35 @@ def index_page(recs, cats):
     </div>
     <p class="fine">A <b>corrected</b> record was wrong once: an auditor found the fix
     wrong or incomplete and rewrote it, and the objection is published with the record. An
-    <b>unchecked</b> record was never reviewed by anyone and says so. Nothing here is a
-    warranty &mdash; anything touching pacman, the bootloader, initramfs or partitions
-    deserves a look at the cited source before it runs as root.</p>
+    <b>unchecked</b> record was never reviewed by anyone and says so. <b>And
+    <i>audited</i> means checked against its sources, not guaranteed true on your
+    machine</b> &mdash; one clean record, exercised on a real VM, turned out to name two
+    files that cannot occur on Omarchy&nbsp;4 at all. Nothing here is a warranty. Anything
+    touching pacman, the bootloader, initramfs or partitions deserves a look at the cited
+    source before it runs as root.</p>
+
+    <h2 class="g-head" style="--gaccent:#7aa2ff"><i></i>How this was built<span
+      class="g-count">READ MORE</span></h2>
+    <div class="grid links">
+      <a class="card" href="{gh}/blob/HEAD/research/README.md">
+        <div class="c-head"><span class="c-name">The corpus, its schema and its trust model</span></div>
+        <div class="c-meta"><span class="c-lab">RESEARCH/README</span></div></a>
+      <a class="card" href="{gh}/blob/HEAD/skillbench/README.md">
+        <div class="c-head"><span class="c-name">The bench that asks whether a skill actually helps</span></div>
+        <div class="c-meta"><span class="c-lab">SKILLBENCH</span></div></a>
+      <a class="card" href="{gh}/blob/HEAD/skillbench/MODELS.md">
+        <div class="c-head"><span class="c-name">Which local models can drive an agent loop, and why most cannot</span></div>
+        <div class="c-meta"><span class="c-lab">MODELS</span></div></a>
+      <a class="card" href="{gh}/tree/HEAD/writeups">
+        <div class="c-head"><span class="c-name">Post-mortems: defects found, and how they were caught</span></div>
+        <div class="c-meta"><span class="c-lab">WRITEUPS</span></div></a>
+      <a class="card" href="{gh}/blob/HEAD/JOURNAL.md">
+        <div class="c-head"><span class="c-name">The working record &mdash; every session, including the dead ends</span></div>
+        <div class="c-meta"><span class="c-lab">JOURNAL</span></div></a>
+      <a class="card" href="{gh}">
+        <div class="c-head"><span class="c-name">Source, licence and how to rebuild all of this</span></div>
+        <div class="c-meta"><span class="c-lab">GITHUB</span></div></a>
+    </div>
   </section>
   <div class="searchbar">
     <input id="q" type="search" placeholder="SEARCH BY SYMPTOM &mdash; e.g. screen share is a black rectangle"
@@ -409,6 +447,17 @@ a{color:inherit;text-decoration:none}
 .intro{max-width:720px;margin:14px 0 22px}
 .lede{font:16px/1.55 var(--body);color:var(--ink);margin:0 0 14px}
 .fine{font:12px/1.6 var(--body);color:var(--dim);margin:12px 0 0}
+.intro .body{font:13.5px/1.65 var(--body);color:var(--dim);margin:0 0 14px}
+.intro .body b{color:var(--ink);font-weight:600}
+/* The link grid wants the full board width; the PROSE does not. A 1440px line is roughly
+   200 characters, which is unreadable for the same reason 8px type was. Constrain the text
+   blocks to a reading measure and let only the cards span. */
+.intro{max-width:none}
+.intro .lede,.intro .body,.intro .fine,.intro .legend{max-width:78ch}
+.links{margin-bottom:6px}
+.links .card{min-height:0}
+.links .c-name{font-size:12.5px}
+.links .c-meta{margin-top:8px}
 .legend{display:flex;gap:18px;flex-wrap:wrap;font:11px var(--crt);letter-spacing:.14em;
   color:var(--muted);margin:10px 0}
 .legend span{display:flex;align-items:center;gap:6px}
