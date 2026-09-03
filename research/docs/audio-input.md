@@ -1865,7 +1865,7 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth_headset>
 
 ---
 
-## USB DAC stuck at 48 kHz — everything is resampled
+## USB DAC stuck at 48 kHz, so everything is resampled
 
 `pipewire-sample-rate-stuck-48khz-resampling` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pipewire`
 

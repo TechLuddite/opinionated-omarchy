@@ -1066,7 +1066,7 @@ Sources: <https://wiki.archlinux.org/title/Power_management> · <https://wiki.ar
 
 ---
 
-## Diagnose 'systemctl suspend does nothing' — an inhibitor is holding it
+## Diagnose 'systemctl suspend does nothing' when an inhibitor is holding it
 
 `suspend-blocked-by-inhibitor-lock` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`
 

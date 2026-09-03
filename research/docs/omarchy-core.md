@@ -893,7 +893,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/install/pref
 
 ---
 
-## Top bar gone and staying gone — the Quickshell omarchy-shell crash-loops and its supervisor gives up
+## Top bar gone and staying gone: omarchy-shell crash-loops and its supervisor gives up
 
 `omarchy-shell-bar-crash-loop` · severity: **high** · frequency: **common** · applies to: `omarchy-4`
 
@@ -1337,7 +1337,7 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/config/hypr/
 
 ---
 
-## 'Woah partner...' — the Omarchy pacman guard aborts every direct pacman -Syu
+## 'Woah partner...': the Omarchy pacman guard aborts every direct pacman -Syu
 
 `pacman-guard-blocks-direct-syu` · severity: **medium** · frequency: **very-common** · applies to: `omarchy-4`
 

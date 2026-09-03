@@ -2030,7 +2030,7 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hy
 
 ---
 
-## Flatpak apps run under XWayland — blurry, wrong scaling, unaffected by session env vars
+## Flatpak apps run under XWayland: blurry, wrongly scaled, deaf to session env vars
 
 `flatpak-app-silently-runs-under-xwayland` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`
 

@@ -364,7 +364,7 @@ Sources: <https://archlinux.org/news/nvidia-590-driver-drops-pascal-support-main
 
 ---
 
-## Kernel parameters do not stick on Omarchy 4 — /boot/limine.conf is generated
+## Kernel parameters do not stick on Omarchy 4 because /boot/limine.conf is generated
 
 `limine-kernel-parameters-not-applying-omarchy` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `laptop`, `limine`, `omarchy-4`, `uki`
 
@@ -500,7 +500,7 @@ Sources: <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks> · <https://w
 
 ---
 
-## Steam and Proton fail with 'libGL error: failed to load driver' — the 32-bit graphics stack is missing
+## Steam and Proton fail with 'libGL error: failed to load driver' because the 32-bit graphics stack is missing
 
 `steam-proton-lib32-graphics-missing` · severity: **high** · frequency: **very-common** · applies to: `amdgpu`, `arch`, `cachyos`, `desktop`, `endeavouros`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy-4`, `proton`, `steam`
 
@@ -1685,7 +1685,7 @@ Sources: <https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/> · <https://g
 
 ---
 
-## Fix 'vaInitialize failed' — screen recording and hardware video decode
+## Fix 'vaInitialize failed' in screen recording and hardware video decode
 
 `vaapi-init-failed-screen-recording` · severity: **medium** · frequency: **very-common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
@@ -1750,7 +1750,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/2706> · <https://wiki.arch
 
 ---
 
-## AMD/Intel monitor capped at 4K@60 over HDMI — HDMI 2.1 is not available on the open drivers
+## AMD or Intel monitor capped at 4K@60 over HDMI, because HDMI 2.1 is not on the open drivers
 
 `amd-hdmi-2-1-capped-at-60hz` · severity: **medium** · frequency: **common** · applies to: `amdgpu`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy-4`
 

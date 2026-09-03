@@ -514,7 +514,7 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Nvidia/_inde
 
 ---
 
-## Monitor reports garbage or no EDID (KVM, long HDMI run, cheap adapter) — override it with a firmware EDID
+## Override a firmware EDID when the monitor reports garbage or none (KVM, long HDMI run, cheap adapter)
 
 `edid-override-for-bad-or-missing-monitor-edid` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `dock`, `endeavouros`, `grub`, `hyprland`, `kvm`, `laptop`, `limine`, `manjaro`, `mkinitcpio`, `omarchy`, `omarchy-4`, `systemd-boot`, `wayland`
 
