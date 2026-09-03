@@ -1698,15 +1698,27 @@ things to fold in:
 Also unmeasured: the skill halved the error rate (6/20 to 2/20) in run 25, which is a
 separate effect from the STATE lift and currently hides inside `success`.
 
-### 2. 150 records have no `title`
+### 2. 150 records have no `title`  — **DONE 2026-09-03**
 
-Found while rendering the public site. `build_db.py` and `build_site.py` both fall back to
-the slug, so a third of the generated pages are headed `screenshare-black-screen-no-portal`
-rather than a sentence. The site prettifies the slug for display, which is presentation
-lipstick — the records genuinely lack the field.
+All 150 written and merged. **Every record now carries a title** and no generated heading
+is a bare slug.
 
-Cheap to fix and worth doing before the site is announced: a `title` is one line per record
-and the `symptom` already contains the material. Do it in the JSONL, rebuild both.
+Worth recording *why* they were missing, because it says something about the harvest: the
+gap was not scattered. It sat in **exactly six categories at 23-27 records each**
+(`audio-input`, `hyprland-config`, `display-monitors`, `wayland-compat`, `pacman-aur`,
+`omarchy-core`) — one harvester pass that never emitted the optional field, not 150
+independent omissions. `title` is optional in the schema and nothing validated it, so the
+gap survived two audits and only surfaced when the site was rendered and a third of the
+pages were headed `screenshare-black-screen-no-portal`.
+
+Written from each record's own `symptom`, in the voice the existing titles already used —
+imperative and specific, naming the error where there is one. Applied through
+`corpus.write_jsonl` so field order, LF and UTF-8 stayed pinned, and verified as a
+title-only change: **0 non-title field differences across all 456 records**, 150 titles
+changed, every one of them previously empty.
+
+The site's slug-prettifier is now dead code for this corpus but is kept: `title` is still
+optional, so the next harvest can reintroduce the gap.
 
 ### 3. Finish auditing 28 records  — **DONE 2026-09-01**
 
