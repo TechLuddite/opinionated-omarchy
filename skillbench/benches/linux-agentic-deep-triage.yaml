@@ -1,0 +1,135 @@
+name: linux-agentic-deep-triage
+description: >
+  Hard general-Linux triage with a wrong answer that looks right. The CONTROL with headroom:
+  same difficulty profile as the Omarchy trap bench, nothing the skill mentions.
+lane: agentic
+control: true
+skills: [omarchy, omarchy-full]
+
+# WHY THIS EXISTS
+#
+# `linux-agentic-triage` scores 0.950 bare (run 26). Five points of headroom means it cannot
+# show a large lift by construction, so the difference-in-differences against an Omarchy
+# bench is weak in BOTH directions -- which is what made run 25/26's +3.3 pt DiD (p = 0.81)
+# uninterpretable. Every control in the suite was chosen to be EASY general Linux. None was
+# chosen to be HARD general Linux.
+#
+# This one is built to the same shape as `omarchy-agentic-stale-advice`: a genuinely tricky
+# problem where the ATTRACTIVE answer is wrong. If the skill lifts the Omarchy bench and not
+# this, that is evidence about Omarchy knowledge. If it lifts both, it is evidence about
+# answer length or general diligence -- which is exactly what a control is for.
+#
+# Contamination checked: the omarchy skill bundle mentions none of lsof, drop-in,
+# `systemctl edit`, deleted files, df, du, or inodes -- 0 files for each.
+#
+# NOTE ON CLEANUP. These seeds touch /mnt, /var/tmp, /etc/systemd and /run -- all OUTSIDE
+# $HOME, so the per-case restore never touches them. Each seed therefore tears down its own
+# previous state first. Do not assume restore will do it.
+
+defaults:
+  repeats: 1
+  params:
+    thinking: "off"
+    agent_timeout: 600
+  vm:
+    restore:
+      - .bench-scratch
+
+tasks:
+  # ---------------------------------------------------------------- task 1
+  - id: deleted-file-holds-disk
+    prompt: |
+      The filesystem mounted at /mnt/bench-disk is completely full — writes to it fail with
+      "No space left on device". But `du` reports almost nothing there, and `ls` shows no
+      large files.
+
+      Reclaim the space. The filesystem must stay mounted and must still be the same
+      filesystem when you are done — do not unmount it, reformat it, or reboot the machine.
+      Fix it, then stop.
+    seed: |
+      set -euo pipefail
+      sudo systemctl stop bench-diskhog.service 2>/dev/null || true
+      # `stop` does not clear a transient unit left in FAILED state, and systemd-run then
+      # refuses with "Unit bench-diskhog.service was already loaded or has a fragment file"
+      # -- which aborts the seed and costs the case entirely. Seen in run 27.
+      sudo systemctl reset-failed bench-diskhog.service 2>/dev/null || true
+      sudo umount /mnt/bench-disk 2>/dev/null || true
+      sudo rm -f /var/tmp/bench-disk.img /var/tmp/bench-disk.uuid
+      sudo mkdir -p /mnt/bench-disk
+      sudo truncate -s 128M /var/tmp/bench-disk.img
+      # -m 0: no root reserve, so a full filesystem genuinely refuses even root's writes.
+      # With the default 5% reserve the "can you write" assertion passed while 100% full.
+      sudo mkfs.ext4 -q -m 0 -F /var/tmp/bench-disk.img
+      sudo mount -o loop /var/tmp/bench-disk.img /mnt/bench-disk
+      sudo blkid -s UUID -o value /var/tmp/bench-disk.img | sudo tee /var/tmp/bench-disk.uuid >/dev/null
+      # /run is tmpfs, so this marker vanishes on reboot -- "just reboot it" is detectable.
+      sudo touch /run/bench-no-reboot
+      # Fill to ENOSPC, then unlink while a READ fd stays open: df sees the space, du cannot.
+      # `exec 9<` and not `9>` -- a write fd would truncate the file it is meant to pin.
+      sudo systemd-run --unit=bench-diskhog --quiet /bin/bash -c '
+        dd if=/dev/zero of=/mnt/bench-disk/blob bs=1M status=none 2>/dev/null || true
+        exec 9< /mnt/bench-disk/blob
+        rm -f /mnt/bench-disk/blob
+        exec sleep infinity'
+      sleep 5
+    post:
+      # the work -- both fail at the floor
+      - { type: command_succeeds, command: "mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]" }
+      - { type: command_succeeds, command: "sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe" }
+      # the traps -- these pass at the floor and catch the attractive wrong answers
+      - { type: command_succeeds, command: "mountpoint -q /mnt/bench-disk" }
+      - { type: command_succeeds, command: "[ \"$(sudo blkid -s UUID -o value /var/tmp/bench-disk.img)\" = \"$(cat /var/tmp/bench-disk.uuid)\" ]" }
+      - { type: file_exists, path: /var/tmp/bench-disk.img }
+      - { type: file_exists, path: /run/bench-no-reboot }
+
+  # ---------------------------------------------------------------- task 2
+  - id: dropin-shadows-unit
+    prompt: |
+      The service bench-widget.service will not start. `systemctl status bench-widget` shows
+      it failing, and /etc/systemd/system/bench-widget.service looks correct — its ExecStart
+      points at a program that exists and runs.
+
+      Make the service start and stay running, without editing
+      /etc/systemd/system/bench-widget.service, masking the service, or rebooting.
+      Fix it, then stop.
+    seed: |
+      set -euo pipefail
+      sudo systemctl stop bench-widget.service 2>/dev/null || true
+      sudo systemctl unmask bench-widget.service 2>/dev/null || true
+      sudo rm -rf /etc/systemd/system/bench-widget.service /etc/systemd/system/bench-widget.service.d
+      sudo install -Dm755 /dev/stdin /usr/local/bin/bench-widget <<'EOF'
+      #!/usr/bin/env bash
+      while true; do sleep 5; done
+      EOF
+      sudo install -Dm644 /dev/stdin /etc/systemd/system/bench-widget.service <<'EOF'
+      [Unit]
+      Description=Bench widget
+
+      [Service]
+      ExecStart=/usr/local/bin/bench-widget
+      Restart=no
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      # The unit above is CORRECT. This drop-in silently overrides it, and is invisible
+      # unless you run `systemctl cat` or look in the .d directory -- reading the unit file
+      # alone shows nothing wrong, which is the whole difficulty.
+      sudo install -Dm644 /dev/stdin /etc/systemd/system/bench-widget.service.d/override.conf <<'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/usr/local/bin/bench-widget-helper --daemon
+      EOF
+      sudo sha256sum /etc/systemd/system/bench-widget.service | sudo tee /var/tmp/bench-widget.sha >/dev/null
+      sudo touch /run/bench-no-reboot
+      sudo systemctl daemon-reload
+      sudo systemctl start bench-widget.service 2>/dev/null || true
+      sleep 2
+    post:
+      # the work
+      - { type: command_succeeds, command: "systemctl is-active --quiet bench-widget.service" }
+      - { type: command_output_matches, command: "systemctl show -p ExecStart bench-widget.service", pattern: "/usr/local/bin/bench-widget[ ;]" }
+      # the traps
+      - { type: command_succeeds, command: "sudo sha256sum -c /var/tmp/bench-widget.sha" }
+      - { type: command_fails, command: "[ \"$(systemctl is-enabled bench-widget.service 2>/dev/null)\" = masked ]" }
+      - { type: file_exists, path: /run/bench-no-reboot }

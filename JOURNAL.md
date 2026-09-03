@@ -2,6 +2,89 @@
 
 Last updated: 2026-09-03
 
+## Session of 2026-09-03 (second) — a control with headroom, and the public site
+
+### 1. `linux-agentic-deep-triage` — the control the DiD needed
+
+`linux-agentic-triage` scores **0.950 bare**, five points of headroom, so it could not show
+a lift by construction and the difference-in-differences in runs 25/26 was weak in both
+directions. The new control scores **0.759 bare** (run 27) — about 24 points of room, the
+same difficulty profile as the Omarchy trap bench, and nothing the skill mentions
+(contamination checked: 0 files in the bundle mention lsof, drop-ins, `systemctl edit`,
+deleted files, df, du or inodes).
+
+Two tasks, both with an attractive wrong answer:
+
+- **`deleted-file-holds-disk`** — `df` says 100%, `du` says 13 K. A process holds an
+  unlinked file. `lsof` is **not installed** on these VMs, so it has to be found through
+  `fuser -m` or `/proc/*/fd`. Bare: 0.67, 0.67, 1.00, 0.50.
+- **`dropin-shadows-unit`** — the unit file at `/etc/systemd/system/` is *correct*; a
+  drop-in silently overrides `ExecStart`. Invisible unless you run `systemctl cat`. Bare:
+  0.80, 0.80, 0.60, 0.80, 1.00.
+
+Hand-verified across every outcome state, and **a reboot scores below doing nothing** (3/6
+and 2/5 against floors of 4/6 and 3/5) via a marker in `/run`, which is tmpfs.
+
+**Three assertion bugs found in verification, all the same family as the 2026-08-29 tilde
+bug — green before the agent runs:**
+
+- **`df` on an unmounted path silently reports `/`.** "Unmount it" scored a *false pass*
+  until the check was guarded behind `mountpoint -q`.
+- **ext4 reserves 5% for root**, so the write probe succeeded on a 100%-full filesystem.
+  Fixed with `mkfs.ext4 -m 0`, and the probe writes 2 MiB rather than 2 bytes.
+- **`systemctl stop` does not clear a transient unit left FAILED**, so `systemd-run` refused
+  to recreate it and the seed aborted — that cost a real case in run 27. Fixed with
+  `reset-failed`.
+
+`test_control_benches_are_flagged` failed when the bench was added, which is the test doing
+its job: the control set is pinned so adding one is deliberate.
+
+### 2. The public site — `research/tools/build_site.py`
+
+Generates the repo-root `docs/` (GitHub Pages' default), **not** `research/docs/`, which
+`build_db.py` unlinks on every corpus build. 456 record pages, a client-side symptom search
+over a 193 KB JSON index, and 12 category groups.
+
+**The design is the Control Room theme**, recovered from `work.handoffs` at
+`2026-08/22-controlroom-clean-room-extraction` — a `draft`, `human_reviewed: false` document
+whose section 1 is transcribed verbatim from the original `style.css` (the reliable part;
+its sections 2-3 are unreviewed judgement and were not used). All five motifs are
+reproduced: scanline+vignette, twin corner gradients, phosphor traces, glowing LEDs, and
+accent-keyed chrome.
+
+**The mapping that makes it fit this project: `audit_status` drives the status LED.** Teal
+for audited, amber for corrected, red for unchecked. The board therefore reads the corpus's
+*honesty* at a glance rather than burying it, and the conditional `cause_reconciled`
+disclaimer is reproduced on the record page exactly as `ask.py` and the markdown do it — a
+site that told a reader the cause "was not rewritten" about one that was would be the same
+defect in a third place.
+
+The Control Room's five group accents are mapped onto the twelve fix categories in thematic
+families (Omarchy core/theming teal, Hyprland/display/wayland blue, GPU/boot/power purple,
+pacman/apps amber, network/audio pink). **Twelve distinct accents was considered and
+rejected**: past roughly eight, categorical colours stop being reliably distinguishable
+under colour-vision deficiency, and the group name is always present as text — so colour is
+redundant encoding here, not the only channel.
+
+**`docs/` is gitignored.** It is 4.3 MB regenerated wholesale on every run; committing it
+would add that churn to every corpus change. Pages can build it in CI instead. That is a
+decision still open, along with self-hosting the two webfonts — the source handoff is
+explicit that fetching Space Grotesk and IBM Plex Mono from a CDN at build time yields a
+silently unstyled page on a network blip, so the generator ships fallback stacks only.
+
+### 3. Scaling settled: per-record files, and FTS5 rather than grep
+
+**Per-category storage is already broken, not a future risk.** Seven of the twelve category
+pages exceed the 32K context window *today* at 456 records — `network.md` is 43.3k tokens.
+With per-record files a category is metadata, so splitting one is a field edit, never a
+migration.
+
+The real limit is **match precision, not file size**. Unranked grep over an index returns 22
+hits for `bluetooth`, 32 for `nvidia`, 45 for `audio` and **94 for `boot`** — reading those
+is ~94k tokens, and at 10x growth it is hopeless. `ask.py` already solves this with FTS5 +
+bm25 and tuned per-column weights, so **the skill should ship the SQLite index, not grep**.
+Confirmed with the operator as the intended direction.
+
 ## Session of 2026-09-03 — n=10, and the lift does not survive it
 
 Runs 25 and 26 replicate runs 23/24 at ten repeats. **The +11.1 pt lift does not hold.**
@@ -788,28 +871,27 @@ runs.
 
 ## What's left
 
-### 1. Give the agentic lane a control with headroom, then decide if the lift is worth chasing
+### 1. Re-run the lift now that the control has headroom
 
-**Answered 2026-09-03, negatively.** Runs 25/26 replicated at n=10: the Omarchy lift is
-+8.3 pt (p = 0.21) against a control that moved +5.0 pt, a difference-in-differences of
-**+3.3 pt at p = 0.81**. Not confirmed, and the control moving nearly as much is the exact
-signature the controls exist to catch.
+**Unblocked 2026-09-03.** The reason runs 25/26 could not settle anything was a saturated
+control (0.950 bare, five points of room). `linux-agentic-deep-triage` now scores **0.759
+bare**, so the difference-in-differences finally has something to work with.
 
-Do **not** simply re-run at n=31 (the power calculation's answer). Fix the measurement first:
+The run to do: `omarchy-agentic-stale-advice` against `linux-agentic-deep-triage`,
+`devstral-small-2:24b`, `none` vs `skill:omarchy`. The power calculation from run 25 said
+**~31 repeats** for 80% power at the observed effect; that is ~124 cases on the trap bench
+plus the control's, so budget the hours or accept a smaller effect size.
 
-- **The control is saturated at 0.950 and cannot show a large lift.** Every control in the
-  suite is *easy* general Linux. One that is *hard* general Linux — same difficulty profile
-  as the trap bench, still nothing the skill mentions — would give the
-  difference-in-differences something to work with. This is the highest-value change on the
-  lane and it is cheap.
-- **Measure the error-rate effect separately.** The skill cut errors from 6/20 to 2/20. If
-  that reproduces it is a genuine finding about the skill keeping an agent on track, and it
-  is currently buried inside `success`.
-- Only then spend the ~31 repeats, and only on `rebind-packaged-default`-shaped tasks.
+Score it with `skillbench/tools/lift_test.py`, which reports the DiD and its p-value. Two
+things to fold in:
 
-Still open and unchanged: only **4 of 14** local models can drive the loop
-([skillbench/MODELS.md](skillbench/MODELS.md)), so difficulty is not the lever — *wrongness*
-is. And whether `skill:omarchy-full` is loadable in an agentic loop at all is untested.
+- **Weight toward `rebind-packaged-default`**; `looknfeel-not-hyprlang` is nearly saturated
+  bare.
+- **Raise `agent_timeout` above 600 s** as a launch param, not a bench edit — several run-23
+  cases timed out *having already solved the task*. Changing the YAML restarts the series.
+
+Also unmeasured: the skill halved the error rate (6/20 to 2/20) in run 25, which is a
+separate effect from the STATE lift and currently hides inside `success`.
 
 ### 2. Finish auditing 28 records  — **DONE 2026-09-01**
 

@@ -16,3 +16,11 @@ venv/
 *.swp
 *~
 .DS_Store
+
+# The generated Pages site. NOT tracked, deliberately: build_site.py wipes and rewrites all
+# 456 pages on every run, so committing it would put ~4.3 MB of churn in history on every
+# corpus change -- on top of research/docs/, which is tracked for a different reason (an
+# agent must be able to read a category page straight out of a clone, with no Python).
+# Nothing needs this in the repo: GitHub Pages can build it in CI and publish the artifact.
+# Rebuild with:  cd research && python3 tools/build_site.py
+docs/
