@@ -17,6 +17,12 @@ DESIGN SYSTEM. The Control Room theme, transcribed in `work.handoffs` at
 that makes it fit: a category is a GROUP with an accent, a record is a CARD, and
 `audit_status` drives the status LED -- so the board reads the corpus's honesty at a glance.
 
+The source theme's fifth motif, the phosphor trace, is deliberately ABSENT. It was fitted
+to audit coverage per category, but that sits at 97-100% across all twelve, so the line was
+flat at the ceiling and carried no information a reader could act on. The per-group
+audited/corrected/unchecked meters do that job with the same phosphor treatment and actually
+vary. Do not reinstate a chart here without a series that moves.
+
 Fonts are the fallback stacks only. The source handoff is explicit that the real families
 (Space Grotesk, IBM Plex Mono) must be SELF-HOSTED woff2 rather than pulled from a CDN at
 build time, because a network blip yields a silently unstyled page. Vendoring them is a
@@ -108,37 +114,6 @@ def _inline(s):
     return "".join(res)
 
 
-def waveform(recs, cats):
-    """Motif 3, with real data: audit coverage per category as a phosphor trace.
-
-    The original Control Room drew container CPU here. A corpus record has no timeseries,
-    so the honest substitute is the one series this project actually has an opinion about:
-    what fraction of each category has been through an audit. A dip in the trace is a
-    category with unchecked records in it, which is exactly what a reader should notice.
-
-    Fixed 0-100 scale rather than the original's `max(20, max*1.15)` autoscale -- for a
-    percentage, autoscaling would make 100% and 60% look identical, which is the opposite
-    of informative.
-    """
-    order = sorted({r["category"] for r in recs})
-    if not order:
-        return ""
-    pts = []
-    for cat in order:
-        rs = [r for r in recs if r["category"] == cat]
-        audited = sum(1 for r in rs if r.get("audit_status") in ("ok", "corrected"))
-        pts.append(100.0 * audited / len(rs))
-    W, H, pad = 240.0, 40.0, 3.0
-    step = W / max(1, len(pts) - 1)
-    xy = [(i * step, H - pad - (v / 100.0) * (H - 2 * pad)) for i, v in enumerate(pts)]
-    line = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(xy))
-    fill = line + f" L{W:.1f},{H:.1f} L0,{H:.1f} Z"
-    worst = min(pts)
-    return (f'<svg class="wave" viewBox="0 0 {W:.0f} {H:.0f}" preserveAspectRatio="none" '
-            f'role="img" aria-label="Audit coverage by category, lowest {worst:.0f} percent">'
-            f'<path class="wave-fill" d="{fill}"/><path class="wave-line" d="{line}"/></svg>')
-
-
 def page(title, body, depth=0, subtitle=""):
     up = "../" * depth
     return f"""<!doctype html>
@@ -159,7 +134,7 @@ SET IN <a href="{up}fonts/DepartureMono-LICENSE.txt">DEPARTURE MONO</a></footer>
 """
 
 
-def masthead(recs, depth=0, trace=None):
+def masthead(recs, depth=0):
     up = "../" * depth
     st = Counter(r.get("audit_status") for r in recs)
     srcs = {s for r in recs for s in (r.get("sources") or [])}
@@ -173,7 +148,6 @@ def masthead(recs, depth=0, trace=None):
   <div class="brand"><a href="{up}index.html" class="wordmark">OPINIONATED OMARCHY</a>
     <div class="sub">TROUBLESHOOTING CORPUS</div></div>
   <div class="vitals">{cells}</div>
-  {trace or ""}
   <div class="mast-status"><i></i>LIVE</div>
 </header>"""
 
@@ -265,7 +239,7 @@ def index_page(recs, cats):
     st = Counter(r.get("audit_status") for r in recs)
     corrected_n = st["corrected"]
     gh = "https://github.com/TechLuddite/opinionated-omarchy"
-    body = f"""{masthead(recs, trace=waveform(recs, cats))}
+    body = f"""{masthead(recs)}
 <main class="board">
   <section class="intro">
     <p class="lede">Real Omarchy and Arch desktop problems with verified, copy-pasteable
@@ -396,7 +370,7 @@ STYLE = r"""/* Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Licenc
    the grid fixes legibility and crispness with one change. Do not reintroduce 8/9/10px
    here -- it will look soft as well as tiny. */
 .crt,.wordmark,.sub,.v-lab,.mast-status,.g-head,.c-lab,.c-sev,.sev,.n-lab,.crumb,
-footer,.tag,.slug,.qcount,.abbr,.legend,.wave-lab{
+footer,.tag,.slug,.qcount,.abbr,.legend{
   font-family:var(--crt);
   -webkit-font-smoothing:none; -moz-osx-font-smoothing:unset; font-smooth:never;
 }
@@ -414,7 +388,7 @@ body{margin:0;background:
 .scan::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 260px rgba(0,0,0,.55)}
 a{color:inherit;text-decoration:none}
 
-.mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto auto;
+.mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto;
   gap:20px;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);
   background:rgba(10,14,19,.82);backdrop-filter:blur(8px)}
 .wordmark{font:22px/1 var(--crt);letter-spacing:.20em;color:var(--ink)}
@@ -423,14 +397,6 @@ a{color:inherit;text-decoration:none}
 .v-num{font:600 19px/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .v-num small{font:11px var(--mono);color:var(--dim);margin-left:2px}
 .v-lab{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin-top:4px}
-.wave{display:block;width:240px;height:40px}
-/* Motif 3: phosphor traces. Stroked path, teal drop-shadow, soft fill beneath. */
-.wave-line{fill:none;stroke:var(--signal);stroke-width:1.4;
-  filter:drop-shadow(0 0 4px rgba(70,224,192,.6))}
-.wave-fill{fill:rgba(70,224,192,.06);stroke:none}   /* subtler than a card sparkline:
-   audit coverage sits at 97-100%, so the area under the line is nearly the whole box and
-   --signal-soft (.14) read as a solid slab rather than a trace */
-.wave-lab{font:11px var(--crt);letter-spacing:.18em;fill:var(--muted)}
 .meter{display:flex;height:3px;border-radius:2px;overflow:hidden;flex:0 0 84px;
   background:var(--line)}
 .meter span{display:block;height:100%}
@@ -542,7 +508,6 @@ footer a{color:var(--signal)}
 @media(max-width:760px){
   .mast{position:static;grid-template-columns:1fr;gap:12px}
   .vitals{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-  .wave{display:none}          /* the spec hides the waveform at this breakpoint */
 }
 @media(max-width:420px){
   .vitals{grid-template-columns:repeat(2,1fr)}
