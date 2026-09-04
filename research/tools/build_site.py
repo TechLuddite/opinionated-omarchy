@@ -304,9 +304,9 @@ def index_page(recs, cats):
             cls, label, _ = LED.get(r.get("audit_status"), LED["unaudited"])
             cards.append(
                 f'<a class="card {cls}" href="records/{e(r["slug"])}.html">'
-                f'<div class="c-head"><span class="led"></span>'
-                f'<span class="c-name">{e(heading(r))}</span></div>'
-                f'<div class="c-meta"><span class="c-lab">{label}</span>'
+                f'<div class="c-head"><span class="c-name">{e(heading(r))}</span></div>'
+                f'<div class="c-meta">'
+                f'<span class="c-lab"><span class="led"></span>{label}</span>'
                 f'<span class="c-sev">{e(r.get("severity",""))}</span></div></a>')
         n = len(by[cat])
         ok = sum(1 for r in by[cat] if r.get("audit_status") == "ok")
@@ -412,7 +412,8 @@ def main():
     w = lambda p, s: p.write_text(s, encoding="utf-8", newline="\n")
     w(OUT / "index.html", index_page(recs, cats))
     w(OUT / "style.css", STYLE)
-    w(OUT / "search.js", SEARCH_JS)
+    led_map = json.dumps({k: [v[0], v[1]] for k, v in LED.items()}, separators=(",", ":"))
+    w(OUT / "search.js", SEARCH_JS.replace("__LED_MAP__", led_map))
     w(OUT / "search.json", json.dumps(search_index(recs), ensure_ascii=False, separators=(",", ":")))
     w(OUT / ".nojekyll", "")          # serve records/ verbatim; no Jekyll processing
 
@@ -602,11 +603,16 @@ a{color:inherit;text-decoration:none}
   background:var(--gaccent);opacity:.5;border-radius:8px 0 0 8px}
 .card:hover{transform:translateY(-1px);border-color:var(--line-2);
   box-shadow:0 6px 20px rgba(0,0,0,.35)}
-.c-head{display:flex;align-items:flex-start;gap:8px}
 .c-name{font:15px/1.45 var(--mono);color:var(--ink)}
 .c-meta{display:flex;justify-content:space-between;margin-top:9px;padding-top:8px;
   border-top:1px solid var(--line)}
 .c-lab,.c-sev{font:11px var(--crt);letter-spacing:.14em;color:var(--muted)}
+/* The status dot sits with the status WORD rather than the title, so the colour and the
+   label it encodes are read together. Either child can host it: .c-lab carries the status
+   on a board card, .c-sev carries it on a search result. The global .led margin-top exists
+   to seat a dot against the first line of a wrapped title and is wrong here. */
+.c-meta>span{display:inline-flex;align-items:center;gap:6px}
+.c-meta .led{margin-top:0}
 
 /* Motif 4: glowing LEDs. The colour IS the provenance. */
 .led{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-top:4px}
@@ -702,7 +708,12 @@ SEARCH_JS = r"""// Client-side symptom search over search.json.
 (function () {
   var q = document.getElementById('q'), out = document.getElementById('results'),
       groups = document.getElementById('groups'), count = document.getElementById('qcount'),
-      DATA = null, LED = {ok:'h-healthy', corrected:'h-starting'};
+      DATA = null,
+      // Generated from the LED table in build_site.py, so the status a record shows in a
+      // search result cannot drift from the one it shows on the board or its own page.
+      // It used to carry the class only and uppercase the raw audit_status for the label,
+      // which is why the same record read AUDITED on the board and OK here.
+      LED = __LED_MAP__;
 
   fetch('search.json').then(function (r) { return r.json(); }).then(function (d) {
     DATA = d; count.textContent = d.length + ' RECORDS';
@@ -742,12 +753,12 @@ SEARCH_JS = r"""// Client-side symptom search over search.json.
     hits.sort(function (a, b) { return b[0] - a[0]; });
     hits = hits.slice(0, 60);
     out.innerHTML = hits.map(function (h) {
-      var r = h[1], cls = LED[r.a] || 'h-down';
-      return '<a class="card ' + cls + '" href="records/' + esc(r.s) + '.html">' +
-             '<div class="c-head"><span class="led"></span>' +
-             '<span class="c-name">' + esc(r.t) + '</span></div>' +
+      var r = h[1], led = LED[r.a] || LED.unaudited;
+      return '<a class="card ' + led[0] + '" href="records/' + esc(r.s) + '.html">' +
+             '<div class="c-head"><span class="c-name">' + esc(r.t) + '</span></div>' +
              '<div class="c-meta"><span class="c-lab">' + esc(r.c) + '</span>' +
-             '<span class="c-sev">' + esc((r.a || '').toUpperCase()) + '</span></div></a>';
+             '<span class="c-sev"><span class="led"></span>' +
+             led[1] + '</span></div></a>';
     }).join('');
     out.className = 'grid';
     groups.style.display = 'none';
