@@ -1,0 +1,85 @@
+{
+  "name": "omarchy-agentic-config",
+  "description": "An agent changes a real Omarchy machine — keybinding, theme, monitor — graded on the machine's end state, not its prose.",
+  "lane": "agentic",
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 1,
+    "params": {
+      "thinking": "off",
+      "agent_timeout": 600
+    },
+    "vm": {
+      "restore": [
+        ".config/hypr",
+        ".config/omarchy",
+        ".local/state/omarchy"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "binding-user-tree",
+      "prompt": "On this Omarchy machine, add a keyboard shortcut so that pressing\nSUPER + SHIFT + T opens the foot terminal. The shortcut must survive a\nreboot and must survive a system update. Make the change, then stop.\n",
+      "post": [
+        {
+          "type": "file_contains",
+          "path": "~/.config/hypr/bindings.lua",
+          "pattern": "SUPER *\\+ *SHIFT *\\+ *T",
+          "case_sensitive": false
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.config/hypr/bindings.lua",
+          "pattern": "foot"
+        },
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy 2>/dev/null",
+          "pattern": "0 altered files"
+        }
+      ]
+    },
+    {
+      "id": "theme-switch",
+      "seed": "omarchy theme set gruvbox >/dev/null 2>&1 || true\ntest \"$(cat ~/.local/state/omarchy/current/theme.name)\" = \"gruvbox\"\n",
+      "prompt": "Switch this Omarchy system's desktop theme to the theme named \"nord\",\nusing Omarchy's own tooling rather than editing config files by hand.\nMake the change, then stop.\n",
+      "post": [
+        {
+          "type": "command_output_matches",
+          "command": "cat ~/.local/state/omarchy/current/theme.name",
+          "pattern": "^nord$"
+        },
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy 2>/dev/null",
+          "pattern": "0 altered files"
+        }
+      ]
+    },
+    {
+      "id": "monitor-persist",
+      "prompt": "Configure this Omarchy machine so that a monitor on output DP-1 runs at\n1920x1080 at 60Hz, positioned to the right of the built-in display, and so\nthe setting is applied automatically at every login. Make the change, then stop.\n",
+      "post": [
+        {
+          "type": "command_succeeds",
+          "command": "grep -rEq 'DP-1' ~/.config/hypr/"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "grep -rEq '1920x1080' ~/.config/hypr/"
+        },
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy 2>/dev/null",
+          "pattern": "0 altered files"
+        }
+      ]
+    }
+  ],
+  "spec_sha": "df05ea9f21aa",
+  "control": false
+}

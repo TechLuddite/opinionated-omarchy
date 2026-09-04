@@ -1,0 +1,93 @@
+{
+  "name": "omarchy-agentic-stale-advice",
+  "description": "Two config changes where the widely-published answer is the Omarchy 3 / hyprlang one and is wrong on Omarchy 4. Tests whether an agent goes confidently wrong, not whether it can act.\n",
+  "lane": "agentic",
+  "control": false,
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 1,
+    "params": {
+      "thinking": "off",
+      "agent_timeout": 600
+    },
+    "vm": {
+      "restore": [
+        ".config/hypr"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "rebind-packaged-default",
+      "prompt": "Omarchy binds SUPER + W to \"close window\" by default. Change it so that SUPER + W\nlaunches the Nautilus file manager instead.\n\nThe change must survive an `omarchy update`, and every other default binding must\nkeep working. Make the change, then stop.\n",
+      "seed": "set -euo pipefail\n# A previous case's wrong answer must not be scored as this one's. Both paths are\n# absent on a stock Omarchy 4, so this only ever removes leftovers.\nif [ -d \"$HOME/.local/share/omarchy\" ]; then rm -rf \"$HOME/.local/share/omarchy\"; fi\nrm -f \"$HOME/.config/hypr/hyprland.conf\"\n",
+      "post": [
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy",
+          "pattern": "0 altered files"
+        },
+        {
+          "type": "file_absent",
+          "path": "~/.local/share/omarchy"
+        },
+        {
+          "type": "file_absent",
+          "path": "~/.config/hypr/hyprland.conf"
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.config/hypr/bindings.lua",
+          "pattern": "^[^-]*hl\\.unbind\\("
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.config/hypr/bindings.lua",
+          "pattern": "^[^-]*o\\.bind\\(.*nautilus"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "luajit -bl $HOME/.config/hypr/bindings.lua"
+        }
+      ]
+    },
+    {
+      "id": "looknfeel-not-hyprlang",
+      "prompt": "Turn off window gaps and window borders on this machine: inner gaps 0, outer gaps 0,\nand border size 0.\n\nThe change must survive an `omarchy update`. Make the change, then stop.\n",
+      "seed": "set -euo pipefail\nif [ -d \"$HOME/.local/share/omarchy\" ]; then rm -rf \"$HOME/.local/share/omarchy\"; fi\nrm -f \"$HOME/.config/hypr/hyprland.conf\"\n",
+      "post": [
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy",
+          "pattern": "0 altered files"
+        },
+        {
+          "type": "file_absent",
+          "path": "~/.local/share/omarchy"
+        },
+        {
+          "type": "file_absent",
+          "path": "~/.config/hypr/hyprland.conf"
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.config/hypr/looknfeel.lua",
+          "pattern": "^[^-]*hl\\.config\\("
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.config/hypr/looknfeel.lua",
+          "pattern": "^[^-]*gaps_in"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "luajit -bl $HOME/.config/hypr/looknfeel.lua"
+        }
+      ]
+    }
+  ],
+  "spec_sha": "56afa602f539"
+}

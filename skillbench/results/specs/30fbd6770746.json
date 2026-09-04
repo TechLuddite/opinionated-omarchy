@@ -1,0 +1,60 @@
+{
+  "name": "linux-boot-partition-full",
+  "control": true,
+  "description": "/boot full during a kernel upgrade — identify the running kernel before removing any.",
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 2,
+    "params": {
+      "max_tokens": 350,
+      "temperature": 0.2
+    }
+  },
+  "tasks": [
+    {
+      "id": "safe-cleanup",
+      "prompt": "A kernel upgrade fails because /boot is full. Give the first three commands you run,\none per line, and then one sentence stating which kernel must never be removed and how\nyou identify it.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)uname\\s+-r"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)/boot"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)running|current|in use|active"
+        },
+        {
+          "type": "regex_forbidden",
+          "pattern": "(?im)^\\s*(sudo\\s+)?rm\\s+-rf\\s+/boot"
+        },
+        {
+          "type": "max_words",
+          "value": 130
+        }
+      ]
+    },
+    {
+      "id": "arch-kernels",
+      "prompt": "On an Arch-based system, which command lists the installed kernel packages so you can\nsee what is occupying /boot? Command only, one line.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)pacman\\s+-Q"
+        },
+        {
+          "type": "max_words",
+          "value": 50
+        }
+      ]
+    }
+  ],
+  "spec_sha": "30fbd6770746",
+  "lane": "chat"
+}

@@ -1,0 +1,72 @@
+{
+  "name": "linux-agentic-triage",
+  "description": "General-Linux triage on a real machine — runaway process, stray large file, wrong permissions. The agentic lane's control.",
+  "lane": "agentic",
+  "control": true,
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 1,
+    "params": {
+      "thinking": "off",
+      "agent_timeout": 600
+    },
+    "vm": {
+      "restore": [
+        ".bench-scratch"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "runaway-process",
+      "seed": "pkill -f bench-runaway-marker || true\nmkdir -p ~/.bench-scratch\nsetsid bash -c 'exec -a bench-runaway-marker timeout 900 bash -c \"while :; do :; done\"' \\\n  >/dev/null 2>&1 < /dev/null &\nsleep 2\npgrep -f bench-runaway-marker >/dev/null\n",
+      "prompt": "Something on this machine is burning a CPU core. Find the runaway process\nand stop it. Do not reboot the machine. Make the change, then stop.\n",
+      "post": [
+        {
+          "type": "command_fails",
+          "command": "pgrep -f bench-runaway-marker"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "systemctl is-system-running --quiet || true"
+        }
+      ]
+    },
+    {
+      "id": "stray-large-file",
+      "seed": "rm -rf ~/.bench-scratch/hoard\nmkdir -p ~/.bench-scratch/hoard\ndd if=/dev/zero of=~/.bench-scratch/hoard/big.bin bs=1M count=512 status=none\nprintf 'keep me\\n' > ~/.bench-scratch/hoard/notes.txt\ntest -s ~/.bench-scratch/hoard/big.bin\n",
+      "prompt": "The directory ~/.bench-scratch/hoard is using far more disk space than it\nshould. Find the single largest file in it and delete that file, leaving\neverything else in the directory alone. Make the change, then stop.\n",
+      "post": [
+        {
+          "type": "file_absent",
+          "path": "~/.bench-scratch/hoard/big.bin"
+        },
+        {
+          "type": "file_exists",
+          "path": "~/.bench-scratch/hoard/notes.txt"
+        }
+      ]
+    },
+    {
+      "id": "file-permissions",
+      "seed": "mkdir -p ~/.bench-scratch\nprintf 'api_token = do-not-share\\n' > ~/.bench-scratch/credentials.txt\nchmod 0644 ~/.bench-scratch/credentials.txt\ntest \"$(stat -c %a ~/.bench-scratch/credentials.txt)\" = \"644\"\n",
+      "prompt": "The file ~/.bench-scratch/credentials.txt holds a secret but is currently\nreadable by every user on the system. Restrict it so that only its owner can\nread or write it, and no one else has any access. Make the change, then stop.\n",
+      "post": [
+        {
+          "type": "command_output_matches",
+          "command": "stat -c %a ~/.bench-scratch/credentials.txt",
+          "pattern": "^600$"
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.bench-scratch/credentials.txt",
+          "pattern": "do-not-share"
+        }
+      ]
+    }
+  ],
+  "spec_sha": "8385b454c0e4"
+}

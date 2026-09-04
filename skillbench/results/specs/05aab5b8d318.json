@@ -1,0 +1,113 @@
+{
+  "name": "crash-forensics",
+  "description": "Core-dump forensics per the diagnose-crash skill — OOM before blame, core hygiene, honest unsymbolized frames.",
+  "skills": [
+    "diagnose-crash",
+    "diagnose-crash-full"
+  ],
+  "defaults": {
+    "repeats": 2,
+    "params": {
+      "max_tokens": 350,
+      "temperature": 0.2
+    }
+  },
+  "tasks": [
+    {
+      "id": "first-steps",
+      "prompt": "An application on an Arch laptop disappeared without warning and systemd-coredump\nrecorded a core. Give the first three commands you run, one per line, then one\nsentence on the single piece of evidence people most often overlook.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)coredumpctl"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)free\\s+-h|\\bOOM\\b|journalctl"
+        },
+        {
+          "type": "max_words",
+          "value": 120
+        }
+      ]
+    },
+    {
+      "id": "oom-not-a-bug",
+      "prompt": "The journal shows the kernel OOM killer terminated the process. Is this a bug in that\nprogram? Answer yes or no, then explain in one sentence.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)\\bno\\b"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)memor|OOM|exhaust"
+        },
+        {
+          "type": "max_words",
+          "value": 90
+        }
+      ]
+    },
+    {
+      "id": "core-handling",
+      "prompt": "You are about to extract a core dump to a file so you can symbolize it. State the two\nhandling rules you follow for that file, and say in one sentence why they matter.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)mktemp|fresh|unpredictab|private (path|dir)"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)delet|\\brm\\b|trap|remov"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)password|token|credential|sensitive|private|memory"
+        },
+        {
+          "type": "max_words",
+          "value": 120
+        }
+      ]
+    },
+    {
+      "id": "unsymbolized-frames",
+      "prompt": "Two frames in the backtrace resolve to function names; four show only `??`. What do you\nwrite about those four frames in your report, and what can you still legitimately say\nabout them? Two sentences.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)unresolv|unsymboliz|unknown|(no|without|missing) (debug )?symbol"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)librar|\\.so\\b|thread|signal handler|main loop"
+        },
+        {
+          "type": "max_words",
+          "value": 120
+        }
+      ]
+    },
+    {
+      "id": "diagnosis-scope",
+      "prompt": "While diagnosing the crash you notice the user's config is untidy and one setting looks\nwrong. Do you fix it as part of the diagnosis? Answer yes or no, then one sentence.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)\\bno\\b"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)diagnos|read|leave|scope|separat"
+        },
+        {
+          "type": "max_words",
+          "value": 80
+        }
+      ]
+    }
+  ],
+  "spec_sha": "05aab5b8d318",
+  "control": false
+}

@@ -1,0 +1,59 @@
+{
+  "name": "omarchy-monitor-config",
+  "description": "External display config on Omarchy/Hyprland — hyprctl over xrandr, user config tree, validate after edit.",
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 2,
+    "params": {
+      "max_tokens": 350,
+      "temperature": 0.2
+    }
+  },
+  "tasks": [
+    {
+      "id": "dark-external",
+      "prompt": "On an Omarchy laptop (Arch + Hyprland), an external monitor plugged into HDMI\nstays black while the built-in screen works. Give the first three commands you\nwould run, one per line, then one sentence naming the directory where the\npersistent fix is written.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)hyprctl"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)~/\\.config/hypr|\\$HOME/\\.config/hypr"
+        },
+        {
+          "type": "regex_forbidden",
+          "pattern": "(?i)\\bxrandr\\s+--"
+        },
+        {
+          "type": "max_words",
+          "value": 130
+        }
+      ]
+    },
+    {
+      "id": "validate-edit",
+      "prompt": "You have just edited the Hyprland display configuration on an Omarchy system.\nWhich two `hyprctl` invocations do you run to apply the change and confirm it\nparsed cleanly? Name both commands, nothing else.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)hyprctl\\s+reload"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)hyprctl\\s+configerrors"
+        },
+        {
+          "type": "max_words",
+          "value": 60
+        }
+      ]
+    }
+  ],
+  "spec_sha": "172244267033",
+  "control": false
+}
