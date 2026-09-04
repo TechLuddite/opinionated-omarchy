@@ -71,12 +71,24 @@ def bench_tasks(name):
     path = BENCHES / f"{name}.yaml"
     if not path.exists():
         raise SystemExit(f"no bench at {path}")
-    tasks, lane = 0, "chat"
+    import re
+    # Both indentation styles are in use across the bench files: `- id:` at column 0 and
+    # `  - id:` indented. Matching only the indented form silently counted zero tasks and
+    # priced the run at nothing, which is the worst possible direction for this error.
+    tasks, lane, in_tasks = 0, "chat", False
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("lane:"):
             lane = line.split(":", 1)[1].strip().strip("\"'")
-        if line.startswith("  - id:"):
-            tasks += 1
+        if re.match(r"^tasks:\s*$", line):
+            in_tasks = True
+            continue
+        if in_tasks:
+            if re.match(r"^\S", line) and not re.match(r"^\s*-", line):
+                in_tasks = False
+            elif re.match(r"^\s*-\s+id:", line):
+                tasks += 1
+    if not tasks:
+        raise SystemExit(f"counted 0 tasks in {path.name}; the parser needs updating")
     return tasks, lane
 
 

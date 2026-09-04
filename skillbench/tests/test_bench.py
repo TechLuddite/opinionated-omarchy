@@ -460,3 +460,30 @@ def test_empty_chat_base_falls_back_to_ollama(monkeypatch):
     monkeypatch.setenv("SB_CHAT_BASE", "https://opencode.ai/zen")
     importlib.reload(runner)
     assert runner.CHAT_BASE == "https://opencode.ai/zen"
+
+
+def test_model_catalogue_follows_the_chat_base(monkeypatch):
+    """Ollama answers /api/tags; a gateway answers /v1/models. They do not share a shape."""
+    import importlib
+    monkeypatch.setenv("OLLAMA_BASE", "http://127.0.0.1:11434")
+    monkeypatch.setenv("SB_CHAT_BASE", "https://gw.invalid")
+    from app import runner
+    importlib.reload(runner)
+    seen = {}
+
+    class FakeResp:
+        def __init__(self, payload): self._p = payload
+        def raise_for_status(self): pass
+        def json(self): return self._p
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url):
+            seen["url"] = url
+            return FakeResp({"data": [{"id": "glm-5.2"}, {"id": "kimi-k3"}]})
+
+    monkeypatch.setattr(runner.httpx, "AsyncClient", FakeClient)
+    assert asyncio.run(runner.list_models()) == ["glm-5.2", "kimi-k3"]
+    assert seen["url"] == "https://gw.invalid/v1/models"
