@@ -412,7 +412,8 @@ def main():
     w = lambda p, s: p.write_text(s, encoding="utf-8", newline="\n")
     w(OUT / "index.html", index_page(recs, cats))
     w(OUT / "style.css", STYLE)
-    w(OUT / "search.js", SEARCH_JS)
+    led_map = json.dumps({k: [v[0], v[1]] for k, v in LED.items()}, separators=(",", ":"))
+    w(OUT / "search.js", SEARCH_JS.replace("__LED_MAP__", led_map))
     w(OUT / "search.json", json.dumps(search_index(recs), ensure_ascii=False, separators=(",", ":")))
     w(OUT / ".nojekyll", "")          # serve records/ verbatim; no Jekyll processing
 
@@ -707,7 +708,12 @@ SEARCH_JS = r"""// Client-side symptom search over search.json.
 (function () {
   var q = document.getElementById('q'), out = document.getElementById('results'),
       groups = document.getElementById('groups'), count = document.getElementById('qcount'),
-      DATA = null, LED = {ok:'h-healthy', corrected:'h-starting'};
+      DATA = null,
+      // Generated from the LED table in build_site.py, so the status a record shows in a
+      // search result cannot drift from the one it shows on the board or its own page.
+      // It used to carry the class only and uppercase the raw audit_status for the label,
+      // which is why the same record read AUDITED on the board and OK here.
+      LED = __LED_MAP__;
 
   fetch('search.json').then(function (r) { return r.json(); }).then(function (d) {
     DATA = d; count.textContent = d.length + ' RECORDS';
@@ -747,12 +753,12 @@ SEARCH_JS = r"""// Client-side symptom search over search.json.
     hits.sort(function (a, b) { return b[0] - a[0]; });
     hits = hits.slice(0, 60);
     out.innerHTML = hits.map(function (h) {
-      var r = h[1], cls = LED[r.a] || 'h-down';
-      return '<a class="card ' + cls + '" href="records/' + esc(r.s) + '.html">' +
+      var r = h[1], led = LED[r.a] || LED.unaudited;
+      return '<a class="card ' + led[0] + '" href="records/' + esc(r.s) + '.html">' +
              '<div class="c-head"><span class="c-name">' + esc(r.t) + '</span></div>' +
              '<div class="c-meta"><span class="c-lab">' + esc(r.c) + '</span>' +
              '<span class="c-sev"><span class="led"></span>' +
-             esc((r.a || '').toUpperCase()) + '</span></div></a>';
+             led[1] + '</span></div></a>';
     }).join('');
     out.className = 'grid';
     groups.style.display = 'none';
