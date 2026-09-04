@@ -19,8 +19,9 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
 
 This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
 <https://techluddite.github.io/opinionated-omarchy/>. The site is built from the corpus by
-`research/tools/build_site.py` and deployed by `.github/workflows/pages.yml` on any change
-to `problems.jsonl`. The generated `docs/` is **gitignored**, so the 4.3 MB never enters
+`research/tools/build_site.py` and deployed by `.github/workflows/pages.yml`, which triggers
+on `problems.jsonl`, `categories.json`, `build_site.py`, `research/assets/fonts/**` and the
+workflow itself, so a generator or font change republishes too. The generated `docs/` is **gitignored**, so the 4.3 MB never enters
 history. The default branch is `main` (renamed from `claude/greenfield-repo-setup-l5fzae`
 on 2026-09-03; GitHub redirects the old name, but update any local clone with
 `git branch -m` and `git branch --set-upstream-to=origin/main`). Work happens on
@@ -59,6 +60,8 @@ skillbench/              the Skill Bench container — measures whether a skill 
                          check_seeds.py (seed repeatability; run BEFORE any long run)
   MODELS.md              which local models can drive the agentic lane, and why most cannot
   data/                  DERIVED SQLite results DB; NOT tracked
+  results/               BANKED export of that DB; IS tracked. The usual derived-means-
+                         untracked rule does not apply: this one rebuilds from nothing
 tools/                   host-side scripts, not part of the corpus
   make-test-vm.sh        build/rebuild a test VM, installed unattended
   view-test-vms.sh       open a VNC window per test VM
@@ -547,7 +550,7 @@ Three things are specific to this repo and are the ones that get got wrong:
   description, a bullet list of three introduced as "two ways", and a `README` recipe
   naming the workflow that does the opposite of what it claimed.
 
-**`research/data/problems.jsonl` is deliberately excluded for now.** 1,891 em and en dashes
+**`research/data/problems.jsonl` is deliberately excluded for now.** 1,880 em and en dashes
 sit across 424 of its 456 records, and cleaning them means rewriting the source of truth
 and regenerating `research/docs/` in the same commit. Tracked in
 [JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose

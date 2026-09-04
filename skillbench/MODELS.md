@@ -38,6 +38,21 @@ between, which is itself the finding.
 
 ## Results
 
+> **The "what happened" column is not re-derivable, and that is a defect in how this was
+> recorded rather than a doubt about the findings.** Each entry was read from a live
+> transcript on 2026-09-02. `app/runner.py` invokes `pi` without `--mode json`, so the
+> database kept only the final text, a median of **16 characters** across roughly 600
+> agentic cases, and no token accounting at all. So "emits pseudo-XML instead of a tool
+> call" and "empty transcript" are honest reports of something nobody can now go back and
+> check.
+>
+> Treat the score and timing columns as evidence: all 14 cases of run 21 are banked in
+> [results/](results/) and reproduce this table exactly. The params, disk and on-GPU
+> columns came from `probe_models.py` and `ollama` rather than the run, so they are
+> reproducible only while those models are still pulled. Treat the failure attributions as
+> a contemporaneous note. If this table is ever re-measured, pass `--mode json` first and
+> the distinction disappears.
+
 | model | params | disk | on GPU | score | time | verdict | what happened |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | `qwen3-coder:30b` | 30.5B | 18.6 GB | 100% | 8/8 | 41 s | **✓ capable** | **Solves it.** |

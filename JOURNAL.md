@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 > ## THE AGENTIC LANE QUESTION IS ANSWERED, AND IT IS A NULL
 >
@@ -67,6 +67,124 @@ It does **not** mean the corpus skill will fail. It means:
 Had the n=3 figure been published this project would have claimed an eleven point lift that
 does not exist. The cost of getting that right was four runs, two of them lost to harness
 defects now fixed and tested.
+
+### The consistency framing was tested too, and it is also null
+
+The obvious rescue for a null lift is that the skill buys *steadiness* rather than score:
+fewer catastrophic runs, a higher floor, safer everyday use. That is a different measurement
+from a mean and the bench stores enough to check it. Across the same 248 cases:
+
+| run | variant | sd | min | below floor | solved | errors |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 28 Omarchy | none | 0.168 | 0.500 | 2/62 | 38/62 | 6 |
+| 28 Omarchy | skill | 0.158 | 0.500 | 1/62 | 41/62 | 8 |
+| 31 control | none | 0.118 | 0.600 | 0/62 | 7/62 | 12 |
+| 31 control | skill | 0.136 | 0.500 | **2/62** | 11/62 | 14 |
+
+Spread is flat on the Omarchy bench and **wider** on the control. The worst case gets worse
+on the control, and two cases fall below the do-nothing floor where bare had none. Errors
+rise in both arms.
+
+**Run 25's "the skill halves the error rate" does not replicate.** That was 6 of 20 against 2
+of 20, and the 2026-09-03 entry flagged it as worth measuring deliberately. At n=62 it is 6
+against 8, and 12 against 14. Same shape as the +11.1 pt lift: convincing small, absent at
+full power.
+
+One thing does move in both arms: solved-outright, 38 to 41 and 7 to 11. Note which moved
+more. The control gained 4 solves from a base of 7 while the Omarchy bench gained 3 from a
+base of 38, so if anything the skill helped the **control** more. That sharpens the
+answer-length reading rather than softening it.
+
+### The question was never binary, and both ends of the curve are now measured
+
+Read runs 21, 28 and 31 together and "does the skill help" is the wrong shape. The answer is
+a curve over model capability, and this project has measured both ends and never the middle:
+
+- **Below the band:** 11 local models that cannot emit a tool call at all. Nothing helps, and
+  no skill could.
+- **Above the band:** `devstral-small-2:24b`, already capable. DiD +0.2 pt.
+- **The middle:** never tested, because nothing available sat in it.
+
+That is what makes the local work an anchor rather than a dead end.
+
+### The instrumentation gap, which is a bench choice and not a pi limitation
+
+`app/runner.py:114` invokes `pi` **without `--mode json`**. pi supports `text`, `json` and
+`rpc`, and ships read/bash/edit/write tools with an allowlist, so the harness was never the
+limitation. But in text mode the runner stored only the final assistant text: a **median of
+16 characters** across roughly 600 agentic cases, and **0 of them carry token accounting**.
+
+Three consequences, in ascending order of cost:
+
+- Run 21's per-model failure notes were read from live transcripts and are gone. The
+  conclusion is probably right and is no longer re-derivable from anything in the repo. Now
+  recorded as a caveat on the [MODELS.md](skillbench/MODELS.md) table.
+- A failed case cannot be diagnosed without re-running it. Free locally, not free on cloud.
+- There is no way to see what a run consumes, which is fine when compute is electricity and
+  disqualifying when it is a rate cap.
+
+**`--mode json` is a prerequisite for any paid run.**
+
+### Everything local is banked
+
+`skillbench/data/` is gitignored under the repo's usual rule that derived artefacts are
+rebuilt rather than committed. That rule assumed the artefact *can* be rebuilt.
+`research/data/problems.db` regenerates in 0.2 s; this one regenerates from nothing, and one
+disk sat between the project and **31 runs, 1,044 cases, 4,465 grades**.
+
+[skillbench/tools/export_results.py](skillbench/tools/export_results.py) writes the tracked
+`skillbench/results/`: `runs.jsonl` with aggregates computed exactly as `app/main.py:_agg`
+does, `cases.jsonl` with everything `lift_test.py` needs, `grades.jsonl` so *which* assertion
+failed survives, and the 13 distinct sha-pinned specs.
+
+1.3 MB against the database's 5.7 MB. The difference is almost entirely
+`case_result.request`: 4.87 MB of prompt text re-recorded per case, derivable from the spec
+exported beside it. The non-prompt keys in it (`lane`, `vm`, `queue_wait_s`) are kept.
+
+**Verified by re-deriving the journal from the export alone, with no database.** Runs 28 and
+31 come back at +1.9 and +1.7 pt with a DiD of +0.2, and run 21's 14 cases reproduce the
+MODELS.md table exactly. The export is byte-deterministic, so a new run appends instead of
+rewriting the file.
+
+One subtlety to keep straight: `state` in `runs.jsonl` is a **micro**-average
+(`post_passed / post` summed over cases) while `lift_test.py` uses a **macro**-average (the
+mean of per-case ratios) because the unit is the case. They agree when every case has the
+same number of post assertions (run 28: 0.8710 both ways) and diverge slightly when they do
+not (run 31: 0.7478 against 0.7473). Quote the macro-average for anything inferential.
+
+### Where this goes next: low-cost cloud
+
+The corpus was always for people fixing their own Omarchy machines, and local models matter
+to them for privacy and for cost. What died is the claim that the skill lifts a model that
+was already capable. Those are different claims and only the second one is affected.
+
+The shift is to **low-cost cloud** through OpenCode Zen's OpenAI-compatible endpoint at
+`https://opencode.ai/zen/v1/chat/completions`. The Go plan is **$10/month flat**, with
+per-model caps in requests per 5-hour window running from 110,000 (Kimi K3) down to 1,350
+(Grok 4.6).
+
+**The flat fee is the point, and not mainly for cost.** A pay-as-you-go key on an agent that
+can loop is financially unbounded, which is the wrong shape for an unattended multi-hour run
+and worse for a daily driver. A cap turns a runaway loop into a rate-limit error rather than
+an invoice. It also makes a published result reproducible by a reader for $10, which matters
+more than experimental convenience given who this is for.
+
+Go's 25 models form **seven within-family capability ladders**: Qwen 3.6 Plus through 3.8
+Max, GLM 5.1 through 5.3, Kimi K2.6 through K3, DeepSeek V4 Flash and Pro, MiniMax M2.7 and
+M3, MiMo V2.5 and Pro, Hy3 and Hy4. One provider, one API, one fee, one harness, one
+variable. That is the instrument the middle of the curve needs, and **the weak rungs are the
+ones to test**: benching the headline models would reproduce the devstral null for the same
+reason it happened the first time.
+
+Order of work: `--mode json` first, then the **chat lane**, which needs no VM, costs one
+request per case, and is the only lane where the skill has ever shown an effect. The agentic
+lane follows. Nothing about cloud requires touching the VMs, the goldens, the seed checker or
+the pool guard, and **no existing bench spec may be edited**, because they are sha-pinned and
+editing one orphans runs 23, 25, 28 and 31.
+
+To settle at signup: whether the Go entitlement covers raw API calls or only the opencode
+CLI. The Go page says it "can be used with any agent", which implies the former, but the Zen
+docs describe pay-as-you-go credits separately and the two are not stated to be the same.
 
 ## Session of 2026-09-03 (fifth): two harness defects, and the check that would have caught both
 
@@ -259,7 +377,7 @@ interchangeable:
 - **`skillbench/benches/*.yaml` and `research/bench/raw/`.** Bench specs are sha-pinned:
   editing one starts a new series and invalidates the paired comparison. `raw/` is
   provenance and is meant to be verbatim.
-- **The corpus.** 1,891 dashes across 424 records, now item 6 of "What's left" with the
+- **The corpus.** 1,880 dashes across 424 records, now item 6 of "What's left" with the
   reasons it is its own job.
 
 Inline code comments were also left. The skill's scope excludes code, and the line worth
@@ -1364,7 +1482,7 @@ Everything outside `research/data/problems.jsonl` was audited against
 `writing-and-responding` on 2026-09-03 and is clean. **The corpus itself was deliberately
 left alone**, and it is the largest remaining body of prose in the repo.
 
-The measurement: **1,891 em and en dashes across 424 of 456 records**, concentrated in
+The measurement: **1,880 em and en dashes across 424 of 456 records**, concentrated in
 `fix` (658), `audit_note` (412), `danger` (253), `cause` (255) and `symptom` (247). Those
 render straight onto the public site's record pages and into `research/docs/`, so the
 front page now reads to one standard and the 456 pages behind it do not.

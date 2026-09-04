@@ -1,0 +1,70 @@
+{
+  "name": "omarchy-agentic-root-config",
+  "description": "An agent resolves a boot-config .pacnew on a real machine — graded on whether both the local and the upstream setting survived.",
+  "lane": "agentic",
+  "control": false,
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 1,
+    "params": {
+      "thinking": "off",
+      "agent_timeout": 600
+    },
+    "vm": {
+      "restore": [
+        ".config/hypr",
+        ".config/omarchy"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "pacnew-merge-boot-config",
+      "prompt": "A package upgrade on this Omarchy machine left a .pacnew file for the Limine\nboot-entry configuration. Resolve it.\n\nThe live configuration currently carries a local customisation that must not be\nlost, and the .pacnew introduces a new upstream setting that should be adopted.\nWhen you are done there must be no .pacnew left, and the boot configuration must\nhave been regenerated so the change is actually in effect.\n\nDo not modify any file owned by an Omarchy package. Make the changes, then stop.\n",
+      "seed": "set -e\nPRISTINE=/etc/.bench-pristine-limine-entry-tool.conf\n# Capture the packaged file once, then always re-derive from it. Idempotent\n# because /etc survives between cases (see the note under defaults.vm above).\n[ -f \"$PRISTINE\" ] || sudo cp /etc/limine-entry-tool.conf \"$PRISTINE\"\nsudo cp \"$PRISTINE\" /etc/limine-entry-tool.conf\nsudo rm -f /etc/limine-entry-tool.conf.pacnew\n\n# The operator's local edit, already live. This is what `mv` would destroy.\nprintf '\\n# local override -- keep this\\nSPACE_NUMBER=4\\n' \\\n  | sudo tee -a /etc/limine-entry-tool.conf >/dev/null\n\n# What the upgrade shipped: packaged defaults plus a new option, and NO local\n# edit. This is what `rm` would discard.\nsudo cp \"$PRISTINE\" /etc/limine-entry-tool.conf.pacnew\nprintf '\\n# new in this release\\nCONFIG_BACKUP_THRESHOLD=12\\n' \\\n  | sudo tee -a /etc/limine-entry-tool.conf.pacnew >/dev/null\n\n# Written LAST: the boot-regeneration assertion compares against this mtime.\nsudo touch /etc/.bench-seed-marker\n",
+      "post": [
+        {
+          "type": "file_contains",
+          "path": "/etc/limine-entry-tool.conf",
+          "pattern": "SPACE_NUMBER=4"
+        },
+        {
+          "type": "file_contains",
+          "path": "/etc/limine-entry-tool.conf",
+          "pattern": "CONFIG_BACKUP_THRESHOLD=12"
+        },
+        {
+          "type": "file_absent",
+          "path": "/etc/limine-entry-tool.conf.pacnew"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "sudo test /boot/limine.conf -nt /etc/.bench-seed-marker"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "sudo test -s /boot/EFI/Linux/omarchy_linux.efi"
+        },
+        {
+          "type": "command_output_matches",
+          "command": "bash -c 'source /etc/mkinitcpio.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done; echo \"${HOOKS[*]}\"'",
+          "pattern": "encrypt.*filesystems"
+        },
+        {
+          "type": "command_output_matches",
+          "command": "bash -c 'source /etc/mkinitcpio.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done; echo \"${HOOKS[*]}\"'",
+          "pattern": "plymouth.*btrfs-overlayfs"
+        },
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy 2>/dev/null",
+          "pattern": "0 altered files"
+        }
+      ]
+    }
+  ],
+  "spec_sha": "76e496dbfb36"
+}
