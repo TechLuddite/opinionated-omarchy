@@ -24,6 +24,156 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-04 (second): the cloud terrain, and four defects that fail silently
+
+The chat lane can now post to an OpenAI-compatible gateway. Getting there turned up four
+things that would each have produced plausible, wrong numbers, and one of them reaches
+backwards into every chat-lane run this project has ever made.
+
+### 1. `options{}` has never been applied, on Ollama either
+
+Generation parameters sat in an Ollama-native `options` object. The OpenAI-compatible
+`/v1` endpoint ignores it. Measured on both servers with `options.num_predict = 8`:
+
+| server | completion tokens returned |
+| --- | ---: |
+| Ollama `/v1` | 80 |
+| Zen `/v1` | 172 |
+
+**No chat-lane run has ever used the temperature its spec asked for**, including the
++29.3 pt baseline. Every one ran at the server default. Both arms of every paired run were
+equally affected, so the past comparisons stand on their own terms, but a run made after
+this fix is not comparable to one made before it. Parameters now go top level.
+
+`max_tokens` is deliberately **not** sent unless a spec asks for one. The nominal 512 was
+never in force, so emitting it would impose a brand new cap while looking like a
+portability fix. The right value is an open question the operator is still weighing.
+
+### 2. Half the reachable models return no `content` at all
+
+Twelve of eighteen reachable Zen models returned `null` or empty `content` on a short
+prompt, with the answer in `message.reasoning`. The runner read `content` alone, so those
+recorded as "said nothing" at status `ok` and graded as zero. `_answer_of` now falls back
+to `reasoning` and records `case_result.output_source` so the two can be told apart. That
+distinction is load-bearing: a reasoning trace may consider and reject the trap before
+settling on the right command, so a `regex_forbidden` check can fire on a model that got
+it right.
+
+### 3. An unreachable model returns a bare 500
+
+Not 402, not 403. `Internal server error`, on 38 of 59 probed models, indistinguishable
+from a real outage. Recorded as `unavailable` rather than `error` so an unconfigured model
+cannot be read as one that failed the task. Only `kimi-k2.6` was honest about it, with a
+401 `Model is disabled`.
+
+### 4. Two smaller ones, both fatal in their own way
+
+- `_resolve` appended `:latest` to every untagged model. That is an Ollama convention, and
+  `glm-5.2:latest` does not exist. Now keyed on whether the chat base is Ollama.
+- Compose interpolates an unset variable to the **empty string**, and
+  `os.environ.get(k, default)` returns that empty string rather than the default. The chat
+  lane would have posted to a URL with no host. Caught by writing the compose wiring and
+  then testing it, not by reading it.
+
+All four are pinned by tests, and each was **proved to fail against the old code** before
+being kept: reverting the three runner fixes produces four failures, and reverting the
+compose fix produces a fifth. 51 tests now.
+
+### 5. The terrain is documented because it is not guessable
+
+[skillbench/ZEN.md](skillbench/ZEN.md) and
+[skillbench/tools/probe_zen.py](skillbench/tools/probe_zen.py), the cloud siblings to
+`MODELS.md` and `probe_models.py`.
+
+```
+listed 66 | probed 59 | reachable 18 | HTTP 500 on 38
+```
+
+Five within-family ladders are usable: GLM three rungs, MiniMax three, Kimi three, Qwen
+two, DeepSeek two, plus six free models. That is the instrument the capability-band
+question needs, and it is better than the two ladders the first probe suggested.
+
+**A listing is not an entitlement.** `/v1/models` lists ids that 500 on use, and omits ids
+from OpenCode's own Go page (`glm-5.3`, `qwen3.8-flash`, `longcat-2.0`, `omen-alpha`)
+which return "not supported".
+
+### 6. Three account settings do nothing through the API
+
+Flipped on, then off, with a full snapshot at each step. Zero effect on listing or
+reachability, in both directions:
+
+| setting | listing | reachability |
+| --- | --- | --- |
+| allow models that train on request data | none | none |
+| allow models hosted in China | none | none |
+| use available balance after usage limits | none | none |
+
+Only the per-model enable toggles moved anything, and they moved it from 20 listed to 66.
+The three above sit under "control which providers are used for **routing**", which is the
+likely explanation: they govern how the CLI picks a model when none is named, and naming
+one over the API leaves nothing to route. Unconfirmed.
+
+### 7. Two things I had wrong, both caught by checking
+
+Worth recording because the checks were cheap and the claims were not:
+
+- **"Most reachable models return nothing" was my probe budget, not the models.** At
+  `max_tokens: 8` only 6 of 59 produced text. Re-probing the 12 silent ones at 512 turned
+  9 into real answers. The finding survived; the framing did not.
+- **`omarchy-update` is a real binary.** `/usr/bin/omarchy-update` exists alongside 23
+  `omarchy-update-*` scripts, and `omarchy update` is the documented front end that
+  dispatches to it. I was one sentence away from scoring four models wrong for a right
+  answer, on a question that turns out to be easy enough to be a poor proxy for headroom
+  anyway.
+
+### 8. Go does not cover the API, and a run now has a price
+
+**The balance moved 2 cents during the probe session.** That answers the question the
+previous section left open: API calls bill pay-as-you-go per token, and the Go plan's
+request-per-5-hour caps govern its own routing rather than this endpoint.
+
+It also inverts a claim made earlier the same day. "Requests, not tokens, are the scarce
+resource" was correct about Go and wrong about the bench, and it stood for about an hour
+before the balance settled it. Both `ZEN.md` and `CLAUDE.md` are corrected.
+
+[skillbench/tools/estimate_cost.py](skillbench/tools/estimate_cost.py) prices a run before
+it is launched, from measured per-case token use rather than assumption: the 272 banked
+chat-lane cases that carry usage give 127 in / 654 out for `none` and 3,286 in / 320 out
+for `skill:omarchy`.
+
+One 2-task bench at 31 repeats, output tripled to allow for reasoning traces:
+
+| scope | cost |
+| --- | ---: |
+| six free models | $0.00 |
+| `deepseek-v4-flash` | $0.17 |
+| eight cheapest paid models | $3.60 |
+| all eleven paid models | $9.13 |
+
+So **one bench walked across the whole ladder at full statistical power is affordable, and
+the whole suite across many models is not**: every chat bench at 31 repeats runs $2.33 on
+the cheapest paid model and $46.93 on `kimi-k3`. The plan is one bench with headroom, the
+six free models for the bottom of the curve, and roughly eight paid rungs above them.
+
+Caveat that belongs next to the number: every measured figure came from a local model, and
+most local models are not reasoning models. The 1.0 multiplier is a floor.
+
+### 9. Still open
+
+1. **Why does every Western-lab model return 500** while every Chinese-lab and open model
+   works on the same key? Every OpenAI, Anthropic, Google and xAI id fails. Not explained
+   by any account setting, all three of which were flipped both ways. BYOK for those
+   providers is the leading guess, and a 500 is indistinguishable from an outage either
+   way.
+2. **`--mode json`** remains unimplemented, so turns and tokens per agentic case are still
+   unknown. That now blocks pricing the agentic lane, not just diagnosing it.
+3. **Which ids do the Go page's models use?** `glm-5.3`, `glm-5.3-flash`, `qwen3.8-flash`,
+   `qwen3.7-plus`, `longcat-2.0` and `omen-alpha` all return "not supported", which may
+   mean the id is wrong rather than the model unavailable. Those are the newest rungs of
+   two of the five ladders, so it is worth knowing.
+4. **The `max_tokens` default**, deliberately left unset pending a decision. 5k is the
+   operator's working figure.
+
 ## Session of 2026-09-04: the agentic lane is answered, and the answer is a null
 
 Run 31, the control's third attempt, is the first clean one: **124/124 cases, zero seed

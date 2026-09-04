@@ -110,7 +110,7 @@ def main():
     cases = c.execute("""
         SELECT c.id, c.run_id, c.task_id, c.model, c.variant, c.repeat_idx, c.status,
                c.error, c.output, c.prompt_tokens, c.completion_tokens, c.latency_s,
-               c.created_at, c.request,
+               c.created_at, c.request, c.output_source,
                (SELECT count(*) FROM grade g WHERE g.case_id=c.id) AS n_checks,
                (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.passed=1) AS n_passed,
                (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post')
@@ -129,7 +129,8 @@ def main():
         row = {k: r[k] for k in (
             "id", "run_id", "task_id", "model", "variant", "repeat_idx", "status",
             "error", "output", "prompt_tokens", "completion_tokens", "latency_s",
-            "created_at", "n_checks", "n_passed", "n_post", "n_post_passed")}
+            "created_at", "output_source", "n_checks", "n_passed", "n_post",
+            "n_post_passed")}
         row.update({k: req[k] for k in REQUEST_KEYS if k in req})
         case_rows.append(row)
 

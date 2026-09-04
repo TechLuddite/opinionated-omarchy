@@ -56,9 +56,12 @@ skillbench/              the Skill Bench container — measures whether a skill 
   benches/               17 bench specs (9 Omarchy, 6 controls, gauntlet, crash)
   benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
-  tools/                 probe_models.py (model feasibility), lift_test.py (significance),
+  tools/                 probe_models.py (local feasibility), probe_zen.py (cloud
+                         terrain), lift_test.py (significance),
                          check_seeds.py (seed repeatability; run BEFORE any long run)
   MODELS.md              which local models can drive the agentic lane, and why most cannot
+  ZEN.md                 the cloud gateway: what the key reaches, and six ways a run
+                         silently corrupts if you skip it
   data/                  DERIVED SQLite results DB; NOT tracked
   results/               BANKED export of that DB; IS tracked. The usual derived-means-
                          untracked rule does not apply: this one rebuilds from nothing
@@ -318,6 +321,34 @@ load-bearing:
   case, so one that works once and fails after loses most of a run and takes hours to say
   so. Two runs were lost that way before the check existed.
 
+### The chat lane can run against a cloud gateway, and the terrain there is hostile
+
+Set `SB_CHAT_BASE` to an OpenAI-compatible endpoint and export a token; unset, it posts to
+Ollama and nothing changes. **Read [skillbench/ZEN.md](skillbench/ZEN.md) before running
+anything against it.** Six behaviours there will corrupt a run without failing, and the
+worst two are not gateway-specific:
+
+- **Half the reachable models return no `content`**, putting the answer in
+  `message.reasoning`. Reading content alone scores them zero at status `ok`.
+- **`options{}` was never applied, on Ollama either.** Generation parameters sat in an
+  Ollama-native object that the `/v1` endpoint ignores, so no chat-lane run has ever used
+  the temperature its spec asked for, including the +29.3 pt baseline. Both arms of every
+  paired run were equally affected, so past comparisons stand, but a run made after the fix
+  is not comparable to one made before it.
+
+**The Zen key cannot be scoped**, so blast radius is handled here: environment only, never
+a spec field or an argument, and never copied onto a test VM. When the agentic lane goes
+cloud it gets a header-injecting relay on the host rather than a key on a disposable
+machine that the agent under test controls.
+
+**API calls bill the pay-as-you-go balance per token**, confirmed by watching the balance
+move. Go's request-per-5-hour caps govern its own routing and do not cover this endpoint,
+so tokens are the scarce resource and output is priced three to five times input. Price a
+run before launching it with `skillbench/tools/estimate_cost.py`: one 2-task bench at 31
+repeats is $0.17 on the cheapest paid model and $3.35 on `kimi-k3`. The agentic lane is
+still unpriced, because the runner invokes `pi` without `--mode json` and has never
+recorded turns per case.
+
 ### What the local models can actually do: check before designing a bench around them
 
 Three independent gates decide whether a model can be measured on the agentic lane at
@@ -500,6 +531,11 @@ against primary sources during the research and repeatedly caught stale advice.
 
 ## Fetching sources
 
+- **`opencode.ai/zen` rejects Python-urllib's default User-Agent** with a 403, while
+  accepting any named one. Identify the tool rather than impersonating a browser;
+  `probe_zen.py` sends `opinionated-omarchy-skillbench/1.0`. `httpx`, which the bench
+  runner uses, is unaffected. Same shape as the next item: the request is fine and the
+  client string is what gets refused.
 - **`wiki.archlinux.org` sits behind Anubis anti-bot.** `WebFetch` returns "Access
   Denied". Use `index.php?title=X&action=raw` or `rest.php/v1/page/X`, or `curl` with a
   browser user-agent. Cite the canonical `/title/` URL regardless.

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS case_result (
   prompt_tokens     INTEGER,
   completion_tokens INTEGER,
   latency_s         REAL,
+  output_source     TEXT,
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (run_id, task_id, model, variant, repeat_idx)
 );
@@ -85,10 +86,33 @@ def conn():
     return c
 
 
+# Columns added after the first schema shipped. SCHEMA uses CREATE TABLE IF NOT EXISTS,
+# so it never reaches a database that already exists; these are applied by hand instead.
+# Keep them additive and nullable: an existing row must stay readable, and the banked
+# export in skillbench/results/ has to keep parsing.
+MIGRATIONS = [
+    ("case_result", "output_source", "TEXT"),
+]
+
+
+def migrate():
+    """Add any missing column. Idempotent, so it is safe on every start."""
+    c = conn()
+    added = []
+    for table, column, decl in MIGRATIONS:
+        cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            added.append(f"{table}.{column}")
+    c.commit()
+    return added
+
+
 def init():
     c = conn()
     c.executescript(SCHEMA)
     c.commit()
+    migrate()
     return reconcile_orphans()
 
 
@@ -139,14 +163,15 @@ def finish_run(run_id, status, error=None):
 
 def record_case(run_id, task_id, model, variant, repeat_idx, status, request,
                 output=None, error=None, prompt_tokens=None, completion_tokens=None,
-                latency_s=None):
+                latency_s=None, output_source=None):
     c = conn()
     cur = c.execute(
         "INSERT OR IGNORE INTO case_result (run_id, task_id, model, variant, repeat_idx,"
-        " status, request, output, error, prompt_tokens, completion_tokens, latency_s)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " status, request, output, error, prompt_tokens, completion_tokens, latency_s,"
+        " output_source)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (run_id, task_id, model, variant, repeat_idx, status, json.dumps(request),
-         output, error, prompt_tokens, completion_tokens, latency_s))
+         output, error, prompt_tokens, completion_tokens, latency_s, output_source))
     c.commit()
     return cur.lastrowid
 

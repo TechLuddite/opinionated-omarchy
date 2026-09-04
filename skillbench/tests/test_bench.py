@@ -375,3 +375,88 @@ def test_acquiring_from_a_fully_drained_pool_raises_rather_than_hangs():
         asyncio.run(pool.acquire())
     assert "drained" in str(e.value)
     assert "10.0.0.1" in str(e.value)     # says WHICH machine, so it can be reset
+
+
+# ----------------------------------------------------------- gateway portability
+#
+# The chat lane can post to an OpenAI-compatible gateway as well as to Ollama. Four things
+# behaved differently enough there to corrupt a run silently, and each is pinned below.
+
+def test_reasoning_is_used_when_content_is_null():
+    """Reasoning models leave `content` null and put the answer in `reasoning`.
+
+    Of 18 reachable Zen models, 12 returned null or empty content on a short prompt.
+    Reading content alone recorded those as "said nothing" with status ok, which grades as
+    a zero rather than as a measurement.
+    """
+    from app import runner
+    out, src = runner._answer_of(
+        {"choices": [{"message": {"content": None, "reasoning": "use omarchy update"}}]})
+    assert (out, src) == ("use omarchy update", "reasoning")
+
+
+def test_content_wins_over_reasoning_and_the_source_is_recorded():
+    from app import runner
+    assert runner._answer_of(
+        {"choices": [{"message": {"content": "answer", "reasoning": "thinking"}}]}
+    ) == ("answer", "content")
+    # Whitespace-only content is not an answer; fall through rather than grading "  ".
+    assert runner._answer_of(
+        {"choices": [{"message": {"content": "   ", "reasoning": "r"}}]}) == ("r", "reasoning")
+    assert runner._answer_of({"choices": [{"message": {}}]}) == ("", "empty")
+    assert runner._answer_of({}) == ("", "empty")
+
+
+def test_provider_5xx_is_unavailable_rather_than_a_model_result():
+    """Zen returns a bare 500 for any model the account cannot reach.
+
+    38 of 59 probed models returned it. Recording that as a normal case error lets an
+    unconfigured model look exactly like one that failed the task.
+    """
+    import httpx
+    from app import runner
+    req = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    five = httpx.HTTPStatusError("boom", request=req, response=httpx.Response(500, request=req))
+    four = httpx.HTTPStatusError("nope", request=req, response=httpx.Response(400, request=req))
+    assert runner._status_of(five) == "unavailable"
+    assert runner._status_of(four) == "error"
+    assert runner._status_of(TimeoutError("slow")) == "error"
+
+
+def test_gateway_model_ids_do_not_get_an_ollama_tag(monkeypatch):
+    """`glm-5.2:latest` is not a model. The tag is an Ollama convention only."""
+    from app import runner
+    monkeypatch.setattr(runner, "CHAT_BASE", "https://opencode.ai/zen")
+    monkeypatch.setattr(runner, "OLLAMA_BASE", "http://host.docker.internal:11434")
+    assert asyncio.run(runner._resolve("glm-5.2")) == "glm-5.2"
+    monkeypatch.setattr(runner, "CHAT_BASE", runner.OLLAMA_BASE)
+    assert asyncio.run(runner._resolve("llama3.1")) == "llama3.1:latest"
+
+
+def test_migrations_are_idempotent_and_additive():
+    """init() runs on every start, so a migration must survive being applied twice."""
+    import sqlite3
+    from app import db
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript(db.SCHEMA)
+    for table, column, _ in db.MIGRATIONS:
+        cols = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+        assert column in cols, f"{table}.{column} missing from SCHEMA; a fresh DB would lack it"
+
+
+def test_empty_chat_base_falls_back_to_ollama(monkeypatch):
+    """compose interpolates an unset variable to "", not to absent.
+
+    os.environ.get("SB_CHAT_BASE", OLLAMA_BASE) returns that empty string rather than the
+    default, so the chat lane would post to a URL with no host.
+    """
+    import importlib
+    monkeypatch.setenv("OLLAMA_BASE", "http://127.0.0.1:11434")
+    monkeypatch.setenv("SB_CHAT_BASE", "")
+    from app import runner
+    importlib.reload(runner)
+    assert runner.CHAT_BASE == "http://127.0.0.1:11434"
+    monkeypatch.setenv("SB_CHAT_BASE", "https://opencode.ai/zen")
+    importlib.reload(runner)
+    assert runner.CHAT_BASE == "https://opencode.ai/zen"
