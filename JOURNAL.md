@@ -2,28 +2,71 @@
 
 Last updated: 2026-09-03
 
-> ## A RUN IS IN FLIGHT: run 31
+> ## THE AGENTIC LANE QUESTION IS ANSWERED, AND IT IS A NULL
 >
-> `linux-agentic-deep-triage`, `devstral-small-2:24b`, `none` vs `skill:omarchy`, 31
-> repeats, `agent_timeout: 900`. It is the **control** for run 28, and the third attempt
-> at it; the first two died on harness defects that are now fixed and tested.
+> Runs 28 and 31, both n=31 and both clean, `devstral-small-2:24b`:
 >
-> **Check it first:**
-> ```sh
-> curl -s http://127.0.0.1:8878/api/runs/31 | python3 -m json.tool   # status + run note
-> python3 skillbench/tools/lift_test.py 28 31                        # the DiD, once it is done
-> ```
+> | bench | none | skill | lift | p |
+> | --- | ---: | ---: | ---: | ---: |
+> | `omarchy-agentic-stale-advice` | 0.871 | 0.890 | +1.9 pt | 0.59 |
+> | `linux-agentic-deep-triage` (control) | 0.747 | 0.765 | +1.7 pt | 0.47 |
+> | **difference in differences** | | | **+0.2 pt** | **0.98** |
 >
-> **Read the run note before the numbers.** A run that lost a machine now finishes with
-> `DEGRADED` on its own record, and its arithmetic is variant-correlated rather than merely
-> thinner. If the note is empty, the run is sound.
+> **`skill:omarchy` moves general Linux by the same amount it moves Omarchy.** That is the
+> exact condition the controls exist to detect. Reproduce with
+> `python3 skillbench/tools/lift_test.py 28 31`.
 >
-> What it answers: run 28 already showed the incumbent's Omarchy lift is **+1.9 pt,
-> p = 0.59** at full power. Run 31 says whether `skill:omarchy` also moves general Linux,
-> which is the difference between "no effect" and "an effect that is not Omarchy-specific".
-> Expect a null. Two compromised attempts both pointed that way.
+> Consequences for the skill being built, and none of them are "the corpus will fail":
 >
-> If it died: reset from golden, `python3 skillbench/tools/check_seeds.py`, relaunch.
+> - **The chat lane's +29.3 pt is the only demonstrated skill effect in this repository.**
+> - "Do not regress the incumbent on the agentic lane" is trivially satisfiable, because
+>   there is nothing there to regress. That bar needs replacing, not meeting.
+> - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
+>   result. Nothing here says that is impossible; it says the incumbent never did it.
+
+## Session of 2026-09-04: the agentic lane is answered, and the answer is a null
+
+Run 31, the control's third attempt, is the first clean one: **124/124 cases, zero seed
+failures, no VM drained**, only legitimate agent timeouts. The seed repeatability check and
+the pool drain guard both did their jobs, which is what the previous two attempts cost.
+
+| bench | none | skill | lift | 95% CI | p |
+| --- | ---: | ---: | ---: | --- | ---: |
+| `omarchy-agentic-stale-advice` (run 28) | 0.871 | 0.890 | +1.9 pt | [-3.8, +7.5] | 0.59 |
+| `linux-agentic-deep-triage` (run 31) | 0.747 | 0.765 | +1.7 pt | [-2.7, +6.2] | 0.47 |
+| **difference in differences** | | | **+0.2 pt** | | **0.98** |
+
+**The two lifts are the same size.** `skill:omarchy` nudges general-Linux triage exactly as
+much as it nudges tasks about the Omarchy 3 to 4 split, which is the condition the controls
+were built to detect: a small uniform effect consistent with more context making a model
+marginally more careful, and nothing to do with Omarchy knowledge.
+
+Worth stating plainly because it took four runs to get here honestly: **the incumbent skill
+has no measurable Omarchy-specific effect on the agentic lane.** Not a weak one. p = 0.98 on
+the difference.
+
+### What this does and does not mean
+
+It does **not** mean the corpus skill will fail. It means:
+
+- The **chat lane's +29.3 pt** is the only demonstrated skill effect in this repository, and
+  that finding now stands alone rather than alongside an agentic one.
+- The bar in [opinionated-omarchy/CLAUDE.md](opinionated-omarchy/CLAUDE.md), "do not regress
+  the incumbent on the agentic lane", is trivially satisfiable. It needs replacing.
+- A corpus-backed skill that shows a **surviving agentic lift at n=31** would be a new
+  result. The lane can measure; the incumbent simply has nothing to measure.
+
+### The decay, kept as the methodological point
+
+| n | lift | p |
+| ---: | ---: | ---: |
+| 3 | +11.1 pt | 0.55 |
+| 10 | +8.3 pt | 0.21 |
+| 31 | +1.9 pt | 0.59 |
+
+Had the n=3 figure been published this project would have claimed an eleven point lift that
+does not exist. The cost of getting that right was four runs, two of them lost to harness
+defects now fixed and tested.
 
 ## Session of 2026-09-03 (fifth): two harness defects, and the check that would have caught both
 
@@ -1221,31 +1264,25 @@ runs.
 
 ## What's left
 
-### 1. The agentic lane shows no incumbent lift, so decide what the bar actually is
+### 1. Replace the agentic bar, because the incumbent has nothing to regress
 
-**Answered 2026-09-03 at full power.** Run 28, n=31: `skill:omarchy` lifts
-`omarchy-agentic-stale-advice` by **+1.9 pt, p = 0.59**, with the effect decaying
-monotonically as n grew (+11.1 at n=3, +8.3 at n=10). The power calculation asked for 62
-cases per variant and the run has exactly that, so this is a null rather than an
-underpowered result.
+**Answered 2026-09-04, cleanly.** Runs 28 and 31, both n=31, both without a lost case:
+Omarchy lift +1.9 pt (p = 0.59), control lift +1.7 pt (p = 0.47), **difference in
+differences +0.2 pt at p = 0.98**. `skill:omarchy` moves general Linux as much as it moves
+Omarchy, which is the condition the controls exist to detect.
 
-Run 29, the matching control, is **void**: a case left a VM unreachable and the runner fed
-eleven subsequent cases to the dead host, all of them the same variant. That is fixed and
-tested, so a re-run is now safe, but a difference-in-differences cannot rescue a null. The
-control is worth re-running only to answer a separate question, which is whether the skill
-actively *degrades* general Linux performance. The void run hinted at -5.5 pt. That number
-came from the corrupted arm and means nothing, but the question is real and cheap to settle
-at about four hours.
+The measurement question is closed. What is open is a **decision**, and it belongs to
+whoever writes the skill:
 
-What remains open is the bar itself, not the measurement:
+- The chat lane's **+29.3 pt** is now the only demonstrated skill effect in this repository.
+  A corpus-backed skill can be measured there against a real incumbent.
+- On the agentic lane there is no incumbent effect to beat, so "do not regress" is
+  meaningless. Either target a **surviving lift at n=31**, which would be a new result, or
+  say plainly that the lane is a harm check rather than a proving ground.
+- Budget accordingly. A clean n=31 pair is about eight hours of machine time, and
+  `check_seeds.py` must be run first.
 
-- The chat lane's **+29.3 pt** is the only demonstrated skill effect in this repository.
-- "Do not regress the incumbent on the agentic lane" is trivially satisfiable, because there
-  is nothing there to regress.
-- So a corpus-backed skill either shows a surviving agentic lift at n=31, which would be new,
-  or it competes on the chat lane where the incumbent actually wins.
-
-Still true and unchanged: only **4 of 14** local models can drive the loop at all
+Unchanged: only **4 of 14** local models can drive the loop at all
 ([skillbench/MODELS.md](skillbench/MODELS.md)), so difficulty is not the lever, wrongness is.
 
 ### 2. 150 records have no `title` (**DONE 2026-09-03**)

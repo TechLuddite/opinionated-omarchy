@@ -59,7 +59,15 @@ to what the lab benched) lifts Omarchy-specific tasks **+29.3 pt** while moving 
 general-Linux controls **−2.3 pt** ([research/bench/](../research/bench/)). A corpus-backed
 skill that cannot beat that is not worth shipping, and the bench will say so.
 
-**But that figure was measured on the CHAT lane, and a retrieval skill cannot run there
+**Measured 2026-09-04: the incumbent has NO agentic effect.** Runs 28 and 31, both n=31 and
+both clean, put `skill:omarchy` at +1.9 pt on an Omarchy bench against +1.7 pt on the
+general-Linux control: a difference in differences of **+0.2 pt at p = 0.98**. So "do not
+regress the incumbent on the agentic lane" is trivially satisfiable and is **not a bar**.
+Either aim for a surviving lift at n=31, which would be a new result for this repository, or
+treat that lane as a harm check and compete on the chat lane. Decide before building, and
+budget about eight hours of machine time for a clean n=31 pair.
+
+**And that +29.3 pt figure was measured on the CHAT lane, where a retrieval skill cannot run
 at all**: no shell, no grep, no file reads. Resolve this before tuning anything. The
 shape that survives the contradiction is two jobs in one bundle:
 
