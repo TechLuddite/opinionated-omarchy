@@ -20,6 +20,13 @@ the notice with it.
 > project has now been misled twice by that field. Departure Mono's API entry says MIT
 > while its bundled licence is OFL 1.1. Verify against the file every time.
 
+## `research/assets/fonts/OmarchyFont.woff2`, MIT, (c) 2026 Mark Cuda
+
+The Omarchy wordmark as a typeface. Upstream:
+<https://github.com/markcuda/Omarchy-Font>. Redistributed unmodified, converted from the
+upstream TTF to woff2 with `woff2_compress`. MIT requires the notice to accompany copies,
+so `OmarchyFont-LICENSE.txt` sits beside it and `build_site.py` publishes both.
+
 ## `research/assets/fonts/DepartureMono-Regular.woff2`: SIL OFL 1.1, © 2022–2024 Helena Zhang
 
 Upstream: <https://github.com/rektdeckard/departure-mono> (v1.500). OFL clause 2 requires
