@@ -53,14 +53,32 @@ tasks:
       # refuses with "Unit bench-diskhog.service was already loaded or has a fragment file"
       # -- which aborts the seed and costs the case entirely. Seen in run 27.
       sudo systemctl reset-failed bench-diskhog.service 2>/dev/null || true
-      sudo umount /mnt/bench-disk 2>/dev/null || true
+
+      # Teardown has to survive the holder still owning its fd for a moment after `stop`.
+      # Run 30 lost 51 of 124 cases to `mount` exit 32 because it did not: umount failed
+      # busy, the rm deleted the image anyway, and /dev/loop0 stayed attached to a dead
+      # inode. Wait for the unmount, fall back to lazy, then detach the loop EXPLICITLY,
+      # and only then remove the file. Order matters more than any single command here.
+      for _ in $(seq 1 10); do
+        mountpoint -q /mnt/bench-disk || break
+        sudo umount /mnt/bench-disk 2>/dev/null && break
+        sleep 1
+      done
+      sudo umount -l /mnt/bench-disk 2>/dev/null || true
+      for dev in $(sudo losetup -a 2>/dev/null | grep bench-disk | cut -d: -f1); do
+        sudo losetup -d "$dev" 2>/dev/null || true
+      done
       sudo rm -f /var/tmp/bench-disk.img /var/tmp/bench-disk.uuid
       sudo mkdir -p /mnt/bench-disk
       sudo truncate -s 128M /var/tmp/bench-disk.img
       # -m 0: no root reserve, so a full filesystem genuinely refuses even root's writes.
       # With the default 5% reserve the "can you write" assertion passed while 100% full.
       sudo mkfs.ext4 -q -m 0 -F /var/tmp/bench-disk.img
-      sudo mount -o loop /var/tmp/bench-disk.img /mnt/bench-disk
+      if ! sudo mount -o loop /var/tmp/bench-disk.img /mnt/bench-disk; then
+        echo "mount failed; loop devices in use:" >&2
+        sudo losetup -a >&2 || true
+        exit 1
+      fi
       sudo blkid -s UUID -o value /var/tmp/bench-disk.img | sudo tee /var/tmp/bench-disk.uuid >/dev/null
       # /run is tmpfs, so this marker vanishes on reboot -- "just reboot it" is detectable.
       sudo touch /run/bench-no-reboot
