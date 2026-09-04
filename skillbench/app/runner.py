@@ -38,6 +38,17 @@ import httpx
 from . import checks, db, spec, vm, vmchecks
 
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://host.docker.internal:11434")
+# Where the CHAT lane posts. Defaults to Ollama so nothing changes for a local run; point
+# it at an OpenAI-compatible gateway (https://opencode.ai/zen for Zen) to bench cloud
+# models. The agentic lane is separate: it drives `pi` on a VM and is not affected.
+# `or` rather than a get() default: compose interpolates an unset variable to the EMPTY
+# STRING, and os.environ.get returns that empty string rather than falling back, which
+# would post to a URL with no host.
+CHAT_BASE = os.environ.get("SB_CHAT_BASE") or OLLAMA_BASE
+# Bearer token for CHAT_BASE, when it needs one. Read from the environment only, never
+# from a spec or an argument, so it cannot reach a bench file, the results database or
+# the process table.
+CHAT_API_KEY = os.environ.get("SB_CHAT_API_KEY", "")
 CONCURRENCY = int(os.environ.get("SB_CONCURRENCY", "2"))
 TIMEOUT = float(os.environ.get("SB_TIMEOUT", "300"))
 
@@ -66,8 +77,55 @@ async def list_models():
 
 
 async def _resolve(model):
-    """Ollama needs the tag; the UI shows the bare name, as the baseline data does."""
+    """Ollama needs the tag; the UI shows the bare name, as the baseline data does.
+
+    Ollama ONLY. A gateway model id is a plain string with no tag (`glm-5.2`,
+    `deepseek-v4-flash`), and appending `:latest` to one produces a model that does not
+    exist. The agentic lane still resolves against Ollama because `pi` runs on a VM
+    talking to the local server, so this is keyed on the chat base rather than on a
+    global switch.
+    """
+    if CHAT_BASE != OLLAMA_BASE:
+        return model
     return model if ":" in model else f"{model}:latest"
+
+
+def _answer_of(data):
+    """The model's answer, and where it was found.
+
+    Reasoning models put their output in `message.reasoning` and leave `content` null or
+    empty. Reading content alone records those as "said nothing" with status ok, which is
+    a silent zero rather than a measurement, and it is not rare: of 18 reachable Zen
+    models, 12 returned null or empty content on a short prompt. Confirmed on kimi-k3 and
+    the whole MiniMax family.
+
+    The source is recorded rather than hidden, because grading a reasoning trace is not
+    the same as grading an answer. A trace may consider and reject the trap before
+    settling on the right command, so a forbidden-string check can fire on a model that
+    got it right. Anything comparing the two must be able to see which is which.
+    """
+    msg = ((data.get("choices") or [{}])[0] or {}).get("message") or {}
+    content = msg.get("content") or ""
+    if content.strip():
+        return content, "content"
+    reasoning = msg.get("reasoning") or ""
+    if reasoning.strip():
+        return reasoning, "reasoning"
+    return "", "empty"
+
+
+def _status_of(exc):
+    """A provider 5xx is a configuration problem, not a model result.
+
+    Zen returns a bare 500 "Internal server error" for any model the account cannot
+    reach, which is indistinguishable from a real outage: 38 of 59 models returned it
+    during probing. Recording that as a normal case error would let an unconfigured
+    model look exactly like one that failed the task. Filter `unavailable` out before
+    scoring rather than reading it as a result.
+    """
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500:
+        return "unavailable"
+    return "error"
 
 
 async def _one_case(cl, run_id, task, model, variant, repeat_idx, sys_prompt, params):
@@ -75,26 +133,39 @@ async def _one_case(cl, run_id, task, model, variant, repeat_idx, sys_prompt, pa
     if sys_prompt:
         messages.append({"role": "system", "content": sys_prompt})
     messages.append({"role": "user", "content": task["prompt"]})
+    # Generation parameters go TOP LEVEL. They used to sit in an Ollama-native `options`
+    # object, which the OpenAI-compatible /v1 endpoint ignores. Measured on both servers:
+    # `options.num_predict = 8` returned 80 completion tokens from Ollama and 172 from
+    # Zen. So no chat-lane run has ever applied the temperature its spec asked for,
+    # including the +29.3 pt baseline; every one used the server default. Both arms of a
+    # paired run were equally affected, so past comparisons stand, but a run made after
+    # this change is not comparable to one made before it.
     body = {"model": await _resolve(model), "messages": messages, "stream": False,
-            "options": {"temperature": params.get("temperature", 0.2),
-                        "num_predict": params.get("max_tokens", 512)}}
+            "temperature": params.get("temperature", 0.2)}
+    # max_tokens is sent ONLY when a spec asks for one. The old nominal 512 was never in
+    # force, so emitting it here would impose a brand new cap while looking like a
+    # portability fix. The right value is an open question rather than an oversight:
+    # several models spend 500+ tokens reasoning before producing any content, and under
+    # a request-metered plan a truncated answer costs a whole request and returns nothing.
+    if params.get("max_tokens"):
+        body["max_tokens"] = params["max_tokens"]
 
     t0 = time.monotonic()
     try:
-        r = await cl.post(f"{OLLAMA_BASE}/v1/chat/completions", json=body)
+        r = await cl.post(f"{CHAT_BASE}/v1/chat/completions", json=body)
         r.raise_for_status()
         data = r.json()
-        out = data["choices"][0]["message"]["content"] or ""
+        out, source = _answer_of(data)
         usage = data.get("usage") or {}
         case_id = db.record_case(
             run_id, task["id"], model, variant, repeat_idx, "ok", body, output=out,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
-            latency_s=round(time.monotonic() - t0, 3))
+            latency_s=round(time.monotonic() - t0, 3), output_source=source)
         if case_id:
             db.record_grades(case_id, checks.run_checks(out, task))
     except Exception as e:                              # a dead model is data, not a crash
-        db.record_case(run_id, task["id"], model, variant, repeat_idx, "error", body,
+        db.record_case(run_id, task["id"], model, variant, repeat_idx, _status_of(e), body,
                        error=f"{type(e).__name__}: {e}"[:500],
                        latency_s=round(time.monotonic() - t0, 3))
 
@@ -271,7 +342,8 @@ async def _execute(run_id, bench, models, variants, repeats, params, resume):
 
 async def _execute_chat(run_id, bench, models, variants, repeats, params, resume):
     done = db.existing_cells(run_id) if resume else set()
-    async with httpx.AsyncClient(timeout=TIMEOUT) as cl:
+    headers = {"Authorization": f"Bearer {CHAT_API_KEY}"} if CHAT_API_KEY else {}
+    async with httpx.AsyncClient(timeout=TIMEOUT, headers=headers) as cl:
         for model in models:                            # <- the affinity barrier
             if run_id in _stopping:
                 break

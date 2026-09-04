@@ -24,6 +24,120 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-04 (second): the cloud terrain, and four defects that fail silently
+
+The chat lane can now post to an OpenAI-compatible gateway. Getting there turned up four
+things that would each have produced plausible, wrong numbers, and one of them reaches
+backwards into every chat-lane run this project has ever made.
+
+### 1. `options{}` has never been applied, on Ollama either
+
+Generation parameters sat in an Ollama-native `options` object. The OpenAI-compatible
+`/v1` endpoint ignores it. Measured on both servers with `options.num_predict = 8`:
+
+| server | completion tokens returned |
+| --- | ---: |
+| Ollama `/v1` | 80 |
+| Zen `/v1` | 172 |
+
+**No chat-lane run has ever used the temperature its spec asked for**, including the
++29.3 pt baseline. Every one ran at the server default. Both arms of every paired run were
+equally affected, so the past comparisons stand on their own terms, but a run made after
+this fix is not comparable to one made before it. Parameters now go top level.
+
+`max_tokens` is deliberately **not** sent unless a spec asks for one. The nominal 512 was
+never in force, so emitting it would impose a brand new cap while looking like a
+portability fix. The right value is an open question the operator is still weighing.
+
+### 2. Half the reachable models return no `content` at all
+
+Twelve of eighteen reachable Zen models returned `null` or empty `content` on a short
+prompt, with the answer in `message.reasoning`. The runner read `content` alone, so those
+recorded as "said nothing" at status `ok` and graded as zero. `_answer_of` now falls back
+to `reasoning` and records `case_result.output_source` so the two can be told apart. That
+distinction is load-bearing: a reasoning trace may consider and reject the trap before
+settling on the right command, so a `regex_forbidden` check can fire on a model that got
+it right.
+
+### 3. An unreachable model returns a bare 500
+
+Not 402, not 403. `Internal server error`, on 38 of 59 probed models, indistinguishable
+from a real outage. Recorded as `unavailable` rather than `error` so an unconfigured model
+cannot be read as one that failed the task. Only `kimi-k2.6` was honest about it, with a
+401 `Model is disabled`.
+
+### 4. Two smaller ones, both fatal in their own way
+
+- `_resolve` appended `:latest` to every untagged model. That is an Ollama convention, and
+  `glm-5.2:latest` does not exist. Now keyed on whether the chat base is Ollama.
+- Compose interpolates an unset variable to the **empty string**, and
+  `os.environ.get(k, default)` returns that empty string rather than the default. The chat
+  lane would have posted to a URL with no host. Caught by writing the compose wiring and
+  then testing it, not by reading it.
+
+All four are pinned by tests, and each was **proved to fail against the old code** before
+being kept: reverting the three runner fixes produces four failures, and reverting the
+compose fix produces a fifth. 51 tests now.
+
+### 5. The terrain is documented because it is not guessable
+
+[skillbench/ZEN.md](skillbench/ZEN.md) and
+[skillbench/tools/probe_zen.py](skillbench/tools/probe_zen.py), the cloud siblings to
+`MODELS.md` and `probe_models.py`.
+
+```
+listed 66 | probed 59 | reachable 18 | HTTP 500 on 38
+```
+
+Five within-family ladders are usable: GLM three rungs, MiniMax three, Kimi three, Qwen
+two, DeepSeek two, plus six free models. That is the instrument the capability-band
+question needs, and it is better than the two ladders the first probe suggested.
+
+**A listing is not an entitlement.** `/v1/models` lists ids that 500 on use, and omits ids
+from OpenCode's own Go page (`glm-5.3`, `qwen3.8-flash`, `longcat-2.0`, `omen-alpha`)
+which return "not supported".
+
+### 6. Three account settings do nothing through the API
+
+Flipped on, then off, with a full snapshot at each step. Zero effect on listing or
+reachability, in both directions:
+
+| setting | listing | reachability |
+| --- | --- | --- |
+| allow models that train on request data | none | none |
+| allow models hosted in China | none | none |
+| use available balance after usage limits | none | none |
+
+Only the per-model enable toggles moved anything, and they moved it from 20 listed to 66.
+The three above sit under "control which providers are used for **routing**", which is the
+likely explanation: they govern how the CLI picks a model when none is named, and naming
+one over the API leaves nothing to route. Unconfirmed.
+
+### 7. Two things I had wrong, both caught by checking
+
+Worth recording because the checks were cheap and the claims were not:
+
+- **"Most reachable models return nothing" was my probe budget, not the models.** At
+  `max_tokens: 8` only 6 of 59 produced text. Re-probing the 12 silent ones at 512 turned
+  9 into real answers. The finding survived; the framing did not.
+- **`omarchy-update` is a real binary.** `/usr/bin/omarchy-update` exists alongside 23
+  `omarchy-update-*` scripts, and `omarchy update` is the documented front end that
+  dispatches to it. I was one sentence away from scoring four models wrong for a right
+  answer, on a question that turns out to be easy enough to be a poor proxy for headroom
+  anyway.
+
+### 8. Still open, and the first one gates spending
+
+1. **Does Go cover API calls, or do they draw on the pay-as-you-go balance?** No quota,
+   plan or credit headers come back on a successful response. The flat cap is the reason
+   Go was chosen over PAYG for an agent that can loop, so this matters before a run that
+   makes thousands of requests. Watching whether the account balance moves is the cheapest
+   answer available.
+2. **Why does every Western-lab model return 500** while every Chinese-lab and open model
+   works on the same key? Not explained by any account setting. BYOK is the leading guess.
+3. **`--mode json`** remains unimplemented, so turns per agentic case are still unknown,
+   which is now a budgeting prerequisite rather than only a diagnostic one.
+
 ## Session of 2026-09-04: the agentic lane is answered, and the answer is a null
 
 Run 31, the control's third attempt, is the first clean one: **124/124 cases, zero seed

@@ -3,7 +3,12 @@ name: omarchy-skillbench
 # Omarchy Skill Bench -- does a skill measurably improve a model on Omarchy tasks?
 #
 # Local-only by construction: the port is published on 127.0.0.1, so nothing on the LAN
-# can reach it, and the app holds no credential of any kind. Ollama runs on the host.
+# can reach it. Ollama runs on the host.
+#
+# It CAN now hold one credential, and only one: a bearer token for an OpenAI-compatible
+# chat gateway, passed in from the host environment. It is never written into this file,
+# never mounted, and never reaches a bench spec or the results database. Left unset, the
+# chat lane posts to Ollama exactly as before.
 
 services:
   skillbench:
@@ -47,6 +52,17 @@ services:
       # suite before loading the next.
       SB_CONCURRENCY: "2"
       SB_TIMEOUT: "300"
+      # ---- chat lane: local by default, gateway on request ---------------------
+      # Unset means Ollama, so a local run is unchanged. To bench cloud models point
+      # SB_CHAT_BASE at an OpenAI-compatible gateway (https://opencode.ai/zen) and
+      # export the token first, which keeps it out of this file and out of git:
+      #
+      #     set -a; . ./secrets/zen.env; set +a && docker compose up -d
+      #
+      # The interpolation default is empty, so forgetting the export yields no auth
+      # header rather than a broken container. See ZEN.md for what the endpoint does.
+      SB_CHAT_BASE: ${SB_CHAT_BASE:-}
+      SB_CHAT_API_KEY: ${OPENCODE_API_KEY:-}
       # ---- agentic lane -------------------------------------------------------
       # The VM pool. Concurrency in that lane is the SIZE OF THIS LIST, not
       # SB_CONCURRENCY: a case is allowed to edit the machine it runs on, so two cases
