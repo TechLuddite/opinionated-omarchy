@@ -126,17 +126,53 @@ Worth recording because the checks were cheap and the claims were not:
   answer, on a question that turns out to be easy enough to be a poor proxy for headroom
   anyway.
 
-### 8. Still open, and the first one gates spending
+### 8. Go does not cover the API, and a run now has a price
 
-1. **Does Go cover API calls, or do they draw on the pay-as-you-go balance?** No quota,
-   plan or credit headers come back on a successful response. The flat cap is the reason
-   Go was chosen over PAYG for an agent that can loop, so this matters before a run that
-   makes thousands of requests. Watching whether the account balance moves is the cheapest
-   answer available.
-2. **Why does every Western-lab model return 500** while every Chinese-lab and open model
-   works on the same key? Not explained by any account setting. BYOK is the leading guess.
-3. **`--mode json`** remains unimplemented, so turns per agentic case are still unknown,
-   which is now a budgeting prerequisite rather than only a diagnostic one.
+**The balance moved 2 cents during the probe session.** That answers the question the
+previous section left open: API calls bill pay-as-you-go per token, and the Go plan's
+request-per-5-hour caps govern its own routing rather than this endpoint.
+
+It also inverts a claim made earlier the same day. "Requests, not tokens, are the scarce
+resource" was correct about Go and wrong about the bench, and it stood for about an hour
+before the balance settled it. Both `ZEN.md` and `CLAUDE.md` are corrected.
+
+[skillbench/tools/estimate_cost.py](skillbench/tools/estimate_cost.py) prices a run before
+it is launched, from measured per-case token use rather than assumption: the 272 banked
+chat-lane cases that carry usage give 127 in / 654 out for `none` and 3,286 in / 320 out
+for `skill:omarchy`.
+
+One 2-task bench at 31 repeats, output tripled to allow for reasoning traces:
+
+| scope | cost |
+| --- | ---: |
+| six free models | $0.00 |
+| `deepseek-v4-flash` | $0.17 |
+| eight cheapest paid models | $3.60 |
+| all eleven paid models | $9.13 |
+
+So **one bench walked across the whole ladder at full statistical power is affordable, and
+the whole suite across many models is not**: every chat bench at 31 repeats runs $2.33 on
+the cheapest paid model and $46.93 on `kimi-k3`. The plan is one bench with headroom, the
+six free models for the bottom of the curve, and roughly eight paid rungs above them.
+
+Caveat that belongs next to the number: every measured figure came from a local model, and
+most local models are not reasoning models. The 1.0 multiplier is a floor.
+
+### 9. Still open
+
+1. **Why does every Western-lab model return 500** while every Chinese-lab and open model
+   works on the same key? Every OpenAI, Anthropic, Google and xAI id fails. Not explained
+   by any account setting, all three of which were flipped both ways. BYOK for those
+   providers is the leading guess, and a 500 is indistinguishable from an outage either
+   way.
+2. **`--mode json`** remains unimplemented, so turns and tokens per agentic case are still
+   unknown. That now blocks pricing the agentic lane, not just diagnosing it.
+3. **Which ids do the Go page's models use?** `glm-5.3`, `glm-5.3-flash`, `qwen3.8-flash`,
+   `qwen3.7-plus`, `longcat-2.0` and `omen-alpha` all return "not supported", which may
+   mean the id is wrong rather than the model unavailable. Those are the newest rungs of
+   two of the five ladders, so it is worth knowing.
+4. **The `max_tokens` default**, deliberately left unset pending a decision. 5k is the
+   operator's working figure.
 
 ## Session of 2026-09-04: the agentic lane is answered, and the answer is a null
 

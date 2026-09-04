@@ -341,9 +341,13 @@ a spec field or an argument, and never copied onto a test VM. When the agentic l
 cloud it gets a header-injecting relay on the host rather than a key on a disposable
 machine that the agent under test controls.
 
-**Requests, not tokens, are the scarce resource.** Go meters requests per 5-hour window,
-110,000 down to 1,350 depending on model. A chat case is one request; an agentic case is
-many, and the runner cannot yet say how many because it invokes `pi` without `--mode json`.
+**API calls bill the pay-as-you-go balance per token**, confirmed by watching the balance
+move. Go's request-per-5-hour caps govern its own routing and do not cover this endpoint,
+so tokens are the scarce resource and output is priced three to five times input. Price a
+run before launching it with `skillbench/tools/estimate_cost.py`: one 2-task bench at 31
+repeats is $0.17 on the cheapest paid model and $3.35 on `kimi-k3`. The agentic lane is
+still unpriced, because the runner invokes `pi` without `--mode json` and has never
+recorded turns per case.
 
 ### What the local models can actually do: check before designing a bench around them
 

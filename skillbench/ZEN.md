@@ -80,10 +80,13 @@ content. At `max_tokens: 8` only 6 of 59 models produced text. Re-probing the 12
 silent ones at 512 turned 9 of them into real answers, while `kimi-k2.5` and `k2.6` still
 returned empty after burning all 531 tokens on reasoning and `mimo-v2.5-free` errored.
 
-Under a plan metered in **requests**, a truncated answer is the worst outcome available: it
-spends a whole unit of the scarce resource and returns nothing gradeable. The runner
-therefore sends `max_tokens` only when a spec asks for one. The right default is an open
-question rather than an oversight.
+A truncated answer is the worst outcome available at any price. Input is billed whether or
+not the model reaches a conclusion, so a `skill:omarchy` case that stops mid-reasoning has
+paid for its 3,286 input tokens and returns nothing gradeable. Saving output tokens by
+capping low is a false economy when the input dominates and the case has to be re-run.
+
+The runner therefore sends `max_tokens` only when a spec asks for one. The right default is
+an open question rather than an oversight.
 
 ### 4. An unreachable model returns a bare 500
 
@@ -109,20 +112,50 @@ the container. Same family as the Anubis block on `wiki.archlinux.org` already n
 [CLAUDE.md](../CLAUDE.md), where the request is fine and the client string is what gets
 refused.
 
-## Requests are the scarce resource, not tokens
+## Tokens are the scarce resource, and a run has a price
 
-Go meters **requests per 5-hour window**, from 110,000 (Kimi K3) down to 1,350 (Grok 4.6).
-That inverts the usual instinct: tokens are close to free and requests are what runs out.
+**API calls bill the pay-as-you-go balance per token.** Confirmed by watching the balance
+move 2 cents across a probe session. The Go plan's request-per-5-hour caps, 110,000 down to
+1,350 by model, govern its own routing and **do not cover this endpoint**. An earlier draft
+of this file said the opposite; the balance moving is what settled it.
 
-- The **chat lane is one request per case.** A 124-case paired run is 124 requests and fits
-  inside every published cap.
-- The **agentic lane is many requests per case**, and is what will actually meet a ceiling.
-  We cannot yet say how many, because the runner invokes `pi` without `--mode json` and has
-  never recorded turns per case. That is a budgeting prerequisite, not only a diagnostic
-  one.
+That matters because output is priced three to five times input and the models worth
+testing emit long reasoning traces before answering, so a run that looks cheap on input can
+be dominated by output.
 
-Rate limits are real and easy to trip: repeated probing of the free models returned
+[tools/estimate_cost.py](tools/estimate_cost.py) prices a run before you launch it. Per-case
+token use is measured from the 272 banked chat-lane cases that carry usage, not assumed:
+
+| variant | input | output |
+| --- | ---: | ---: |
+| `none` | 127 | 654 |
+| `skill:omarchy` | 3,286 | 320 |
+
+One 2-task bench at 31 repeats and two variants is 124 cases. With output tripled to allow
+for reasoning traces:
+
+| scope | cost |
+| --- | ---: |
+| six free models | $0.00 |
+| `deepseek-v4-flash` | $0.17 |
+| eight cheapest paid models | $3.60 |
+| all eleven paid models | $9.13 |
+| `kimi-k3` alone | $3.35 |
+
+So a full ladder on one bench at full statistical power is affordable, and the whole suite
+across many models is not: all chat benches at 31 repeats is $2.33 on the cheapest paid
+model and $46.93 on the dearest. **Pick one bench with headroom and walk the ladder**,
+rather than running the suite.
+
+Every measured figure above came from a local model, and most local models are not reasoning
+models. Treat the 1.0 multiplier as a floor rather than an estimate.
+
+Rate limits still exist and are easy to trip: repeated probing of the free models returned
 `429 Rate limit exceeded` within one session.
+
+The **agentic lane remains unpriced**, because the runner invokes `pi` without `--mode json`
+and has never recorded turns or tokens per case. That is now a cost prerequisite, not only a
+diagnostic one.
 
 ## The account settings do nothing here
 
