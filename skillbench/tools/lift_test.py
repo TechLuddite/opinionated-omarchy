@@ -30,18 +30,20 @@ N_BOOT = 10000
 random.seed(20260902)          # reproducible; re-runs give the same p
 
 
-def cases(run_id):
+def cases(run_id, model=None):
     """One score per case: fraction of post assertions passed. Cases with no post
     assertions are dropped -- they carry no state signal."""
     c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     c.row_factory = sqlite3.Row
     rows = c.execute("""
-        SELECT c.variant, c.task_id, c.status,
+        SELECT c.variant, c.task_id, c.status, c.output_source,
           (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post') n,
           (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post' AND g.passed=1) k,
           (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='check') cn,
           (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='check' AND g.passed=1) ck
-        FROM case_result c WHERE c.run_id=?""", (run_id,)).fetchall()
+        FROM case_result c WHERE c.run_id=?"""
+        + (" AND c.model=?" if model else ""),
+        (run_id, model) if model else (run_id,)).fetchall()
     out = {}
     for r in rows:
         # BOTH LANES. 'post' grades the machine and exists only on the agentic lane;
@@ -56,10 +58,31 @@ def cases(run_id):
         # down for a reason that has nothing to do with the skill.
         if r["status"] == "unavailable":
             continue
-        out.setdefault(r["variant"], []).append(k / n)
+        # A response truncated before it emitted any text cannot be graded ON its text.
+        # Scoring it zero conflates "wrong" with "did not finish", and the conflation is
+        # VARIANT-CORRELATED: on deepseek-v4-pro 81% of bare cases truncated against 19%
+        # of skilled ones, because the skill makes answers shorter. Left in, that alone
+        # manufactured a +37.1 pt Omarchy lift which is +9.1 once removed.
+        if r["output_source"] == "empty":
+            continue
+        out.setdefault(r["variant"], []).append((r["task_id"], k / n))
     bench = c.execute("SELECT b.name FROM bench_run r JOIN bench b ON b.id=r.bench_id"
                       " WHERE r.id=?", (run_id,)).fetchone()[0]
     return bench, out
+
+
+# linux-desktop-gauntlet mixes six Omarchy tasks with four general-Linux ones, so it
+# carries its own control and a difference-in-differences can be computed WITHIN one run
+# rather than needing a paired control run. Splitting here is not a convenience: averaging
+# the two groups together reports a lift that is neither.
+SPLITS = {
+    "linux-desktop-gauntlet": {
+        "omarchy": {"monitor-config", "shell-bar", "theme-customize", "wrong-tree-edit",
+                    "privilege-escalation", "command-discovery"},
+        "control": {"disk-full", "runaway-process", "boot-partition-full",
+                    "pacman-keyring"},
+    },
+}
 
 
 def perm_p(a, b):
@@ -84,30 +107,54 @@ def boot_ci(a, b):
     return diffs[int(.025 * N_BOOT)], diffs[int(.975 * N_BOOT) - 1]
 
 
-def report(run_id):
-    bench, by = cases(run_id)
-    none, skill = by.get("none", []), by.get("skill:omarchy", [])
+def _line(label, none, skill):
+    obs, p = perm_p(list(none), list(skill))
+    lo, hi = boot_ci(none, skill)
+    print(f"  {label:<9} none n={len(none):<4} {statistics.mean(none):.3f} | "
+          f"skill n={len(skill):<4} {statistics.mean(skill):.3f} | "
+          f"lift {obs*100:+6.1f} pt  CI [{lo*100:+.1f}, {hi*100:+.1f}]  p={p:.4f}"
+          f"  {'SIG' if p < 0.05 else '-'}")
+    return obs
+
+
+def report(run_id, model=None):
+    bench, by = cases(run_id, model)
+    none = by.get("none", [])
+    skill = by.get("skill:omarchy", [])
     if not none or not skill:
         print(f"run {run_id} ({bench}): need both variants, got {list(by)}")
         return None
-    obs, p = perm_p(list(none), list(skill))
-    lo, hi = boot_ci(none, skill)
-    print(f"run {run_id}  {bench}")
-    print(f"  none          n={len(none):3}  mean {statistics.mean(none):.3f}")
-    print(f"  skill:omarchy n={len(skill):3}  mean {statistics.mean(skill):.3f}")
-    print(f"  lift {obs*100:+.1f} pt   95% CI [{lo*100:+.1f}, {hi*100:+.1f}]   p = {p:.4f}"
-          f"   {'SIGNIFICANT' if p < 0.05 else 'not significant'} at 0.05")
-    return none, skill, obs
+    head = f"run {run_id}  {bench}" + (f"  [{model}]" if model else "")
+    print(head)
+    obs = _line("overall", [x[1] for x in none], [x[1] for x in skill])
+
+    # A mixed bench carries its own control, so the difference-in-differences comes out of
+    # ONE run. Reporting only the pooled figure would state a lift that belongs to neither
+    # group: on run 34 the pooled +18.6 pt was +28.8 on Omarchy tasks and +3.4 on controls.
+    split = SPLITS.get(bench)
+    if split:
+        lifts = {}
+        for name, ids in split.items():
+            a = [sc for t, sc in none if t in ids]
+            b = [sc for t, sc in skill if t in ids]
+            if a and b:
+                lifts[name] = _line(name, a, b)
+        if len(lifts) == 2:
+            did = lifts["omarchy"] - lifts["control"]
+            print(f"  {'DiD':<9} {did*100:+6.1f} pt   (omarchy lift minus control lift)")
+    return [x[1] for x in none], [x[1] for x in skill], obs
 
 
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    a = report(int(sys.argv[1]))
-    if len(sys.argv) < 3:
+    args = [x for x in sys.argv[1:] if not x.startswith("--")]
+    model = next((x.split("=", 1)[1] for x in sys.argv[1:] if x.startswith("--model=")), None)
+    a = report(int(args[0]), model)
+    if len(args) < 2:
         return
     print()
-    b = report(int(sys.argv[2]))
+    b = report(int(args[1]), model)
     if not (a and b):
         return
     # Difference in differences: is the Omarchy lift bigger than the control's?

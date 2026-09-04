@@ -24,6 +24,90 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-04 (third): the chat lane on cloud models, and a real Omarchy effect
+
+The first cloud runs. **The skill shows a large, replicated, Omarchy-specific lift on the
+chat lane**, which is the opposite of the agentic lane's null and the first positive result
+this project has produced under proper controls.
+
+### 1. Four clean models, four replications
+
+`linux-desktop-gauntlet`, 10 repeats, `none` vs `skill:omarchy`, 200 cases per model.
+
+| model | Omarchy tasks | control tasks | DiD |
+| --- | ---: | ---: | ---: |
+| `nemotron-3.5-lightning-free` | **+28.8 pt** | +3.4 pt | **+25.5** |
+| `deepseek-v4-flash` | **+25.1 pt** | +1.8 pt | **+23.2** |
+| `qwen3.5-plus` | **+27.3 pt** | -5.3 pt | **+32.6** |
+| `qwen3.6-plus` | **+22.6 pt** | -1.8 pt | **+24.3** |
+
+Every Omarchy lift is p < 0.0001. **No control is significant.** Against the agentic lane's
+DiD of +0.2 pt at p = 0.98, this is the same skill and the same corpus behaving completely
+differently on the lane where the incumbent was always shown to work.
+
+**The gauntlet is a MIXED bench**, six Omarchy tasks and four general-Linux ones, so it
+carries its own control and the difference-in-differences comes out of one run at no extra
+cost. Reporting only the pooled figure would state a lift belonging to neither group: on
+run 34 the pooled +18.6 pt is +28.8 on Omarchy and +3.4 on controls. `lift_test.py` now
+splits automatically and takes `--model=`, since a run can hold several.
+
+Checked against the obvious objection, that the controls are simply easier: the skill uses
+**42% of available headroom on Omarchy tasks against 10% on controls**, so the effect
+survives normalising for the ceiling.
+
+### 2. I contaminated three models, by fixing a bug
+
+The gauntlet spec carries `max_tokens: 350`. That cap had **never been in force**, because
+`options{}` was ignored. Making parameters work made it effective for the first time, and
+reasoning models spend 350 tokens thinking and emit nothing. Those cases graded zero.
+
+The truncation is **variant-correlated**, because the skill makes answers shorter:
+
+| model | bare truncated | skilled truncated | as scored | excluding truncated |
+| --- | ---: | ---: | --- | --- |
+| `deepseek-v4-pro` | 81/100 | 19/100 | om +37.1, DiD +8.5 | om +9.1, DiD +1.0 |
+| `minimax-m3` | 59/100 | 26/100 | om +32.2, DiD +36.3 | om +15.5, DiD +20.1 |
+| `minimax-m2.5` | 53/100 | 28/100 | om +31.1, DiD +33.0 | om +20.2, DiD +16.1 |
+
+**The guard I wrote had a hole exactly where the risk was.** The commit says `max_tokens` is
+sent "only when a spec asks for one" so it cannot impose a new cap. The spec *does* ask for
+one. I guarded the default and not the spec value.
+
+`lift_test.py` now drops `output_source='empty'` cases: a response with no text cannot be
+graded on its text, and scoring it zero conflates "wrong" with "did not finish". The four
+clean models are unchanged by that, which is the check that it is not doing something
+arbitrary. **`deepseek-v4-pro` is unmeasurable at this cap rather than null**, since
+excluding truncation leaves 19 bare cases.
+
+**This is the evidence for the held `max_tokens` decision.** At 350 the bench cannot measure
+a reasoning model at all. Raising it edits a bench spec and starts a new series, so it stays
+an operator decision.
+
+### 3. The free tier cannot carry a bench
+
+Of six free models, three produced unusable data: `big-pickle` and `mimo-v2.5-free` returned
+**429 on all 200 cases** each, exhausted by earlier probing, and `laguna` and `ling` lost 63
+and 84 cases to 503 **at different rates per variant**, which is the shape that voided run
+29. Discarded rather than reported.
+
+`_status_of` classified the 503s as `unavailable` rather than as model failures, which is
+the PR #34 fix working on its first real outing.
+
+### 4. The skill makes answers shorter as well as better
+
+`deepseek-v4-flash` averaged **3,257 output tokens bare against 1,000 with the skill**. That
+cuts directly against the "it just makes the model write more" explanation that killed the
+agentic lift, and it is why bare cases time out more often (10 against 4 on run 37). That
+bias is conservative: dropping the slowest bare cases raises the bare mean, so the measured
+lift is a floor.
+
+### 5. Cost
+
+**$3.09 actual against a $5 budget**, six paid models, 1,200 cases. The estimator predicted
+input to within 0.2% and underestimated output by 33%, so the reasoning multiplier is 4x
+rather than 3x. The contaminated models were *cheaper* than predicted, because truncation
+cut their output short.
+
 ## Session of 2026-09-04 (second): the cloud terrain, and four defects that fail silently
 
 The chat lane can now post to an OpenAI-compatible gateway. Getting there turned up four

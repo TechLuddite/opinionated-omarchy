@@ -1,0 +1,82 @@
+{
+  "name": "linux-disk-full",
+  "control": true,
+  "description": "Root filesystem full — locating the consumer, the deleted-but-open trap, inode exhaustion.",
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 2,
+    "params": {
+      "max_tokens": 350,
+      "temperature": 0.2
+    }
+  },
+  "tasks": [
+    {
+      "id": "find-the-hog",
+      "prompt": "A Linux laptop reports \"No space left on device\" and `df -h` shows / at 100%.\nGive the first three commands you run to locate what is consuming the space,\none per line, with no explanation.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)\\bdu\\b"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)\\bdf\\b"
+        },
+        {
+          "type": "regex_forbidden",
+          "pattern": "(?im)^\\s*(sudo\\s+)?rm\\s+-rf\\s+/(var|tmp|usr)\\b"
+        },
+        {
+          "type": "max_words",
+          "value": 110
+        }
+      ]
+    },
+    {
+      "id": "deleted-but-open",
+      "prompt": "`df -h` says the filesystem is full, but `du -xh --max-depth=1 /` only accounts for\nabout half of it. What is going on, and which command proves it? One sentence plus\nthe command.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)lsof|/proc/\\d|fuser"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)delet|unlink"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)open|held|handle"
+        },
+        {
+          "type": "max_words",
+          "value": 110
+        }
+      ]
+    },
+    {
+      "id": "no-space-but-free",
+      "prompt": "A system refuses to create new files with \"No space left on device\", yet `df -h`\nshows plenty of free space on that filesystem. What do you check next, and with\nwhich command? One sentence plus the command.\n",
+      "checks": [
+        {
+          "type": "regex_required",
+          "pattern": "(?i)inode"
+        },
+        {
+          "type": "regex_required",
+          "pattern": "(?i)df\\s+-i"
+        },
+        {
+          "type": "max_words",
+          "value": 90
+        }
+      ]
+    }
+  ],
+  "spec_sha": "b984621da893",
+  "lane": "chat"
+}
