@@ -355,7 +355,8 @@ def main():
     fonts = OUT / "fonts"
     fonts.mkdir()
     src = ROOT / "assets" / "fonts"
-    for f in ("DepartureMono-Regular.woff2", "DepartureMono-LICENSE.txt"):
+    for f in ("DepartureMono-Regular.woff2", "DepartureMono-LICENSE.txt",
+              "OmarchyFont.woff2", "OmarchyFont-LICENSE.txt"):
         shutil.copy2(src / f, fonts / f)
     for r in recs:
         w(OUT / "records" / f"{r['slug']}.html", record_page(r, cats, recs))
@@ -365,9 +366,24 @@ def main():
     print(f"  search.json {(OUT/'search.json').stat().st_size/1024:.0f} KB")
 
 
-STYLE = r"""/* Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Licence ships at
-   fonts/DepartureMono-LICENSE.txt, as OFL clause 2 requires. Self-hosted on purpose:
-   a CDN fetch that fails yields a silently unstyled page. */
+STYLE = r"""/* Two vendored faces, both self-hosted on purpose: a CDN fetch that fails yields a
+   silently unstyled page.
+
+   Omarchy Font -- MIT, (c) 2026 Mark Cuda. The actual Omarchy wordmark as a typeface, so
+   it carries the wordmark and nothing else. It is a block-built DISPLAY face and it is
+   PROPORTIONAL, so it is wrong for the rest: at 11px the letterforms close up, lowercase
+   suffers, and paths like ~/.config/hypr lose their shape. Worse, the instrument look
+   depends on every number being monospaced with tabular figures, which a proportional face
+   cannot give.
+
+   Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Keeps all the chrome.
+
+   Both licences ship beside their font, and CI fails the build if either pair is broken. */
+@font-face{
+  font-family:'Omarchy';
+  src:url('fonts/OmarchyFont.woff2') format('woff2');
+  font-weight:400; font-style:normal; font-display:swap;
+}
 @font-face{
   font-family:'Departure Mono';
   src:url('fonts/DepartureMono-Regular.woff2') format('woff2');
@@ -393,7 +409,7 @@ STYLE = r"""/* Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Licenc
    spec's 8.5-10px labels were both OFF-GRID and genuinely too small to read; snapping to
    the grid fixes legibility and crispness with one change. Do not reintroduce 8/9/10px
    here -- it will look soft as well as tiny. */
-.crt,.wordmark,.sub,.v-lab,.mast-status,.g-head,.c-lab,.c-sev,.sev,.n-lab,.crumb,
+.crt,.sub,.v-lab,.mast-status,.g-head,.c-lab,.c-sev,.sev,.n-lab,.crumb,
 footer,.tag,.slug,.qcount,.abbr,.legend{
   font-family:var(--crt);
   -webkit-font-smoothing:none; -moz-osx-font-smoothing:unset; font-smooth:never;
@@ -415,7 +431,11 @@ a{color:inherit;text-decoration:none}
 .mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto;
   gap:20px;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);
   background:rgba(10,14,19,.82);backdrop-filter:blur(8px)}
-.wordmark{font:22px/1 var(--crt);letter-spacing:.20em;color:var(--ink)}
+/* The wordmark is the one place a display face belongs, and it is NOT smoothing-disabled:
+   that rule exists for Departure Mono's pixel grid, and applying it to block-built curves
+   would alias them. 22px is chosen to sit with the rest of the masthead, not from a grid. */
+.wordmark{font:22px/1 'Omarchy',var(--crt);letter-spacing:.14em;color:var(--ink);
+  -webkit-font-smoothing:antialiased}
 .sub{font:11px/1.4 var(--crt);letter-spacing:.40em;color:var(--signal)}
 .vitals{display:flex;gap:26px;justify-content:center}
 .v-num{font:600 19px/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}

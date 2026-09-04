@@ -65,6 +65,8 @@ jobs:
           # ever ships the woff2 without it, that is a licence breach, so fail the build.
           test -f docs/fonts/DepartureMono-Regular.woff2
           test -f docs/fonts/DepartureMono-LICENSE.txt
+          test -f docs/fonts/OmarchyFont.woff2
+          test -f docs/fonts/OmarchyFont-LICENSE.txt
 
       - uses: actions/upload-pages-artifact@v3
         with:
