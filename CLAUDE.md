@@ -55,7 +55,8 @@ skillbench/              the Skill Bench container — measures whether a skill 
   benches/               17 bench specs (9 Omarchy, 6 controls, gauntlet, crash)
   benches/CLAUDE.md      the bench-spec schema — read before writing or editing a bench
   skills.yaml            skill bundle manifest, points at ../omarchy and ../diagnose-crash
-  tools/                 probe_models.py (model feasibility), lift_test.py (significance)
+  tools/                 probe_models.py (model feasibility), lift_test.py (significance),
+                         check_seeds.py (seed repeatability; run BEFORE any long run)
   MODELS.md              which local models can drive the agentic lane, and why most cannot
   data/                  DERIVED SQLite results DB; NOT tracked
 tools/                   host-side scripts, not part of the corpus
@@ -310,6 +311,9 @@ load-bearing:
   enforces this).
 - **Everything is sha-pinned.** Edit a bench and the next run is a new series; edit a skill
   and resume refuses. Regrade re-scores from stored output with zero model calls.
+- **Run `skillbench/tools/check_seeds.py` before any long run.** A seed fires before every
+  case, so one that works once and fails after loses most of a run and takes hours to say
+  so. Two runs were lost that way before the check existed.
 
 ### What the local models can actually do: check before designing a bench around them
 

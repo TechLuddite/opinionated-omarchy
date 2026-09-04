@@ -2,6 +2,78 @@
 
 Last updated: 2026-09-03
 
+> ## A RUN IS IN FLIGHT: run 31
+>
+> `linux-agentic-deep-triage`, `devstral-small-2:24b`, `none` vs `skill:omarchy`, 31
+> repeats, `agent_timeout: 900`. It is the **control** for run 28, and the third attempt
+> at it; the first two died on harness defects that are now fixed and tested.
+>
+> **Check it first:**
+> ```sh
+> curl -s http://127.0.0.1:8878/api/runs/31 | python3 -m json.tool   # status + run note
+> python3 skillbench/tools/lift_test.py 28 31                        # the DiD, once it is done
+> ```
+>
+> **Read the run note before the numbers.** A run that lost a machine now finishes with
+> `DEGRADED` on its own record, and its arithmetic is variant-correlated rather than merely
+> thinner. If the note is empty, the run is sound.
+>
+> What it answers: run 28 already showed the incumbent's Omarchy lift is **+1.9 pt,
+> p = 0.59** at full power. Run 31 says whether `skill:omarchy` also moves general Linux,
+> which is the difference between "no effect" and "an effect that is not Omarchy-specific".
+> Expect a null. Two compromised attempts both pointed that way.
+>
+> If it died: reset from golden, `python3 skillbench/tools/check_seeds.py`, relaunch.
+
+## Session of 2026-09-03 (fifth): two harness defects, and the check that would have caught both
+
+### 1. Run 30 is void, and it was my seed rather than the pool
+
+The control's second attempt lost **51 of 124 cases** to `mount` exit 32, skewed 31 skill
+against 20 bare. The teardown I wrote for `deleted-file-holds-disk` ran stop, `umount`,
+`rm`. When the holder still owned its fd for a moment after `stop`, `umount` failed busy,
+the `rm` deleted the image anyway, and the loop device stayed attached to a dead inode:
+
+```
+/dev/loop0: [0031]:269707 (/var/tmp/bench-disk.img (deleted))
+```
+
+Teardown now waits for the unmount rather than assuming it, falls back to lazy, detaches
+any loop still pointing at the image, and removes the file last. The mount also prints
+`losetup -a` on failure instead of exiting 32 with nothing, because a bare exit code is what
+made this take a full run to find.
+
+**The pool guard from run 29 worked.** No VM was drained, nothing cascaded, every failure
+stayed inside its own case. Run 30 is unusable because half its cases never posed their
+question, not because one bad case poisoned the rest. Those are different failures and the
+fix for one does not address the other.
+
+### 2. The real defect was in how seeds were verified
+
+Run 27 and run 30 are the same shape: teardown that assumes the previous case finished
+cleanly. Both survived hand-verification, because **a seed was verified once**. The runner
+fires it before every case, so the second cycle is the one that matters.
+
+[skillbench/tools/check_seeds.py](skillbench/tools/check_seeds.py) runs every agentic seed
+N times back to back and fails on the first repeat that breaks. All nine pass; the disk
+seed that lost run 30 now survives **12 consecutive cycles with zero deleted-inode loop
+devices**, against 41% case loss.
+
+**The checker caught a defect in itself first, and that is the part worth remembering.** A
+first draft reported `omarchy-agentic-config/theme-switch` as broken. That seed is fine: it
+was invoked through plain `bash -s` while `vm.run()` uses `bash -lc`, and `OMARCHY_PATH`
+comes from `~/.bashrc`. A checker that does not match the runner invents failures and hides
+real ones, which is worse than no checker.
+
+It proves the runner can pose a question repeatedly. It does **not** check that assertions
+still discriminate; that stays a hand-verification against the **shipped** templates.
+
+### 3. Why this got built rather than just re-running
+
+The harness is about to be pointed at cloud model classes and effort levels, so the cost of
+a four-hour failure that only surfaces in the results is going up, not down. Two runs and
+roughly eight hours were lost to bugs a few seconds of checking would have caught.
+
 ## Session of 2026-09-03 (fourth): the incumbent's agentic lift is not real, and one case can poison a run
 
 ### 1. Run 28, n=31: the lift decays to nothing
