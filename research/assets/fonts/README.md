@@ -25,13 +25,19 @@ bundled `LICENSE` is OFL 1.1 and that is the one that governs.
 
 Copyright 2026 Mark Cuda. Upstream: <https://github.com/markcuda/Omarchy-Font>
 
-The Omarchy wordmark as a real typeface, so it carries **the wordmark and nothing else**.
+The Omarchy wordmark as a real typeface. It carries **the wordmark and the group
+headings**: short, all-caps, letter-spaced runs where the letterforms are the point.
 
-That limit is deliberate and was checked by rendering both faces side by side rather than
-assumed. It is a block-built **display** face and it is **proportional**. At 11px the
-letterforms close up, lowercase suffers, and a path like `~/.config/hypr` loses its shape.
-More fundamentally, the instrument look depends on every number being monospaced with
-tabular figures, which a proportional face cannot provide at any size.
+Where it stops was found by rendering rather than assumed, and two of the limits were
+found by trying them and reverting. It is a block-built **display** face and it is
+**proportional**. At 11px the letterforms close up, lowercase suffers, and a path like
+`~/.config/hypr` loses its shape. A record `h1` was set in it at 30px and put back: a
+twelve-word sentence in a display face makes the one line that tells a reader whether they
+are on the right page the hardest line on the page to scan. The section labels
+(`SYMPTOM`, `CAUSE`, `FIX`) were tried at 16px and put back too, because at low contrast
+the block-built forms muddy at that size. And the instrument look depends on every number
+being monospaced with tabular figures, which a proportional face cannot provide at any
+size.
 
 It is also the one rule that must **not** inherit the smoothing-disabled block below.
 That exists for Departure Mono's pixel grid; applying it to block-built curves aliases
@@ -39,14 +45,20 @@ them.
 
 ## Why the chrome stays on Departure Mono
 
-Departure Mono is a **pixel** face and keeps every micro-label, group heading and status
-chip. Readouts, code blocks and anything a reader must actually parse stay on the system
-`ui-monospace` stack, which is good on all three platforms and costs nothing. Vendoring a
-third family for that would add licensing surface to no benefit.
+Departure Mono is a **pixel** face and keeps the **micro-chrome**: status chips, section
+labels, tags, the crumb, the footer. Everything else, readouts and code and all the prose,
+is on the system `ui-monospace` stack, which is good on all three platforms and costs
+nothing. Vendoring a third family for that would add licensing surface to no benefit.
+
+That list is shorter than it was. The group headings moved to the Omarchy face when the
+type sizes went up, and the reason is the grid below: a heading that needs to grow cannot
+grow on `--crt`, because the next step up from 11px is 22px.
 
 **Departure Mono is designed on an 11px grid, and this is not optional.** Its own README
 says: *"For pixel-perfect results, set the font size to increments of 11px."* So every rule
-using `--crt` is **11px**, and the wordmark is **22px**. Nothing else.
+using `--crt` is **11px**. Nothing else. That constraint is exactly why `--crt` is now
+confined to labels that are meant to be small: they are the only text the floor does not
+fight.
 
 That single rule fixed two problems at once. The transcribed Control Room spec uses 8.5px
 and 9.5px micro-labels, which were *both* off-grid (so they rendered soft) **and simply
@@ -59,4 +71,6 @@ rendering problem rather than a CSS one.
 
 Tracking is exempt: `letter-spacing` is spacing between glyphs, not glyph size, so it can
 be tuned freely. That is how the wordmark fits a 400px viewport. At `≤420px` its tracking
-drops from `.20em` to `.06em` while the size stays 22px and on-grid.
+drops from `.12em` to `.02em` while the size stays 26px. The wordmark is on the Omarchy
+face rather than `--crt`, so the 11px grid does not bind it; the tracking trick is about
+width, not the grid.
