@@ -38,13 +38,25 @@ def cases(run_id):
     rows = c.execute("""
         SELECT c.variant, c.task_id, c.status,
           (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post') n,
-          (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post' AND g.passed=1) k
+          (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='post' AND g.passed=1) k,
+          (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='check') cn,
+          (SELECT count(*) FROM grade g WHERE g.case_id=c.id AND g.grader='check' AND g.passed=1) ck
         FROM case_result c WHERE c.run_id=?""", (run_id,)).fetchall()
     out = {}
     for r in rows:
-        if not r["n"]:
+        # BOTH LANES. 'post' grades the machine and exists only on the agentic lane;
+        # 'check' grades the transcript and is what the chat lane produces. Counting post
+        # alone silently returned zero cases for every chat run, which reads as "need both
+        # variants" rather than as "this tool does not handle that lane".
+        n, k = (r["n"], r["k"]) if r["n"] else (r["cn"], r["ck"])
+        if not n:
             continue
-        out.setdefault(r["variant"], []).append(r["k"] / r["n"])
+        # A gateway returns a bare 500 for a model the account cannot reach. That is a
+        # configuration failure, not a score, and averaging it in would drag a variant
+        # down for a reason that has nothing to do with the skill.
+        if r["status"] == "unavailable":
+            continue
+        out.setdefault(r["variant"], []).append(k / n)
     bench = c.execute("SELECT b.name FROM bench_run r JOIN bench b ON b.id=r.bench_id"
                       " WHERE r.id=?", (run_id,)).fetchone()[0]
     return bench, out

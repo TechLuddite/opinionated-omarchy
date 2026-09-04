@@ -67,9 +67,23 @@ class RunError(RuntimeError):
 
 
 async def list_models():
-    """Chat-capable local models. Embedding models are filtered out: they are served by
-    the same Ollama and appear in /api/tags, but they cannot answer a bench task."""
-    async with httpx.AsyncClient(timeout=10) as cl:
+    """Chat-capable models on whatever the chat lane is pointed at.
+
+    Two catalogues, because the two servers do not share one. Ollama answers /api/tags
+    with tagged local names; a gateway answers the OpenAI-standard /v1/models. Embedding
+    models are filtered out of the Ollama list: they are served by the same daemon and
+    appear in /api/tags, but they cannot answer a bench task.
+
+    A gateway catalogue is NOT an entitlement. Zen lists ids that return 500 on use and
+    omits ids from OpenCode's own plan page, so use probe_zen.py to find what is actually
+    reachable rather than trusting this list. See ZEN.md.
+    """
+    headers = {"Authorization": f"Bearer {CHAT_API_KEY}"} if CHAT_API_KEY else {}
+    async with httpx.AsyncClient(timeout=15, headers=headers) as cl:
+        if CHAT_BASE != OLLAMA_BASE:
+            r = await cl.get(f"{CHAT_BASE}/v1/models")
+            r.raise_for_status()
+            return sorted(m["id"] for m in r.json().get("data", []))
         r = await cl.get(f"{OLLAMA_BASE}/api/tags")
         r.raise_for_status()
         names = (m["name"].replace(":latest", "") for m in r.json().get("models", []))
