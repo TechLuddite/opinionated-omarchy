@@ -204,7 +204,8 @@ app/
   db.py       SQLite schema and helpers
   theme.py    Omarchy colors.toml -> UI palette
   ui.py       the page
-tools/        probe_models.py - model feasibility (tool support, VRAM, agentic competence)
+tools/        check_seeds.py  - are the agentic seeds repeatable? run before a long run
+              probe_models.py - model feasibility (tool support, VRAM, agentic competence)
               lift_test.py    - permutation test + difference-in-differences for a paired run
 MODELS.md     which local models can drive the agentic lane, and why most cannot
 benches/      17 specs: 6 Omarchy chat + 3 Omarchy agentic, 6 controls (2 of them
