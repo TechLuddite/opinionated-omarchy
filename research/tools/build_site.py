@@ -23,13 +23,17 @@ flat at the ceiling and carried no information a reader could act on. The per-gr
 audited/corrected/unchecked meters do that job with the same phosphor treatment and actually
 vary. Do not reinstate a chart here without a series that moves.
 
-Fonts are the fallback stacks only. The source handoff is explicit that the real families
-(Space Grotesk, IBM Plex Mono) must be SELF-HOSTED woff2 rather than pulled from a CDN at
-build time, because a network blip yields a silently unstyled page. Vendoring them is a
-follow-up; the stacks degrade to system fonts meanwhile.
+Type is TWO vendored faces and one system stack, and nothing else. The source handoff is
+explicit that a real family must be SELF-HOSTED woff2 rather than pulled from a CDN at build
+time, because a network blip yields a silently unstyled page. Omarchy Font and Departure
+Mono are vendored and shipped. Space Grotesk and IBM Plex Mono used to be NAMED at the head
+of two stacks without ever being shipped, which is the worst of both: they rendered for a
+visitor who happened to have them installed and fell back for everyone else, so the site's
+type changed machine to machine. Both names are gone.
 """
 import html
 import json
+import re
 import shutil
 import urllib.parse
 from collections import Counter, defaultdict
@@ -86,22 +90,81 @@ def heading(r):
     return words[:1].upper() + words[1:] if words else r["slug"]
 
 
+BULLET = re.compile(r"^\s*[-*]\s+")
+# One or two digits only. An unanchored \d+ turns a line opening with a year, of which the
+# corpus has several, into an ordered list.
+NUMBERED = re.compile(r"^\s*\d{1,2}[.)]\s+")
+
+
+def _block(lines):
+    """One blank-line-delimited run of unfenced lines, as a paragraph or a list."""
+    lines = [ln for ln in lines if ln.strip()]
+    if not lines:
+        return ""
+    marker = BULLET if BULLET.match(lines[0]) else NUMBERED if NUMBERED.match(lines[0]) else None
+    if marker is None:
+        # A list often opens straight under its lead-in with no blank line ("You need at
+        # minimum:" then the items). Split there rather than swallowing the items into the
+        # paragraph, which is what made this worth fixing in the first place.
+        for i, ln in enumerate(lines[1:], 1):
+            if BULLET.match(ln) or NUMBERED.match(ln):
+                return _block(lines[:i]) + _block(lines[i:])
+        # Soft-wrapped prose joins with a space, which is what the browser already did to the
+        # raw newlines this used to emit. Paragraphs are the only new break.
+        return "<p>" + _inline(e(" ".join(ln.strip() for ln in lines))) + "</p>"
+    items = []
+    for ln in lines:
+        if marker.match(ln):
+            items.append(marker.sub("", ln).strip())
+        elif items:
+            items[-1] += " " + ln.strip()
+        else:
+            items.append(ln.strip())
+    tag = "ul" if marker is BULLET else "ol"
+    return f"<{tag}>" + "".join(f"<li>{_inline(e(i))}</li>" for i in items) + f"</{tag}>"
+
+
 def md_lite(text):
-    """Just enough markdown for the corpus's own conventions: fenced blocks and `code`.
+    """Just enough markdown for the corpus's own conventions: fenced blocks, `code`,
+    paragraphs and lists.
 
     Deliberately NOT a markdown library. Everything is escaped FIRST and only then are the
-    two constructs re-introduced, so a record can never inject markup -- the clean-room
+    constructs re-introduced, so a record can never inject markup -- the clean-room
     handoff flags raw interpolation into innerHTML as a real defect in the original.
+
+    Paragraphs and lists are here because the corpus uses both and this dropped both. HTML
+    collapses newlines, so emitting the raw lines ran every block together: 275 of 456
+    records lose a paragraph break that way and 26 lose a bullet list, nearly all of them
+    in `fix`, which is the field a reader came for.
     """
-    out, in_fence = [], False
+    out, buf = [], []
+    in_fence = False
+
+    def flush():
+        if buf:
+            block = _block(buf)
+            buf.clear()
+            if block:
+                out.append(block)
+
     for line in (text or "").split("\n"):
         if line.strip().startswith("```"):
-            out.append("</code></pre>" if in_fence else '<pre><code>')
+            if in_fence:
+                out.append("</code></pre>")
+            else:
+                flush()
+                out.append("<pre><code>")
             in_fence = not in_fence
             continue
-        out.append(e(line) if in_fence else _inline(e(line)))
+        if in_fence:
+            out.append(e(line))
+        elif line.strip():
+            buf.append(line)
+        else:
+            flush()
     if in_fence:
         out.append("</code></pre>")
+    flush()
     return "\n".join(out)
 
 
@@ -372,14 +435,18 @@ def main():
 STYLE = r"""/* Two vendored faces, both self-hosted on purpose: a CDN fetch that fails yields a
    silently unstyled page.
 
-   Omarchy Font -- MIT, (c) 2026 Mark Cuda. The actual Omarchy wordmark as a typeface, so
-   it carries the wordmark and nothing else. It is a block-built DISPLAY face and it is
-   PROPORTIONAL, so it is wrong for the rest: at 11px the letterforms close up, lowercase
-   suffers, and paths like ~/.config/hypr lose their shape. Worse, the instrument look
-   depends on every number being monospaced with tabular figures, which a proportional face
-   cannot give.
+   Omarchy Font -- MIT, (c) 2026 Mark Cuda. The actual Omarchy wordmark as a typeface. It
+   carries the wordmark and the group headings: short, all-caps, letter-spaced runs where
+   the letterforms are the point. It is a block-built DISPLAY face and it is PROPORTIONAL,
+   so it stays off everything else, and the boundary was found by rendering rather than
+   assumed. At 11px the letterforms close up, lowercase suffers, and paths like
+   ~/.config/hypr lose their shape. A record h1 was tried and reverted: a twelve-word
+   sentence in a display face makes the line that tells a reader whether they are on the
+   right page the hardest one to scan. And the instrument look depends on every number
+   being monospaced with tabular figures, which a proportional face cannot give.
 
-   Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Keeps all the chrome.
+   Departure Mono -- SIL OFL 1.1, (c) 2022-2024 Helena Zhang. Keeps the micro-chrome: the
+   recessive labels that are small on purpose, which is the one job its 11px grid suits.
 
    Both licences ship beside their font, and CI fails the build if either pair is broken. */
 @font-face{
@@ -404,22 +471,36 @@ STYLE = r"""/* Two vendored faces, both self-hosted on purpose: a CDN fetch that
      Contrast on --bg is 7.28:1. The palette's amber is retired rather than left declared
      and unused, which is the cruft the source handoff flagged in --raise and --mem. */
   --corrected:#00a6ff;
-  --mono:'IBM Plex Mono',ui-monospace,'SF Mono','Cascadia Mono','JetBrains Mono',
+  /* ONE text face. This used to be three: --mono named 'IBM Plex Mono' and --disp named
+     'Space Grotesk', neither of which is shipped, so both rendered only for a visitor who
+     happened to have them installed and fell back to something else for everyone else.
+     A site whose type changes machine to machine is not a design. Both names are gone and
+     the system monospace stack, which is good on all three platforms and costs no third
+     party, carries every readout, every label and all the prose. */
+  --mono:ui-monospace,'SF Mono','Cascadia Mono','JetBrains Mono',
          'DejaVu Sans Mono','Liberation Mono',Menlo,Consolas,monospace;
-  --disp:'Space Grotesk',ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif;
-  --body:ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif;
-  /* The CRT face carries CHROME only -- labels, wordmark, group headings. Anything a
-     reader must actually parse (readouts, code, sources) stays on --mono, which is
-     legible at these sizes on all three platforms and costs no third party. */
+  /* The brand face, on the two jobs where letterforms are the point: the wordmark, and
+     the headings that structure a page. It is proportional and block-built, so it is kept
+     off anything that must align in a column or be read at micro sizes. */
+  --omarchy:'Omarchy',var(--mono);
+  /* The CRT face is now micro-chrome only: the recessive labels that are deliberately
+     small. It is designed on an 11px grid, which is exactly why it keeps the sizes that
+     did not grow rather than being stretched off it. */
   --crt:'Departure Mono',var(--mono);
 }
 /* A pixel font must not be smoothed into mush, and Departure Mono is designed on an 11px
    grid -- its own README: "For pixel-perfect results, set the font size to increments of
-   11px." Every rule below therefore sits at 11px (22px for the wordmark). The transcribed
-   spec's 8.5-10px labels were both OFF-GRID and genuinely too small to read; snapping to
-   the grid fixes legibility and crispness with one change. Do not reintroduce 8/9/10px
-   here -- it will look soft as well as tiny. */
-.crt,.sub,.v-lab,.mast-status,.g-head,.c-lab,.c-sev,.sev,.n-lab,.crumb,
+   11px." Every rule below therefore sits at 11px. The transcribed spec's 8.5-10px labels
+   were both OFF-GRID and genuinely too small to read; snapping to the grid fixes
+   legibility and crispness with one change. Do not reintroduce 8/9/10px here -- it will
+   look soft as well as tiny.
+
+   This list is SHORTER than it was: the wordmark and the group headings moved to the
+   Omarchy face, and both had to leave, because smoothing-disabled is a pixel-grid rule
+   and applying it to a block-built face aliases its curves. What is left is the micro
+   chrome, which is small ON PURPOSE and so is the one thing the 11px floor does not
+   fight. Everything that grew is on --mono or --omarchy instead. */
+.crt,.sub,.v-lab,.mast-status,.c-lab,.c-sev,.sev,.n-lab,.crumb,.detail h2,
 footer,.tag,.slug,.qcount,.abbr,.legend{
   font-family:var(--crt);
   -webkit-font-smoothing:none; -moz-osx-font-smoothing:unset; font-smooth:never;
@@ -429,7 +510,7 @@ body{margin:0;background:
   radial-gradient(1200px 600px at 80% -10%,#0e1620 0%,transparent 60%),
   radial-gradient(900px 500px at -10% 0%,#0d141d 0%,transparent 55%),
   var(--bg);
-  color:var(--ink);font:14px/1.4 var(--body);-webkit-font-smoothing:antialiased;
+  color:var(--ink);font:16px/1.6 var(--mono);-webkit-font-smoothing:antialiased;
   min-height:100vh}
 /* Motif 1: scanline + vignette. 1% white at one line in three reads as texture, not stripes. */
 .scan{position:fixed;inset:0;pointer-events:none;z-index:1;
@@ -441,14 +522,14 @@ a{color:inherit;text-decoration:none}
 .mast{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:auto 1fr auto;
   gap:20px;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);
   background:rgba(10,14,19,.82);backdrop-filter:blur(8px)}
-/* The wordmark is the one place a display face belongs, and it is NOT smoothing-disabled:
-   that rule exists for Departure Mono's pixel grid, and applying it to block-built curves
-   would alias them. 22px is chosen to sit with the rest of the masthead, not from a grid. */
-.wordmark{font:22px/1 'Omarchy',var(--crt);letter-spacing:.14em;color:var(--ink);
+/* Not smoothing-disabled: that rule exists for Departure Mono's pixel grid, and applying
+   it to block-built curves would alias them. 26px is chosen to sit with the rest of the
+   masthead, not from a grid. */
+.wordmark{font:26px/1 var(--omarchy);letter-spacing:.12em;color:var(--ink);
   -webkit-font-smoothing:antialiased}
 .sub{font:11px/1.4 var(--crt);letter-spacing:.40em;color:var(--signal)}
 .vitals{display:flex;gap:26px;justify-content:center}
-.v-num{font:600 19px/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.v-num{font:600 24px/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .v-num small{font:11px var(--mono);color:var(--dim);margin-left:2px}
 .v-lab{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin-top:4px}
 .meter{display:flex;height:3px;border-radius:2px;overflow:hidden;flex:0 0 84px;
@@ -465,9 +546,9 @@ a{color:inherit;text-decoration:none}
 
 .board{position:relative;z-index:2;max-width:1500px;margin:0 auto;padding:20px 22px 60px}
 .intro{max-width:720px;margin:14px 0 22px}
-.lede{font:16px/1.55 var(--body);color:var(--ink);margin:0 0 14px}
-.fine{font:12px/1.6 var(--body);color:var(--dim);margin:12px 0 0}
-.intro .body{font:13.5px/1.65 var(--body);color:var(--dim);margin:0 0 14px}
+.lede{font:20px/1.55 var(--mono);color:var(--ink);margin:0 0 16px}
+.fine{font:14px/1.65 var(--mono);color:var(--dim);margin:14px 0 0}
+.intro .body{font:15.5px/1.7 var(--mono);color:var(--dim);margin:0 0 14px}
 .intro .body b{color:var(--ink);font-weight:600}
 /* The link grid wants the full board width; the PROSE does not. A 1440px line is roughly
    200 characters, which is unreadable for the same reason 8px type was. Constrain the text
@@ -479,7 +560,7 @@ a{color:inherit;text-decoration:none}
 .intro .intro-head{margin-top:36px}
 .links{margin-bottom:6px}
 .links .card{min-height:0}
-.links .c-name{font-size:12.5px}
+.links .c-name{font-size:14px}
 .links .c-meta{margin-top:8px}
 .legend{display:flex;gap:18px;flex-wrap:wrap;font:11px var(--crt);letter-spacing:.14em;
   color:var(--muted);margin:10px 0}
@@ -487,7 +568,7 @@ a{color:inherit;text-decoration:none}
 
 .searchbar{display:flex;align-items:center;gap:12px;margin:8px 0 18px}
 #q{flex:1;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
-  padding:11px 13px;color:var(--ink);font:12px var(--mono);letter-spacing:.02em}
+  padding:12px 14px;color:var(--ink);font:14px var(--mono);letter-spacing:.02em}
 #q::placeholder{color:var(--faint)}
 #q:focus{outline:none;border-color:var(--line-2);box-shadow:0 0 0 3px rgba(70,224,192,.10)}
 .qcount{font:11px var(--crt);letter-spacing:.14em;color:var(--muted);white-space:nowrap}
@@ -505,12 +586,12 @@ a{color:inherit;text-decoration:none}
 .group>summary:hover{color:var(--ink)}
 .group>summary:hover .caret{color:var(--signal)}
 .group>summary:focus-visible{outline:2px solid var(--signal);outline-offset:3px;border-radius:3px}
-.g-head{display:flex;align-items:center;gap:10px;margin:0 0 11px;
-  font:11px var(--crt);letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
+.g-head{display:flex;align-items:center;gap:10px;margin:0 0 12px;
+  font:16px var(--omarchy);letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
 .g-head i{width:9px;height:9px;transform:rotate(45deg);background:var(--gaccent)}
 .g-head::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
 .g-head .meter{margin-left:2px}
-.g-count{font:11px var(--crt);letter-spacing:.14em;color:var(--muted)}
+.g-count{font:13px var(--mono);letter-spacing:.10em;color:var(--muted)}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:11px}
 .grid.hide{display:none}
@@ -522,7 +603,7 @@ a{color:inherit;text-decoration:none}
 .card:hover{transform:translateY(-1px);border-color:var(--line-2);
   box-shadow:0 6px 20px rgba(0,0,0,.35)}
 .c-head{display:flex;align-items:flex-start;gap:8px}
-.c-name{font:500 13.5px/1.35 var(--disp);color:var(--ink)}
+.c-name{font:15px/1.45 var(--mono);color:var(--ink)}
 .c-meta{display:flex;justify-content:space-between;margin-top:9px;padding-top:8px;
   border-top:1px solid var(--line)}
 .c-lab,.c-sev{font:11px var(--crt);letter-spacing:.14em;color:var(--muted)}
@@ -554,28 +635,43 @@ a{color:inherit;text-decoration:none}
   border-radius:4px;border:1px solid color-mix(in srgb,var(--gaccent) 40%,var(--line));
   background:color-mix(in srgb,var(--gaccent) 8%,transparent)}
 .sev{font:11px var(--crt);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
-.detail h1{font:700 22px/1.3 var(--disp);margin:0 0 10px}
+/* NOT the Omarchy face, and this was tried rather than assumed. It carries the wordmark
+   and the group headings well, because those are short, all-caps and letter-spaced. A
+   record title is a twelve-word sentence, and a proportional block-built display face
+   makes the one line that tells a reader whether they are on the right page the hardest
+   line on it to scan. */
+.detail h1{font:600 26px/1.3 var(--mono);letter-spacing:-.01em;margin:0 0 12px}
 .detail h2{font:11px var(--crt);letter-spacing:.28em;color:var(--dim);
-  text-transform:uppercase;margin:26px 0 8px}
+  text-transform:uppercase;margin:28px 0 10px}
+/* md_lite emits <p>, <ul> and <ol> now. Without these the blocks it separates would still
+   read as one wall: the browser's default 1em on a <p> is too loose here, and a <ul> with
+   no padding loses its markers off the left edge. .src is the sources list and keeps its
+   own rule, so it is excluded rather than restyled. */
+.detail section>p,.note>p,.danger>p{margin:0 0 9px}
+.detail section>p:last-child,.note>p:last-child,.danger>p:last-child{margin-bottom:0}
+.detail section>ul:not(.src),.detail section>ol,
+.note>ul,.note>ol,.danger>ul,.danger>ol{margin:0 0 9px;padding-left:20px}
+.detail section>ul:not(.src)>li,.detail section>ol>li,
+.note li,.danger li{margin:3px 0}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .tag{font:11px var(--crt);letter-spacing:.1em;color:var(--muted);border:1px solid var(--line);
   border-radius:3px;padding:2px 6px}
 .prov{border:1px solid var(--line);border-radius:6px;padding:11px 13px;margin:14px 0;
-  display:flex;align-items:flex-start;gap:9px;font:12px var(--mono);letter-spacing:.06em;
+  display:flex;align-items:flex-start;gap:9px;font:14px var(--mono);letter-spacing:.04em;
   color:var(--dim);flex-wrap:wrap}
 .prov b{letter-spacing:.16em;color:var(--ink)}
 .note,.danger{border-left:2px solid var(--corrected);background:rgba(0,166,255,.05);
-  padding:10px 13px;margin:12px 0;border-radius:0 6px 6px 0;font:12px/1.6 var(--body);color:var(--dim)}
+  padding:12px 14px;margin:14px 0;border-radius:0 6px 6px 0;font:14.5px/1.65 var(--mono);color:var(--dim)}
 .danger{border-left-color:var(--alert);background:rgba(255,93,115,.06)}
 .n-lab{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin-bottom:5px}
 .n-tail{margin-top:8px;font-style:italic;color:var(--muted)}
 pre{background:#070b10;border:1px solid var(--line);border-radius:6px;padding:12px 14px;
   overflow-x:auto;margin:10px 0}
-code{font:12px/1.55 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+code{font:14px/1.55 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
 :not(pre)>code{background:rgba(70,224,192,.08);border:1px solid var(--line);border-radius:3px;
   padding:1px 5px;color:var(--signal)}
 .src{margin:8px 0;padding-left:18px}
-.src a{color:var(--signal);font:11px var(--mono);word-break:break-all}
+.src a{color:var(--signal);font:13px var(--mono);word-break:break-all}
 .slug{margin-top:24px;padding-top:12px;border-top:1px solid var(--line);
   font:11px var(--crt);letter-spacing:.14em;color:var(--faint)}
 footer{position:relative;z-index:2;text-align:center;padding:26px 20px 34px;
@@ -588,10 +684,10 @@ footer a{color:var(--signal)}
 }
 @media(max-width:420px){
   .vitals{grid-template-columns:repeat(2,1fr)}
-  /* 22px x 19 characters at .20em overruns a phone. Tracking is spacing, not glyph size,
-     so tightening it keeps the wordmark ON the 11px grid -- dropping to 11px would fit but
-     would make the masthead read as a caption. */
-  .wordmark{letter-spacing:.06em}
+  /* 26px x 19 characters overruns a phone. Tracking is spacing rather than glyph size, so
+     tightening it keeps the wordmark at full size; shrinking it instead would make the
+     masthead read as a caption. */
+  .wordmark{letter-spacing:.02em}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 """
