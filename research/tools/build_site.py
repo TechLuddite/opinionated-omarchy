@@ -30,6 +30,7 @@ follow-up; the stacks degrade to system fonts meanwhile.
 """
 import html
 import json
+import re
 import shutil
 import urllib.parse
 from collections import Counter, defaultdict
@@ -86,22 +87,81 @@ def heading(r):
     return words[:1].upper() + words[1:] if words else r["slug"]
 
 
+BULLET = re.compile(r"^\s*[-*]\s+")
+# One or two digits only. An unanchored \d+ turns a line opening with a year, of which the
+# corpus has several, into an ordered list.
+NUMBERED = re.compile(r"^\s*\d{1,2}[.)]\s+")
+
+
+def _block(lines):
+    """One blank-line-delimited run of unfenced lines, as a paragraph or a list."""
+    lines = [ln for ln in lines if ln.strip()]
+    if not lines:
+        return ""
+    marker = BULLET if BULLET.match(lines[0]) else NUMBERED if NUMBERED.match(lines[0]) else None
+    if marker is None:
+        # A list often opens straight under its lead-in with no blank line ("You need at
+        # minimum:" then the items). Split there rather than swallowing the items into the
+        # paragraph, which is what made this worth fixing in the first place.
+        for i, ln in enumerate(lines[1:], 1):
+            if BULLET.match(ln) or NUMBERED.match(ln):
+                return _block(lines[:i]) + _block(lines[i:])
+        # Soft-wrapped prose joins with a space, which is what the browser already did to the
+        # raw newlines this used to emit. Paragraphs are the only new break.
+        return "<p>" + _inline(e(" ".join(ln.strip() for ln in lines))) + "</p>"
+    items = []
+    for ln in lines:
+        if marker.match(ln):
+            items.append(marker.sub("", ln).strip())
+        elif items:
+            items[-1] += " " + ln.strip()
+        else:
+            items.append(ln.strip())
+    tag = "ul" if marker is BULLET else "ol"
+    return f"<{tag}>" + "".join(f"<li>{_inline(e(i))}</li>" for i in items) + f"</{tag}>"
+
+
 def md_lite(text):
-    """Just enough markdown for the corpus's own conventions: fenced blocks and `code`.
+    """Just enough markdown for the corpus's own conventions: fenced blocks, `code`,
+    paragraphs and lists.
 
     Deliberately NOT a markdown library. Everything is escaped FIRST and only then are the
-    two constructs re-introduced, so a record can never inject markup -- the clean-room
+    constructs re-introduced, so a record can never inject markup -- the clean-room
     handoff flags raw interpolation into innerHTML as a real defect in the original.
+
+    Paragraphs and lists are here because the corpus uses both and this dropped both. HTML
+    collapses newlines, so emitting the raw lines ran every block together: 275 of 456
+    records lose a paragraph break that way and 26 lose a bullet list, nearly all of them
+    in `fix`, which is the field a reader came for.
     """
-    out, in_fence = [], False
+    out, buf = [], []
+    in_fence = False
+
+    def flush():
+        if buf:
+            block = _block(buf)
+            buf.clear()
+            if block:
+                out.append(block)
+
     for line in (text or "").split("\n"):
         if line.strip().startswith("```"):
-            out.append("</code></pre>" if in_fence else '<pre><code>')
+            if in_fence:
+                out.append("</code></pre>")
+            else:
+                flush()
+                out.append("<pre><code>")
             in_fence = not in_fence
             continue
-        out.append(e(line) if in_fence else _inline(e(line)))
+        if in_fence:
+            out.append(e(line))
+        elif line.strip():
+            buf.append(line)
+        else:
+            flush()
     if in_fence:
         out.append("</code></pre>")
+    flush()
     return "\n".join(out)
 
 
@@ -557,6 +617,16 @@ a{color:inherit;text-decoration:none}
 .detail h1{font:700 22px/1.3 var(--disp);margin:0 0 10px}
 .detail h2{font:11px var(--crt);letter-spacing:.28em;color:var(--dim);
   text-transform:uppercase;margin:26px 0 8px}
+/* md_lite emits <p>, <ul> and <ol> now. Without these the blocks it separates would still
+   read as one wall: the browser's default 1em on a <p> is too loose here, and a <ul> with
+   no padding loses its markers off the left edge. .src is the sources list and keeps its
+   own rule, so it is excluded rather than restyled. */
+.detail section>p,.note>p,.danger>p{margin:0 0 9px}
+.detail section>p:last-child,.note>p:last-child,.danger>p:last-child{margin-bottom:0}
+.detail section>ul:not(.src),.detail section>ol,
+.note>ul,.note>ol,.danger>ul,.danger>ol{margin:0 0 9px;padding-left:20px}
+.detail section>ul:not(.src)>li,.detail section>ol>li,
+.note li,.danger li{margin:3px 0}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .tag{font:11px var(--crt);letter-spacing:.1em;color:var(--muted);border:1px solid var(--line);
   border-radius:3px;padding:2px 6px}
