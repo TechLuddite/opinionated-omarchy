@@ -254,10 +254,13 @@ def index_page(recs, cats):
                  f'<span class="m-corr" style="width:{100*co/n:.1f}%"></span>'
                  f'<span class="m-un" style="width:{100*un/n:.1f}%"></span></span>')
         groups.append(
-            f'<section class="group" style="--gaccent:{acc}">'
-            f'<h2 class="g-head"><i></i>{e(cats.get(cat, cat))}'
-            f'<span class="g-count">{n}</span>{meter}</h2>'
-            f'<div class="grid">{"".join(cards)}</div></section>')
+            # <details> rather than a JS toggle: keyboard accessible, survives with
+            # scripting off, and the open/closed state is the element's own. Closed on
+            # load, so the board opens as twelve headings instead of 456 cards.
+            f'<details class="group" style="--gaccent:{acc}">'
+            f'<summary class="g-head"><span class="caret"></span><i></i>{e(cats.get(cat, cat))}'
+            f'<span class="g-count">{n}</span>{meter}</summary>'
+            f'<div class="grid">{"".join(cards)}</div></details>')
 
     st = Counter(r.get("audit_status") for r in recs)
     corrected_n = st["corrected"]
@@ -291,7 +294,7 @@ def index_page(recs, cats):
     touching pacman, the bootloader, initramfs or partitions deserves a look at the cited
     source before it runs as root.</p>
 
-    <h2 class="g-head" style="--gaccent:#7aa2ff"><i></i>How this was built<span
+    <h2 class="g-head intro-head" style="--gaccent:#7aa2ff"><i></i>How this was built<span
       class="g-count">READ MORE</span></h2>
     <div class="grid links">
       <a class="card" href="{gh}/blob/HEAD/research/README.md">
@@ -393,7 +396,14 @@ STYLE = r"""/* Two vendored faces, both self-hosted on purpose: a CDN fetch that
   --bg:#0a0e13; --panel:#10161f; --panel-2:#0c1119; --line:#1b2531; --line-2:#26374a;
   --ink:#d2dcea; --dim:#8996a6; --muted:#6b7c8e; --faint:#516072;
   --signal:#46e0c0; --signal-soft:rgba(70,224,192,.14);
-  --warn:#f2b34b; --alert:#ff5d73; --gaccent:var(--signal);
+  --alert:#ff5d73; --gaccent:var(--signal);
+  /* CORRECTED was the source palette's amber (#f2b34b). Moved to an electric blue, and
+     the swap improves both axes rather than trading one for the other: worst-case
+     colour-vision-deficiency separation from the other two statuses goes 0.10 -> 0.28,
+     and the closest normal-vision pair goes 96 -> 111 (amber sat too near --alert red).
+     Contrast on --bg is 7.28:1. The palette's amber is retired rather than left declared
+     and unused, which is the cruft the source handoff flagged in --raise and --mem. */
+  --corrected:#00a6ff;
   --mono:'IBM Plex Mono',ui-monospace,'SF Mono','Cascadia Mono','JetBrains Mono',
          'DejaVu Sans Mono','Liberation Mono',Menlo,Consolas,monospace;
   --disp:'Space Grotesk',ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif;
@@ -445,7 +455,7 @@ a{color:inherit;text-decoration:none}
   background:var(--line)}
 .meter span{display:block;height:100%}
 .m-ok{background:var(--signal);box-shadow:0 0 6px rgba(70,224,192,.7)}
-.m-corr{background:var(--warn)}
+.m-corr{background:var(--corrected)}
 .m-un{background:var(--alert)}
 .mast-status{display:flex;align-items:center;gap:7px;font:11px var(--crt);
   letter-spacing:.24em;color:var(--signal)}
@@ -464,6 +474,9 @@ a{color:inherit;text-decoration:none}
    blocks to a reading measure and let only the cards span. */
 .intro{max-width:none}
 .intro .lede,.intro .body,.intro .fine,.intro .legend{max-width:78ch}
+/* The fine print ran straight into this heading. .g-head carries no top margin because in
+   a .group the parent supplies it, and .intro is not a .group. */
+.intro .intro-head{margin-top:36px}
 .links{margin-bottom:6px}
 .links .card{min-height:0}
 .links .c-name{font-size:12.5px}
@@ -481,6 +494,17 @@ a{color:inherit;text-decoration:none}
 
 .group{margin-top:26px}
 .group:first-child{margin-top:8px}
+.group>summary::-webkit-details-marker{display:none}
+.group>summary{list-style:none;cursor:pointer;user-select:none}
+/* The caret is the only affordance that a heading is a control, so it must not be subtle.
+   It is its OWN element rather than ::after: .g-head::after is already the fading rule
+   line, and the more specific selector was quietly replacing it. */
+.caret{order:-1;flex:0 0 auto;width:11px;color:var(--muted);font:11px var(--crt)}
+.caret::after{content:"+"}
+.group[open] .caret::after{content:"\2212"}
+.group>summary:hover{color:var(--ink)}
+.group>summary:hover .caret{color:var(--signal)}
+.group>summary:focus-visible{outline:2px solid var(--signal);outline-offset:3px;border-radius:3px}
 .g-head{display:flex;align-items:center;gap:10px;margin:0 0 11px;
   font:11px var(--crt);letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
 .g-head i{width:9px;height:9px;transform:rotate(45deg);background:var(--gaccent)}
@@ -506,7 +530,7 @@ a{color:inherit;text-decoration:none}
 /* Motif 4: glowing LEDs. The colour IS the provenance. */
 .led{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-top:4px}
 .h-healthy .led,.h-healthy>.led{background:var(--signal);box-shadow:0 0 7px rgba(70,224,192,.8)}
-.h-starting .led,.h-starting>.led{background:var(--warn);box-shadow:0 0 7px rgba(242,179,75,.8)}
+.h-starting .led,.h-starting>.led{background:var(--corrected);box-shadow:0 0 7px rgba(0,166,255,.8)}
 .h-down .led,.h-down>.led{background:var(--alert);box-shadow:0 0 7px rgba(255,93,115,.8)}
 .h-down.card{opacity:.72}
 
@@ -540,7 +564,7 @@ a{color:inherit;text-decoration:none}
   display:flex;align-items:flex-start;gap:9px;font:12px var(--mono);letter-spacing:.06em;
   color:var(--dim);flex-wrap:wrap}
 .prov b{letter-spacing:.16em;color:var(--ink)}
-.note,.danger{border-left:2px solid var(--warn);background:rgba(242,179,75,.05);
+.note,.danger{border-left:2px solid var(--corrected);background:rgba(0,166,255,.05);
   padding:10px 13px;margin:12px 0;border-radius:0 6px 6px 0;font:12px/1.6 var(--body);color:var(--dim)}
 .danger{border-left-color:var(--alert);background:rgba(255,93,115,.06)}
 .n-lab{font:11px var(--crt);letter-spacing:.22em;color:var(--muted);margin-bottom:5px}
