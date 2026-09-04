@@ -122,6 +122,33 @@ socket, and handing it the hypervisor to get true disk rollback would trade a re
 property for convenience. Declare every path your seed or the agent might touch. Disk reset
 between runs is an operator action (`tools/golden-test-vm.sh`).
 
+## Run the seed check before you spend hours on a run
+
+```sh
+python3 skillbench/tools/check_seeds.py            # every agentic seed, 3 cycles
+python3 skillbench/tools/check_seeds.py --cycles 12 --bench <name>
+```
+
+**A seed is not a one-shot script.** The runner fires it before every case, so the second
+cycle is the one that matters, and that is exactly what hand-verification misses. Two runs
+were lost to seeds that worked once:
+
+- Run 27 lost a case to a transient systemd unit left in FAILED state, which `stop` does
+  not clear and `systemd-run` then refuses to recreate.
+- Run 30 lost **51 of 124 cases** to `mount` exit 32, four hours to discover. The teardown
+  unmounted before the previous holder had released its fd, deleted the image anyway, and
+  left a loop device attached to a dead inode.
+
+Both are the same shape: teardown that assumes the previous case finished cleanly. Write
+teardown that waits rather than assumes, detaches what it attached, and removes files last.
+
+The checker runs seeds through a **login shell**, because `vm.run()` does. Get that wrong
+and it invents failures: a first draft reported `omarchy-agentic-config/theme-switch` as
+broken, when the only problem was `OMARCHY_PATH` being unset outside `bash -l`.
+
+It does not grade anything. Assertion discrimination is a separate question and still has
+to be checked by hand against the **shipped** templates.
+
 ## Before you commit a bench
 
 - `./tests/run.sh`. Three tests cover every shipped bench, so a broken spec is caught
