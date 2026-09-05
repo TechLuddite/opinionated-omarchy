@@ -24,6 +24,81 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-05: the agentic lane runs on opencode, and three bugs wore one costume
+
+### 1. Go was reachable all along, under a prefix I never tried
+
+`opencode models` reports two providers: **`opencode/` (69 models, pay-as-you-go)** and
+**`opencode-go/` (27 models, the subscription)**. Every model previously written up as "not
+supported" (`glm-5.3`, `qwen3.8-flash`, `longcat-2.0`, `omen-alpha`, `hy3`, `kimi-k2.6` and
+the rest) is a Go model reachable only under the second prefix, and only through the CLI.
+
+The previous session's conclusion that Go was unreachable was **wrong**, and it was wrong
+because I called `opencode/<model>` throughout without ever listing the providers. The
+operator's TUI screenshot showing `Qwen3.8 Flash  OpenCode Go` at `$0.00` is what found it.
+
+**Go is free at the margin**, measured rather than assumed: `opencode/` moved the account
+balance by exactly what `opencode stats` reported, while five `opencode-go/` sessions moved
+it not at all and `stats` still claimed about two cents. So **`opencode stats` reports
+notional cost and does not separate covered from billed.** That also corrects the earlier
+"the API has no cost accounting" claim, which was too broad in the other direction.
+
+### 2. The agentic lane now drives opencode, and it is instrumented
+
+`params.agent: "opencode"` runs `opencode run --format json`. For the first time since run
+18 the lane records **turns, tokens, tool calls and cost per case**, against a 16-character
+median transcript and no token accounting before.
+
+That instrumentation is not a nicety. It is the only reason the next section was solvable.
+
+### 3. Three bugs, all producing exactly 4/6
+
+Runs 39, 40 and 41 scored the do-nothing floor on every case, across two models. Each had a
+different cause and all three looked identical from the score column, which is the failure
+mode [MODELS.md](skillbench/MODELS.md) exists to warn about:
+
+- **Scratch `HOME` broke the task.** Relocating HOME to control skill discovery also
+  removes the `~/.config/hypr` the tasks edit, so the agent found no config and wrote its
+  edits where no assertion looks. Fixed by rewriting only `~/.agents/skills` in the real
+  HOME, fresh every case.
+- **Writes were being auto-rejected.** opencode asks permission for any write outside its
+  working directory, and `run` is non-interactive, so every edit came back *"The user
+  rejected permission to use this specific tool call"* and the agent carried on as though
+  it had chosen not to act. The bench works in `/tmp/skillbench/<window>` while the tasks
+  edit `~/.config`, so **no case could ever have passed**. Fixed with `--dir "$HOME"`.
+  Omarchy's own launcher solves this with `opencode --auto`, which `run` does not accept.
+- **Neither was a model problem**, though both read as one. `qwen3.8-flash` and `glm-5.3`
+  looked equally incapable while both were reading exactly the right files.
+
+Run 42, after the fixes: `looknfeel-not-hyprlang` none 4/6 skill 6/6, `rebind-packaged-default`
+none 6/6 skill 4/6. One win each way at n=1, which says nothing about the skill and
+everything about the harness: it discriminates now instead of flooring everything.
+
+### 4. A stock Omarchy machine has no bare condition
+
+Omarchy symlinks `omarchy` and `diagnose-crash` into `~/.agents/skills` on every install,
+host and VM alike. So the `none` arm silently carries the skill it is the control for unless
+the harness clears it, and more interestingly, **every opencode session a real Omarchy user
+starts already has the skill loaded**. "Does the skill help" is not hypothetical for them,
+it is their default.
+
+### 5. Credential handling, and one mistake
+
+[tools/install-agent-key.sh](tools/install-agent-key.sh) provisions the model key onto the
+VMs once, the way `install-bench-key.sh` does for ssh. The runner handles no token: a
+login shell already exports it, and a test asserts the generated command contains no
+`API_KEY`, `sk-`, `Bearer` or `token`.
+
+Two failures worth keeping. Nested quoting through a login shell failed **silently** under
+`set -e`; and `printf '%s'` with no trailing newline made the remote `read` hit EOF, return
+non-zero, and abort the whole remote script before it wrote anything. The key lives in
+`~/.bash_profile`, not `~/.bashrc`, because Omarchy's `.bashrc` returns on line 5 for
+non-interactive shells, which is exactly why Omarchy exports `OMARCHY_PATH` above that line.
+
+**The key was also printed in plaintext into a session transcript** by running `bash -x` on
+a script that handles a secret. Rotation was offered and deferred. Do not trace a script
+that touches a credential.
+
 ## Session of 2026-09-04 (fourth): the docs are published, and Go turns out to be unreachable
 
 ### 1. Go bills nothing, because an API key means pay-as-you-go

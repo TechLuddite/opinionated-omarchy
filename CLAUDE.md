@@ -303,6 +303,15 @@ load-bearing:
 
 - **The chat lane grades what a model *says*.** Tasks ask for commands; checks look for
   the right tool and the trap avoided. A real ceiling, not an oversight.
+- **The agentic lane can drive `pi` OR `opencode`.** `params.agent: "opencode"` runs
+  `opencode run --format json`, which finally gives turns, tokens and cost per case. Three
+  traps, each of which makes every case score the do-nothing floor while the transcript
+  shows correct behaviour: `--dir "$HOME"` is required or every write is auto-rejected as
+  unapprovable; `HOME` must NOT be relocated to control skills, or the task loses the config
+  it edits; and the skill arm must be built by rewriting `~/.agents/skills`, because Omarchy
+  symlinks its own skills there on every install so **a stock machine has no bare
+  condition**. See [skillbench/ZEN.md](skillbench/ZEN.md). Models come from `opencode-go/`,
+  which is subscription-covered and free at the margin, not `opencode/`, which bills.
 - **The agentic lane grades what an agent *does*.** It runs `pi` on a real test VM, lets
   it act, then asserts on the machine via each task's `post:` block. Concurrency there is
   the size of the VM pool, not `SB_CONCURRENCY`, because a case owns the machine it runs
