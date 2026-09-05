@@ -11608,3 +11608,1009 @@
 {"case_id":3510,"run_id":38,"grader":"check","criterion":"regex_required#2","score":1.0,"passed":1,"note":null}
 {"case_id":3510,"run_id":38,"grader":"check","criterion":"regex_forbidden","score":0.0,"passed":0,"note":"forbidden pattern matched: 'SigLevel = Never'"}
 {"case_id":3510,"run_id":38,"grader":"check","criterion":"max_words","score":1.0,"passed":1,"note":null}
+{"case_id":3511,"run_id":39,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3511,"run_id":39,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3511,"run_id":39,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3511,"run_id":39,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3511,"run_id":39,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3511,"run_id":39,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3512,"run_id":39,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3512,"run_id":39,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3512,"run_id":39,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3512,"run_id":39,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3512,"run_id":39,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3512,"run_id":39,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3513,"run_id":39,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3513,"run_id":39,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3513,"run_id":39,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3513,"run_id":39,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3513,"run_id":39,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3513,"run_id":39,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3514,"run_id":39,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3514,"run_id":39,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3514,"run_id":39,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3514,"run_id":39,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3514,"run_id":39,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3514,"run_id":39,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3515,"run_id":40,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3515,"run_id":40,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3515,"run_id":40,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3515,"run_id":40,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3515,"run_id":40,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3515,"run_id":40,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3516,"run_id":40,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3516,"run_id":40,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3516,"run_id":40,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3516,"run_id":40,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3516,"run_id":40,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3516,"run_id":40,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3517,"run_id":40,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3517,"run_id":40,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3517,"run_id":40,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3517,"run_id":40,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3517,"run_id":40,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3517,"run_id":40,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3518,"run_id":40,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3518,"run_id":40,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3518,"run_id":40,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3518,"run_id":40,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3518,"run_id":40,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3518,"run_id":40,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3519,"run_id":41,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3519,"run_id":41,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3519,"run_id":41,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3519,"run_id":41,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3519,"run_id":41,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3519,"run_id":41,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3520,"run_id":41,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3520,"run_id":41,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3520,"run_id":41,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3520,"run_id":41,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3520,"run_id":41,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3520,"run_id":41,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3521,"run_id":41,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3521,"run_id":41,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3521,"run_id":41,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3521,"run_id":41,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3521,"run_id":41,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3521,"run_id":41,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3522,"run_id":41,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3522,"run_id":41,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3522,"run_id":41,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3522,"run_id":41,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3522,"run_id":41,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3522,"run_id":41,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3523,"run_id":42,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3523,"run_id":42,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3523,"run_id":42,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3523,"run_id":42,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3523,"run_id":42,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3523,"run_id":42,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3524,"run_id":42,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3524,"run_id":42,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3524,"run_id":42,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3524,"run_id":42,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3524,"run_id":42,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3524,"run_id":42,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3525,"run_id":42,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3525,"run_id":42,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3525,"run_id":42,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3525,"run_id":42,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3525,"run_id":42,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3525,"run_id":42,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3526,"run_id":42,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3526,"run_id":42,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3526,"run_id":42,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3526,"run_id":42,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3526,"run_id":42,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3526,"run_id":42,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3527,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3527,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3527,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3527,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3527,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3527,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3528,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3528,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3528,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3528,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3528,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3528,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3529,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3529,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3529,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3529,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3529,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3529,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3530,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3530,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3530,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3530,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3530,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3530,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3531,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3531,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3531,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3531,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3531,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3531,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3532,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3532,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3532,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3532,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3532,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3532,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3533,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3533,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3533,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3533,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3533,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3533,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3534,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3534,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3534,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3534,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3534,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3534,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3535,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3535,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3535,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3535,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3535,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3535,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3536,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3536,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3536,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3536,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3536,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3536,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3537,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3537,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3537,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3537,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3537,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3537,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3538,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3538,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3538,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3538,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3538,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3538,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3539,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3539,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3539,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3539,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3539,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3539,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3540,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3540,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3540,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3540,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3540,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3540,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3541,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3541,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3541,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3541,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3541,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3541,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3542,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3542,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3542,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3542,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3542,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3542,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3543,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3543,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3543,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3543,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3543,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3543,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3544,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3544,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3544,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3544,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3544,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3544,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3545,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3545,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3545,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3545,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3545,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3545,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3546,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3546,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3546,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3546,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3546,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3546,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3547,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3547,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3547,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3547,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3547,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3547,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3548,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3548,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3548,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3548,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3548,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3548,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3549,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3549,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3549,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3549,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3549,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3549,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3550,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3550,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3550,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3550,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3550,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3550,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3551,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3551,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3551,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3551,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3551,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3551,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3552,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3552,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3552,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3552,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3552,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3552,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3553,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3553,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3553,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3553,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3553,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3553,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3554,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3554,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3554,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3554,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3554,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3554,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3555,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3555,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3555,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3555,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3555,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3555,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3556,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3556,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3556,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3556,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3556,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3556,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3557,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3557,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3557,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3557,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3557,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3557,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3558,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3558,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3558,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3558,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3558,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3558,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3559,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3559,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3559,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3559,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3559,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3559,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3560,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3560,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3560,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3560,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3560,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3560,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3561,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3561,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3561,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3561,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3561,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3561,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3562,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3562,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3562,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3562,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3562,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3562,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3563,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3563,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3563,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3563,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3563,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3563,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3564,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3564,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3564,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3564,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3564,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3564,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3565,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3565,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3565,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3565,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3565,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3565,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3566,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3566,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3566,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3566,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3566,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3566,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3567,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3567,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3567,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3567,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3567,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3567,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3568,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3568,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3568,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3568,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3568,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3568,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3569,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3569,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3569,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3569,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3569,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3569,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3570,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3570,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3570,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3570,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3570,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3570,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3571,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3571,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3571,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3571,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3571,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3571,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3572,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3572,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3572,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3572,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3572,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3572,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3573,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3573,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3573,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3573,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3573,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3573,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3574,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3574,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3574,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3574,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3574,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3574,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3575,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3575,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3575,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3575,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3575,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3575,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3576,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3576,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3576,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3576,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3576,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3576,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3577,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3577,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3577,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3577,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3577,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3577,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3578,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3578,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3578,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3578,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3578,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3578,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3579,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3579,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3579,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3579,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3579,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3579,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3580,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3580,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3580,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3580,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3580,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3580,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3581,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3581,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3581,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3581,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3581,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3581,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3582,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3582,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3582,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3582,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3582,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3582,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3583,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3583,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3583,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3583,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3583,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3583,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3584,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3584,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3584,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3584,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3584,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3584,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3585,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3585,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3585,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3585,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3585,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3585,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3586,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3586,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3586,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3586,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3586,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3586,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3587,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3587,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3587,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3587,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3587,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3587,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3588,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3588,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3588,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3588,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3588,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3588,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3589,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3589,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3589,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3589,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3589,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3589,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3590,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3590,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3590,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3590,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3590,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3590,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3591,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3591,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3591,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3591,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3591,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3591,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3592,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3592,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3592,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3592,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3592,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3592,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3593,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3593,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3593,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3593,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3593,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3593,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3594,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3594,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3594,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3594,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3594,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3594,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3595,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3595,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3595,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3595,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3595,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3595,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3596,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3596,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3596,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3596,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3596,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3596,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3597,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3597,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3597,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3597,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3597,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3597,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3598,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3598,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3598,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3598,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3598,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3598,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3599,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3599,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3599,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3599,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3599,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3599,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3600,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3600,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3600,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3600,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3600,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3600,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3601,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3601,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3601,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3601,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3601,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3601,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3602,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3602,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3602,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3602,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3602,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3602,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3603,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3603,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3603,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3603,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3603,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3603,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3604,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3604,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3604,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3604,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*hl\\.config\\(/ -- exit 1"}
+{"case_id":3604,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/looknfeel.lua matches /^[^-]*gaps_in/ -- exit 1"}
+{"case_id":3604,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3605,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3605,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3605,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3605,"run_id":43,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*hl\\.unbind\\(/ -- exit 1"}
+{"case_id":3605,"run_id":43,"grader":"post","criterion":"file_contains#2","score":0.0,"passed":0,"note":"~/.config/hypr/bindings.lua matches /^[^-]*o\\.bind\\(.*nautilus/ -- exit 1"}
+{"case_id":3605,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3606,"run_id":43,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3606,"run_id":43,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3606,"run_id":43,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3606,"run_id":43,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3606,"run_id":43,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3606,"run_id":43,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3607,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3607,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3607,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3607,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3607,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3607,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3608,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3608,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3608,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3608,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3608,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3608,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3609,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3609,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3609,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3609,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3609,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3609,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3610,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3610,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3610,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3610,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3610,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3610,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3611,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3611,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3611,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3611,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3611,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3612,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3612,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3612,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3612,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3612,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3613,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3613,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3613,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3613,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3613,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3614,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3614,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3614,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3614,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3614,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3615,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3615,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3615,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3615,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3615,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3616,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3616,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3616,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3616,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3616,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3616,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3617,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3617,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3617,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3617,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3617,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3617,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3618,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3618,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3618,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3618,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3618,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3618,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3619,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3619,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3619,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3619,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3619,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3619,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3620,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3620,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3620,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3620,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3620,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3620,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3621,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3621,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3621,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3621,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3621,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3621,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3622,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3622,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3622,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3622,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3622,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3623,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3623,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3623,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3623,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3623,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3624,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3624,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3624,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3624,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3624,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3625,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3625,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3625,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3625,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3625,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3626,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3626,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3626,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3626,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3626,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3627,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3627,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3627,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3627,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3627,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3627,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3628,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3628,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3628,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3628,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3628,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3628,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3629,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3629,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3629,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3629,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3629,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3629,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3630,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3630,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3630,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3630,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3630,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3630,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3631,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3631,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3631,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3631,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3631,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3632,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3632,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3632,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3632,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3632,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3633,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3633,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3633,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3633,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3633,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3633,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3634,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3634,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3634,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3634,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3634,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3635,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3635,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3635,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3635,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3635,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3636,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3636,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3636,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3636,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3636,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3637,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3637,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3637,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3637,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3637,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3637,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3638,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3638,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3638,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3638,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3638,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3638,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3639,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3639,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3639,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3639,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3639,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3639,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3640,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3640,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3640,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3640,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3640,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3640,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3641,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3641,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3641,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3641,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3641,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3642,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3642,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3642,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3642,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3642,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3643,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3643,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3643,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3643,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3643,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3643,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3645,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3645,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3645,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3645,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3645,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3646,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3646,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3646,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3646,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3646,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3647,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3647,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3647,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3647,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3647,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3647,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3648,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3648,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3648,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3648,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3648,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3648,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3649,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3649,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3649,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3649,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3649,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3649,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3650,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3650,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3650,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3650,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3650,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3650,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3651,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3651,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3651,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3651,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3651,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3652,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3652,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3652,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3652,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3652,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3653,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3653,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3653,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3653,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3653,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3654,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3654,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3654,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3654,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3654,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3655,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3655,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3655,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3655,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3655,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3656,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3656,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3656,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3656,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3656,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3656,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3657,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3657,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3657,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3657,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3657,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3657,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3658,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3658,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3658,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3658,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3658,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3658,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3659,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3659,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3659,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3659,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3659,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3659,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3660,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3660,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3660,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3660,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3660,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3660,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3661,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3661,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3661,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3661,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3661,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3662,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3662,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3662,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3662,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3662,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3663,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3663,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3663,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3663,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3663,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3664,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3664,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3664,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3664,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3664,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3665,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3665,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3665,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3665,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3665,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3666,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3666,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3666,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3666,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3666,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3666,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3667,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3667,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3667,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3667,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3667,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3667,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3668,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3668,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3668,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3668,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3668,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3668,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3669,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3669,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3669,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3669,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3669,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3669,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3670,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3670,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3670,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3670,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3670,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3670,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3671,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3671,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3671,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3671,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3671,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3672,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3672,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3672,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3672,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3672,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3673,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3673,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3673,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3673,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3673,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3674,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3674,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3674,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3674,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3674,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3675,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3675,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3675,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3675,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3675,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3675,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3676,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3676,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3676,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3676,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3676,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3677,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3677,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3677,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3677,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3677,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3677,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3678,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3678,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3678,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3678,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3678,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3678,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3679,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3679,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3679,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3679,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3679,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3679,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3680,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3680,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3680,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3680,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3680,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3680,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3681,"run_id":44,"grader":"post","criterion":"command_succeeds","score":0.0,"passed":0,"note":"`mountpoint -q /mnt/bench-disk && [ \"$(df --output=pcent /mnt/bench-disk | tail -1 | tr -dc 0-9)\" -lt 25 ]` succeeds -- exit 1"}
+{"case_id":3681,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":0.0,"passed":0,"note":"`sudo dd if=/dev/zero of=/mnt/bench-disk/.probe bs=1M count=2 status=none && sudo rm -f /mnt/bench-disk/.probe` succeeds -- exit 1: dd: error writing '/mnt/bench-disk/.probe': No space left on device"}
+{"case_id":3681,"run_id":44,"grader":"post","criterion":"command_succeeds#3","score":1.0,"passed":1,"note":null}
+{"case_id":3681,"run_id":44,"grader":"post","criterion":"command_succeeds#4","score":1.0,"passed":1,"note":null}
+{"case_id":3681,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3681,"run_id":44,"grader":"post","criterion":"file_exists#2","score":1.0,"passed":1,"note":null}
+{"case_id":3682,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3682,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3682,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3682,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3682,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3683,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3683,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3683,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3683,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3683,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3685,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3685,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3685,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3685,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3685,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3686,"run_id":44,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3686,"run_id":44,"grader":"post","criterion":"command_output_matches","score":0.0,"passed":0,"note":"`systemctl show -p ExecStart bench-widget.service` output matches //usr/local/bin/bench-widget[ ;]/ -- exit 1"}
+{"case_id":3686,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
+{"case_id":3686,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
+{"case_id":3686,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}

@@ -24,6 +24,63 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-05 (second): the first Go ladder, and the skill diverts an agent
+
+Runs 43 and 44: the GLM ladder (`glm-5.1`, `5.2`, `5.3-flash`, `5.3`) on the agentic lane
+through opencode, 5 repeats, `none` vs `skill:omarchy`, 160 cases across both. **Zero
+marginal cost**, because every rung is `opencode-go/`.
+
+### 1. The numbers
+
+| rung | Omarchy lift (run 43) | control lift (run 44) | DiD |
+| --- | ---: | ---: | ---: |
+| `glm-5.1` | **-20.0 pt** (p=0.02) | +0.0 pt (p=1.00) | **-20.0** |
+| `glm-5.2` | +10.0 pt (p=0.21) | +0.4 pt (p=1.00) | **+9.6** |
+| `glm-5.3-flash` | -13.3 pt (p=0.14) | -10.0 pt (p=0.10) | **-3.3** |
+| `glm-5.3` | -16.7 pt (p=0.06) | -3.7 pt (p=0.53) | **-13.0** |
+
+**The control does not move**, so nothing here says the skill degrades general Linux. The
+Omarchy direction is negative on three rungs of four and inconsistent, mean DiD about
+-6.7 pt.
+
+### 2. The mechanism, which is the solid part
+
+On `rebind-packaged-default` with the skill loaded: **zero edit-tool calls and zero clean
+stops across 20 cases.** The same skill on the sibling task produced 7 edits and 7 clean
+stops, so this is not truncation, a step cap or plumbing.
+
+The transcripts show what happens. The skill sends the model to grep `/usr/share/omarchy/`
+for the binding API, it researches the packaged defaults, and it never gets round to editing
+`~/.config/hypr/bindings.lua`. Bare, lacking that pointer, it pokes about locally and edits
+the user file.
+
+**That is directly useful for the skill this repo exists to build.** A corpus-backed skill
+should say what to change, not invite a tour of upstream.
+
+### 3. Three caveats, all load-bearing
+
+- **The Omarchy bench is saturated for this model class.** Bare is 0.90 to 0.97. It was
+  calibrated against `devstral-small-2:24b`, which scores 8/20 on it. At 29 of 30 assertions
+  there is nowhere to go but down, which compresses every number above.
+- **Timeouts are variant-correlated.** In the control, 8 skill cases hit the 600 s cap
+  against 3 bare, plus 2 infrastructure `VMError`s. Modest, and consistent with the
+  mechanism rather than random, but it is the shape that voided run 29.
+- **n=5 per rung.** This project has watched +11.1 pt decay to +1.9 pt between n=3 and
+  n=31 on this exact lane. Treat the magnitudes as directional.
+
+### 4. What the next bench needs
+
+`omarchy-agentic-stale-advice` cannot measure GLM-class models: they nearly max it bare. A
+harder Omarchy agentic bench is now the blocking artefact, and the mechanism above suggests
+what it should test, namely whether an agent **acts** rather than researches.
+
+### 5. Goldens re-saved
+
+Both VMs powered off, saved one per invocation, restarted, `ready:true` on both, and the
+agent key verified at 67 characters from a login shell after the reboot. Without this the
+next `reset` would have dropped the key exactly as it dropped NOPASSWD sudo on 2026-09-01
+and both bench keys on 2026-09-02.
+
 ## Session of 2026-09-05: the agentic lane runs on opencode, and three bugs wore one costume
 
 ### 1. Go was reachable all along, under a prefix I never tried
