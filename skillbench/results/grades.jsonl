@@ -12614,3 +12614,333 @@
 {"case_id":3686,"run_id":44,"grader":"post","criterion":"command_succeeds#2","score":1.0,"passed":1,"note":null}
 {"case_id":3686,"run_id":44,"grader":"post","criterion":"command_fails","score":1.0,"passed":1,"note":null}
 {"case_id":3686,"run_id":44,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3687,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3687,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3687,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3687,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3687,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3687,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3688,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3688,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3688,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3688,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3688,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3688,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3689,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3689,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3689,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3689,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3689,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3689,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3690,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3690,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3690,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3690,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3690,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3690,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3691,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3691,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3691,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3691,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3691,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3691,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3692,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3692,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3692,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3692,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3692,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3693,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3693,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3693,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3693,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3693,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3694,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3694,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3694,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3694,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3694,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3695,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3695,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3695,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3695,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3695,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3696,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/shell.json matches /\"lock\"[[:space:]]*:[[:space:]]*600/ -- exit 1"}
+{"case_id":3696,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3696,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3696,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3696,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3696,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3697,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/shell.json matches /\"lock\"[[:space:]]*:[[:space:]]*600/ -- exit 1"}
+{"case_id":3697,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3697,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3697,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3697,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3697,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3698,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3698,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3698,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3698,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3698,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3699,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3699,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3699,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3699,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3699,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3699,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3700,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/shell.json matches /\"lock\"[[:space:]]*:[[:space:]]*600/ -- exit 1"}
+{"case_id":3700,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3700,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3700,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3700,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3700,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3701,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3701,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3701,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3701,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3701,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3702,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3702,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3702,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3702,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3702,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3702,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3703,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3703,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3703,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3703,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3703,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3704,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3704,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3704,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3704,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3704,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3705,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3705,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3705,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3705,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3705,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3706,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3706,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3706,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3706,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3706,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3707,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3707,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3707,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3707,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3707,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3707,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3708,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3708,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3708,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3708,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3708,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3708,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3709,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3709,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3709,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3709,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3709,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3709,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3710,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3710,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3710,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3710,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3710,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3710,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3711,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3711,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3711,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3711,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3711,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3712,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3712,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3712,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3712,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3712,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3713,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3713,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3713,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3713,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3713,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3714,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3714,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3714,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3714,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3714,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3715,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3715,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3715,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3715,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3715,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3716,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3716,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3716,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3716,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3716,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3716,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3717,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3717,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3717,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3717,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3717,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3717,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3718,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3718,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3718,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3718,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3718,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3718,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3719,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3719,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3719,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3719,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3719,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3719,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3720,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3720,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3720,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3720,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3720,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3720,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3721,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3721,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3721,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3721,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3721,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3722,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3722,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3722,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3722,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3722,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3723,"run_id":45,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3723,"run_id":45,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3723,"run_id":45,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3723,"run_id":45,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3723,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3723,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3724,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3724,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3724,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3724,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3724,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3725,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3725,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3725,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3725,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3725,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3726,"run_id":45,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3726,"run_id":45,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3726,"run_id":45,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3726,"run_id":45,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3726,"run_id":45,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3727,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3727,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3727,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3727,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3727,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3727,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3728,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3728,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3728,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3728,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3728,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3728,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3729,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3729,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3729,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3729,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3729,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3729,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3730,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3730,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3730,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3730,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3730,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3730,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3731,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3731,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3731,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3731,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3731,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3732,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3732,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3732,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3732,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3732,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3732,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3733,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3733,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3733,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3733,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3733,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3734,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3734,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3734,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3734,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3734,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3735,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3735,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3735,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3735,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3735,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3736,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3736,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3736,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3736,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3736,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3736,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3737,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3737,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3737,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3737,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3737,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3738,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3738,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3738,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3738,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3738,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3738,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3739,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3739,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3739,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3739,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3739,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3739,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3740,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3740,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3740,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3740,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3740,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3740,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3741,"run_id":46,"grader":"post","criterion":"file_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3741,"run_id":46,"grader":"post","criterion":"file_absent","score":1.0,"passed":1,"note":null}
+{"case_id":3741,"run_id":46,"grader":"post","criterion":"file_absent#2","score":1.0,"passed":1,"note":null}
+{"case_id":3741,"run_id":46,"grader":"post","criterion":"command_succeeds","score":1.0,"passed":1,"note":null}
+{"case_id":3741,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3741,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3742,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3742,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3742,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3742,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3742,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3743,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3743,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3743,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3743,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3743,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3744,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3744,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3744,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3744,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3744,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3745,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3745,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3745,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3745,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3745,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
+{"case_id":3746,"run_id":46,"grader":"post","criterion":"file_contains","score":0.0,"passed":0,"note":"~/.config/omarchy/themes/everforest/colors.toml matches /ff0000/ -- exit 1"}
+{"case_id":3746,"run_id":46,"grader":"post","criterion":"command_output_matches","score":1.0,"passed":1,"note":null}
+{"case_id":3746,"run_id":46,"grader":"post","criterion":"file_not_contains","score":1.0,"passed":1,"note":null}
+{"case_id":3746,"run_id":46,"grader":"post","criterion":"file_exists","score":1.0,"passed":1,"note":null}
+{"case_id":3746,"run_id":46,"grader":"post","criterion":"file_contains#2","score":1.0,"passed":1,"note":null}
