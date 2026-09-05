@@ -487,3 +487,89 @@ def test_model_catalogue_follows_the_chat_base(monkeypatch):
     monkeypatch.setattr(runner.httpx, "AsyncClient", FakeClient)
     assert asyncio.run(runner.list_models()) == ["glm-5.2", "kimi-k3"]
     assert seen["url"] == "https://gw.invalid/v1/models"
+
+
+# ------------------------------------------------------------------ opencode backend
+
+def test_opencode_none_arm_cannot_see_a_skill():
+    """The control arm must not inherit Omarchy's own skills.
+
+    opencode discovers from $HOME/.agents/skills, and Omarchy symlinks `omarchy` and
+    `diagnose-crash` there on every install, host and VM alike. Without clearing it the
+    `none` variant silently carries the skill it exists to control for.
+    """
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/prompt.txt", "none")
+    assert "rm -rf ~/.agents/skills" in cmd
+    assert "mkdir -p ~/.agents/skills" in cmd
+    assert "ln -sfn" not in cmd
+
+
+def test_opencode_does_not_relocate_home():
+    """Relocating HOME controls skills and breaks the task.
+
+    These benches edit ~/.config/hypr/..., so an empty HOME means the agent finds no
+    config, writes edits where the post assertions do not look, and BOTH arms score the
+    do-nothing floor for reasons unrelated to the skill. Run 39 did exactly that and read
+    as a capability failure. Only ~/.agents/skills may be touched.
+    """
+    from app import runner
+    for variant, sd in (("none", None), ("skill:omarchy", "/r/skills/omarchy")):
+        cmd = runner._opencode_command("opencode-go/glm-5.3", sd, "/r/w/p.txt", variant)
+        assert "HOME=" not in cmd, "HOME must not be overridden"
+
+
+def test_opencode_skill_arm_links_exactly_one_skill():
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", "/r/skills/skill_omarchy",
+                                   "/r/w/prompt.txt", "skill:omarchy")
+    assert cmd.count("ln -sfn") == 1
+    assert "/r/skills/skill_omarchy" in cmd
+    assert "~/.agents/skills/omarchy" in cmd
+    # Omarchy's own diagnose-crash is removed by the rm, not linked back.
+    assert "diagnose-crash" not in cmd
+
+
+def test_opencode_skill_name_comes_from_the_variant():
+    from app import runner
+    cmd = runner._opencode_command("m", "/r/s", "/r/p", "skill:omarchy-full")
+    assert "~/.agents/skills/omarchy" in cmd
+
+
+def test_opencode_asks_for_json_and_never_puts_the_prompt_in_argv():
+    """Same rule as the pi command: a prompt carries quotes, newlines and $, and argv is
+    where a spec silently becomes a different spec. It is read from the file at run time."""
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/prompt.txt", "none")
+    assert "--format json" in cmd
+    assert "$(cat '/r/w/prompt.txt')" in cmd or "$(cat /r/w/prompt.txt)" in cmd
+
+
+def test_opencode_command_carries_no_credential():
+    """The token is provisioned into the VM's profile by tools/install-agent-key.sh, never
+    passed through a command, where it would sit in the VM's process table."""
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", "/r/s", "/r/w/p.txt", "skill:omarchy")
+    for marker in ("API_KEY", "sk-", "Bearer", "token"):
+        assert marker not in cmd
+
+
+def test_opencode_model_ids_keep_their_provider_prefix():
+    """opencode ids are provider/name with no tag; _resolve would append Ollama's :latest."""
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/qwen3.8-flash", None, "/r/w/p.txt", "none")
+    assert "opencode-go/qwen3.8-flash" in cmd
+    assert ":latest" not in cmd
+
+
+def test_opencode_runs_with_home_as_its_working_directory():
+    """Without --dir "$HOME" the agent cannot edit anything it is asked to edit.
+
+    opencode requires approval for writes outside its working directory, and `run` is
+    non-interactive, so the call returns "The user rejected permission to use this specific
+    tool call" and the agent continues as though it chose not to act. Runs 39, 40 and 41
+    all floored that way, on two models, while reading exactly the right files.
+    """
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/p.txt", "none")
+    assert '--dir "$HOME"' in cmd

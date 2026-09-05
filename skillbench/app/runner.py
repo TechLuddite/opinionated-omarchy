@@ -186,6 +186,50 @@ async def _one_case(cl, run_id, task, model, variant, repeat_idx, sys_prompt, pa
 
 # ------------------------------------------------------------------ agentic lane
 
+def _opencode_command(model, skill_dir, prompt_path, variant):
+    """The opencode invocation for one case.
+
+    SKILLS ARE CONTROLLED IN THE REAL HOME, not by relocating HOME. opencode discovers
+    from `$HOME/.agents/skills`, and Omarchy symlinks `omarchy` and `diagnose-crash` there
+    on every install, so a bare arm would silently carry the skill it is the control for.
+
+    The obvious fix, pointing HOME at a scratch directory, was tried and is WRONG: these
+    tasks edit `~/.config/hypr/...`, so an empty HOME means the agent finds no config,
+    writes its edits somewhere the post assertions do not look, and both arms score the
+    do-nothing floor for reasons that have nothing to do with the skill. Run 39 did exactly
+    that, and it read as "the model cannot do the task".
+
+    So the real HOME is kept and only `~/.agents/skills` is rewritten, fresh every case. A
+    case owns its VM, so there is no race, and rewriting rather than restoring means the
+    state is deterministic regardless of what the previous case left behind.
+    """
+    parts = [
+        "rm -rf ~/.agents/skills",
+        "mkdir -p ~/.agents/skills",
+    ]
+    if skill_dir:
+        # Named for the skill rather than the variant, because the name is what the model
+        # sees and refers to. A multi-skill variant lands as one bundle under one name,
+        # which is a known limitation of deliver_skill flattening them.
+        name = variant.split(":", 1)[-1].split("+", 1)[0].replace("-full", "") or "skill"
+        parts.append(f"ln -sfn {shlex.quote(skill_dir)} "
+                     f"~/.agents/skills/{shlex.quote(name)}")
+    # --format json is what pi never gave us: turns, tokens, tool calls and cost per case.
+    # The agentic lane recorded a 16-character transcript and no token accounting from run
+    # 18 until now; see JOURNAL.md.
+    # --dir "$HOME" is REQUIRED, not tidiness. opencode asks permission for any write
+    # OUTSIDE its working directory, and `run` is non-interactive so there is nobody to
+    # approve: the tool call comes back "The user rejected permission to use this specific
+    # tool call" and the agent carries on as if it had simply chosen not to edit. Every
+    # case in runs 39-41 floored that way, on two different models, while READING the
+    # right files. These tasks edit ~/.config/..., so $HOME is the working directory that
+    # makes them possible. Omarchy's own launcher solves this with `opencode --auto`,
+    # which `run` does not accept.
+    parts.append(f"opencode run --dir \"$HOME\" --format json -m {shlex.quote(model)} "
+                 f"-- \"$(cat {shlex.quote(prompt_path)})\"")
+    return " && ".join(parts)
+
+
 def _pi_command(model, skill_dir, prompt_path, params):
     """The pi invocation for one case.
 
@@ -250,7 +294,14 @@ async def _one_agentic_case(pool, run_id, bench, task, model, variant, repeat_id
         # The UI carries bare names ('qwen2.5') because the baseline data does; pi needs
         # the tag its models.json declares, and `--model` is a fuzzy pattern there, so a
         # bare name could match a different model entirely ('qwen2.5' -> qwen2.5-coder).
-        command = _pi_command(await _resolve(model), skill_dir, prompt_path, params)
+        agent = (params or {}).get("agent", "pi")
+        if agent == "opencode":
+            # NOT _resolve()d: that appends Ollama's `:latest`, while an opencode id is
+            # `provider/name` with no tag. `opencode-go/...` is subscription-covered and
+            # `opencode/...` bills pay-as-you-go. See skillbench/ZEN.md.
+            command = _opencode_command(model, skill_dir, prompt_path, variant)
+        else:
+            command = _pi_command(await _resolve(model), skill_dir, prompt_path, params)
         rc, output, timed_out = await machine.run_in_tmux(
             window, command, timeout=params.get("agent_timeout") or AGENT_TIMEOUT)
 
@@ -264,7 +315,7 @@ async def _one_agentic_case(pool, run_id, bench, task, model, variant, repeat_id
         if timed_out:
             error = f"agent exceeded {params.get('agent_timeout') or AGENT_TIMEOUT:.0f}s"
         elif rc != 0:
-            error = f"pi exited {rc}"
+            error = f"{agent} exited {rc}"
 
         case_id = db.record_case(
             run_id, task["id"], model, variant, repeat_idx, status, request,

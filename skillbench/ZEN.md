@@ -112,6 +112,23 @@ the container. Same family as the Anubis block on `wiki.archlinux.org` already n
 [CLAUDE.md](../CLAUDE.md), where the request is fine and the client string is what gets
 refused.
 
+## Two providers, and only one of them costs anything
+
+`opencode models` reports **`opencode/` (69 models, pay-as-you-go)** and **`opencode-go/`
+(27 models, the subscription)**. They are different providers, and the prefix is the whole
+difference. Every model that returns "not supported" over `/zen/v1` (`glm-5.3`,
+`glm-5.3-flash`, `qwen3.8-flash`, `qwen3.7-plus`, `longcat-2.0`, `omen-alpha`, `hy3`,
+`hy4-preview`, `mimo-v2.5-pro`, `kimi-k2.6`, `minimax-m2.7`, `muse-spark`) is a Go model,
+reachable only under `opencode-go/` and only through the CLI.
+
+**Go usage is free at the margin.** Measured against the account balance: `opencode/` moved
+it by exactly what `opencode stats` reported, and five `opencode-go/` sessions moved it not
+at all while `stats` still claimed about two cents. So **`opencode stats` reports notional
+cost and does not distinguish covered from billed.** The TUI's `$0.00` is the honest number.
+
+That makes the agentic lane free to run across all 27 Go models, which is why
+`estimate_cost.py` is a chat-lane tool and stops at the `opencode/` roster.
+
 ## Tokens are the scarce resource, and a run has a price
 
 **API calls bill the pay-as-you-go balance per token.** Confirmed by watching the balance
@@ -156,6 +173,36 @@ Rate limits still exist and are easy to trip: repeated probing of the free model
 The **agentic lane remains unpriced**, because the runner invokes `pi` without `--mode json`
 and has never recorded turns or tokens per case. That is now a cost prerequisite, not only a
 diagnostic one.
+
+## Driving opencode as the agentic agent
+
+`params.agent: "opencode"` switches the agentic lane from `pi` to `opencode run`. Three
+things are load-bearing and each one cost a run to find, because all three produce the
+**same** symptom: every case scoring the bench's do-nothing floor while the transcript shows
+the agent reading exactly the right files.
+
+- **`--dir "$HOME"` is required.** opencode asks permission for any write outside its
+  working directory, and `run` is non-interactive, so the call returns *"The user rejected
+  permission to use this specific tool call"* and the agent continues as though it had
+  chosen not to act. The bench works in `/tmp/skillbench/<window>` while every task edits
+  `~/.config/...`, so without this flag **no case can ever pass**. Omarchy's own launcher
+  solves the same problem with `opencode --auto`, which `run` does not accept.
+- **Do NOT relocate `HOME` to control skills.** It works, and it also removes the config
+  the task operates on, so both arms floor for a reason unrelated to the skill. Rewrite
+  `~/.agents/skills` in the real HOME instead, fresh every case.
+- **The skill arm must be built, not assumed.** Omarchy symlinks `omarchy` and
+  `diagnose-crash` into `~/.agents/skills` on every install, host and VM alike, so a bare
+  arm silently carries the skill it is the control for. There is no bare condition on a
+  stock Omarchy machine.
+
+The credential is provisioned once by `tools/install-agent-key.sh` and read from the VM's
+login shell; the runner handles no token. Note that Omarchy's `.bashrc` returns on line 5
+for non-interactive shells, which is why the key goes in `~/.bash_profile`.
+
+`--format json` gives turns, tokens, tool calls and cost per case. The lane had none of
+that from run 18 until now: a 16-character median transcript and no token accounting at
+all, which is why it could never be priced and why three separate harness bugs looked
+exactly like model incapability.
 
 ## The account settings do nothing here
 
