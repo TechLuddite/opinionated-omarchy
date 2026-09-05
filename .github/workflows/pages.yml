@@ -20,6 +20,15 @@ on:
       # republish -- otherwise the live site keeps serving the old pair and, worse, could
       # serve a font whose licence file no longer matches it.
       - 'research/assets/fonts/**'
+      # The "how this was built" cards now render these onto the site, so a change to any
+      # of them changes a published page. Without these the site would silently serve a
+      # stale copy of its own documentation.
+      - 'research/README.md'
+      - 'skillbench/README.md'
+      - 'skillbench/MODELS.md'
+      - 'skillbench/ZEN.md'
+      - 'JOURNAL.md'
+      - 'writeups/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -61,6 +70,12 @@ jobs:
           # ever stops emitting it, fail loudly rather than publish a corpus that reads
           # as uniformly trustworthy.
           grep -qr 'UNAUDITED' docs/records/ || { echo "no UNAUDITED provenance rendered"; exit 1; }
+          # Every doc card must land on a real page. A missing one would render as a dead
+          # link on the front page rather than failing the build.
+          for d in research-readme skillbench models zen writeups journal; do
+            test -s "docs/$d.html" || { echo "missing doc page: $d.html"; exit 1; }
+          done
+          grep -q 'href="models.html"' docs/index.html || { echo "doc cards not linked"; exit 1; }
           # OFL clause 2: every copy of the font must carry its licence. If the generator
           # ever ships the woff2 without it, that is a licence breach, so fail the build.
           test -f docs/fonts/DepartureMono-Regular.woff2

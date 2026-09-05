@@ -19,9 +19,12 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
 
 This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
 <https://techluddite.github.io/opinionated-omarchy/>. The site is built from the corpus by
-`research/tools/build_site.py` and deployed by `.github/workflows/pages.yml`, which triggers
-on `problems.jsonl`, `categories.json`, `build_site.py`, `research/assets/fonts/**` and the
-workflow itself, so a generator or font change republishes too. The generated `docs/` is **gitignored**, so the 4.3 MB never enters
+`research/tools/build_site.py` and deployed by `.github/workflows/pages.yml`. That workflow
+triggers on `problems.jsonl`, `categories.json`, `build_site.py`, `research/assets/fonts/**`,
+the workflow itself, and **the six documents the site renders**: `research/README.md`,
+`skillbench/README.md`, `skillbench/MODELS.md`, `skillbench/ZEN.md`, `JOURNAL.md` and
+`writeups/**`. Those last six matter because the site now publishes them as pages, so
+editing one changes a published page and must republish. The generated `docs/` is **gitignored**, so the 4.3 MB never enters
 history. The default branch is `main` (renamed from `claude/greenfield-repo-setup-l5fzae`
 on 2026-09-03; GitHub redirects the old name, but update any local clone with
 `git branch -m` and `git branch --set-upstream-to=origin/main`). Work happens on
@@ -45,7 +48,9 @@ research/                the troubleshooting corpus + its tooling
   assets/fonts/          vendored Departure Mono (OFL) for the public site
   tools/                 build/search/ingest scripts + the three workflow scripts
     corpus.py            the record schema + the only corpus reader/writer
-    build_site.py        generates the public site into the repo-root docs/
+    build_site.py        generates the public site into the repo-root docs/, INCLUDING
+                         the project docs listed in its DOCS table, which are rendered
+                         from markdown rather than linked out to GitHub
   tests/                 stdlib-unittest tests for the writers; ./tests/run.sh
   bench/                 skill-efficacy measurements; NOT corpus, NOT generated
   validation/            induce a problem on a test VM, apply a fix, assert; runs.jsonl
@@ -568,6 +573,13 @@ repo, including commit messages and PR bodies. The whole corpus was audited agai
 
 Three things are specific to this repo and are the ones that get got wrong:
 
+- **Six documents are now PUBLISHED, not just tracked.** `research/README.md`,
+  `skillbench/README.md`, `skillbench/MODELS.md`, `skillbench/ZEN.md`, `JOURNAL.md` and the
+  writeup are rendered onto the site by `build_site.py`'s `DOCS` table and reached from the
+  "How this was built" cards. Write them as public pages rather than as repo-internal
+  notes. `md_doc` handles headings, paragraphs, lists, fenced and inline code, pipe tables,
+  blockquotes, bold, italic, links and rules; anything else stays as escaped text rather
+  than being dropped, so check a new construct renders before relying on it.
 - **The public site's prose lives in `research/tools/build_site.py`, not in `docs/`.**
   `docs/` is deleted and regenerated on every build, so an edit there survives until the
   next `build_site.py` run and no longer. Same for `research/docs/*.md`, which
