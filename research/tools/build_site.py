@@ -186,6 +186,8 @@ DOCS = [
      "The corpus, its schema and its trust model", "RESEARCH/README"),
     ("skillbench", "skillbench/README.md",
      "The bench that asks whether a skill actually helps", "SKILLBENCH"),
+    ("results", "skillbench/RESULTS.md",
+     "Does the skill help? Every number, and where it fails", "BENCH RESULTS"),
     ("models", "skillbench/MODELS.md",
      "Which local models can drive an agent loop, and why most cannot", "MODELS"),
     ("zen", "skillbench/ZEN.md",

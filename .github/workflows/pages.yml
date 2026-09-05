@@ -26,6 +26,7 @@ on:
       - 'research/README.md'
       - 'skillbench/README.md'
       - 'skillbench/MODELS.md'
+      - 'skillbench/RESULTS.md'
       - 'skillbench/ZEN.md'
       - 'JOURNAL.md'
       - 'writeups/**'
@@ -72,7 +73,7 @@ jobs:
           grep -qr 'UNAUDITED' docs/records/ || { echo "no UNAUDITED provenance rendered"; exit 1; }
           # Every doc card must land on a real page. A missing one would render as a dead
           # link on the front page rather than failing the build.
-          for d in research-readme skillbench models zen writeups journal; do
+          for d in research-readme skillbench results models zen writeups journal; do
             test -s "docs/$d.html" || { echo "missing doc page: $d.html"; exit 1; }
           done
           grep -q 'href="models.html"' docs/index.html || { echo "doc cards not linked"; exit 1; }
