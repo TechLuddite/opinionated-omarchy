@@ -24,6 +24,66 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-04 (fourth): the docs are published, and Go turns out to be unreachable
+
+### 1. Go bills nothing, because an API key means pay-as-you-go
+
+Settled by a controlled experiment rather than by reading docs. The operator read the
+balance, a measured batch ran through the **opencode CLI** on Go-listed models only, and the
+balance was read again:
+
+| | |
+| --- | --- |
+| balance | $4.98 to $4.62, **-$0.36** |
+| `opencode stats` | $0.07 to $0.43, **+$0.36** |
+
+Exact match. **Neither `/zen/v1` nor `opencode run` draws on the Go subscription** when
+authenticated with an API key. A second, larger batch predicted $4.13 against an actual
+$4.20, so `opencode stats` is close but over-reports by roughly 8% and is not authoritative.
+
+Two things this corrects:
+
+- **"The API has no cost accounting" was too broad.** `opencode stats` is accurate to the
+  cent. The gap is API-specific: `/zen/v1` has no balance endpoint reachable with a Bearer
+  token (`/auth/balance` exists but wants a website session) and returns six response
+  headers, none of them quota or cost. So a script cannot enforce its own ceiling; the CLI
+  can report one.
+- **The Western-lab 500s were never entitlement.** `grok-4.6`, `gpt-5-nano`, `gpt-5.6-luna`,
+  `claude-haiku-4-5` and `gemini-3.5-flash-lite` all return HTTP 500 over the API and work
+  fine through `opencode run` **on the same key**. Every theory offered for that split,
+  including BYOK, was wrong: the API endpoint simply serves a subset. Confirmed on the test
+  VM too, so the agentic lane could drive it.
+
+The open question is no longer "does Go cover the API" but **"how is Go reachable at all"**,
+since an API key appears to mean pay-as-you-go by definition.
+
+### 2. The project's own documents are now pages on the site
+
+The "How this was built" cards linked out to GitHub. They now open rendered pages:
+`research/README.md`, `skillbench/README.md`, `skillbench/MODELS.md`, `skillbench/ZEN.md`,
+`JOURNAL.md` and the writeup, driven by a `DOCS` table in `build_site.py`.
+
+`md_doc` extends `md_lite` to what these files actually contain: headings, paragraphs,
+lists, fenced and inline code, **pipe tables** (64 rows across the docs), blockquotes, bold,
+italic, links and rules. Same escape-first rule, so no document can inject markup.
+
+Three defects were caught by rendering rather than by reading the generator, which is the
+same lesson as the paragraph bug:
+
+- **The H1 rendered twice**, once as the page title and again as the first body heading.
+- **Emphasis could not span a code span.** Splitting on backticks first left `**a `b` c**`
+  with stranded asterisks, which is a shape these docs use often. Code spans are now lifted
+  to placeholders so emphasis spans them.
+- **Headings collapsed to body size**, because shifting every level down one made a
+  document's `##` an `<h3>` at the same 16px as the prose.
+
+Cross-document links resolve locally where the target is rendered and fall back to GitHub at
+HEAD otherwise, so `[MODELS.md](MODELS.md)` inside `ZEN.md` becomes `models.html`.
+
+**`pages.yml` now triggers on those six sources**, and CI fails if any doc page is missing or
+if the cards stop pointing at them. Without that the site would quietly serve a stale copy of
+its own documentation, which is the failure that a `paths` trigger is for.
+
 ## Session of 2026-09-04 (third): the chat lane on cloud models, and a real Omarchy effect
 
 The first cloud runs. **The skill shows a large, replicated, Omarchy-specific lift on the

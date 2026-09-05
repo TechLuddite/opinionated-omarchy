@@ -33,11 +33,12 @@ type changed machine to machine. Both names are gone.
 """
 import html
 import json
+import os
 import re
 import shutil
 import urllib.parse
 from collections import Counter, defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent          # research/
 REPO = ROOT.parent
@@ -176,6 +177,210 @@ def _inline(s):
         res.append(f"<code>{chunk}</code>" if tick else chunk)
         tick = not tick
     return "".join(res)
+
+
+# The project docs rendered onto the site, so "how this was built" reads in place instead
+# of bouncing a visitor to GitHub. Order is the order of the cards.
+DOCS = [
+    ("research-readme", "research/README.md",
+     "The corpus, its schema and its trust model", "RESEARCH/README"),
+    ("skillbench", "skillbench/README.md",
+     "The bench that asks whether a skill actually helps", "SKILLBENCH"),
+    ("models", "skillbench/MODELS.md",
+     "Which local models can drive an agent loop, and why most cannot", "MODELS"),
+    ("zen", "skillbench/ZEN.md",
+     "What the cloud gateway serves, and six ways a run goes wrong", "ZEN"),
+    ("writeups", "writeups/2026-09-01-merge-gapfill-silent-defects.md",
+     "Post-mortems: defects found, and how they were caught", "WRITEUPS"),
+    ("journal", "JOURNAL.md",
+     "Every session so far, including the dead ends", "JOURNAL"),
+]
+DOC_BY_SOURCE = {src: slug for slug, src, _, _ in DOCS}
+GH = "https://github.com/TechLuddite/opinionated-omarchy"
+
+_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
+_ITAL = re.compile(r"(?<![\*\w])\*([^*\n]+?)\*(?!\*)")
+_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+_HEAD = re.compile(r"^(#{1,6})\s+(.*)$")
+_ROW = re.compile(r"^\s*\|(.+)\|\s*$")
+_SEP = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+
+
+def _href(target, source):
+    """Resolve a markdown link target for a page rendered onto the site.
+
+    A doc's own relative links point at repo paths. Those that name another rendered doc
+    become local links; everything else goes to GitHub at HEAD, because a relative path
+    into a repo means nothing to a browser sitting on a generated page.
+    """
+    if target.startswith(("http://", "https://", "#", "mailto:")):
+        return target
+    base = PurePosixPath(source).parent
+    resolved = str(PurePosixPath(os.path.normpath(str(base / target))))
+    if resolved in DOC_BY_SOURCE:
+        return f"{DOC_BY_SOURCE[resolved]}.html"
+    kind = "tree" if not PurePosixPath(resolved).suffix else "blob"
+    return f"{GH}/{kind}/HEAD/{resolved}"
+
+
+def _rich(text, source):
+    """Inline markdown on ALREADY-ESCAPED text.
+
+    Code spans are tokenised FIRST and nothing else is applied inside them, or a fenced
+    `--force` would come back italicised and a path with asterisks would be mangled. Same
+    escape-first rule as md_lite: no construct can introduce markup a record did not have.
+    """
+    # Code spans are lifted out to placeholders rather than emitted inline, so emphasis
+    # can SPAN one. `**a `b` c**` is common in these docs and splitting on backticks first
+    # left the asterisks stranded as literal text.
+    spans, parts, tick = [], [], False
+    for chunk in text.split("`"):
+        if tick:
+            parts.append(f"\x00{len(spans)}\x00")
+            spans.append(chunk)
+        else:
+            parts.append(chunk)
+        tick = not tick
+    body = "".join(parts)
+    body = _LINK.sub(
+        lambda m: f'<a href="{e(_href(m.group(2), source))}">{m.group(1)}</a>', body)
+    body = _BOLD.sub(r"<strong>\1</strong>", body)
+    body = _ITAL.sub(r"<em>\1</em>", body)
+    for n, code in enumerate(spans):
+        body = body.replace(f"\x00{n}\x00", f"<code>{code}</code>")
+    return body
+
+
+def md_doc(text, source):
+    """Enough markdown for this repo's own documents.
+
+    Still not a markdown library, and still escape-first. It handles what these six files
+    actually contain: headings, paragraphs, fenced code, inline code, bullet and numbered
+    lists, pipe tables (64 rows across the docs), bold, italic, links and rules. Anything
+    it does not know stays as escaped text rather than being dropped.
+    """
+    lines = (text or "").split("\n")
+    out, i, in_fence = [], 0, False
+    para, items, list_tag = [], [], None
+
+    def flush_para():
+        if para:
+            out.append("<p>" + _rich(" ".join(para), source) + "</p>")
+            para.clear()
+
+    def flush_list():
+        nonlocal list_tag
+        if items:
+            body = "".join(f"<li>{_rich(x, source)}</li>" for x in items)
+            out.append(f"<{list_tag}>{body}</{list_tag}>")
+            items.clear()
+        list_tag = None
+
+    def flush():
+        flush_para()
+        flush_list()
+
+    while i < len(lines):
+        raw = lines[i]
+        line = e(raw)
+        if raw.strip().startswith("```"):
+            flush()
+            in_fence = not in_fence
+            out.append("<pre><code>" if in_fence else "</code></pre>")
+            i += 1
+            continue
+        if in_fence:
+            out.append(line)
+            i += 1
+            continue
+        if not raw.strip():
+            flush()
+            i += 1
+            continue
+        if raw.strip() in ("---", "***", "___") and not para:
+            flush()
+            out.append("<hr>")
+            i += 1
+            continue
+        if raw.lstrip().startswith("&gt;") or raw.lstrip().startswith(">"):
+            flush()
+            quote = []
+            while i < len(lines) and (lines[i].lstrip().startswith(">") or
+                                      (quote and lines[i].strip() and
+                                       not lines[i].lstrip().startswith(("#", "-", "|")))):
+                quote.append(re.sub(r"^\s*>\s?", "", lines[i]))
+                i += 1
+            out.append("<blockquote>" + md_doc("\n".join(quote), source) + "</blockquote>")
+            continue
+        m = _HEAD.match(raw)
+        if m:
+            flush()
+            # The page <h1> is the document title, which is stripped from the body, so
+            # the doc's own ## is the top section level and maps straight to <h2>. Shifting
+            # everything down one instead collapsed section headings to body size.
+            lvl = min(max(len(m.group(1)), 2), 6)
+            out.append(f"<h{lvl}>{_rich(e(m.group(2)), source)}</h{lvl}>")
+            i += 1
+            continue
+        # A pipe table needs its separator row on the NEXT line, or a sentence containing
+        # a pipe becomes a one-cell table.
+        if _ROW.match(raw) and i + 1 < len(lines) and _SEP.match(lines[i + 1]):
+            flush()
+            head = [c.strip() for c in _ROW.match(raw).group(1).split("|")]
+            i += 2
+            rows = []
+            while i < len(lines) and _ROW.match(lines[i]):
+                rows.append([c.strip() for c in _ROW.match(lines[i]).group(1).split("|")])
+                i += 1
+            th = "".join(f"<th>{_rich(e(c), source)}</th>" for c in head)
+            tb = "".join("<tr>" + "".join(f"<td>{_rich(e(c), source)}</td>" for c in r)
+                         + "</tr>" for r in rows)
+            out.append(f'<table><thead><tr>{th}</tr></thead><tbody>{tb}</tbody></table>')
+            continue
+        if BULLET.match(raw) or NUMBERED.match(raw):
+            flush_para()
+            tag = "ul" if BULLET.match(raw) else "ol"
+            if list_tag and list_tag != tag:
+                flush_list()
+            list_tag = tag
+            marker = BULLET if tag == "ul" else NUMBERED
+            items.append(e(marker.sub("", raw).strip()))
+            i += 1
+            continue
+        if items:
+            items[-1] += " " + line.strip()        # a wrapped list item
+            i += 1
+            continue
+        para.append(line.strip())
+        i += 1
+    if in_fence:
+        out.append("</code></pre>")
+    flush()
+    return "\n".join(x for x in out if x)
+
+
+def doc_page(slug, source, title, recs):
+    """One project document as a site page."""
+    path = REPO / source
+    text = path.read_text(encoding="utf-8")
+    first = text.lstrip().splitlines()[0] if text.strip() else ""
+    if first.startswith("# "):
+        # The H1 becomes the page title, so rendering it again puts the same sentence on
+        # screen twice.
+        heading = first[2:].strip()
+        text = text.lstrip().split("\n", 1)[1] if "\n" in text.lstrip() else ""
+    else:
+        heading = title
+    body = f"""{masthead(recs)}
+<main class="board">
+  <nav class="crumb"><a href="index.html">BOARD</a> / <span>{e(heading)}</span></nav>
+  <article class="detail doc" style="--gaccent:#7aa2ff">
+    <h1>{e(heading)}</h1>
+    {md_doc(text, source)}
+    <div class="slug">{e(source)} &middot; <a href="{GH}/blob/HEAD/{e(source)}">view on github</a></div>
+  </article>
+</main>"""
+    return page(heading, body, depth=0, subtitle=title)
 
 
 def page(title, body, depth=0, subtitle=""):
@@ -360,21 +565,10 @@ def index_page(recs, cats):
     <h2 class="g-head intro-head" style="--gaccent:#7aa2ff"><i></i>How this was built<span
       class="g-count">READ MORE</span></h2>
     <div class="grid links">
-      <a class="card" href="{gh}/blob/HEAD/research/README.md">
-        <div class="c-head"><span class="c-name">The corpus, its schema and its trust model</span></div>
-        <div class="c-meta"><span class="c-lab">RESEARCH/README</span></div></a>
-      <a class="card" href="{gh}/blob/HEAD/skillbench/README.md">
-        <div class="c-head"><span class="c-name">The bench that asks whether a skill actually helps</span></div>
-        <div class="c-meta"><span class="c-lab">SKILLBENCH</span></div></a>
-      <a class="card" href="{gh}/blob/HEAD/skillbench/MODELS.md">
-        <div class="c-head"><span class="c-name">Which local models can drive an agent loop, and why most cannot</span></div>
-        <div class="c-meta"><span class="c-lab">MODELS</span></div></a>
-      <a class="card" href="{gh}/tree/HEAD/writeups">
-        <div class="c-head"><span class="c-name">Post-mortems: defects found, and how they were caught</span></div>
-        <div class="c-meta"><span class="c-lab">WRITEUPS</span></div></a>
-      <a class="card" href="{gh}/blob/HEAD/JOURNAL.md">
-        <div class="c-head"><span class="c-name">Every session so far, including the dead ends</span></div>
-        <div class="c-meta"><span class="c-lab">JOURNAL</span></div></a>
+      {"".join(f'''<a class="card" href="{slug}.html">
+        <div class="c-head"><span class="c-name">{e(title)}</span></div>
+        <div class="c-meta"><span class="c-lab">{e(label)}</span></div></a>'''
+                for slug, _src, title, label in DOCS)}
       <a class="card" href="{gh}">
         <div class="c-head"><span class="c-name">Source, licence and how to rebuild all of this</span></div>
         <div class="c-meta"><span class="c-lab">GITHUB</span></div></a>
@@ -425,6 +619,8 @@ def main():
     for f in ("DepartureMono-Regular.woff2", "DepartureMono-LICENSE.txt",
               "OmarchyFont.woff2", "OmarchyFont-LICENSE.txt"):
         shutil.copy2(src / f, fonts / f)
+    for slug, src, title, _label in DOCS:
+        w(OUT / f"{slug}.html", doc_page(slug, src, title, recs))
     for r in recs:
         w(OUT / "records" / f"{r['slug']}.html", record_page(r, cats, recs))
 
@@ -659,6 +855,31 @@ a{color:inherit;text-decoration:none}
 .note>ul,.note>ol,.danger>ul,.danger>ol{margin:0 0 9px;padding-left:20px}
 .detail section>ul:not(.src)>li,.detail section>ol>li,
 .note li,.danger li{margin:3px 0}
+/* Rendered project docs. Wider than a record because these carry tables and code, and
+   the reading measure is set by the container rather than by the prose. */
+.doc{max-width:980px}
+.doc blockquote{border-left:2px solid var(--corrected);background:rgba(0,166,255,.05);
+  padding:10px 14px;margin:14px 0;border-radius:0 6px 6px 0;color:var(--dim)}
+.doc blockquote p:last-child{margin-bottom:0}
+.doc h2{font:600 20px/1.35 var(--mono);color:var(--ink);letter-spacing:-.01em;
+  margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--line);
+  text-transform:none}
+.doc h3{font:600 16px/1.4 var(--mono);color:var(--ink);margin:24px 0 8px;text-transform:none}
+.doc h4,.doc h5,.doc h6{font:600 15px/1.4 var(--mono);color:var(--dim);margin:18px 0 6px;
+  text-transform:none}
+.doc p{margin:0 0 12px}
+.doc ul,.doc ol{margin:0 0 12px;padding-left:22px}
+.doc li{margin:4px 0}
+.doc strong{color:var(--ink)}
+.doc em{color:var(--dim)}
+.doc a{color:var(--signal);text-decoration:underline;text-underline-offset:2px}
+.doc hr{border:0;border-top:1px solid var(--line);margin:22px 0}
+.doc table{border-collapse:collapse;margin:14px 0;font-size:14px;display:block;
+  overflow-x:auto;max-width:100%}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;
+  vertical-align:top}
+.doc th{background:var(--panel-2);color:var(--dim);font-weight:600;white-space:nowrap}
+.doc .slug a{color:var(--signal)}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .tag{font:11px var(--crt);letter-spacing:.1em;color:var(--muted);border:1px solid var(--line);
   border-radius:3px;padding:2px 6px}
