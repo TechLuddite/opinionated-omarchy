@@ -1,0 +1,130 @@
+name: omarchy-agentic-published-wrong
+description: >
+  Two tasks where the widely-published answer names software that is not installed, or
+  edits a tree that `omarchy update` overwrites. Built for GLM-class models, which
+  saturate omarchy-agentic-stale-advice at 0.90-0.97 bare.
+
+# WHY THIS BENCH EXISTS
+#
+# `omarchy-agentic-stale-advice` was calibrated against devstral-small-2:24b, which solves
+# it 8 times in 20. GLM-class cloud models score 0.90 to 0.97 on it BARE (run 43), so it
+# cannot measure them at all. This is the same seam (the published answer is confidently
+# wrong on Omarchy 4) aimed at a stronger model class.
+#
+# Both tasks were chosen from benches/SKILL-COVERAGE.md, which inventories what the two
+# bundles actually answer. A task outside that ground measures noise and reads as "the
+# skill does not work".
+#
+# BOTH TASKS REWARD ACTING, NOT RESEARCHING. Run 43 found the skill diverting an agent into
+# /usr/share/omarchy/ to study the binding API while it never edited the user file: zero
+# edits and zero clean stops across 20 cases. A task whose answer is "go and read the
+# packaged defaults" plays straight into that. Here the skill names a destination and an
+# action, and every assertion is on the machine.
+lane: agentic
+control: false
+skills: [omarchy, omarchy-full]
+
+defaults:
+  repeats: 1
+  params:
+    thinking: "off"
+    agent_timeout: 600
+  vm:
+    # Everything either seed touches under $HOME. `/usr/share` is NOT restorable this way,
+    # which is why the theme seed keeps its own pristine copy; see benches/CLAUDE.md.
+    restore:
+      - .config/omarchy
+      - .config/hypr
+
+tasks:
+  # -------------------------------------------------------------------------------------
+  # SEAM: idle and lock live in the Omarchy shell, not in Hyprland.
+  #
+  # The published answer is hypridle/hyprlock. Verified on a test VM 2026-09-05: NEITHER IS
+  # INSTALLED. So the wrong answer writes a config file that no process reads, which is
+  # strictly worse than doing nothing and is exactly detectable.
+  #
+  # HAND-VERIFIED ON A VM 2026-09-05, all three outcome states, as benches/CLAUDE.md
+  # requires: does nothing 5/6, writes hypridle.conf 4/6, correct 6/6. The wrong answer
+  # scores BELOW doing nothing, so the grader separates all three.
+  - id: idle-lock-not-hypridle
+    prompt: |
+      Make this machine lock its screen after 10 minutes of inactivity.
+
+      The change must survive an `omarchy update`. Make the change, then stop.
+    seed: |
+      set -euo pipefail
+      # Idempotent: re-derive the user file from the packaged default every case, and clear
+      # any wrong-answer artefact a previous case left behind.
+      mkdir -p ~/.config/omarchy
+      cp -a /usr/share/omarchy/config/omarchy/shell.json ~/.config/omarchy/shell.json
+      rm -f ~/.config/hypr/hypridle.conf ~/.config/hypr/hyprlock.conf
+    post:
+      # The fix. 600 seconds, in the file the Omarchy shell actually reads.
+      - type: file_contains
+        path: ~/.config/omarchy/shell.json
+        pattern: '"lock"[[:space:]]*:[[:space:]]*600'
+      # The published wrong turn. These are green at the floor ON PURPOSE: they are what
+      # makes a wrong answer score below doing nothing.
+      - type: file_absent
+        path: ~/.config/hypr/hypridle.conf
+      - type: file_absent
+        path: ~/.config/hypr/hyprlock.conf
+      # Collateral damage guards.
+      - type: command_succeeds
+        command: python3 -c "import json;json.load(open('$HOME/.config/omarchy/shell.json'))"
+      - type: file_contains
+        path: ~/.config/omarchy/shell.json
+        pattern: '"screensaver"'
+      - type: command_output_matches
+        command: pacman -Qkk omarchy 2>&1 | tail -1
+        pattern: '0 altered files'
+
+  # -------------------------------------------------------------------------------------
+  # SEAM: a stock theme is OVERLAID, never edited.
+  #
+  # The published answer edits the theme's colour file. On Omarchy that file is in
+  # /usr/share/omarchy/themes/, which the skill forbids and `omarchy update` reverts. The
+  # wrong answer is therefore DESTRUCTIVE and detectable: `pacman -Qkk omarchy` reports
+  # 1654 total files, 0 altered on a clean VM.
+  #
+  # HAND-VERIFIED ON A VM 2026-09-05, all three outcome states: does nothing 4/5, edits
+  # the packaged tree 2/5, correct 5/5. The seed's idempotence was verified against the
+  # destructive case specifically: after the wrong answer, re-seeding restores
+  # `pacman -Qkk omarchy` to `1654 total files, 0 altered files`.
+  - id: theme-overlay-not-packaged
+    prompt: |
+      Change the accent colour of the Everforest theme to #ff0000.
+
+      The change must survive an `omarchy update`. Make the change, then stop.
+    seed: |
+      set -euo pipefail
+      P=/usr/share/omarchy/themes/everforest/colors.toml
+      K=/var/tmp/bench-everforest-colors.pristine
+      # /usr/share is outside $HOME so defaults.vm.restore cannot reach it. Keep a pristine
+      # copy on first run and re-derive from it every case after, the same shape as
+      # omarchy-agentic-root-config. A case must never inherit the previous case's edit.
+      if [ ! -f "$K" ]; then sudo cp -a "$P" "$K"; fi
+      sudo cp -a "$K" "$P"
+      rm -rf ~/.config/omarchy/themes/everforest
+    post:
+      # The fix: an overlay in the user tree.
+      - type: file_contains
+        path: ~/.config/omarchy/themes/everforest/colors.toml
+        pattern: 'ff0000'
+        case_sensitive: false
+      # The destructive wrong turn, checked two ways: the package is intact, and the
+      # packaged file specifically does not carry the new colour.
+      - type: command_output_matches
+        command: pacman -Qkk omarchy 2>&1 | tail -1
+        pattern: '0 altered files'
+      - type: file_not_contains
+        path: /usr/share/omarchy/themes/everforest/colors.toml
+        pattern: 'ff0000'
+        case_sensitive: false
+      # Collateral damage guards: the packaged theme still exists and is still a theme.
+      - type: file_exists
+        path: /usr/share/omarchy/themes/everforest/colors.toml
+      - type: file_contains
+        path: /usr/share/omarchy/themes/everforest/colors.toml
+        pattern: 'accent'
