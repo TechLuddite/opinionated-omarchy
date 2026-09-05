@@ -48,6 +48,51 @@ OUT = REPO / "skillbench" / "results"
 # Keys inside case_result.request worth keeping. The prompt is not one of them; see above.
 REQUEST_KEYS = ("lane", "vm", "queue_wait_s")
 
+# An opencode agentic transcript is 20k to 115k characters of JSON events per case, and it
+# was 78% of this export the first time one was banked. The DISTILLED facts below are what
+# every diagnosis in JOURNAL.md actually used (turns, which tools, why it stopped, tokens,
+# cost); the raw stream stays in the database for deep dives. Keep a bounded head of it so
+# a reader can see the shape without the archive growing without limit.
+OUTPUT_HEAD = 4000
+
+
+def distil(output):
+    """Structured facts from an opencode --format json transcript. {} for anything else.
+
+    Three separate harness bugs were found from these fields and none from the score
+    column: a scratch HOME that removed the config being edited, writes auto-rejected for
+    being outside the working directory, and a skill that diverts the agent into research.
+    The last one is visible ONLY as `edits: 0` beside `last_reason: tool-calls`.
+    """
+    turns, tools, last, tin, tout, cost, edits = 0, {}, None, 0, 0, 0.0, 0
+    for line in (output or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        part = d.get("part") or {}
+        kind = d.get("type")
+        if kind == "step_finish":
+            turns += 1
+            last = part.get("reason")
+            tok = part.get("tokens") or {}
+            tin += tok.get("input") or 0
+            tout += tok.get("output") or 0
+            cost += part.get("cost") or 0.0
+        elif kind == "tool_use":
+            name = part.get("tool") or "?"
+            tools[name] = tools.get(name, 0) + 1
+            if name in ("edit", "write", "patch"):
+                edits += 1
+    if not turns:
+        return {}
+    return {"turns": turns, "tools": tools, "last_reason": last, "edits": edits,
+            "agent_tokens_in": tin, "agent_tokens_out": tout,
+            "agent_cost": round(cost, 6)}
+
 
 def summarise(bucket):
     """Byte-for-byte the aggregation in app/main.py:_agg.
@@ -132,6 +177,10 @@ def main():
             "created_at", "output_source", "n_checks", "n_passed", "n_post",
             "n_post_passed")}
         row.update({k: req[k] for k in REQUEST_KEYS if k in req})
+        row.update(distil(r["output"]))
+        if row.get("output") and len(row["output"]) > OUTPUT_HEAD:
+            row["output"] = row["output"][:OUTPUT_HEAD]
+            row["output_truncated"] = True
         case_rows.append(row)
 
     # ---- per-run metadata + aggregates -------------------------------------------------
