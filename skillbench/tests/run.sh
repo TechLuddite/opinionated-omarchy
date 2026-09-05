@@ -10,6 +10,8 @@ exec docker run --rm \
   -v "$PWD/tests:/app/tests:ro" \
   -v "$PWD/benches:/benches:ro" \
   -v "$PWD/skills.yaml:/app/skills.yaml:ro" \
+  -v "$PWD/RESULTS.md:/app/RESULTS.md:ro" \
+  -v "$PWD/results:/app/results:ro" \
   -v "$PWD/../omarchy:/skills/omarchy:ro" \
   -v "$PWD/../diagnose-crash:/skills/diagnose-crash:ro" \
   -w /app --entrypoint sh opinionated-omarchy/skillbench \

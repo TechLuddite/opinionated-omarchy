@@ -582,10 +582,10 @@ repo, including commit messages and PR bodies. The whole corpus was audited agai
 
 Three things are specific to this repo and are the ones that get got wrong:
 
-- **Six documents are now PUBLISHED, not just tracked.** `research/README.md`,
-  `skillbench/README.md`, `skillbench/MODELS.md`, `skillbench/ZEN.md`, `JOURNAL.md` and the
-  writeup are rendered onto the site by `build_site.py`'s `DOCS` table and reached from the
-  "How this was built" cards. Write them as public pages rather than as repo-internal
+- **Seven documents are now PUBLISHED, not just tracked.** `research/README.md`,
+  `skillbench/README.md`, `skillbench/RESULTS.md`, `skillbench/MODELS.md`,
+  `skillbench/ZEN.md`, `JOURNAL.md` and the writeup are rendered onto the site by
+  `build_site.py`'s `DOCS` table and reached from the "How this was built" cards. Write them as public pages rather than as repo-internal
   notes. `md_doc` handles headings, paragraphs, lists, fenced and inline code, pipe tables,
   blockquotes, bold, italic, links and rules; anything else stays as escaped text rather
   than being dropped, so check a new construct renders before relying on it.
@@ -638,6 +638,45 @@ the command prints is a regression.
 - The corpus is research, not a warranty. Anything touching pacman, the bootloader,
   initramfs, or partitions deserves a confirmation against the cited source before it
   runs as root.
+
+## Keeping the published results honest
+
+**[skillbench/RESULTS.md](skillbench/RESULTS.md) renders to `results.html` on the public
+site**, so every figure in it is a public claim rather than a note to ourselves. It is the
+one document that goes stale by *doing work*: run a bench and the export grows underneath it
+while the page keeps quoting yesterday's totals.
+
+**After any run the journal is going to cite:**
+
+```sh
+python3 skillbench/tools/export_results.py     # refresh the tracked export FIRST
+python3 skillbench/tools/lift_test.py <run> [control]   # recompute, do not recall
+cd skillbench && ./tests/run.sh                # asserts the page against the export
+```
+
+Five rules, and the first is the one that gets broken:
+
+- **Every number comes from `skillbench/results/`, computed, never remembered.** The export
+  is tracked precisely so a figure can be recomputed from a clean clone with no database and
+  no container. If a number cannot be derived that way it does not belong on the page.
+- **The totals line and the date are load-bearing and tested.**
+  `test_published_results_totals_match_the_export` parses `**N runs, N cases, N graded
+  assertions**` and compares all three against `results/*.jsonl`, and a second test requires
+  an `as of YYYY-MM-DD`. Both fail loudly rather than letting the page drift; that is the
+  same shape as `research/tests` asserting `FIELDS` against `schema.sql`.
+- **Excluded results stay named.** The three chat-lane models dropped for `max_tokens`
+  truncation are listed as excluded with a pointer to their contaminated *and* corrected
+  figures. Silently removing a run that went wrong is how a bench starts flattering itself.
+- **Keep the caveats attached to the number they qualify**, not in a footnote. Bench
+  saturation, variant-correlated timeouts and small n are why a magnitude is or is not
+  trustworthy, and a reader who takes the figure without them has been misled.
+- **Say what is not claimed.** The page measures the *upstream* skill, not the corpus skill,
+  which is unwritten; it involves no real users; and model figures are dated because
+  providers retire them.
+
+`pages.yml` triggers on `RESULTS.md` and fails the build if `results.html` goes missing, so
+publishing is automatic once it is merged. Staleness is the failure mode to guard against,
+not deployment.
 
 ## Regenerating the corpus
 

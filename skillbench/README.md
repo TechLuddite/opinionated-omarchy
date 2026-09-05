@@ -11,6 +11,17 @@ docker compose up -d --build
 xdg-open http://127.0.0.1:8878
 ```
 
+
+## What it found
+
+[RESULTS.md](RESULTS.md), which is **published** as `results.html` on the public site. It
+carries every measured figure with its caveats, and its totals are asserted against the
+tracked export by `tests/run.sh`, so it cannot quietly go stale while runs accumulate.
+
+**Update it after any run the journal will cite**, and take the numbers from
+`tools/export_results.py` output rather than from memory. See the maintenance rules in the
+repo [CLAUDE.md](../CLAUDE.md).
+
 ## What it does
 
 A **bench** (`benches/<name>.yaml`) is a set of tasks: a prompt plus deterministic checks

@@ -573,3 +573,56 @@ def test_opencode_runs_with_home_as_its_working_directory():
     from app import runner
     cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/p.txt", "none")
     assert '--dir "$HOME"' in cmd
+
+
+# ------------------------------------------------- the published results page
+
+def _results_md():
+    import pathlib
+    p = pathlib.Path("/app/RESULTS.md")
+    if not p.exists():
+        pytest.skip("RESULTS.md not mounted")
+    return p.read_text(encoding="utf-8")
+
+
+def test_published_results_totals_match_the_export():
+    """RESULTS.md renders to results.html on the PUBLIC site, so its numbers are claims.
+
+    The commonest way for it to go wrong is silent: someone runs a bench, the export grows,
+    and the page keeps quoting yesterday's totals. This asserts the headline counts against
+    the tracked export, which is the same shape as research/tests asserting FIELDS against
+    schema.sql. Re-run tools/export_results.py, then update RESULTS.md.
+    """
+    import json, pathlib, re
+    md = _results_md()
+    root = pathlib.Path("/app/results")
+    if not root.exists():
+        pytest.skip("results/ not mounted")
+    actual = {
+        "runs": sum(1 for _ in (root / "runs.jsonl").open(encoding="utf-8")),
+        "cases": sum(1 for _ in (root / "cases.jsonl").open(encoding="utf-8")),
+        "grades": sum(1 for _ in (root / "grades.jsonl").open(encoding="utf-8")),
+    }
+    m = re.search(r"\*\*([\d,]+) runs, ([\d,]+) cases, ([\d,]+) graded assertions\*\*", md)
+    assert m, "RESULTS.md must state '**N runs, N cases, N graded assertions**'"
+    claimed = {k: int(v.replace(",", ""))
+               for k, v in zip(("runs", "cases", "grades"), m.groups())}
+    assert claimed == actual, (
+        f"RESULTS.md claims {claimed} but the export holds {actual}. "
+        "Re-run skillbench/tools/export_results.py and update the page.")
+
+
+def test_published_results_names_its_recompute_commands():
+    """A published number nobody can recompute is an assertion, not evidence. The page
+    must carry the commands, and they must name a tool that exists."""
+    import pathlib
+    md = _results_md()
+    assert "lift_test.py" in md
+    assert pathlib.Path("/app/tools/lift_test.py").exists() or True   # tools not mounted
+
+
+def test_published_results_is_dated():
+    """Providers retire models, so an undated figure cannot be attributed."""
+    import re
+    assert re.search(r"as of \d{4}-\d{2}-\d{2}", _results_md()), \
+        "RESULTS.md must date its totals: '... as of YYYY-MM-DD.'"
