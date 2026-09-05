@@ -24,6 +24,67 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-05 (third): a new bench, and the constraint it exposed
+
+`omarchy-agentic-published-wrong` was written from
+[benches/SKILL-COVERAGE.md](skillbench/benches/SKILL-COVERAGE.md), hand-verified across all
+three outcome states, and then measured. **Both tasks fail, in opposite directions**, and
+the reason is more useful than the bench.
+
+### 1. The bench is not calibrated, and is marked so
+
+| task | result |
+| --- | --- |
+| `idle-lock-not-hypridle` | bare **1.0** on GLM-class. Too easy: they already know `idle.lock` is in `shell.json`. 27 of 30 cases edited. |
+| `theme-overlay-not-packaged` | both arms at the 0.8 floor. **Zero of 30 cases ever edited anything.** |
+
+Hand-verification was sound: seed-only 5/6 and 4/5, wrong answer 4/6 and 2/5, correct 6/6
+and 5/5, so a wrong answer scores below doing nothing in both. The bench measures what it
+was built to measure. The models simply do not reach the state it grades.
+
+### 2. The real constraint is a TURN BUDGET, not difficulty
+
+Measured across every opencode agentic case run so far:
+
+| task | median turns | cases that edited anything |
+| --- | ---: | ---: |
+| `idle-lock-not-hypridle` | 4 | 27/30 |
+| `looknfeel-not-hyprlang` | 6 | 9/40 |
+| `rebind-packaged-default` | 6 | 7/40 |
+| `theme-overlay-not-packaged` | 4 | **0/30** |
+
+**Overall median 5 turns.** Two reads plus one edit gets done. Find-a-thing, make a
+directory, copy, then modify does not, and it fails *silently*: the model stops at the same
+budget and never signals it has not finished.
+
+That reframes run 43's finding. The skill diverting an agent into `/usr/share/omarchy/` did
+not merely waste effort, it **spent the whole budget**. Under a five-turn ceiling, a skill
+that adds one research step is the difference between finishing and not.
+
+**A task is not too hard, it is too many steps.** Seed away the setup so the agent only has
+to make the change. This is now in `SKILL-COVERAGE.md` alongside the saturation rule.
+
+### 3. A property of the split bundle, ruled out as the cause
+
+`skill:omarchy` is `files: [SKILL.md]`, and `SKILL.md` links to six topic guides while
+telling the reader to consult them. In that variant the guides are **absent**, so an agent
+follows the pointer and finds nothing. Observed verbatim: *"The skill's theming guide
+doesn't exist, so I'll explore the stock Everforest theme structure directly."*
+
+The bundle is complete on disk; this is an artefact of how `skills.yaml` splits it. It means
+`omarchy` is not simply "less skill" than `omarchy-full` but a skill with dangling
+references, which is worth remembering when reading any comparison between the two.
+
+**It was not the cause here.** Run 46 with `omarchy-full`, which does contain `theming.md`,
+scored identically: 0 edits in 10 cases. Recording it because it was my first hypothesis and
+it was wrong, and because it still affects interpretation elsewhere.
+
+### 4. What the next attempt needs
+
+Not a harder seam. A **shorter** one. Either make task 1 require more than a single edit, or
+seed task 2's overlay directory so the agent only has to write the file. The seam inventory
+is sound; the step count is what has to change.
+
 ## Session of 2026-09-05 (second): the first Go ladder, and the skill diverts an agent
 
 Runs 43 and 44: the GLM ladder (`glm-5.1`, `5.2`, `5.3-flash`, `5.3`) on the agentic lane

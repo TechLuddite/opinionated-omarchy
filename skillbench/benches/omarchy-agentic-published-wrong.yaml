@@ -4,6 +4,24 @@ description: >
   edits a tree that `omarchy update` overwrites. Built for GLM-class models, which
   saturate omarchy-agentic-stale-advice at 0.90-0.97 bare.
 
+# NOT CALIBRATED. DO NOT USE FOR A PAIRED RESULT YET.
+#
+# Runs 45 and 46 measured it and BOTH TASKS FAIL, in opposite directions:
+#
+#   idle-lock-not-hypridle       bare 1.0 on GLM-class. Too easy: they already know
+#                                idle.lock is in shell.json. 27 of 30 cases edited.
+#   theme-overlay-not-packaged   BOTH arms sit at the 0.8 floor. ZERO of 30 cases ever
+#                                edited anything, with omarchy-full as well as omarchy.
+#
+# The cause is a turn budget, not knowledge. Measured across every opencode agentic case:
+# median 5 turns. Tasks solvable in two reads plus one edit get done; tasks needing more
+# steps are abandoned at the SAME budget, and the model never notices it has not finished.
+# Task 2 needs find-theme, make-dir, copy, modify: too many steps.
+#
+# Fix one of two ways before using this: make task 1 need more than one edit, and make
+# task 2 reachable in about three steps (for example, seed the overlay directory so the
+# agent only has to write the file).
+#
 # WHY THIS BENCH EXISTS
 #
 # `omarchy-agentic-stale-advice` was calibrated against devstral-small-2:24b, which solves

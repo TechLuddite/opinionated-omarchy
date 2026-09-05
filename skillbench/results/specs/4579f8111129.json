@@ -1,0 +1,93 @@
+{
+  "name": "omarchy-agentic-published-wrong",
+  "description": "Two tasks where the widely-published answer names software that is not installed, or edits a tree that `omarchy update` overwrites. Built for GLM-class models, which saturate omarchy-agentic-stale-advice at 0.90-0.97 bare.\n",
+  "lane": "agentic",
+  "control": false,
+  "skills": [
+    "omarchy",
+    "omarchy-full"
+  ],
+  "defaults": {
+    "repeats": 1,
+    "params": {
+      "thinking": "off",
+      "agent_timeout": 600
+    },
+    "vm": {
+      "restore": [
+        ".config/omarchy",
+        ".config/hypr"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "idle-lock-not-hypridle",
+      "prompt": "Make this machine lock its screen after 10 minutes of inactivity.\n\nThe change must survive an `omarchy update`. Make the change, then stop.\n",
+      "seed": "set -euo pipefail\n# Idempotent: re-derive the user file from the packaged default every case, and clear\n# any wrong-answer artefact a previous case left behind.\nmkdir -p ~/.config/omarchy\ncp -a /usr/share/omarchy/config/omarchy/shell.json ~/.config/omarchy/shell.json\nrm -f ~/.config/hypr/hypridle.conf ~/.config/hypr/hyprlock.conf\n",
+      "post": [
+        {
+          "type": "file_contains",
+          "path": "~/.config/omarchy/shell.json",
+          "pattern": "\"lock\"[[:space:]]*:[[:space:]]*600"
+        },
+        {
+          "type": "file_absent",
+          "path": "~/.config/hypr/hypridle.conf"
+        },
+        {
+          "type": "file_absent",
+          "path": "~/.config/hypr/hyprlock.conf"
+        },
+        {
+          "type": "command_succeeds",
+          "command": "python3 -c \"import json;json.load(open('$HOME/.config/omarchy/shell.json'))\""
+        },
+        {
+          "type": "file_contains",
+          "path": "~/.config/omarchy/shell.json",
+          "pattern": "\"screensaver\""
+        },
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy 2>&1 | tail -1",
+          "pattern": "0 altered files"
+        }
+      ]
+    },
+    {
+      "id": "theme-overlay-not-packaged",
+      "prompt": "Change the accent colour of the Everforest theme to #ff0000.\n\nThe change must survive an `omarchy update`. Make the change, then stop.\n",
+      "seed": "set -euo pipefail\nP=/usr/share/omarchy/themes/everforest/colors.toml\nK=/var/tmp/bench-everforest-colors.pristine\n# /usr/share is outside $HOME so defaults.vm.restore cannot reach it. Keep a pristine\n# copy on first run and re-derive from it every case after, the same shape as\n# omarchy-agentic-root-config. A case must never inherit the previous case's edit.\nif [ ! -f \"$K\" ]; then sudo cp -a \"$P\" \"$K\"; fi\nsudo cp -a \"$K\" \"$P\"\nrm -rf ~/.config/omarchy/themes/everforest\n",
+      "post": [
+        {
+          "type": "file_contains",
+          "path": "~/.config/omarchy/themes/everforest/colors.toml",
+          "pattern": "ff0000",
+          "case_sensitive": false
+        },
+        {
+          "type": "command_output_matches",
+          "command": "pacman -Qkk omarchy 2>&1 | tail -1",
+          "pattern": "0 altered files"
+        },
+        {
+          "type": "file_not_contains",
+          "path": "/usr/share/omarchy/themes/everforest/colors.toml",
+          "pattern": "ff0000",
+          "case_sensitive": false
+        },
+        {
+          "type": "file_exists",
+          "path": "/usr/share/omarchy/themes/everforest/colors.toml"
+        },
+        {
+          "type": "file_contains",
+          "path": "/usr/share/omarchy/themes/everforest/colors.toml",
+          "pattern": "accent"
+        }
+      ]
+    }
+  ],
+  "spec_sha": "4579f8111129"
+}

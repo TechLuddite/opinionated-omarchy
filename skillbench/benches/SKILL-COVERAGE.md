@@ -114,4 +114,34 @@ whose answer is "go and read the packaged defaults" plays to that failure. Prefe
 the skill names a **destination and an action**, and where the post assertions check the
 machine changed.
 
+**Fit the task inside about four turns.** Measured across every opencode agentic case run
+so far, the median is **5 turns** and the models stop there whether or not they have
+finished:
+
+| task | median turns | cases that edited anything |
+| --- | ---: | ---: |
+| `idle-lock-not-hypridle` | 4 | 27/30 |
+| `looknfeel-not-hyprlang` | 6 | 9/40 |
+| `rebind-packaged-default` | 6 | 7/40 |
+| `theme-overlay-not-packaged` | 4 | **0/30** |
+
+Two reads plus one edit gets done. Find-a-thing, make-a-directory, copy, then modify does
+not, and it fails *silently*: the model stops at the same budget and never signals that it
+did not finish. **A task is not too hard, it is too many steps.** Seed away the setup so the
+agent only has to make the change.
+
 Both of these argue for seams 1, 2 and 3 over seam 5.
+
+## One property of the split bundle to be aware of
+
+`skill:omarchy` is `files: [SKILL.md]`, but `SKILL.md` links to six topic guides and says
+"read the matching guide before starting". In that variant the guides are **not present**,
+so an agent follows the pointer and finds nothing. Observed verbatim in run 45: *"The
+skill's theming guide doesn't exist, so I'll explore the stock Everforest theme structure
+directly."*
+
+The bundle is complete on disk; this is an artefact of how `skills.yaml` splits it for
+measurement. It means `omarchy` is not simply "less skill" than `omarchy-full`, it is a
+skill with dangling references, and that is worth remembering when reading any comparison
+between the two. It was **not** the cause of the run 45 failure: run 46 with `omarchy-full`
+scored identically, 0 edits in 10 cases.
