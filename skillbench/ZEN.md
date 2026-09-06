@@ -176,11 +176,21 @@ diagnostic one.
 
 ## Driving opencode as the agentic agent
 
-`params.agent: "opencode"` switches the agentic lane from `pi` to `opencode run`. Three
-things are load-bearing and each one cost a run to find, because all three produce the
+`params.agent: "opencode"` switches the agentic lane from `pi` to `opencode run`. Four
+things are load-bearing and each one cost a run to find, because all four produce the
 **same** symptom: every case scoring the bench's do-nothing floor while the transcript shows
 the agent reading exactly the right files.
 
+- **Grant `external_directory` permission, or the agent is refused silently.** opencode
+  defaults to `external_directory: {"*": "ask"}`, and `run` is non-interactive, so **"ask"
+  means auto-reject** for any tool call outside the working directory. The refusal records
+  **no error on the case**: status stays `ok` and the transcript ends at
+  `reason: "tool-calls"`, which is exactly what a model choosing to stop looks like. It
+  voided runs 43 to 46, hitting 32/40 cases on one task and 20/20 on another, and produced
+  two published conclusions that had to be withdrawn. `app/runner.py` writes
+  `permission.external_directory: {"*": "allow"}` per case. **The only string that
+  distinguishes it is `auto-rejecting`, and it appears in the tmux output rather than the
+  JSON event stream.**
 - **`--dir "$HOME"` is required.** opencode asks permission for any write outside its
   working directory, and `run` is non-interactive, so the call returns *"The user rejected
   permission to use this specific tool call"* and the agent continues as though it had
