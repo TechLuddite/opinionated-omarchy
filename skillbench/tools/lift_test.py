@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Is a measured lift bigger than noise? Permutation test over a run's cases.
 
-    python3 skillbench/tools/lift_test.py <omarchy_run_id> [control_run_id]
+    python3 skillbench/tools/lift_test.py <omarchy_run_id> [control_run_id] [--model=<id>] [--export]
 
 WHY THIS EXISTS. Runs 23/24 reported +11.1 pt on an Omarchy bench against +5.6 pt on the
 control and the honest answer was "cannot tell" -- at n=3 the control's entire lift was ONE
@@ -17,22 +17,30 @@ NO SCIPY. A permutation test needs only the stdlib, matches the repo's dependenc
 tooling, and makes no normality assumption -- which matters because these scores are
 clumped at a handful of discrete values (4/6, 6/6), not remotely bell-shaped.
 
+TWO SOURCES, SAME NUMBERS. The live database is read when it exists; otherwise the tracked
+export in skillbench/results/ is read instead, so every figure on the published results page
+can be recomputed from a clean clone with no database and no container. Pass --export to
+force the export even when the database is present, which is how the two are checked
+against each other. The source actually read is printed on the first line.
+
 Reports, per bench: the lift, a bootstrap 95% CI, and a two-sided permutation p-value.
 With both runs it also reports the DIFFERENCE IN DIFFERENCES -- Omarchy lift minus control
 lift -- which is the number the controls exist to produce. A skill that merely makes an
 agent try harder lifts both, and only the DiD exposes that.
 """
-import random, sqlite3, statistics, sys
+import json, random, sqlite3, statistics, sys
+from pathlib import Path
 
-DB = "skillbench/data/skillbench.db"
+REPO = Path(__file__).resolve().parents[2]
+DB = REPO / "skillbench" / "data" / "skillbench.db"
+EXPORT = REPO / "skillbench" / "results"
 N_PERM = 20000
 N_BOOT = 10000
 random.seed(20260902)          # reproducible; re-runs give the same p
+USE_EXPORT = False
 
 
-def cases(run_id, model=None):
-    """One score per case: fraction of post assertions passed. Cases with no post
-    assertions are dropped -- they carry no state signal."""
+def _rows_db(run_id, model):
     c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     c.row_factory = sqlite3.Row
     rows = c.execute("""
@@ -44,6 +52,42 @@ def cases(run_id, model=None):
         FROM case_result c WHERE c.run_id=?"""
         + (" AND c.model=?" if model else ""),
         (run_id, model) if model else (run_id,)).fetchall()
+    bench = c.execute("SELECT b.name FROM bench_run r JOIN bench b ON b.id=r.bench_id"
+                      " WHERE r.id=?", (run_id,)).fetchone()
+    if bench is None:
+        sys.exit(f"run {run_id}: not in {DB}")
+    return bench[0], [dict(r) for r in rows]
+
+
+def _rows_export(run_id, model):
+    """The same rows from results/cases.jsonl. n_checks there counts EVERY grade on the
+    case, post included, so the check-only tally is the difference."""
+    bench = None
+    with (EXPORT / "runs.jsonl").open(encoding="utf-8") as fh:
+        for line in fh:
+            r = json.loads(line)
+            if r["id"] == run_id:
+                bench = r["bench"]
+    if bench is None:
+        sys.exit(f"run {run_id}: not in {EXPORT / 'runs.jsonl'}")
+    rows = []
+    with (EXPORT / "cases.jsonl").open(encoding="utf-8") as fh:
+        for line in fh:
+            c = json.loads(line)
+            if c["run_id"] != run_id or (model and c["model"] != model):
+                continue
+            rows.append({"variant": c["variant"], "task_id": c["task_id"],
+                         "status": c["status"], "output_source": c.get("output_source"),
+                         "n": c["n_post"], "k": c["n_post_passed"],
+                         "cn": c["n_checks"] - c["n_post"],
+                         "ck": c["n_passed"] - c["n_post_passed"]})
+    return bench, rows
+
+
+def cases(run_id, model=None):
+    """One score per case: fraction of post assertions passed. Cases with no post
+    assertions are dropped -- they carry no state signal."""
+    bench, rows = (_rows_export if USE_EXPORT else _rows_db)(run_id, model)
     out = {}
     for r in rows:
         # BOTH LANES. 'post' grades the machine and exists only on the agentic lane;
@@ -66,8 +110,6 @@ def cases(run_id, model=None):
         if r["output_source"] == "empty":
             continue
         out.setdefault(r["variant"], []).append((r["task_id"], k / n))
-    bench = c.execute("SELECT b.name FROM bench_run r JOIN bench b ON b.id=r.bench_id"
-                      " WHERE r.id=?", (run_id,)).fetchone()[0]
     return bench, out
 
 
@@ -150,6 +192,9 @@ def main():
         sys.exit(__doc__)
     args = [x for x in sys.argv[1:] if not x.startswith("--")]
     model = next((x.split("=", 1)[1] for x in sys.argv[1:] if x.startswith("--model=")), None)
+    global USE_EXPORT
+    USE_EXPORT = "--export" in sys.argv or not DB.exists()
+    print(f"source: {'export ' + str(EXPORT.relative_to(REPO)) if USE_EXPORT else 'database ' + str(DB.relative_to(REPO))}")
     a = report(int(args[0]), model)
     if len(args) < 2:
         return

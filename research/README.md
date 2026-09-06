@@ -74,7 +74,11 @@ research/
   tools/build_db.py       JSONL -> DB + markdown
   tools/ask.py            symptom search
   tools/schema.sql        DB schema
-  tools/harvest-workflow.js   the agent workflow that produced the corpus
+  tools/ingest.py         REPLACES the corpus from a full harvest result
+  tools/merge_gapfill.py  EXTENDS it in place, and applies audit verdicts
+  tools/harvest-workflow.js         the agent workflow that produced the corpus
+  tools/gapfill-workflow.js         harvests new records against auditor-named gaps
+  tools/audit-existing-workflow.js  audits records already in the corpus, harvests nothing
 ```
 
 ## Usage
@@ -253,8 +257,8 @@ no source list, and no tooling reads it. It is hand-written and stays that way.
 
 ## Refreshing the corpus
 
-Two workflows built this, and either can be re-run with the `Workflow` tool pointed at
-its script path:
+Three workflow scripts live in `tools/`. Two of them built this, and either can be re-run
+with the `Workflow` tool pointed at its script path:
 
 ```sh
 # full harvest from scratch: one harvester per category, each audited
