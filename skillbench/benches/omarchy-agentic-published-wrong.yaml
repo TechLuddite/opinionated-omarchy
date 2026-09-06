@@ -6,21 +6,15 @@ description: >
 
 # NOT CALIBRATED. DO NOT USE FOR A PAIRED RESULT YET.
 #
-# Runs 45 and 46 measured it and BOTH TASKS FAIL, in opposite directions:
+# Runs 45 and 46 are VOID: opencode auto-rejected every tool call touching a path outside
+# its working directory (`external_directory` defaults to "ask" and `run` is
+# non-interactive), which hit 20/20 and 10/10 cases on theme-overlay-not-packaged. The
+# rejection records no error on the case, so it read as the model choosing to stop. The
+# runner now writes a permission grant per case; these runs must be repeated.
 #
-#   idle-lock-not-hypridle       bare 1.0 on GLM-class. Too easy: they already know
-#                                idle.lock is in shell.json. 27 of 30 cases edited.
-#   theme-overlay-not-packaged   BOTH arms sit at the 0.8 floor. ZERO of 30 cases ever
-#                                edited anything, with omarchy-full as well as omarchy.
-#
-# The cause is a turn budget, not knowledge. Measured across every opencode agentic case:
-# median 5 turns. Tasks solvable in two reads plus one edit get done; tasks needing more
-# steps are abandoned at the SAME budget, and the model never notices it has not finished.
-# Task 2 needs find-theme, make-dir, copy, modify: too many steps.
-#
-# Fix one of two ways before using this: make task 1 need more than one edit, and make
-# task 2 reachable in about three steps (for example, seed the overlay directory so the
-# agent only has to write the file).
+# What survives from them: idle-lock-not-hypridle scores 1.0 BARE on GLM-class models,
+# with only 3/20 rejections, so that task really is too easy for this class and needs to
+# require more than one edit. theme-overlay-not-packaged is UNMEASURED, not too hard.
 #
 # WHY THIS BENCH EXISTS
 #

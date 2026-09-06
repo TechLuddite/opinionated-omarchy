@@ -626,3 +626,19 @@ def test_published_results_is_dated():
     import re
     assert re.search(r"as of \d{4}-\d{2}-\d{2}", _results_md()), \
         "RESULTS.md must date its totals: '... as of YYYY-MM-DD.'"
+
+
+def test_opencode_grants_external_directory_permission():
+    """Without this the agent loop terminates silently on the first outside-HOME tool call.
+
+    opencode defaults to external_directory {"*": "ask"}, and `run` is non-interactive, so
+    "ask" means auto-reject. The rejection surfaces as step_finish reason "tool-calls" with
+    NO error recorded on the case, which is indistinguishable from a model choosing to
+    stop. It contaminated runs 43, 45 and 46: 32/40 cases on rebind-packaged-default and
+    20/20 on theme-overlay-not-packaged.
+    """
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/p.txt", "none")
+    assert "external_directory" in cmd
+    assert '\\"*\\":\\"allow\\"' in cmd or '"*":"allow"' in cmd
+    assert "autoupdate" in cmd          # pinned: no version change mid-run

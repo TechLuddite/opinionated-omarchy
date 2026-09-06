@@ -24,6 +24,80 @@ Last updated: 2026-09-04
 > - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
 >   result. Nothing here says that is impossible; it says the incumbent never did it.
 
+## Session of 2026-09-05 (fourth): the turn budget was not real, and four runs are void
+
+**Runs 43, 45 and 46 are contaminated and their conclusions are withdrawn**, including one
+that had already been published on the site.
+
+### 1. opencode was silently refusing the agent's edits
+
+`opencode run` is non-interactive, and opencode's default policy is
+`external_directory: {"*": "ask"}`. In non-interactive mode "ask" means **auto-reject**, for
+any tool call touching a path outside the working directory:
+
+```
+! permission requested: external_directory (/tmp/many/*); auto-rejecting
+tool_use bash {"command":"mkdir -p /tmp/many"} -> "The user rejected permission to use
+                                                   this specific tool call."
+step_finish reason: "tool-calls"
+```
+
+**No error is recorded on the case.** The run completes, status `ok`, and the transcript
+ends at `reason: "tool-calls"`, which is exactly what a model that chose to stop looks like.
+
+It was hitting most of the affected runs:
+
+| run | task | cases with a rejection |
+| --- | --- | ---: |
+| 43 | `rebind-packaged-default` | 32/40 |
+| 43 | `looknfeel-not-hyprlang` | 28/40 |
+| 45 | `theme-overlay-not-packaged` | 20/20 |
+| 46 | `theme-overlay-not-packaged` | 10/10 |
+| 45/46 | `idle-lock-not-hypridle` | 3/20, 0/10 |
+
+**The tasks that failed are exactly the ones reaching outside `$HOME`.** The one that
+worked lives entirely inside it.
+
+### 2. Two conclusions withdrawn
+
+- **"The skill diverts an agent into research instead of action."** Published in
+  `RESULTS.md`. The zero-edit finding was the harness refusing the edit, not the skill
+  changing the model's behaviour. Retracted on the page rather than deleted, because it was
+  published there.
+- **"These models have a five-turn budget."** Same runs, same cause. Given an unobstructed
+  task the same model runs **22 steps and finishes cleanly**, all ten files written.
+
+The chat-lane results and the n=31 agentic null are **unaffected**: both predate the
+opencode backend and ran through `pi`.
+
+### 3. What actually found it
+
+The operator asked why the agent was stopping instead of accepting a workaround. Three
+hypotheses were tested and two were wrong:
+
+- **An opencode step limit.** Wrong. `steps ?? 1/0` in the binary: the default is Infinity.
+  A first grep read that as `1` because it truncated at `1/0`.
+- **A Go subscription turn limit.** Wrong. Go's limits are dollar-denominated ($12 per 5
+  hours), and no 429 appeared in any run.
+- **A permission refusal.** Correct, and it prints the reason plainly the moment a task is
+  run outside the bench.
+
+`--dir "$HOME"` from the previous session was a **half fix**: it made `~/.config` writable
+and left everything else refused. That is why `idle-lock-not-hypridle` worked and nothing
+else did.
+
+### 4. The fix, and the lesson worth keeping
+
+`app/runner.py` writes `~/.config/opencode/opencode.json` per case with
+`permission.external_directory: {"*": "allow"}`, pinned by a test that carries the case
+counts in its docstring. `autoupdate` stays false so opencode cannot change version mid-run.
+
+**A silent refusal and a model giving up are indistinguishable from the score column, and
+nearly indistinguishable from the transcript.** Only the string `auto-rejecting` separates
+them, and it appears in the tmux output rather than in the JSON event stream. This is the
+fourth harness bug in this lane to imitate a capability failure, after the scratch HOME, the
+working directory, and run 21's VRAM spill.
+
 ## Session of 2026-09-05 (third): a new bench, and the constraint it exposed
 
 `omarchy-agentic-published-wrong` was written from
