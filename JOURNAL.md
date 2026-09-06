@@ -2,36 +2,43 @@
 
 Last updated: 2026-09-06
 
-> ## START HERE: four agentic cloud runs are void, and need repeating
+> ## START HERE: the next session is about getting back on track
 >
-> Runs 43 to 46 were contaminated by opencode **auto-rejecting** every tool call outside
-> its working directory, which records **no error on the case**. That includes run 44, the
-> control, refused on 53 of its 80 cases, so "the control does not move" from those runs is
-> void with the rest. The fix is in (`app/runner.py` writes the permission grant per case,
-> pinned by a test); the runs are not.
+> The operator's reading on 2026-09-06, after this repo's published pages were audited and
+> found to reproduce: **the corpus needs massive expansion and deep auditing, and the
+> skill phase has not started.** Everything in this journal since 2026-08-29 has been the
+> bench, and the bench has spent most of that time catching its own defects. The next
+> session is not another bench session.
 >
-> **Repeat these, in this order:**
-> ```sh
-> cd skillbench && set -a && . ./secrets/zen.env && set +a \
->   && export SB_CHAT_BASE=https://opencode.ai/zen && docker compose up -d --build
-> # then, via the UI or POST /api/runs, params {"agent":"opencode","agent_timeout":600}:
-> #   omarchy-agentic-stale-advice   GLM ladder, 5 repeats   (was run 43)
-> #   linux-agentic-deep-triage      same models, control    (was run 44)
-> ```
-> `opencode-go/` models are subscription-covered and cost nothing. Balance is $4.20 and
-> should stay there.
+> **What "back on track" means, in the order the dependencies run:**
 >
-> **Then check for the refusal before trusting any floor score:**
-> `grep -c auto-rejecting` over the case output. It is not in the JSON event stream.
+> 1. **Expand the corpus.** 456 records across 12 categories is the harvest of one
+>    interrupted workflow plus one gap-fill pass. `CLAUDE.md` "Regenerating the corpus"
+>    names the three workflow scripts, what each does, and that `harvest-workflow.js`
+>    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
+>    limit. Pass the corpus root in `args`. Every new record lands with its provenance
+>    marked, never blended in as audited.
+> 2. **Audit deeper.** Four records are still `unaudited`; three defects found on a real VM
+>    on 2026-09-01 are written up in `research/validation/` and not yet applied through
+>    `merge_gapfill.py`; and `audit_status: ok` still means "matches its sources", which
+>    the first live scenario showed is not "true on Omarchy 4". Use
+>    `audit-existing-workflow.js` for records that exist. The corpus prose has 1,880 dashes
+>    across 424 records, item 6 under "What's left", and is its own job.
+> 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
+>    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
+>    now says in public that the skill is vaporware. Make that stop being true in that
+>    order, not the other way round.
 >
-> Two claims are withdrawn and must not be re-quoted from old runs: "the skill diverts an
-> agent into research" (was published on the site, now retracted there) and "these models
-> have a five-turn budget". Given an unobstructed task the same model runs 22 steps.
+> **Carried forward from the bench, not the priority:** runs 43 to 46 are void (opencode
+> auto-rejecting tool calls outside its working directory, no error on the case, the
+> control hit too) and need repeating with the permission grant now in `app/runner.py`.
+> The recipe is in the 2026-09-05 fourth session. `omarchy-agentic-published-wrong` is not
+> calibrated. The chat-lane result (+22.6 to +28.8 pt on four models, controls flat) and
+> the n=31 agentic null (DiD +0.2, p=0.98) stand.
 >
-> The chat-lane result (+22.6 to +28.8 pt on four models, controls flat) and the n=31
-> agentic null (DiD +0.2, p=0.98) are **unaffected**: both ran through `pi`.
->
-> `omarchy-agentic-published-wrong` is **NOT CALIBRATED**; its header says why.
+> **State of the record:** every figure on the seven published pages was recomputed on
+> 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
+> before quoting anything newer.
 
 ## Session of 2026-09-06: the published documents audited against the repo
 
@@ -68,8 +75,11 @@ was, and all of them reproduce. What did not hold:
   public page, which is what `ZEN.md` says; the "$12 per 5 hours" reading below is not
   reconciled with it and is left as recorded.
 
-Not touched, and worth knowing: `CLAUDE.md` still says seventeen bench specs and nine
-Omarchy ones, and `skillbench/results/README.md` still says 31 runs. Neither is published.
+Both fixed in the same PR before merge: `CLAUDE.md` said seventeen bench specs and nine
+Omarchy ones, and `skillbench/results/README.md` said 31 runs. Later the same day the repo
+gained a root `README.md`, its first, with a screenshot of the site and a plain statement
+that the skill is vaporware, and this block was rewritten to point the next session at the
+corpus rather than the bench.
 
 ## Session of 2026-09-05 (fourth): the turn budget was not real, and four runs are void
 
