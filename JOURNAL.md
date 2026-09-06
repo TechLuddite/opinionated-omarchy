@@ -22,9 +22,10 @@ Last updated: 2026-09-06
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 239 records carry that status on one source pass. Use
+>    4", and 229 records carry that status on one source pass. The first ten re-audited
+>    for that, the boot-kernel records with a `danger`, all needed correcting. Use
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
->    the ones a VM can reach. The corpus prose has 1,866 dashes across 422 records, item 6
+>    the ones a VM can reach. The corpus prose has 1,839 dashes across 418 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -42,7 +43,7 @@ Last updated: 2026-09-06
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-06 (second): the last four unaudited records, and the VM findings applied
+## Session of 2026-09-06 (second): the last four unaudited records, the VM findings, and ten boot-kernel re-audits
 
 Item 2 of the START HERE block, the part that did not need a 35-agent harvest. Four
 records had carried `unaudited` since the first harvest's auditors never returned a verdict
@@ -116,10 +117,8 @@ set was scoped to those five slugs, and the 152 other records in the four affect
 categories came through with every field unchanged. `build_db.py` regenerated four
 category pages, `research/tests/run.sh` passes, and the site builds.
 
-The corpus is now **456 records, `ok` 239 / `corrected` 217 / `unaudited` 0**, with 33
-records stamped `cause_reconciled` across three dates. The dash count under item 6 moved
-from 1,880 across 424 records to 1,866 across 422, because the five rewritten records
-carry none.
+After this batch the corpus was **456 records, `ok` 239 / `corrected` 217 / `unaudited`
+0**, with 33 records stamped `cause_reconciled`. Section 5 moves it again.
 
 ### 4. What this does not change
 
@@ -129,6 +128,67 @@ in particular is built from two issue threads and the setup script, not from a h
 cycle, and a scenario for it needs a hybrid laptop these VMs cannot imitate. Item 1 of
 START HERE, the harvest, is untouched: it needs a `/usage-credits` check and an explicit
 decision to spend about 35 agents.
+
+### 5. Ten boot-kernel records re-audited for Omarchy 4: ten out of ten were wrong
+
+The four unaudited records and the pacnew finding share one shape: sound Arch advice that
+was never checked against what Omarchy 4 actually ships. So the next batch asked that
+question directly of the records where being wrong breaks boot: the ten `boot-kernel`
+records with status `ok`, a `danger` set, and `omarchy` in `applies_to`. One brief, five
+auditors, two records each, every claim checked against the cited source and, where it
+could be, against this workstation. **All ten came back `corrected`**, nine at high
+confidence and one (`nvidia-modules-missing-from-initramfs-black-screen`) at medium
+because no DKMS failure was induced.
+
+The defects cluster, which is the useful part:
+
+- **`mkinitcpio -P` is dead on Omarchy 4.** `/etc/mkinitcpio.d/` is empty, so it stops
+  with `No presets found`. Six of the ten records offered it as the rebuild step or the
+  fallback. The command is `limine-mkinitcpio`, or `pacman -S linux`, which the ALPM
+  guard lets through because the guard aborts only a transaction carrying both `-S` and
+  `-u` (read from `/usr/bin/omarchy-update-pacman-guard`).
+- **There is no fallback initramfs and no fallback boot entry.** `limine-mkinitcpio-install`
+  builds `omarchy_linux-fallback.efi` only when `MKINITCPIO_FALLBACK` is set, nothing sets
+  it, and the hook deletes any fallback UKI it finds. The record whose whole premise was
+  "boot the fallback entry" now says so and offers the Snapshots entry or an ISO chroot.
+- **Hooks are assigned wholesale by `omarchy_hooks.conf`.** Edits to `/etc/mkinitcpio.conf`
+  that move `microcode` or add `kms` are overridden. The `fsck` hook is present but packs
+  only `fsck.btrfs`, a no-op, and every btrfs fstab line has pass 0, so the fsck record's
+  symptom cannot occur on a stock install and now says which extra disk it can name.
+- **Layout the records did not know.** Four subvolumes (`@`, `@home`, `@log`, `@pkg`) where
+  the chroot record mounted two, ESP at `/boot` not `/boot/efi`, no swap partition, the
+  cmdline embedded in the UKI so kernel parameters go through
+  `/etc/limine-entry-tool.d/` rather than the bootloader menu, and a mapper name that does
+  not matter because the chroot reads its own `/etc/default/limine`.
+- **Two cited issues did not support their records** (basecamp/omarchy#8319 for the
+  fallback record, and the snapshot record's cause was backwards about `//Snapshots`).
+  `sudo omarchy-refresh-limine` breaks because `sudo` strips `OMARCHY_PATH`, and the
+  script calls `sudo` itself. `plymouth-set-default-theme -R` runs the dead
+  `mkinitcpio -P`.
+- **Three things a plain-Arch record would never think of.** The in-place NVIDIA module
+  reload after an upgrade only works because Omarchy installs `kernel-modules-hook`. Root
+  may or may not be locked depending on which ISO installed the machine. And
+  `omarchy-hibernation-remove` leaves `resume=` in the UKI's drop-in.
+
+Every fix now carries labelled Omarchy 4 and plain Arch branches where they differ, and
+every audit note says what was checked locally versus from a source and what was not
+exercised. `merge_gapfill.py` gained `corrected_verify` on the way, because the chroot
+record's verify step looked for `/boot/vmlinuz-linux`. Same dry-run-then-diff discipline:
+exactly ten records changed, only in the named fields, and the 25 other boot-kernel
+records are untouched.
+
+The corpus is now **456 records, `ok` 229 / `corrected` 227 / `unaudited` 0**, from 832
+distinct sources (verdict sources are appended to the record), with 41 records stamped
+`cause_reconciled` across three dates. Dashes: 1,839 across 418 records.
+
+**What this says about the other 219 `ok` records.** Fifteen records checked against
+Omarchy 4 today, fifteen wrong. The boot-kernel set was chosen because it is where the
+cost is highest, not because it is where the errors are, so the rate elsewhere is
+unknown but there is no reason to expect zero. The same brief
+(`scratchpad/audit2/PREAMBLE.md` this session, worth promoting into
+`research/tools/` as the prompt for `audit-existing-workflow.js`) runs at about 130k to
+180k tokens per two-record agent. The 11 `pacman-aur` and 18 `gpu-drivers` `ok` records
+with a `danger` are the next two batches by cost of being wrong.
 
 ## Session of 2026-09-06: the published documents audited against the repo
 
@@ -2202,7 +2262,7 @@ Everything outside `research/data/problems.jsonl` was audited against
 left alone**, and it is the largest remaining body of prose in the repo.
 
 The measurement on 2026-09-03: **1,880 em and en dashes across 424 of 456 records**
-(1,866 across 422 after the 2026-09-06 corrections), concentrated in
+(1,839 across 418 after the 2026-09-06 corrections), concentrated in
 `fix` (658), `audit_note` (412), `danger` (253), `cause` (255) and `symptom` (247). Those
 render straight onto the public site's record pages and into `research/docs/`, so the
 front page now reads to one standard and the 456 pages behind it do not.
@@ -2240,7 +2300,8 @@ deliberate editorial choice rather than work not yet done.
   reset), and feeding a working scenario into the agentic bench as a `seed:`/`post:`
   pair, which is what item 1 needs.
 - The three record defects found on 2026-09-01 were applied on 2026-09-06 through
-  `merge_gapfill.py`, with an `audit_note` and a `cause_reconciled` stamp. The next
+  `merge_gapfill.py`, with an `audit_note` and a `cause_reconciled` stamp, and ten
+  boot-kernel `ok` records were re-audited against Omarchy 4 the same day (all wrong). The next
   scenario worth writing is not the hibernation one: its rewritten fix targets hybrid
   NVIDIA laptops, which a virtio GPU cannot imitate.
 - `research/` root holds ~17 loose Hyprland wiki pages. Not corpus, no tooling reads them.

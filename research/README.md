@@ -8,13 +8,13 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**456 problems across 12 categories**, drawn from 766 distinct sources. Every record
+**456 problems across 12 categories**, drawn from 832 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 239 | audited and confirmed accurate |
-| `corrected` | 217 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `ok` | 229 | audited and confirmed accurate |
+| `corrected` | 227 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
 So all 456 records have been through an adversarial audit. The last
@@ -164,8 +164,9 @@ worst-case bound on an unreviewed population, not a count of defects. The real n
 is 22.
 
 The 2026-09-01 audit stamped a further **7**, and the 2026-09-06 audit of the last four
-unaudited records plus the first VM-validated record stamped **4** more, so 33 records
-carry `cause_reconciled` across three dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+unaudited records, the first VM-validated record and ten boot-kernel records re-audited
+for Omarchy 4 stamped **12** more, so 41 records carry `cause_reconciled` across three
+dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
 whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See

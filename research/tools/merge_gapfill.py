@@ -11,8 +11,8 @@ Does two things:
 Unlike the first harvest, this honours `corrected_cause`: where the auditor
 disproved the cause as well as the fix, the cause is replaced rather than left
 standing. Records whose cause was NOT corrected keep the audit note so a reader
-can still see what was disputed. `corrected_symptom` and `corrected_danger` are
-honoured the same way, and any `sources` on a verdict are appended to the record.
+can still see what was disputed. `corrected_symptom`, `corrected_danger` and `corrected_verify`
+are honoured the same way, and any `sources` on a verdict are appended to the record.
 
 Rewrites data/problems.jsonl in place. Re-run tools/build_db.py afterwards.
 """
@@ -57,8 +57,9 @@ def apply_verdict(rec, v, stats):
             stats["cause-corrected"] += 1
         # Live exercise on a VM (research/validation/) turned up defects in a
         # symptom and a danger, neither of which the first two verdict shapes
-        # could carry. Same rule as fix: replace wholesale, never patch.
-        for field in ("symptom", "danger"):
+        # could carry, and the boot-kernel re-audit needed verify too. Same rule as fix:
+        # replace wholesale, never patch.
+        for field in ("symptom", "danger", "verify"):
             if v.get(f"corrected_{field}"):
                 rec[field] = v[f"corrected_{field}"]
                 stats[f"{field}-corrected"] += 1

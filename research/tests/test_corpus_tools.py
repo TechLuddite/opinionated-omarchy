@@ -258,6 +258,7 @@ class TestMergeExtendPath(unittest.TestCase):
                                      "confidence": "high", "reason": "symptom was wrong",
                                      "corrected_symptom": "THE REAL SYMPTOM",
                                      "corrected_danger": "THE REAL DANGER",
+                                     "corrected_verify": "THE REAL VERIFY",
                                      "sources": ["https://example.invalid/fixture",
                                                  "https://example.invalid/new",
                                                  "not-a-url"]}]}}]}
@@ -266,6 +267,7 @@ class TestMergeExtendPath(unittest.TestCase):
         got = back["symptom-and-danger"]
         self.assertEqual(got["symptom"], "THE REAL SYMPTOM")
         self.assertEqual(got["danger"], "THE REAL DANGER")
+        self.assertEqual(got["verify"], "THE REAL VERIFY")
         self.assertEqual(got["fix"], rec["fix"])
         self.assertEqual(got["cause"], "FIXTURE_CAUSE")
         self.assertEqual(got["cause_reconciled"], "2026-08-30")
