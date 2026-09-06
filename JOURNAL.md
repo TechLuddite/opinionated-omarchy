@@ -187,8 +187,11 @@ cost is highest, not because it is where the errors are, so the rate elsewhere i
 unknown but there is no reason to expect zero. The same brief
 (`scratchpad/audit2/PREAMBLE.md` this session, worth promoting into
 `research/tools/` as the prompt for `audit-existing-workflow.js`) runs at about 130k to
-180k tokens per two-record agent. The 11 `pacman-aur` and 18 `gpu-drivers` `ok` records
-with a `danger` are the next two batches by cost of being wrong.
+180k tokens per two-record agent, and now lives at `research/tools/reaudit-brief.md`.
+Of the 219, 142 carry a `danger` and apply to Omarchy: `apps-services` 23, `pacman-aur`
+22, `power-suspend` 16, `omarchy-theming` 15, `network` 15, `gpu-drivers` 14. The
+`pacman-aur` set is the next batch by cost of being wrong (partial upgrades, keyring,
+downgrades), then `gpu-drivers`.
 
 ## Session of 2026-09-06: the published documents audited against the repo
 
