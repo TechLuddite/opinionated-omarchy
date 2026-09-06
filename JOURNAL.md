@@ -181,6 +181,13 @@ The corpus is now **456 records, `ok` 229 / `corrected` 227 / `unaudited` 0**, f
 distinct sources (verdict sources are appended to the record), with 41 records stamped
 `cause_reconciled` across three dates. Dashes: 1,839 across 418 records.
 
+**The deploy failed on the merge, and the failure was correct.** `pages.yml`'s sanity
+check required an `UNAUDITED` label somewhere under `docs/records/`, as a guard that the
+provenance disclaimer still renders. With zero unaudited records that grep is empty, so
+the first site build after this work stopped before deploy. The check now asserts that
+every record page carries an audit LED and that at least one carries a non-clean one,
+which is the property it meant to guard. Fixed in a follow-up PR the same day.
+
 **What this says about the other 219 `ok` records.** Fifteen records checked against
 Omarchy 4 today, fifteen wrong. The boot-kernel set was chosen because it is where the
 cost is highest, not because it is where the errors are, so the rate elsewhere is
