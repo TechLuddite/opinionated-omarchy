@@ -469,6 +469,20 @@ mark their provenance rather than letting them blend in with audited ones. As of
 2026-09-01 no record carries `gapfill-unaudited`; the status stays reachable because
 `merge_gapfill.py` still assigns it when an audit agent dies.
 
+**`audit_status: ok` means "matches its cited sources", not "true on Omarchy 4".** On
+2026-09-06 fifteen `ok` records were checked against what Omarchy 4 actually ships (this
+workstation, the `quattro` tree, the cited issues read in full) and **all fifteen were
+wrong**: `mkinitcpio -P` with no presets, a fallback boot entry that does not exist, hooks
+overridden by `omarchy_hooks.conf`, a two-subvolume chroot on a four-subvolume layout,
+cited issues that did not support the claim. The brief that found them is
+`research/tools/reaudit-brief.md`; hand it to one agent per one or two records with the
+record JSON and an output directory. A verdict may carry `corrected_fix`,
+`corrected_cause`, `corrected_symptom`, `corrected_danger`, `corrected_verify` and
+`sources`, and `merge_gapfill.py` applies all of them (sources are appended). Always:
+assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
+merge. 229 `ok` records remain on one source pass, and 142 of them carry a `danger` and
+apply to Omarchy.
+
 A second provenance field, `cause_reconciled` (a date, or absent), exists because the
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
 could therefore keep a `cause` its own `audit_note` disproved. All 130 such records were

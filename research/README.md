@@ -17,7 +17,10 @@ carries at least one real, fetched source URL, and no two records share a slug.
 | `corrected` | 227 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
-So all 456 records have been through an adversarial audit. The last
+So all 456 records have been through an adversarial audit. That audit checked each record
+against its cited sources. It did not check it against Omarchy 4 itself, and when fifteen
+`ok` records were checked that way on 2026-09-06, all fifteen needed correcting. See
+"Refreshing the corpus" for the re-audit path. The last
 `gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
 schema and `merge_gapfill.py` can produce, but no record currently carries it.
 
@@ -274,6 +277,14 @@ python3 tools/build_db.py
 
 `ingest.py` replaces the corpus; `merge_gapfill.py` extends it in place and is the one to
 use for incremental work.
+
+To re-audit records that already carry `ok` against what Omarchy 4 actually ships, use
+[tools/reaudit-brief.md](tools/reaudit-brief.md): one agent per one or two records, each
+writing a `verdict-<slug>.json`. Assemble the verdicts into a payload with one
+`{"category": ..., "audit": {"verdicts": [...]}}` entry per category, scoped to exactly the
+slugs audited, dry-run `merge_gapfill.py` on a copy, diff the copy against the corpus to
+confirm only those records changed, then run it for real. A verdict may replace `fix`,
+`cause`, `symptom`, `danger` and `verify`, and its `sources` are appended to the record.
 
 Pick the workflow by what the records need, not by category. `gapfill-workflow.js`
 **harvests new records** against named gaps; it audits nothing that already exists.
