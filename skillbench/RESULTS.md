@@ -1,14 +1,15 @@
 # Does the skill help? What was actually measured
 
 Every number here comes from [results/](results/), which is tracked, so each one can be
-recomputed from a clean clone with no database and no container:
+recomputed from a clean clone with no database and no container. `lift_test.py` reads
+that export whenever the database is absent, and `--export` forces it:
 
 ```sh
-python3 skillbench/tools/lift_test.py 28 31          # the agentic null
-python3 skillbench/tools/lift_test.py 34             # a chat-lane result, split by task group
+python3 skillbench/tools/lift_test.py 28 31 --export     # the agentic null
+python3 skillbench/tools/lift_test.py 34 --export        # a chat-lane result, split by task group
 ```
 
-**46 runs, 3,746 cases, 12,946 graded assertions** as of 2026-09-05.
+**46 runs, 3,746 cases, 12,946 graded assertions** as of 2026-09-06.
 
 ## The short answer
 
@@ -79,22 +80,28 @@ opencode auto-rejects any tool call touching a path outside its working director
 "tool-calls"` with **no error recorded on the case**, which is indistinguishable from a
 model that simply stopped.
 
-It was hitting most of those runs:
+It was hitting every one of those runs, the control included:
 
 | run | task | cases with a permission rejection |
 | --- | --- | ---: |
 | 43 | `rebind-packaged-default` | 32/40 |
 | 43 | `looknfeel-not-hyprlang` | 28/40 |
+| 44 (control) | `dropin-shadows-unit` | 32/40 |
+| 44 (control) | `deleted-file-holds-disk` | 21/40 |
 | 45 | `theme-overlay-not-packaged` | 20/20 |
 | 46 | `theme-overlay-not-packaged` | 10/10 |
 
-The tasks that failed are exactly the ones reaching outside `$HOME`. The one task that
-worked, `idle-lock-not-hypridle`, is the one living entirely inside it.
+The tasks that failed are exactly the ones reaching outside `$HOME`: the Omarchy tasks
+that go near `/usr/share/omarchy`, and both control tasks, which live in `/etc` and
+`/var/tmp`. The one task that worked, `idle-lock-not-hypridle`, is the one living entirely
+inside it. The counts are the `rejections` column of `results/cases.jsonl`, added on
+2026-09-06 because the truncated transcript the export keeps did not carry them.
 
-So the "zero edits" was the harness refusing the edit, not the skill diverting the model. A
-related claim, that these models have a five-turn budget, came from the same runs and is
-withdrawn with it: given an unobstructed task the same model runs **22 steps and finishes
-cleanly**.
+So the "zero edits" was the harness refusing the edit, not the skill diverting the model.
+Two related claims came from the same runs and are withdrawn with it. "These models have a
+five-turn budget": given an unobstructed task the same model runs **22 steps and finishes
+cleanly**. And "the control does not move": the control run was refused more often than
+the Omarchy run, so it measured the refusal too.
 
 The fix is a permission grant written per case, now pinned by a test. These runs will be
 repeated. Nothing from them is quoted above.
@@ -103,7 +110,7 @@ repeated. Nothing from them is quoted above.
 here, so the retraction belongs here too. The chat-lane and n=31 agentic results above are
 unaffected, because they predate the opencode backend entirely and ran through `pi`.
 
-## Which models can be measured at all## Which models can be measured at all
+## Which models can be measured at all
 
 Separate from whether a skill helps: **only 4 of 14 local models can drive an agent loop**,
 and the ones that fail do so for reasons no skill addresses, emitting tool calls as prose or

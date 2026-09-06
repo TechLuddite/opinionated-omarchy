@@ -175,3 +175,22 @@ byte-identical afterwards rather than merely present.
 - The `gapfill-unaudited` status now applies to **zero** records, but remains reachable:
   `merge_gapfill.py` still assigns it when an audit agent dies. It is documented as such
   rather than removed.
+
+## Since then (added 2026-09-06)
+
+The three outstanding items above are dated to 2026-09-01 and all three closed on that
+day's second session:
+
+- `research/tests/` now holds 13 stdlib `unittest` tests, run by `research/tests/run.sh`.
+  Two of them assert `FIELDS` against `schema.sql` and against the live corpus in both
+  directions, which is the round-trip check the first bullet asked for.
+- `ingest.py` was read, and it carried the same defect: its private `FIELDS` copy lacked
+  `cause_reconciled`. The fix removed the private copies altogether. `research/tools/corpus.py`
+  owns the only `FIELDS` and the only `read_jsonl` / `write_jsonl`, and both writers import
+  it.
+- The four consumers of a schema field are now `schema.sql`, `build_db.py`, `ask.py` and
+  `corpus.py`, with the first and last checked automatically. The checklist is in the repo
+  `CLAUDE.md`.
+
+The line references in "What was changed" describe `merge_gapfill.py` as it stood on
+2026-09-01, before that refactor moved `FIELDS` out of it.

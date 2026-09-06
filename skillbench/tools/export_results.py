@@ -63,8 +63,13 @@ def distil(output):
     column: a scratch HOME that removed the config being edited, writes auto-rejected for
     being outside the working directory, and a skill that diverts the agent into research.
     The last one is visible ONLY as `edits: 0` beside `last_reason: tool-calls`.
+
+    `rejections` counts tool calls opencode refused for touching a path outside its working
+    directory. The refusal records no error on the case, and the transcript head kept here
+    is too short to carry it, so without this column the retraction of runs 43 to 46 could
+    not be re-derived from the export.
     """
-    turns, tools, last, tin, tout, cost, edits = 0, {}, None, 0, 0, 0.0, 0
+    turns, tools, last, tin, tout, cost, edits, rejections = 0, {}, None, 0, 0, 0.0, 0, 0
     for line in (output or "").splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -87,9 +92,13 @@ def distil(output):
             tools[name] = tools.get(name, 0) + 1
             if name in ("edit", "write", "patch"):
                 edits += 1
+            state = part.get("state") or {}
+            if "rejected permission" in str(state.get("error") or ""):
+                rejections += 1
     if not turns:
         return {}
     return {"turns": turns, "tools": tools, "last_reason": last, "edits": edits,
+            "rejections": rejections,
             "agent_tokens_in": tin, "agent_tokens_out": tout,
             "agent_cost": round(cost, 6)}
 

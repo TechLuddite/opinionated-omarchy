@@ -55,19 +55,19 @@ between, which is itself the finding.
 
 | model | params | disk | on GPU | score | time | verdict | what happened |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| `qwen3-coder:30b` | 30.5B | 18.6 GB | 100% | 8/8 | 41 s | **✓ capable** | **Solves it.** |
-| `gemma4:26b` | 25.8B | 18.0 GB | 100% | 8/8 | 96 s | **✓ capable** | **Solves it.** |
+| `qwen3-coder:30b` | 30.5B | 18.6 GB | 100% | 8/8 | 42 s | **✓ capable** | **Solves it.** |
+| `gemma4:26b` | 25.8B | 18.0 GB | 100% | 8/8 | 97 s | **✓ capable** | **Solves it.** |
 | `devstral-small-2:24b` | 24.0B | 15.2 GB | 100% | 8/8 | 86 s | **✓ capable** | **Solves it.** |
-| `qwen3.8:27b` | 27.3B | 17.7 GB | 100% | **8/8** | 377 s | **✓ capable** | **Solves it** (run 22, 2 of 3 clean; 1 run hit an intermittent 500 at 7/8). |
-| `qwen3:32b` | 32.8B | 20.2 GB | 90% | 5/8 | 236 s | ✗ floor | Weights + 32K KV exceed the card: 10% on CPU, then stalls. |
-| `muse-glimmer:30b` | 27.9B | 18.2 GB | 100% | 5/8 | 603 s | ✗ floor | Fits entirely on GPU; still exceeded the 600 s budget. |
+| `qwen3.8:27b` | 27.3B | 17.7 GB | 100% | **8/8** | 378 s | **✓ capable** | **Solves it** (run 22, 2 of 3 clean; 1 run hit an intermittent 500 at 7/8). |
+| `qwen3:32b` | 32.8B | 20.2 GB | 90% | 5/8 | 237 s | ✗ floor | Weights + 32K KV exceed the card: 10% on CPU, then stalls. |
+| `muse-glimmer:30b` | 27.9B | 18.2 GB | 100% | 5/8 | 604 s | ✗ floor | Fits entirely on GPU; still exceeded the 600 s budget. |
 | `mistral-small3.2:24b` | 24.0B | 15.2 GB | 100% | 5/8 | 19 s | ✗ floor | Acts, hits a permission error, gives up. |
 | `gpt-oss:20b` | 20.9B | 13.8 GB | 100% | 5/8 | 61 s | ✗ floor | Empty transcript. |
-| `gemma4` | 8.0B | 9.6 GB | 100% | 5/8 | 39 s | ✗ floor | **Claims success falsely**: reports the merge done, changed nothing. |
-| `qwen3:14b` | 14.8B | 9.3 GB | 100% | 5/8 | 25 s | ✗ floor | Empty transcript. |
+| `gemma4` | 8.0B | 9.6 GB | 100% | 5/8 | 40 s | ✗ floor | **Claims success falsely**: reports the merge done, changed nothing. |
+| `qwen3:14b` | 14.8B | 9.3 GB | 100% | 5/8 | 26 s | ✗ floor | Empty transcript. |
 | `qwen2.5-coder:14b` | 14.8B | 9.0 GB | 100% | 5/8 | 15 s | ✗ floor | Emits the tool call as fenced `json` text. |
 | `qwen2.5vl:7b` | 8.3B | 6.0 GB | n/a | n/a | n/a | ✗ no tools | No tool support: HTTP 400, cannot run. |
-| `granite3.3:8b` | 8.2B | 4.9 GB | 100% | 5/8 | 14 s | ✗ floor | Emits pseudo-XML `<file name=…>` instead of a tool call. |
+| `granite3.3:8b` | 8.2B | 4.9 GB | 100% | 5/8 | 15 s | ✗ floor | Emits pseudo-XML `<file name=…>` instead of a tool call. |
 | `llama3.1:8b` | 8.0B | 4.9 GB | 100% | 5/8 | 10 s | ✗ floor | Emits the tool call as JSON text. |
 | `qwen2.5` | 7.6B | 4.7 GB | 100% | 5/8 | 81 s | ✗ floor | Narrates shell in markdown; never executes. |
 
@@ -76,8 +76,9 @@ between, which is itself the finding.
 **Four of fourteen local models can run this bench at all**, and all four already score
 8/8 bare. There is therefore **no headroom on this bench for any skill to demonstrate a
 lift**, and run 18 confirmed it directly: `devstral-small-2:24b`, `none` vs
-`skill:omarchy`, came out 0.958 vs 0.958 (identical to three decimals) at 3.0× the
-latency.
+`skill:omarchy`, came out 0.958 vs 0.958 (identical to three decimals). That run also
+reported the skill at 3.0× the latency, a figure not quoted here: until run 26 the clock
+started before the case acquired a VM, so the second variant banked the queue wait.
 
 The band is narrow and it is not obvious from the outside: **every model capable enough to
 drive the loop is also capable enough to finish the task.** Writing harder agentic tasks
@@ -115,7 +116,7 @@ curl -sX POST http://127.0.0.1:8878/api/runs -H 'Content-Type: application/json'
 ## Caveats
 
 - **One repeat per model on one bench.** Enough to separate "cannot act" from "solves it",
-  which is what this table is for. It is *not* enough to rank the three capable models
+  which is what this table is for. It is *not* enough to rank the four capable models
   against each other.
 - **Model weights cannot be pinned.** A tag moves under you. Trust deltas within a run;
   distrust absolute scores across runs separated by time. That is the same warning the

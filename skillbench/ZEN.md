@@ -15,9 +15,10 @@ python3 skillbench/tools/probe_zen.py diff /tmp/zen-a.json /tmp/zen-b.json
 ## The shape of it
 
 `POST /zen/v1/chat/completions` and `GET /zen/v1/models`, OpenAI-compatible, with
-`Authorization: Bearer <key>`. **A Go subscription does reach the raw API**, which was the
-open question at signup, so the bench can drive it directly rather than through the
-opencode CLI.
+`Authorization: Bearer <key>`. **The account key reaches the raw API**, so the bench can
+drive it directly rather than through the opencode CLI. What that traffic bills against was
+the open question at signup, and the answer, settled further down, is the pay-as-you-go
+balance rather than the Go subscription.
 
 ```
 listed 66 | probed 59 | reachable 18 | HTTP 500 on 38
@@ -141,7 +142,8 @@ testing emit long reasoning traces before answering, so a run that looks cheap o
 be dominated by output.
 
 [tools/estimate_cost.py](tools/estimate_cost.py) prices a run before you launch it. Per-case
-token use is measured from the 272 banked chat-lane cases that carry usage, not assumed:
+token use was measured from the 272 local chat-lane cases banked on 2026-09-04, not assumed,
+and those means are pinned in the tool rather than recomputed from the export:
 
 | variant | input | output |
 | --- | ---: | ---: |
@@ -160,9 +162,9 @@ for reasoning traces:
 | `kimi-k3` alone | $3.35 |
 
 So a full ladder on one bench at full statistical power is affordable, and the whole suite
-across many models is not: all chat benches at 31 repeats is $2.33 on the cheapest paid
-model and $46.93 on the dearest. **Pick one bench with headroom and walk the ladder**,
-rather than running the suite.
+across many models is not: all 12 chat benches at 31 repeats, output tripled the same way,
+is $3.16 on the cheapest paid model and $63.69 on `kimi-k3`. **Pick one bench with headroom
+and walk the ladder**, rather than running the suite.
 
 Every measured figure above came from a local model, and most local models are not reasoning
 models. Treat the 1.0 multiplier as a floor rather than an estimate.
@@ -245,15 +247,17 @@ There is no way to scope a Zen key, so blast radius is managed at our end.
 - The runner records the request **body**, not headers, so the key does not reach
   `case_result.request` or the tracked export.
 
-## Open questions
+## Three questions this file left open, and what closed them
 
-1. **Does Go cover API calls, or do they draw on pay-as-you-go balance?** Unresolved, and
-   it matters: the flat cap is the reason Go was chosen over PAYG for an agent that can
-   loop. No quota, plan or credit headers are returned on a successful response. Watching
-   whether the account balance moves during a run is the cheapest available answer.
-2. **Why does every Western-lab model return 500?** All OpenAI, Anthropic, Google and xAI
-   ids fail while every Chinese-lab and open model works on the same key. Not explained by
-   any of the three settings. BYOK for those providers is the leading hypothesis.
-3. **Which ids do the Go page's models use?** `glm-5.3`, `glm-5.3-flash`, `qwen3.8-flash`,
-   `qwen3.7-plus`, `longcat-2.0` and `omen-alpha` all return "not supported", which may
-   mean the id is wrong rather than the model unavailable.
+1. **Does Go cover API calls, or do they draw on pay-as-you-go balance?** Closed on
+   2026-09-04 by reading the balance before and after a measured batch: an API key means
+   pay-as-you-go, on `/zen/v1` and on `opencode run` alike. Go is reachable only through the
+   CLI under the `opencode-go/` provider prefix, where it is free at the margin, as the
+   section on the two providers above records.
+2. **Why does every Western-lab model return 500?** Closed on 2026-09-04: `grok-4.6`,
+   `gpt-5-nano`, `claude-haiku-4-5` and `gemini-3.5-flash-lite` all work through
+   `opencode run` on the same key. The API endpoint serves a subset of the account's models,
+   and the BYOK hypothesis an earlier draft of this file offered was wrong.
+3. **Which ids do the Go page's models use?** Closed on 2026-09-05: `opencode-go/<id>`,
+   through the CLI only. `glm-5.3`, `glm-5.3-flash`, `qwen3.8-flash`, `qwen3.7-plus`,
+   `longcat-2.0` and `omen-alpha` were never wrong ids, they were the wrong provider.

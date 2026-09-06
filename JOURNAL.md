@@ -4,10 +4,11 @@ Last updated: 2026-09-06
 
 > ## START HERE: four agentic cloud runs are void, and need repeating
 >
-> Runs 43, 45 and 46 were contaminated by opencode **auto-rejecting** every tool call
-> outside its working directory, which records **no error on the case**. The fix is in
-> (`app/runner.py` writes the permission grant per case, pinned by a test); the runs are
-> not.
+> Runs 43 to 46 were contaminated by opencode **auto-rejecting** every tool call outside
+> its working directory, which records **no error on the case**. That includes run 44, the
+> control, refused on 53 of its 80 cases, so "the control does not move" from those runs is
+> void with the rest. The fix is in (`app/runner.py` writes the permission grant per case,
+> pinned by a test); the runs are not.
 >
 > **Repeat these, in this order:**
 > ```sh
@@ -32,9 +33,47 @@ Last updated: 2026-09-06
 >
 > `omarchy-agentic-published-wrong` is **NOT CALIBRATED**; its header says why.
 
+## Session of 2026-09-06: the published documents audited against the repo
+
+Every document the site renders under "How this was built" was read against the corpus,
+the bench specs and the tracked export. Every published figure that could be recomputed
+was, and all of them reproduce. What did not hold:
+
+- **The recompute commands on the results page failed on a clean clone.** `lift_test.py`
+  opened the untracked database and nothing else, so the page's first sentence, that every
+  number can be recomputed with no database and no container, was false. It now reads the
+  export when the database is absent, `--export` forces it, and both sources give the same
+  figures for every run the page quotes.
+- **Run 44, the control, was contaminated too.** The retraction named runs 43, 45 and 46
+  and said the tasks that failed were the ones outside `$HOME`. Both control tasks are
+  outside `$HOME`, and the database shows the refusal on 53 of run 44's 80 cases, more than
+  run 43. The retraction now says so, and "the control does not move" goes with it.
+- **The refusal counts were not in the export.** The transcript head banked per case is
+  4,000 characters and the rejection sits later, so the retraction table could not be
+  re-derived from `results/`. The export now distils a `rejections` column per case; the
+  re-export changed 224 opencode cases and nothing else.
+- **Stale counts and claims.** `skillbench/README.md` said seventeen benches and three
+  Omarchy agentic ones (eighteen and four), described the agentic lane as `pi` only, said
+  every model is local and free, and listed one credential. `MODELS.md` quoted the run 18
+  "3.0× latency" that the 2026-09-02 entry had already said not to quote, and ranked
+  "three" capable models where its own table has four. `ZEN.md` still listed as open three
+  questions the journal had closed, and its whole-suite cost no longer matched the tool.
+  `research/README.md` said two workflow scripts and listed one; there are three. The
+  results page rendered one heading twice, and the journal carried a nested-backtick
+  construct the renderer cannot express.
+- **Verified rather than changed.** The chat-lane table, the n=3/10/31 decay, the n=31
+  null, the output-token comparison, the run 21 table, the run 4 replication, the runs
+  14/15 saturation figures, the corpus counts and the raw-harvest counts all reproduce
+  from the repo. The Go plan's caps are expressed as requests per 5-hour window on its
+  public page, which is what `ZEN.md` says; the "$12 per 5 hours" reading below is not
+  reconciled with it and is left as recorded.
+
+Not touched, and worth knowing: `CLAUDE.md` still says seventeen bench specs and nine
+Omarchy ones, and `skillbench/results/README.md` still says 31 runs. Neither is published.
+
 ## Session of 2026-09-05 (fourth): the turn budget was not real, and four runs are void
 
-**Runs 43, 45 and 46 are contaminated and their conclusions are withdrawn**, including one
+**Runs 43 to 46 are contaminated and their conclusions are withdrawn**, including one
 that had already been published on the site.
 
 ### 1. opencode was silently refusing the agent's edits
@@ -53,18 +92,21 @@ step_finish reason: "tool-calls"
 **No error is recorded on the case.** The run completes, status `ok`, and the transcript
 ends at `reason: "tool-calls"`, which is exactly what a model that chose to stop looks like.
 
-It was hitting most of the affected runs:
+It was hitting every one of the four runs, the control included:
 
 | run | task | cases with a rejection |
 | --- | --- | ---: |
 | 43 | `rebind-packaged-default` | 32/40 |
 | 43 | `looknfeel-not-hyprlang` | 28/40 |
+| 44 (control) | `dropin-shadows-unit` | 32/40 |
+| 44 (control) | `deleted-file-holds-disk` | 21/40 |
 | 45 | `theme-overlay-not-packaged` | 20/20 |
 | 46 | `theme-overlay-not-packaged` | 10/10 |
 | 45/46 | `idle-lock-not-hypridle` | 3/20, 0/10 |
 
-**The tasks that failed are exactly the ones reaching outside `$HOME`.** The one that
-worked lives entirely inside it.
+**The tasks that failed are exactly the ones reaching outside `$HOME`**, and both control
+tasks do, in `/etc` and `/var/tmp`. The one that worked lives entirely inside it. (The
+run 44 rows were added on 2026-09-06; the entry as first written omitted the control.)
 
 ### 2. Two conclusions withdrawn
 
@@ -74,6 +116,8 @@ worked lives entirely inside it.
   published there.
 - **"These models have a five-turn budget."** Same runs, same cause. Given an unobstructed
   task the same model runs **22 steps and finishes cleanly**, all ten files written.
+- **"The control does not move."** Run 44 was refused more often than run 43, so its flat
+  control column measured the refusal, not the skill. Added 2026-09-06.
 
 The chat-lane results and the n=31 agentic null are **unaffected**: both predate the
 opencode backend and ran through `pi`.
@@ -86,7 +130,9 @@ hypotheses were tested and two were wrong:
 - **An opencode step limit.** Wrong. `steps ?? 1/0` in the binary: the default is Infinity.
   A first grep read that as `1` because it truncated at `1/0`.
 - **A Go subscription turn limit.** Wrong. Go's limits are dollar-denominated ($12 per 5
-  hours), and no 429 appeared in any run.
+  hours), and no 429 appeared in any run. (The public Go page expresses the cap as
+  requests per 5-hour window, as `ZEN.md` records; the two readings are not reconciled,
+  and neither is a turn limit.)
 - **A permission refusal.** Correct, and it prints the reason plainly the moment a task is
   run outside the bench.
 
@@ -185,6 +231,10 @@ marginal cost**, because every rung is `opencode-go/`.
 **The control does not move**, so nothing here says the skill degrades general Linux. The
 Omarchy direction is negative on three rungs of four and inconsistent, mean DiD about
 -6.7 pt.
+
+**Corrected 2026-09-06: every number in that table is void**, the control column included.
+Run 44 was hit by the permission refusal described in the fourth session on 53 of 80 cases,
+more than run 43, so the flat control measured the refusal rather than the skill.
 
 ### 2. The mechanism, which is the solid part
 
@@ -346,8 +396,8 @@ Three defects were caught by rendering rather than by reading the generator, whi
 same lesson as the paragraph bug:
 
 - **The H1 rendered twice**, once as the page title and again as the first body heading.
-- **Emphasis could not span a code span.** Splitting on backticks first left `**a `b` c**`
-  with stranded asterisks, which is a shape these docs use often. Code spans are now lifted
+- **Emphasis could not span a code span.** Splitting on backticks first left a bold run
+  that contained a code span with stranded asterisks, which is a shape these docs use often. Code spans are now lifted
   to placeholders so emphasis spans them.
 - **Headings collapsed to body size**, because shifting every level down one made a
   document's `##` an `<h3>` at the same 16px as the prose.
