@@ -14,7 +14,7 @@ The repo's usual rule is that derived artefacts are rebuilt rather than committe
 the artefact **can** be rebuilt. `research/data/problems.db` regenerates from the JSONL in
 0.2 s. This one regenerates from nothing.
 
-It is the record of many hours of GPU time across 31 runs, and every figure in
+It is the record of many hours of GPU and gateway time, 46 runs as of 2026-09-06, and every figure in
 [JOURNAL.md](../../JOURNAL.md) and [MODELS.md](../MODELS.md) traces back to it. Until this
 export existed, one disk sat between the project and its entire measured history, and the
 failure mode was not "lose a file" but "every number in the journal becomes an unsupported

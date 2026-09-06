@@ -6,8 +6,8 @@
 WHY THIS EXISTS. `skillbench/data/` is gitignored, and correctly so by the repo's usual
 rule: derived artefacts are rebuilt, not committed. But that rule assumes the artefact CAN
 be rebuilt. `research/data/problems.db` regenerates from the JSONL in 0.2 s. This database
-does not regenerate from anything. It is the record of many hours of GPU time across 31
-runs, and every number in JOURNAL.md and MODELS.md traces back to it. One disk failure and
+does not regenerate from anything. It is the record of many hours of GPU and gateway time,
+and every number in JOURNAL.md, MODELS.md and RESULTS.md traces back to it. One disk failure and
 the project's entire measured history becomes a set of claims with no evidence behind it.
 
 So this writes the parts that matter into `skillbench/results/`, which IS tracked:
