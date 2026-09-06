@@ -203,7 +203,23 @@ def _opencode_command(model, skill_dir, prompt_path, variant):
     case owns its VM, so there is no race, and rewriting rather than restoring means the
     state is deterministic regardless of what the previous case left behind.
     """
+    # opencode auto-rejects any tool call touching a path OUTSIDE its working directory:
+    # `permission requested: external_directory (...); auto-rejecting`, because `run` is
+    # non-interactive and the default is `external_directory: {"*": "ask"}`. --dir "$HOME"
+    # is not enough on its own; these tasks read /usr/share/omarchy and write under /tmp.
+    #
+    # This is NOT a nicety. It silently terminated the agent loop in runs 43, 45 and 46:
+    # 32/40 cases on rebind-packaged-default and 20/20 on theme-overlay-not-packaged hit a
+    # rejection, and every conclusion drawn from those runs was an artefact of it. The
+    # rejection surfaces as reason "tool-calls" with no error on the case, which is
+    # indistinguishable from a model that simply stopped.
+    #
+    # autoupdate stays false so opencode cannot change version mid-run.
+    cfg = ('{"autoupdate":false,'
+           '"permission":{"external_directory":{"*":"allow"}}}')
     parts = [
+        "mkdir -p ~/.config/opencode",
+        f"printf %s {shlex.quote(cfg)} > ~/.config/opencode/opencode.json",
         "rm -rf ~/.agents/skills",
         "mkdir -p ~/.agents/skills",
     ]

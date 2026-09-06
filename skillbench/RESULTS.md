@@ -8,7 +8,7 @@ python3 skillbench/tools/lift_test.py 28 31          # the agentic null
 python3 skillbench/tools/lift_test.py 34             # a chat-lane result, split by task group
 ```
 
-**44 runs, 3,686 cases, 12,616 graded assertions** as of 2026-09-05.
+**46 runs, 3,746 cases, 12,946 graded assertions** as of 2026-09-05.
 
 ## The short answer
 
@@ -68,29 +68,42 @@ condition the controls exist to detect.
 
 Publishing the n=3 figure would have claimed an eleven point improvement that does not exist.
 
-## Agentic lane, cloud models: the skill can divert an agent
+## Agentic lane, cloud models: WITHDRAWN
 
-The GLM ladder through `opencode run`, 5 repeats per rung.
+An earlier version of this page reported that the skill "diverts an agent into research
+instead of action", from runs 43 to 46 on the GLM ladder. **That result is withdrawn.**
 
-| rung | Omarchy | control | difference |
-| --- | ---: | ---: | ---: |
-| `glm-5.1` | -20.0 pt (p=0.02) | +0.0 pt | -20.0 |
-| `glm-5.2` | +10.0 pt | +0.4 pt | +9.6 |
-| `glm-5.3-flash` | -13.3 pt | -10.0 pt | -3.3 |
-| `glm-5.3` | -16.7 pt | -3.7 pt | -13.0 |
+opencode auto-rejects any tool call touching a path outside its working directory, because
+`opencode run` is non-interactive and the default policy is
+`external_directory: {"*": "ask"}`. The rejection surfaces as `step_finish reason:
+"tool-calls"` with **no error recorded on the case**, which is indistinguishable from a
+model that simply stopped.
 
-The control does not move, so this is not the skill degrading general Linux. What it is, is
-specific and visible in the transcripts: on `rebind-packaged-default` with the skill loaded,
-**zero file edits and zero clean stops across 20 cases**, while the same skill on the sibling
-task produced 7 of each. The skill points the model at `/usr/share/omarchy/`, it researches
-the packaged binding API, and it never edits `~/.config/hypr/bindings.lua`. Bare, lacking
-that pointer, it edits the user file.
+It was hitting most of those runs:
 
-**Treat the magnitudes as directional.** Bare scores 0.90 to 0.97 here, because this bench
-was calibrated against a model that solves it 8 times in 20; timeouts run 8 in the skill arm
-against 3 bare; and n=5 on a lane where +11.1 became +1.9 between n=3 and n=31.
+| run | task | cases with a permission rejection |
+| --- | --- | ---: |
+| 43 | `rebind-packaged-default` | 32/40 |
+| 43 | `looknfeel-not-hyprlang` | 28/40 |
+| 45 | `theme-overlay-not-packaged` | 20/20 |
+| 46 | `theme-overlay-not-packaged` | 10/10 |
 
-## Which models can be measured at all
+The tasks that failed are exactly the ones reaching outside `$HOME`. The one task that
+worked, `idle-lock-not-hypridle`, is the one living entirely inside it.
+
+So the "zero edits" was the harness refusing the edit, not the skill diverting the model. A
+related claim, that these models have a five-turn budget, came from the same runs and is
+withdrawn with it: given an unobstructed task the same model runs **22 steps and finishes
+cleanly**.
+
+The fix is a permission grant written per case, now pinned by a test. These runs will be
+repeated. Nothing from them is quoted above.
+
+**Why this is on the page rather than deleted:** the agentic cloud numbers were published
+here, so the retraction belongs here too. The chat-lane and n=31 agentic results above are
+unaffected, because they predate the opencode backend entirely and ran through `pi`.
+
+## Which models can be measured at all## Which models can be measured at all
 
 Separate from whether a skill helps: **only 4 of 14 local models can drive an agent loop**,
 and the ones that fail do so for reasons no skill addresses, emitting tool calls as prose or

@@ -114,21 +114,16 @@ whose answer is "go and read the packaged defaults" plays to that failure. Prefe
 the skill names a **destination and an action**, and where the post assertions check the
 machine changed.
 
-**Fit the task inside about four turns.** Measured across every opencode agentic case run
-so far, the median is **5 turns** and the models stop there whether or not they have
-finished:
+**Let the agent reach outside `$HOME`.** An earlier version of this file said to fit a
+task inside about four turns, from a measured median of 5. **That was an artefact and is
+withdrawn.** opencode auto-rejects tool calls outside its working directory in
+non-interactive mode, recording no error on the case, so a blocked agent looks exactly like
+one that chose to stop. Given an unobstructed task the same model runs 22 steps and
+finishes. `app/runner.py` now writes the permission grant per case.
 
-| task | median turns | cases that edited anything |
-| --- | ---: | ---: |
-| `idle-lock-not-hypridle` | 4 | 27/30 |
-| `looknfeel-not-hyprlang` | 6 | 9/40 |
-| `rebind-packaged-default` | 6 | 7/40 |
-| `theme-overlay-not-packaged` | 4 | **0/30** |
-
-Two reads plus one edit gets done. Find-a-thing, make-a-directory, copy, then modify does
-not, and it fails *silently*: the model stops at the same budget and never signals that it
-did not finish. **A task is not too hard, it is too many steps.** Seed away the setup so the
-agent only has to make the change.
+The lesson that survives is about diagnosis rather than design: **a silent refusal and a
+model giving up are indistinguishable from the score column, and nearly indistinguishable
+from the transcript.** Only the string `auto-rejecting` separates them.
 
 Both of these argue for seams 1, 2 and 3 over seam 5.
 
