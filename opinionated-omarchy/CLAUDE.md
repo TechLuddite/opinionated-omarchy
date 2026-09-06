@@ -3,6 +3,12 @@
 **Nothing is written here yet.** This file exists so that whoever writes the first line
 knows what the thing is for, what it has to beat, and what would make it dishonest.
 
+**And nothing should be written here next session either.** The operator's reading on
+2026-09-06 is that the corpus is too small and too shallowly audited to build on, so the
+order of work is corpus expansion, then deeper audit, then this. The root `README.md`
+says so in public. The design below is settled and waits; it does not need re-deriving
+when the corpus is ready.
+
 The slot is not speculative: it is the settled destination for the skill that turns the
 [research corpus](../research/) into something an agent can consume. This file is what
 holds the directory open (git tracks files, not directories), so it replaced the

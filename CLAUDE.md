@@ -34,6 +34,8 @@ generated is enforced by [.gitignore](.gitignore) and [.gitattributes](.gitattri
 ## Layout
 
 ```
+README.md                the public landing page on GitHub; the vaporware joke is deliberate
+assets/readme/           the screenshot the README embeds; retake it when the site changes
 omarchy/                 upstream skill: system customization  (7 files)
 diagnose-crash/          upstream skill: crash diagnosis       (2 files)
 opinionated-omarchy/     where the skill this repo is building will live, nothing written yet
@@ -83,8 +85,10 @@ JOURNAL.md               where we stopped, what's left
 ```
 
 `opinionated-omarchy/` is **the destination for the skill this repo exists to produce**,
-the one that makes the corpus agent-consumable. It is still several steps out, so no skill
-is written there yet, but the slot is not speculative. It now holds
+the one that makes the corpus agent-consumable. Nothing is written there yet, and as of
+2026-09-06 the operator's own reading is that the corpus needs to be much larger and much
+more deeply audited before a skill built on it is worth writing. The slot is not
+speculative, but the skill is not close either. It now holds
 [opinionated-omarchy/CLAUDE.md](opinionated-omarchy/CLAUDE.md), which records what the skill
 has to be, the +29.3 pt / −2.3 pt baseline it has to beat, and the provenance it must not
 launder. Read that before writing anything there. (That file also replaced the zero-byte
@@ -584,6 +588,11 @@ repo, including commit messages and PR bodies. The whole corpus was audited agai
 
 Three things are specific to this repo and are the ones that get got wrong:
 
+- **`README.md` is public prose too**, the GitHub landing page rather than a site page. It
+  says plainly that the skill is vaporware and jokes about it; that tone was chosen on
+  2026-09-06 and is not a defect to tidy. Its numbers are checkable like every other
+  number here, so recompute them when the corpus or the export changes, and retake
+  `assets/readme/site.png` when the site's front page changes.
 - **Seven documents are now PUBLISHED, not just tracked.** `research/README.md`,
   `skillbench/README.md`, `skillbench/RESULTS.md`, `skillbench/MODELS.md`,
   `skillbench/ZEN.md`, `JOURNAL.md` and the writeup are rendered onto the site by
