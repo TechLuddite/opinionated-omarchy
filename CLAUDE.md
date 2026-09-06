@@ -445,8 +445,9 @@ git diff --exit-code research/docs/     # must be clean once the build output is
 There is no refresh cadence, and inventing one would be dishonest about what this is. The
 corpus is a dated snapshot, not a feed. Rebuild when the JSONL changes; re-run a harvest
 workflow only when there is a reason, such as an Omarchy release that changes the
-underlying facts. Every record has now been audited except the 4 `unaudited` ones the
-auditors never returned a verdict for. See [JOURNAL.md](JOURNAL.md).
+underlying facts. Every record has now been audited: the last 4 `unaudited` ones, which
+the first auditors never returned a verdict for, were audited on 2026-09-06 and all four
+needed correcting. See [JOURNAL.md](JOURNAL.md).
 
 Two ingest paths, and picking the wrong one destroys work:
 
@@ -472,8 +473,9 @@ A second provenance field, `cause_reconciled` (a date, or absent), exists becaus
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
 could therefore keep a `cause` its own `audit_note` disproved. All 130 such records were
 read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from their notes.
-A further 7 were stamped on 2026-09-01 by the audit of the last unaudited records, so
-**29 records carry the stamp across two dates**. **The disclaimer printed under the audit
+A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, and 4 more on
+2026-09-06 by the audit of the last unaudited records plus the first VM-found defect, so
+**33 records carry the stamp across three dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
@@ -618,8 +620,9 @@ Three things are specific to this repo and are the ones that get got wrong:
   description, a bullet list of three introduced as "two ways", and a `README` recipe
   naming the workflow that does the opposite of what it claimed.
 
-**`research/data/problems.jsonl` is deliberately excluded for now.** 1,880 em and en dashes
-sit across 424 of its 456 records, and cleaning them means rewriting the source of truth
+**`research/data/problems.jsonl` is deliberately excluded for now.** 1,866 em and en dashes
+sit across 422 of its 456 records as of 2026-09-06 (the five records rewritten that day
+carry none, which is where the count moved), and cleaning them means rewriting the source of truth
 and regenerating `research/docs/` in the same commit. Tracked in
 [JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose
 piecemeal: a partial pass makes the remaining records look like a deliberate choice.

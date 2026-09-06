@@ -1504,14 +1504,19 @@ Sources: <https://archlinux.org/news/linux-firmware-2025061312fe085f-5-upgrade-r
 
 ```
 warning: /etc/mkinitcpio.conf installed as /etc/mkinitcpio.conf.pacnew
-warning: /etc/default/limine installed as /etc/default/limine.pacnew
+warning: /etc/mkinitcpio.conf.d/omarchy_hooks.conf installed as /etc/mkinitcpio.conf.d/omarchy_hooks.conf.pacnew
+warning: /etc/limine-entry-tool.conf installed as /etc/limine-entry-tool.conf.pacnew
 ```
 
-Nothing breaks that day. Weeks later a kernel update rebuilds the initramfs and the machine drops to an emergency shell, or the LUKS prompt never appears, or the root device is not found — because the file that is actually read no longer matches what the current package expects (a renamed hook, a changed default, a new required entry). Users also break it the other way round by running `mv /etc/mkinitcpio.conf.pacnew /etc/mkinitcpio.conf`, which silently deletes their `encrypt`, `plymouth`, or `btrfs-overlayfs` hooks.
+Nothing breaks that day. Weeks later a kernel update rebuilds the initramfs and the machine drops to an emergency shell, or the LUKS prompt never appears, or the root device is not found. The file that is actually read no longer matches what the current package expects: a renamed hook, a changed default, a new required entry. Users also break it the other way round by running `mv /etc/mkinitcpio.conf.pacnew /etc/mkinitcpio.conf` on plain Arch, or by overwriting `omarchy_hooks.conf` with its `.pacnew` on Omarchy, which silently deletes whatever hook they had added by hand. You only see these warnings for files you edited: on a stock Omarchy 4 install all three are `[unmodified]` and pacman replaces them in place.
 
-**Cause.** pacman never merges configuration. When a package ships a new version of a file you have edited, it writes `.pacnew` alongside and leaves yours untouched. `/etc/mkinitcpio.conf` (from mkinitcpio) and `/etc/default/limine` (from limine-entry-tool) are exactly such files, and they are the ones that decide whether the machine can boot. Because the damage only surfaces at the next initramfs rebuild, the cause and the symptom can be a month apart.
+**Cause.** pacman never merges configuration. When a package ships a new version of a file you have edited, it writes `.pacnew` alongside and leaves yours untouched. The files that decide whether this machine can boot are exactly such files. On plain Arch that is `/etc/mkinitcpio.conf` (from `mkinitcpio`). On Omarchy 4 the hook list lives in `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` (a backup file of `omarchy-settings`), and the Limine entry template is `/etc/limine-entry-tool.conf` (from `limine-mkinitcpio-hook`). `/etc/default/limine` is the user copy that template tells you to make, is owned by no package, and never gets a `.pacnew`. Because the damage only surfaces at the next initramfs rebuild, the cause and the symptom can be a month apart.
 
-> ⚠️ **Risk.** Overwriting /etc/mkinitcpio.conf (or the Omarchy hooks drop-in) with the .pacnew removes your encryption, plymouth and btrfs hooks and produces an initramfs that cannot open or find the root device — an unbootable machine. Merge, rebuild, and confirm the rebuild succeeded before you reboot. Keep a fallback boot entry, an LTS kernel, or a working snapshot available while you do this. Deleting a .pacsave loses the only copy of a config from a package you removed.
+> **Audit corrected this record.** Re-audited on 2026-09-06 after the record was exercised on a real Omarchy 4.0.1 VM (research/validation/, 6/6 assertions pass) and checked again on a 4.0.2 workstation with pacman -Qo, pacman -Qii and pacman -Qkk. The remediation (pacdiff, merge never overwrite, rebuild with limine-mkinitcpio and read the output, keep changes in drop-ins) is confirmed on the machine itself: /usr/local/bin/mkinitcpio is a wrapper from limine-mkinitcpio-hook that warns it does not update Limine entries. Three claims were wrong for Omarchy 4. The symptom quoted a .pacnew for /etc/default/limine, but no package owns that file (pacman -Qo errors), so pacman can never write one for it. The package-owned file is /etc/limine-entry-tool.conf, from limine-mkinitcpio-hook, whose header says to copy it to /etc/default/limine and edit the copy. The cause repeated the same error and named limine-entry-tool as the owner. The danger said overwriting /etc/mkinitcpio.conf with its .pacnew removes the encrypt, plymouth and btrfs-overlayfs hooks. On Omarchy 4 it does not: those hooks are assigned wholesale by /etc/mkinitcpio.conf.d/omarchy_hooks.conf, a backup file of omarchy-settings that mkinitcpio reads after the main file, and the effective HOOKS measured on the VM did not change whatever was done to mkinitcpio.conf. Also, a stock install leaves /etc/mkinitcpio.conf [unmodified], so the .pacnew only appears if you edited it. The file on Omarchy 4 that can both get a .pacnew and carry the hook list is omarchy_hooks.conf itself. Symptom, cause and danger rewritten to name the right files. The fix stands as written.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On plain Arch, overwriting `/etc/mkinitcpio.conf` with the `.pacnew` removes your encryption, plymouth and btrfs hooks and produces an initramfs that cannot open or find the root device: an unbootable machine. On Omarchy 4 the hook list is assigned by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, which mkinitcpio reads after the main file, so replacing `mkinitcpio.conf` does not touch the hooks, but overwriting `omarchy_hooks.conf` with its `.pacnew` drops any hook you added to it by hand. Merge, rebuild, and confirm the rebuild succeeded before you reboot. Keep a fallback boot entry, an LTS kernel, or a working snapshot available while you do this. Deleting a `.pacsave` loses the only copy of a config from a package you removed.
 
 **Fix.**
 
@@ -2288,47 +2293,68 @@ Sources: <https://github.com/basecamp/omarchy/issues/7867> · <https://github.co
 
 `resume-hook-after-filesystems-hibernation` · severity: **medium** · frequency: **common** · applies to: `arch`, `btrfs`, `cachyos`, `endeavouros`, `laptop`, `limine`, `luks`, `omarchy`
 
-**Symptom.** You set up hibernation, the machine hibernates fine, but every resume is a cold boot — the swap image is ignored and any unsaved work is gone. On Omarchy this happens on every install with hibernation enabled, regardless of GPU. Inspecting the config shows `resume` at the end of the hook list, after `filesystems`, `fsck` and `btrfs-overlayfs`.
+**Symptom.** After `omarchy hibernation setup` the machine hibernates, but powering on gives a cold boot and unsaved work is gone. Looking for the cause you find `resume` at the end of the effective hook list, after `filesystems`, `fsck` and `btrfs-overlayfs`, because `/etc/mkinitcpio.conf.d/omarchy_resume.conf` only appends `HOOKS+=(resume)`. That ordering is harmless. So far the failing machines are hybrid Intel+NVIDIA and AMD+NVIDIA laptops, and `journalctl -b | grep -iE 'PM: hibernation|nv_pmops'` shows `nvidia ... pci_pm_freeze(): nv_pmops_freeze [nvidia] returns -5` followed by `PM: hibernation: resume failed (-5)`.
 
-**Cause.** mkinitcpio hooks run in array order, and `resume` must write the swap device to `/sys/power/resume` **before** `filesystems` mounts the real root — otherwise the root FS is already mounted read-write and the kernel refuses to resume. On Omarchy, `omarchy-settings` ships `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` which *assigns* `HOOKS=(...)`, while `omarchy-hibernation-setup` ships `omarchy_resume.conf` which only *appends* `HOOKS+=(resume)`. Drop-ins are read in alphabetical order, so the assignment always runs first and the append can only ever put `resume` last. Tracked as basecamp/omarchy#8471.
+**Cause.** The position of `resume` relative to `filesystems` does not matter in a busybox initramfs. mkinitcpio's `init` runs every hook's `run_hook` function first and mounts the real root on `/sysroot` afterwards, and the `filesystems` hook has no runtime script at all (its install script only adds filesystem modules and `mount.*` helpers to the image). The only ordering rules are that `resume` come after `udev` and after whatever provides the swap device (`encrypt`, `lvm2`), and Omarchy's `encrypt ... resume` order meets both. The Arch wiki's own example puts `resume` after `filesystems`. Issue basecamp/omarchy#8471 argues the ordering is wrong on paper and its reporter says they could not show a failure caused by it.
 
-> ⚠️ **Risk.** A hand-written HOOKS line that omits `encrypt`/`sd-encrypt`, `block` or `filesystems` produces an initramfs that cannot mount root — an unbootable system. Copy the existing list verbatim and only move `resume` into it; keep the fallback image so you have a way back.
+The cold boots reported on Omarchy come from a different drop-in. `install/hardware/nvidia.sh` writes `/etc/mkinitcpio.conf.d/nvidia.conf` with `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` on every NVIDIA machine, including hybrid laptops where the iGPU drives the only panel. Those modules load from the initramfs before the resume hook runs. When the kernel then tries to load the hibernation image it has to freeze every loaded driver, the NVIDIA instance in the initramfs fails `pci_pm_freeze()` with `-5`, and the kernel logs `Failed to load image, recovering` and continues as a normal boot. That is basecamp/omarchy#8352, confirmed by two more reporters on different hardware, and moving `resume` earlier does not change it because the modules are loaded by the `MODULES` array before any hook runs.
+
+Two other things produce the same cold boot on Omarchy without any NVIDIA involvement. `omarchy-hibernation-setup` writes `resume=<device> resume_offset=<offset>` to `/etc/limine-entry-tool.d/resume.conf`, and if `btrfs inspect-internal map-swapfile` failed during setup the file carries an empty `resume_offset=`, which the script knows how to repair on its next run. And if `/sys/power/disk` reads `[disabled]` the kernel will not hibernate at all.
+
+> **Audit corrected this record.** The cause is disproved by mkinitcpio's own init script. In the busybox initramfs, `init` runs `run_hookfunctions 'run_hook' 'hook' $HOOKS` for every hook in the array and only afterwards calls `fsck_root` and `"$mount_handler" /sysroot`, so root is mounted after all runtime hooks, including a `resume` placed last. The `filesystems` hook has only a `build()` function and no runtime script, so it cannot mount anything at boot. The Arch wiki's own busybox example is `block filesystems resume fsck`, and its stated constraints are only that `resume` follow `udev` and any of `encrypt`/`lvm2`, which Omarchy's `encrypt ... resume` order satisfies. Issue 8471, the record's main source, has zero comments and its reporter writes that they could not demonstrate a resume failure attributable to the ordering. Issue 8352 is the real defect behind cold boots on Omarchy: `install/hardware/nvidia.sh` writes `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` on hybrid laptops, the initramfs instance of `nvidia` fails its freeze callback with -5 and the kernel discards the image, and two independent reporters confirm that stripping the modules fixes it, while the reporter states reordering `resume` does not help. This workstation, an Omarchy 4.0.2-1 install with `resume` last, logs `PM: Image not found (code -22)` on every boot, which is the kernel checking the configured resume device before root is mounted. The record's fix also names `cmdline:` in `/boot/limine.conf`, which `limine-entry-tool` regenerates from `/etc/limine-entry-tool.d/*.conf`, where `omarchy-hibernation-setup` already writes `resume.conf`, and its example HOOKS line drops `plymouth`. `omarchy_resume.conf` is written by `bin/omarchy-hibernation-setup` on the quattro branch, not shipped by a package. Both issues now resolve under `omacom/omarchy` on GitHub. The corrected fix below is built from the issue 8352 reports and the setup script and was not exercised with a hibernate cycle on this machine.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Only strip the NVIDIA modules on a machine where another GPU drives the display. On an NVIDIA-only machine `omarchy_hooks.conf` has already dropped the `kms` hook because `nvidia_drm` is early-loaded, so removing the modules as well leaves Plymouth and the LUKS passphrase prompt without early KMS. Do not hand-edit `/boot/limine.conf`: `limine-entry-tool` overwrites it on the next rebuild. Leave `HOOKS` alone. A hand-written `HOOKS=` drop-in that omits `encrypt`, `block`, `filesystems` or `plymouth` produces an initramfs that cannot unlock or mount root, or loses the splash, for no benefit.
 
 **Fix.**
 
-Add a drop-in that sorts **after** both existing files and re-declares the full array with `resume` in the right place — after the hook that provides the swap device (`encrypt`/`sd-encrypt`/`lvm2`) and before `filesystems`:
+Do not rewrite `HOOKS`. First confirm the hook order is what Omarchy intends and read the journal from the boot that should have resumed:
 
 ```sh
-sudo tee /etc/mkinitcpio.conf.d/zz-resume-order.conf >/dev/null <<'EOF'
-HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt resume filesystems fsck btrfs-overlayfs)
+bash -c 'source /etc/mkinitcpio.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source "$f"; done; printf "%s\n" "${HOOKS[@]}" | nl'
+journalctl -b | grep -iE 'PM: (hibernation|image)|nv_pmops|hibernate-resume'
+cat /proc/cmdline | tr ' ' '\n' | grep resume
+```
+
+`resume` after `encrypt` is correct wherever it sits. A normal boot with `resume=` set logs `PM: Image not found (code -22)`, which shows the resume device was checked before root was mounted.
+
+If the journal shows `nv_pmops_freeze [nvidia] returns -5` and the machine is a hybrid laptop whose panel is driven by an Intel or AMD iGPU, keep the NVIDIA modules out of the initramfs. This is the workaround from basecamp/omarchy#8352, verified with real hibernate cycles by its reporters. The `zz-` name sorts after `nvidia.conf` and after `omarchy_hooks.conf`, so the `kms` hook decision in `omarchy_hooks.conf` is unchanged:
+
+```sh
+sudo tee /etc/mkinitcpio.conf.d/zz-hibernate-no-nvidia.conf >/dev/null <<'EOF'
+_zz_filtered=()
+for _zz_m in "${MODULES[@]}"; do
+  case "$_zz_m" in
+    nvidia|nvidia_modeset|nvidia_uvm|nvidia_drm) continue ;;
+  esac
+  _zz_filtered+=("$_zz_m")
+done
+MODULES=("${_zz_filtered[@]}")
+unset _zz_filtered _zz_m
 EOF
+sudo limine-mkinitcpio
 ```
 
-Copy the exact hook list your system currently uses as the starting point — print it first so you do not drop a distro-specific hook:
+If the journal shows no resume attempt, check the Limine cmdline drop-in rather than `/boot/limine.conf`, which `limine-entry-tool` regenerates from `/etc/limine-entry-tool.d/`:
 
 ```sh
-grep -h '^HOOKS' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf
+cat /etc/limine-entry-tool.d/resume.conf
+sudo btrfs inspect-internal map-swapfile -r /swap/swapfile
+findmnt -no SOURCE -T /swap/swapfile
 ```
 
-Make sure the kernel command line names the swap device. For Limine, add to the `cmdline:` in `/boot/limine.conf` (or the Omarchy cmdline drop-in):
-
-```
-resume=UUID=<swap-uuid>
-```
-and for a swapfile on Btrfs, also `resume_offset=<offset>` from `sudo btrfs inspect-internal map-swapfile -r /swap/swapfile`.
-
-Rebuild:
+The device must be the block device backing the swapfile (`/dev/mapper/root` on an encrypted Omarchy install, not the swap UUID) and the offset must match the `map-swapfile` output. If `resume_offset=` is empty, rerun the setup, which repairs it and rebuilds the UKI:
 
 ```sh
-sudo limine-mkinitcpio     # Omarchy
-sudo mkinitcpio -P         # plain Arch
+omarchy hibernation setup
 ```
+
+If `cat /sys/power/disk` prints `[disabled]`, the kernel cannot hibernate on this machine and no initramfs change will help.
 
 **Verify.** `lsinitcpio /boot/initramfs-linux.img | grep -n resume` (or inspect the UKI) shows the resume hook, and `sudo systemctl hibernate` followed by power-on returns you to your open windows. `journalctl -b | grep -i 'resume'` shows the resume device being used.
 
-> *Not independently audited: verify before running.*
-
-Sources: <https://github.com/basecamp/omarchy/issues/8471> · <https://github.com/basecamp/omarchy/issues/8352> · <https://man.archlinux.org/man/mkinitcpio.conf.5>
+Sources: <https://github.com/basecamp/omarchy/issues/8471> · <https://github.com/basecamp/omarchy/issues/8352> · <https://man.archlinux.org/man/mkinitcpio.conf.5> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-hibernation-setup> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/init> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/init_functions> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/hooks/resume> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/install/resume> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/install/filesystems> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/man/mkinitcpio.conf.5.adoc>
 
 ---
 

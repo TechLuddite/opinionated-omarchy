@@ -101,13 +101,14 @@ is in boot, pacman or system-tree territory, that is where its benches belong.
 
 The corpus carries per-record provenance and that is load-bearing, not decoration:
 
-- `audit_status`: `ok` (240), `corrected` (212), `unaudited` (4).
-- `cause_reconciled`: set on the 29 records whose `cause` was rewritten to match their own
-  audit note: 22 on 2026-08-30, 7 on 2026-09-01.
+- `audit_status`: `ok` (239), `corrected` (217), `unaudited` (0 since 2026-09-06, but the
+  status stays reachable and the next harvest will reintroduce it).
+- `cause_reconciled`: set on the 33 records whose `cause` was rewritten to match their own
+  audit note: 22 on 2026-08-30, 7 on 2026-09-01, 4 on 2026-09-06.
 
-**A skill that flattens those into undifferentiated advice launders the 4 never-reviewed
-records, and the 212 whose fix an auditor had to rewrite, into the same voice as the
-records that passed clean.** Whatever shape the skill takes, an
+**A skill that flattens those into undifferentiated advice launders the 217 records whose
+fix, cause or danger an auditor had to rewrite, and every unaudited record the next harvest
+adds, into the same voice as the records that passed clean.** Whatever shape the skill takes, an
 unaudited record has to still read as unaudited by the time it reaches the user. Both
 `ask.py` and the generated markdown already do this; do not regress it.
 

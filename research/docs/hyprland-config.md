@@ -1746,13 +1746,17 @@ Sources: <https://github.com/basecamp/omarchy/issues/4023> · <https://hypr.land
 
 **Symptom.** `allow_tearing` is on and the `immediate` window rule is set, but frame times in a game are unchanged and there is no tearing at all. Or tearing works and the game freezes instead, or shows random coloured pixels. Or VRR is enabled and the desktop now flickers in brightness — worst while scrolling, watching a fullscreen YouTube video, or in any game whose framerate swings.
 
-**Cause.** **Tearing** is only applied when the tearing window is fullscreen and is the *only* thing visible on that output. A notification, a bar, a lock surface, an overlay or a second window on the same monitor suppresses it, and it needs both the `general:allow_tearing` master toggle and a per-window `immediate` rule. Frozen or artefacted output means the GPU driver does not really support tearing — there is no compositor-side fix. **VRR brightness flicker** is a monitor property, not a Hyprland bug: many panels change perceived brightness with refresh rate, so a rate that swings between (say) 72 and 144 Hz visibly pulses. VRR also requires DisplayPort on most hardware, and some monitors only expose VRR below their maximum refresh rate.
+**Cause.** **Tearing** is only applied when the tearing window is fullscreen and is the *only* thing visible on that output. A notification, a bar, a lock surface, an overlay or a second window on the same monitor suppresses it, and it needs both the `general:allow_tearing` master toggle and a per-window `immediate` rule. `hyprctl monitors` says which condition is failing in its `tearingBlockedBy` field. Frozen or artefacted output almost always means the GPU driver does not support tearing, and the Hyprland wiki asks that it not be reported as a Hyprland bug. **VRR brightness flicker** is not something Hyprland controls. FreeSync panels often have a VRR range much narrower than their maximum refresh rate, and a panel driven across a limited range shows it as flicker: the one Hyprland report cited (an AOC FreeSync monitor over DisplayPort on AMD, swinging between 72 and 144 Hz while the game held 120 fps) matches that pattern, and it was auto-closed without a maintainer reply because Hyprland no longer accepts user-filed issues. VRR also requires DisplayPort on most hardware, HDMI VRR needs a display that implements that part of HDMI 2.1, and some monitors only expose VRR below their maximum refresh rate.
+
+> **Audit corrected this record.** Checked every Lua form on this Omarchy 4 / Hyprland 0.56.2 machine and against the wiki. The Tearing page gives the identical hl.config allow_tearing plus hl.window_rule immediate snippet, states the fullscreen-and-only-thing-visible precondition, and says freezes and colourful artefacts almost definitely mean the driver does not support tearing. The config options page confirms misc:vrr 0/1/2/3 with 3 meaning video or game content type, cursor:no_break_fs_vrr 0/1/2 with default 2, and cursor:min_refresh_rate default 24 range 10 to 500, and the machine's hyprctl getoption returns the same defaults. hyprctl --help and the Using hyprctl page both list eval, and `hyprctl eval 'hl.config({ misc = { vrr = 0 } })'` returned ok and flipped getoption to set: true, so the live-try command is real. hyprctl -j monitors exposes vrr, activelyTearing and tearingBlockedBy, and Hyprland 0.56.2's MonitorRuleManager.cpp line 214 uses the monitor rule's vrr when set and misc:vrr otherwise, so the precedence claim holds. The window rules page lists content (none/photo/video/game) and fullscreen as match props and immediate as an effect. The Arch VRR page confirms DisplayPort is required, HDMI VRR needs partial HDMI 2.1, some monitors only do VRR below their maximum rate, and FreeSync ranges are often narrow. Two things were wrong: the gamescope launch line is not on the cited Arch Gaming page, which only links to the Gamescope page where `gamescope -W 1920 -H 1080 -r 60 -- %command%`, `-f` and `--adaptive-sync` are documented, and the 'panels change perceived brightness with refresh rate' mechanism appears in no cited source, so the cause now attributes flicker to a limited VRR range as the Arch page does. Hyprland issue 11712 is a user report of 72 to 144 Hz flicker on an AOC FreeSync panel that the bot closed 11 seconds after filing, so it is evidence the symptom exists and nothing more. The fix gains the wiki's own tearingBlockedBy diagnostic and the gamescope --adaptive-sync flag, and was otherwise correct.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Tearing is experimental and driver-dependent: if the driver does not support it, apps that should tear will freeze outright or render corrupted frames, and there is no compositor-side workaround. Turn `allow_tearing` back off before assuming a game is broken. Setting `vrr = 1` (always on) on a panel with a narrow VRR range can make the whole desktop flicker constantly — `vrr = 2` is the safe default.
 
 **Fix.**
 
-**Tearing** — master toggle plus a per-game rule:
+**Tearing** needs the master toggle plus a per-game rule:
 
 ```lua
 hl.config({
@@ -1771,9 +1775,12 @@ Then actually make the conditions hold: fullscreen (not maximised), nothing else
 ```bash
 hyprctl getoption general.allow_tearing     # must be 1
 hyprctl clients | grep -A2 -i cs2           # confirm the rule matched the real class
+hyprctl monitors | grep -i tearing          # activelyTearing, and tearingBlockedBy says why not
 ```
 
-**VRR** — global default, then per-monitor where it matters. `0` off, `1` always on, `2` fullscreen only, `3` fullscreen with `video`/`game` content type:
+`tearingBlockedBy` lists the exact blocker: `user settings` means the master toggle is off, `missing candidate` means no fullscreen window with an `immediate` rule is the only thing on that output.
+
+**VRR** is a global default, then per-monitor where it matters. `0` off, `1` always on, `2` fullscreen only, `3` fullscreen with `video`/`game` content type:
 
 ```lua
 hl.config({
@@ -1782,7 +1789,7 @@ hl.config({
   },
 })
 
--- Per-display override; a monitor `vrr` field beats the misc default
+-- Per-display override. A monitor `vrr` field beats the misc default.
 hl.monitor({ output = "DP-1", mode = "2560x1440@144", position = "0x0", scale = 1, vrr = 2 })
 hl.monitor({ output = "HDMI-A-1", mode = "preferred", position = "auto", scale = 1, vrr = 0 })
 ```
@@ -1793,32 +1800,31 @@ Try it live before committing:
 hyprctl eval 'hl.config({ misc = { vrr = 2 } })'
 ```
 
-If flicker persists at `vrr = 2` inside games, the panel's VRR range is the problem — cap the in-game framerate inside that range, drop the monitor to a refresh rate the panel supports VRR at, or turn VRR off for that output. Use DisplayPort; HDMI VRR only works on displays that implement the relevant part of HDMI 2.1.
+If flicker persists at `vrr = 2` inside games, the panel's VRR range is the problem. Cap the in-game framerate inside that range, drop the monitor to a refresh rate the panel supports VRR at, or turn VRR off for that output. Use DisplayPort. HDMI VRR only works on displays that implement the relevant part of HDMI 2.1.
 
 Cursor movement can also break VRR framepacing in fullscreen apps:
 
 ```lua
 hl.config({
   cursor = {
-    no_break_fs_vrr = 1,      -- 0 off, 1 on, 2 auto (on for content type 'game')
-    min_refresh_rate = 60,    -- floor for cursor-driven frames
+    no_break_fs_vrr = 1,      -- 0 off, 1 on, 2 auto (on for content type 'game'). May need no_hardware_cursors = 1
+    min_refresh_rate = 60,    -- floor for cursor-driven frames, default 24
   },
 })
 ```
 
-**When Proton/Wine still misbehaves**, run the game inside gamescope, which gives it an isolated micro-compositor with its own framerate and scaling handling rather than fighting Hyprland's:
+**When Proton/Wine still misbehaves**, run the game inside gamescope, which gives it an isolated micro-compositor with its own framerate and scaling handling rather than fighting Hyprland's. Add `--adaptive-sync` if you want VRR inside the gamescope session:
 
 ```bash
 sudo pacman -S --needed gamescope
 # Steam launch options:
 #   gamescope -W 2560 -H 1440 -r 144 -f -- %command%
+#   gamescope -W 2560 -H 1440 -r 144 -f --adaptive-sync -- %command%
 ```
 
 **Verify.** `hyprctl getoption general.allow_tearing` is 1 and `hyprctl getoption misc.vrr` matches what you set; `hyprctl -j monitors | jq -r '.[] | "\(.name) vrr=\(.vrr)"'` shows the per-output state; in a fullscreen game the reported refresh rate tracks the framerate and the desktop no longer pulses.
 
-> *Not independently audited: verify before running.*
-
-Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Tearing/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.archlinux.org/title/Variable_refresh_rate> · <https://github.com/hyprwm/Hyprland/issues/11712> · <https://wiki.archlinux.org/title/Gaming>
+Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Tearing/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.archlinux.org/title/Variable_refresh_rate> · <https://github.com/hyprwm/Hyprland/issues/11712> · <https://wiki.archlinux.org/title/Gaming> · <https://wiki.hypr.land/configuring/extra/tearing/> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://wiki.hypr.land/configuring/core/rules/window-rules/> · <https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/> · <https://wiki.archlinux.org/title/Gamescope> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/shared/monitor/MonitorRuleManager.cpp>
 
 ---
 

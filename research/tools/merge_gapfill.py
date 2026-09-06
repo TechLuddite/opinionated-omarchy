@@ -11,7 +11,8 @@ Does two things:
 Unlike the first harvest, this honours `corrected_cause`: where the auditor
 disproved the cause as well as the fix, the cause is replaced rather than left
 standing. Records whose cause was NOT corrected keep the audit note so a reader
-can still see what was disputed.
+can still see what was disputed. `corrected_symptom` and `corrected_danger` are
+honoured the same way, and any `sources` on a verdict are appended to the record.
 
 Rewrites data/problems.jsonl in place. Re-run tools/build_db.py afterwards.
 """
@@ -54,11 +55,23 @@ def apply_verdict(rec, v, stats):
             rec["cause"] = v["corrected_cause"]
             rec["cause_reconciled"] = date.today().isoformat()
             stats["cause-corrected"] += 1
+        # Live exercise on a VM (research/validation/) turned up defects in a
+        # symptom and a danger, neither of which the first two verdict shapes
+        # could carry. Same rule as fix: replace wholesale, never patch.
+        for field in ("symptom", "danger"):
+            if v.get(f"corrected_{field}"):
+                rec[field] = v[f"corrected_{field}"]
+                stats[f"{field}-corrected"] += 1
         rec["audit_status"] = "corrected"
         stats["corrected"] += 1
     else:
         rec["audit_status"] = "ok"
         stats["ok"] += 1
+    # A verdict may cite pages the record did not. Keep them: a corrected fix
+    # that rests on a source the record never listed is unverifiable otherwise.
+    for url in v.get("sources") or []:
+        if url.startswith(("http://", "https://")) and url not in (rec.get("sources") or []):
+            rec.setdefault("sources", []).append(url)
     return rec
 
 

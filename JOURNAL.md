@@ -18,12 +18,14 @@ Last updated: 2026-09-06
 >    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
 >    limit. Pass the corpus root in `args`. Every new record lands with its provenance
 >    marked, never blended in as audited.
-> 2. **Audit deeper.** Four records are still `unaudited`; three defects found on a real VM
->    on 2026-09-01 are written up in `research/validation/` and not yet applied through
->    `merge_gapfill.py`; and `audit_status: ok` still means "matches its sources", which
->    the first live scenario showed is not "true on Omarchy 4". Use
->    `audit-existing-workflow.js` for records that exist. The corpus prose has 1,880 dashes
->    across 424 records, item 6 under "What's left", and is its own job.
+> 2. **Audit deeper.** The last 4 `unaudited` records and the three VM-found defects were
+>    applied on 2026-09-06 (second session below), and all four unaudited records turned
+>    out to be wrong. What remains is the larger point: `audit_status: ok` still means
+>    "matches its sources", which the first live scenario showed is not "true on Omarchy
+>    4", and 239 records carry that status on one source pass. Use
+>    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
+>    the ones a VM can reach. The corpus prose has 1,866 dashes across 422 records, item 6
+>    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
 >    now says in public that the skill is vaporware. Make that stop being true in that
@@ -39,6 +41,94 @@ Last updated: 2026-09-06
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-06 (second): the last four unaudited records, and the VM findings applied
+
+Item 2 of the START HERE block, the part that did not need a 35-agent harvest. Four
+records had carried `unaudited` since the first harvest's auditors never returned a verdict
+for them, and the three defects the 2026-09-01 VM scenario found in
+`mkinitcpio-pacnew-unhandled-breaks-next-boot` had sat in `research/validation/README.md`
+unapplied. All five are now `corrected`, each with an `audit_note` naming what was checked
+and where, and no record carries `unaudited`.
+
+### 1. All four unaudited records were wrong, and one was wrong about its own cause
+
+One auditor per record, against the primary sources with the fetch workarounds in
+`CLAUDE.md`, and against this workstation where the claim was checkable locally. Every one
+came back `corrected` at high confidence:
+
+- **`resume-hook-after-filesystems-hibernation`**: the cause is disproved by mkinitcpio's
+  own `init`, which runs every hook's `run_hook` before it mounts root on `/sysroot`, while
+  `filesystems` has no runtime script at all. The Arch wiki's own example puts `resume`
+  after `filesystems`. Issue basecamp/omarchy#8471, the record's main source, has no
+  comments and its reporter says they could not demonstrate a failure from the ordering.
+  The cold boots people actually report are basecamp/omarchy#8352: `nvidia.sh` early-loads
+  the NVIDIA modules into the initramfs on hybrid laptops, the freeze callback returns -5,
+  and the kernel discards the image. Symptom, cause, fix and danger all rewritten. The old
+  fix also edited `/boot/limine.conf`, which `limine-entry-tool` regenerates, dropped
+  `plymouth` from its example HOOKS line, and named the swap UUID where a btrfs swapfile on
+  LUKS needs the mapper device. The new fix was not exercised with a hibernate cycle, and
+  the audit note says so.
+- **`xwayland-game-flicker-explicit-sync`**: the version floors hold. The fix said Kepler
+  needs the 535xx branch; Kepler ended at 470 and no driver it can run has explicit sync,
+  while Maxwell through Volta sit on 580xx, which already exceeds the 555 floor. `hl.set`
+  does not exist, and `sudo pacman -Syu` is blocked by the ALPM guard. The danger
+  overstated the lib32 risk: the AUR lib32 packages pin an exact `nvidia-utils` version and
+  conflict with the repo one, so pacman refuses the mismatch. Its raw `Variables.md` source
+  URL now 404s and was replaced.
+- **`virtiofs-share-requires-shared-memory`**: XML, mount syntax and session-mode ID
+  mapping all verbatim from libvirt's kbase and the Arch wiki. The danger was wrong for the
+  fix it accompanied: `<source type='memfd'/>` builds `memory-backend-memfd` with no
+  `mem-path`, so nothing lands under `memory_backing_dir`. The cause never explained the
+  `unknown filesystem type 'virtiofs'` line, which is a guest kernel older than 5.4.
+- **`tearing-and-vrr-not-working`**: every Lua form, option value and `hyprctl` command
+  checked on this Hyprland 0.56.2 machine, including `hyprctl eval` live. The gamescope
+  line was attributed to the Arch Gaming page, which does not carry it, and the "panels
+  change perceived brightness with refresh rate" mechanism appears in no cited source. The
+  cause now attributes flicker to a narrow VRR range, as the Arch VRR page does, and the
+  fix gains the wiki's own `tearingBlockedBy` diagnostic.
+
+The same shape as 2026-09-01: sound advice, mis-specialised, and one record whose cited
+issue does not support its claim. Every audit note names the sources, and the sources an
+auditor relied on that the record did not list were appended to it.
+
+### 2. The VM findings are applied, and the merge tool can now carry them
+
+`merge_gapfill.py` honoured only `corrected_fix` and `corrected_cause`. Two of the three
+2026-09-01 findings were a wrong `symptom` and an overstated `danger`, so there was no
+honest way to apply them. It now honours `corrected_symptom` and `corrected_danger` the
+same way, and appends any `sources` a verdict carries. One test covers all three, and the
+suite is 14 tests, all green.
+
+The pacnew record's verdict was written from the validation findings plus ownership checks
+on this workstation: `/etc/default/limine` is owned by no package, the package-owned
+template is `/etc/limine-entry-tool.conf` from `limine-mkinitcpio-hook`, and the file on
+Omarchy 4 that can both get a `.pacnew` and carry the hook list is
+`/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, a backup file of `omarchy-settings`. The
+symptom now quotes the right files, the cause names the right owners, and the danger says
+what overwriting each one actually does on Omarchy 4 versus plain Arch. The fix stands.
+
+### 3. Verified
+
+Dry-run on a copy of the corpus first, then the real merge produced a byte-identical
+file. Exactly five records changed and only in the fields the verdicts named. The verdict
+set was scoped to those five slugs, and the 152 other records in the four affected
+categories came through with every field unchanged. `build_db.py` regenerated four
+category pages, `research/tests/run.sh` passes, and the site builds.
+
+The corpus is now **456 records, `ok` 239 / `corrected` 217 / `unaudited` 0**, with 33
+records stamped `cause_reconciled` across three dates. The dash count under item 6 moved
+from 1,880 across 424 records to 1,866 across 422, because the five rewritten records
+carry none.
+
+### 4. What this does not change
+
+`audit_status: ok` still means "matches its sources". Nothing here was exercised on a VM
+except the pacnew record, whose scenario already passed 6/6. The rewritten hibernation fix
+in particular is built from two issue threads and the setup script, not from a hibernate
+cycle, and a scenario for it needs a hybrid laptop these VMs cannot imitate. Item 1 of
+START HERE, the harvest, is untouched: it needs a `/usage-credits` check and an explicit
+decision to spend about 35 agents.
 
 ## Session of 2026-09-06: the published documents audited against the repo
 
@@ -2111,7 +2201,8 @@ Everything outside `research/data/problems.jsonl` was audited against
 `writing-and-responding` on 2026-09-03 and is clean. **The corpus itself was deliberately
 left alone**, and it is the largest remaining body of prose in the repo.
 
-The measurement: **1,880 em and en dashes across 424 of 456 records**, concentrated in
+The measurement on 2026-09-03: **1,880 em and en dashes across 424 of 456 records**
+(1,866 across 422 after the 2026-09-06 corrections), concentrated in
 `fix` (658), `audit_note` (412), `danger` (253), `cause` (255) and `symptom` (247). Those
 render straight onto the public site's record pages and into `research/docs/`, so the
 front page now reads to one standard and the 456 pages behind it do not.
@@ -2148,9 +2239,10 @@ deliberate editorial choice rather than work not yet done.
   `danger` set are the highest-value targets, and the cheapest to test given a 0.76 s
   reset), and feeding a working scenario into the agentic bench as a `seed:`/`post:`
   pair, which is what item 1 needs.
-- The three record defects found on 2026-09-01 are **written up but not applied**. They
-  need an audit pass through `merge_gapfill.py` so the corrections carry an `audit_note`
-  and a `cause_reconciled` stamp.
+- The three record defects found on 2026-09-01 were applied on 2026-09-06 through
+  `merge_gapfill.py`, with an `audit_note` and a `cause_reconciled` stamp. The next
+  scenario worth writing is not the hibernation one: its rewritten fix targets hybrid
+  NVIDIA laptops, which a virtio GPU cannot imitate.
 - `research/` root holds ~17 loose Hyprland wiki pages. Not corpus, no tooling reads them.
   Left in place deliberately.
 

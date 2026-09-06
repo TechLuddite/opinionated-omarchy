@@ -85,9 +85,10 @@ sound and its Omarchy-vs-plain-Arch branch is confirmed by the system itself:
 instead, exactly what the record tells you to do.
 
 **Three claims in the same record are wrong for Omarchy 4, and none was caught by the
-source audit.** They are recorded here rather than edited into the corpus, because a
-correction needs an `audit_note` and a `cause_reconciled` stamp through
-`merge_gapfill.py`, not a silent rewrite:
+source audit.** They were applied to the record on 2026-09-06 through `merge_gapfill.py`,
+which now honours `corrected_symptom` and `corrected_danger` as well as fix and cause, so
+the correction carries an `audit_note` and a `cause_reconciled` stamp rather than a
+silent rewrite. The findings stay here as the original observation:
 
 1. **`/etc/default/limine` cannot produce a `.pacnew`.** The record's symptom block
    quotes `warning: /etc/default/limine installed as /etc/default/limine.pacnew`. That
@@ -116,10 +117,13 @@ change; revert the input and it returns to the original size. The tool skips
 byte-identical writes. Verified by changing `MODULES` and reverting, rather than
 asserted from the first observation.
 
-**A lead, not a finding.** `/etc/mkinitcpio.conf.d/omarchy_resume.conf` is
+**A lead, resolved on 2026-09-06.** `/etc/mkinitcpio.conf.d/omarchy_resume.conf` is
 `HOOKS+=(resume)`, which appends `resume` *after* `filesystems`, `fsck` and
 `btrfs-overlayfs`. That is the exact ordering corpus record
-`resume-hook-after-filesystems-hibernation` (one of the 4 remaining `unaudited` records)
-describes as a problem. Either the record is wrong or Omarchy ships the broken ordering
-by default. **This needs a source check before anyone claims either**; observing the
-ordering does not establish which.
+`resume-hook-after-filesystems-hibernation` described as a problem. The source check
+found the record wrong: mkinitcpio's busybox `init` runs every hook before it mounts root,
+and `filesystems` has no runtime script, so the ordering is harmless and the Arch wiki's
+own example puts `resume` after `filesystems`. The cold boots reported against Omarchy
+come from the NVIDIA modules early-loaded into the initramfs on hybrid laptops. The
+record's audit note carries the sources. Observing the ordering did not establish which
+side was right, and that is the point of keeping this paragraph.
