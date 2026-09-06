@@ -70,7 +70,13 @@ jobs:
           # The provenance disclaimer is the reason this site exists; if the generator
           # ever stops emitting it, fail loudly rather than publish a corpus that reads
           # as uniformly trustworthy.
-          grep -qr 'UNAUDITED' docs/records/ || { echo "no UNAUDITED provenance rendered"; exit 1; }
+          # Every record page must carry an audit LED, and at least one must carry a
+          # non-clean one, or the disclaimer path was never exercised. Do not assert a
+          # single status: UNAUDITED legitimately dropped to zero on 2026-09-06.
+          labelled=$(grep -rlE '>(AUDITED|CORRECTED|UNAUDITED)<' docs/records/ | wc -l)
+          echo "record pages carrying an audit LED: $labelled"
+          test "$labelled" -eq "$got" || { echo "some record pages render no audit provenance"; exit 1; }
+          grep -qrE '>(CORRECTED|UNAUDITED)<' docs/records/ || { echo "no corrected or unaudited provenance rendered"; exit 1; }
           # Every doc card must land on a real page. A missing one would render as a dead
           # link on the front page rather than failing the build.
           for d in research-readme skillbench results models zen writeups journal; do
