@@ -8,16 +8,19 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**456 problems across 12 categories**, drawn from 766 distinct sources. Every record
+**456 problems across 12 categories**, drawn from 832 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 240 | audited and confirmed accurate |
-| `corrected` | 212 | problem real, fix (and sometimes cause) rewritten by the audit |
-| `unaudited` | 4 | audit returned no verdict for these slugs |
+| `ok` | 229 | audited and confirmed accurate |
+| `corrected` | 227 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
-So 452 of 456 records (99%) have been through an adversarial audit. The last
+So all 456 records have been through an adversarial audit. That audit checked each record
+against its cited sources. It did not check it against Omarchy 4 itself, and when fifteen
+`ok` records were checked that way on 2026-09-06, all fifteen needed correcting. See
+"Refreshing the corpus" for the re-audit path. The last
 `gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
 schema and `merge_gapfill.py` can produce, but no record currently carries it.
 
@@ -163,8 +166,10 @@ So the "~130 possibly-stale causes" figure that appeared in earlier notes was a
 worst-case bound on an unreviewed population, not a count of defects. The real number
 is 22.
 
-The 2026-09-01 audit stamped a further **7**, so 29 records carry `cause_reconciled`
-across two dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+The 2026-09-01 audit stamped a further **7**, and the 2026-09-06 audit of the last four
+unaudited records, the first VM-validated record and ten boot-kernel records re-audited
+for Omarchy 4 stamped **12** more, so 41 records carry `cause_reconciled` across three
+dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
 whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See
@@ -272,6 +277,14 @@ python3 tools/build_db.py
 
 `ingest.py` replaces the corpus; `merge_gapfill.py` extends it in place and is the one to
 use for incremental work.
+
+To re-audit records that already carry `ok` against what Omarchy 4 actually ships, use
+[tools/reaudit-brief.md](tools/reaudit-brief.md): one agent per one or two records, each
+writing a `verdict-<slug>.json`. Assemble the verdicts into a payload with one
+`{"category": ..., "audit": {"verdicts": [...]}}` entry per category, scoped to exactly the
+slugs audited, dry-run `merge_gapfill.py` on a copy, diff the copy against the corpus to
+confirm only those records changed, then run it for real. A verdict may replace `fix`,
+`cause`, `symptom`, `danger` and `verify`, and its `sources` are appended to the record.
 
 Pick the workflow by what the records need, not by category. `gapfill-workflow.js`
 **harvests new records** against named gaps; it audits nothing that already exists.

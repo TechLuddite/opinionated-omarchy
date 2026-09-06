@@ -247,6 +247,33 @@ class TestMergeExtendPath(unittest.TestCase):
         self.assertEqual(got["cause"], "FIXTURE_CAUSE")
         self.assertIsNone(got["cause_reconciled"])
 
+    def test_a_corrected_symptom_and_danger_are_applied_and_sources_appended(self):
+        """The 2026-09-01 VM findings were a wrong symptom and an overstated danger,
+        neither of which a fix-or-cause verdict could carry. Sources the auditor
+        relied on must land on the record, without duplicating ones it already had."""
+        rec = a_full_record("symptom-and-danger")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "symptom-and-danger", "status": "corrected",
+                                     "confidence": "high", "reason": "symptom was wrong",
+                                     "corrected_symptom": "THE REAL SYMPTOM",
+                                     "corrected_danger": "THE REAL DANGER",
+                                     "corrected_verify": "THE REAL VERIFY",
+                                     "sources": ["https://example.invalid/fixture",
+                                                 "https://example.invalid/new",
+                                                 "not-a-url"]}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)
+        got = back["symptom-and-danger"]
+        self.assertEqual(got["symptom"], "THE REAL SYMPTOM")
+        self.assertEqual(got["danger"], "THE REAL DANGER")
+        self.assertEqual(got["verify"], "THE REAL VERIFY")
+        self.assertEqual(got["fix"], rec["fix"])
+        self.assertEqual(got["cause"], "FIXTURE_CAUSE")
+        self.assertEqual(got["cause_reconciled"], "2026-08-30")
+        self.assertEqual(got["sources"], ["https://example.invalid/fixture",
+                                          "https://example.invalid/new"])
+
 
 if __name__ == "__main__":
     unittest.main()

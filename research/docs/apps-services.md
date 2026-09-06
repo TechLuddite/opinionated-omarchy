@@ -1987,9 +1987,13 @@ error: unsupported configuration: 'virtiofs' requires shared memory
 
 Or the VM starts but the guest cannot mount it: `mount: /mnt: unknown filesystem type 'virtiofs'`. With a 9p share instead, the guest fails at boot with `9pnet: Could not find request transport: virtio`.
 
-**Cause.** virtiofs needs the guest's RAM to be shareable with the `virtiofsd` process, which libvirt will not do unless the domain declares a shared memory backend. Separately, the 9p transport module is not auto-loaded, so an `/etc/fstab` entry using it fails during boot before anything can load it.
+**Cause.** virtiofs is a vhost-user device: the `virtiofsd` process needs the guest's RAM mapped as shared memory, and libvirt refuses to start the domain unless `<memoryBacking>` declares shared access (or every NUMA cell sets `memAccess='shared'`). `unknown filesystem type 'virtiofs'` in the guest means the guest kernel has no virtiofs support, which needs Linux 5.4 or later. On a current Arch guest it is built into the `linux` package (7.1.9), so that message points at an old or non-Arch guest kernel. Separately, the 9p transport module `9pnet_virtio` is not auto-loaded, so an `/etc/fstab` entry using `trans=virtio` fails during boot before anything can load it.
 
-> ⚠️ **Risk.** `<access mode='shared'/>` makes the whole guest RAM allocation shareable and, with the file-backed default, backs it with a file under `memory_backing_dir` (`/var/lib/libvirt/qemu/ram` unless you set `memory_backing_dir = "/dev/shm/"` in `/etc/libvirt/qemu.conf`) — a large VM can therefore consume that much disk or tmpfs. `accessmode='passthrough'` gives the guest the host user's permissions on the shared tree, so do not point it at your whole home directory.
+> **Audit corrected this record.** Checked the XML, the mount syntax, the session-mode ID mapping and the 9p module claim against the Arch wiki Libvirt and QEMU pages (raw wikitext), libvirt's virtiofs kbase page and formatdomain.html, and libvirt's own source. The error text is exact: qemu_validate.c reports "'%s' requires shared memory" with name "virtiofs" whenever <memoryBacking> lacks <access mode='shared'/> and no NUMA cell declares memAccess='shared'. The memfd + shared XML, the <filesystem> block, the mount tag note, the guest mount command and the fstab line all match the kbase page and the wiki word for word. The unprivileged claims hold: the kbase page says qemu:///session supports virtiofs with ID mapping since libvirt 10.0.0, guest root maps to the host user and other IDs go to /etc/subuid and /etc/subgid, and the wiki carries the same <idmap> example, and usermod 4.20 has --add-subuids and --add-subgids. The 9pnet_virtio modules-load fix and the trans=virtio,version=9p2000.L fstab line are verbatim from the wiki. The danger was wrong for the fix it accompanies: with <source type='memfd'/> libvirt builds memory-backend-memfd with no mem-path (qemu_command.c), so nothing is written under memory_backing_dir and no disk is consumed. Only <access mode='shared'/> with no <source> falls back to memory-backend-file under /var/lib/libvirt/qemu/ram (default confirmed in the installed /etc/libvirt/qemu.conf). The cause did not explain the 'unknown filesystem type virtiofs' symptom, which the kbase page attributes to guest kernels older than 5.4, and on Arch linux 7.1.9 virtiofs is built in. Package virtiofsd 1.14.0-1 exists in extra and is installed here alongside libvirt 12.6.0 and qemu-base 11.1.0.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `<access mode='shared'/>` makes the whole guest RAM allocation shareable with the `virtiofsd` process. With `<source type='memfd'/>` as in the fix, QEMU allocates it as `memory-backend-memfd`, which lives in RAM and writes nothing to disk. Only if you set shared access without a `<source>` element does libvirt fall back to `memory-backend-file`, which creates a file the size of the guest's RAM under `memory_backing_dir` (`/var/lib/libvirt/qemu/ram` by default in `/etc/libvirt/qemu.conf`, on disk unless you set `memory_backing_dir = "/dev/shm/"`). `accessmode='passthrough'` gives the guest the host user's permissions on the shared tree, so do not point it at your whole home directory. In a `qemu:///session` VM, a file the guest creates as an ordinary user shows up on the host owned by an ID from your subordinate range rather than by you.
 
 **Fix.**
 
@@ -2060,9 +2064,7 @@ vmshare  /mnt/vmshare  9p  trans=virtio,version=9p2000.L  0 0
 
 **Verify.** The VM starts without the shared-memory error, and in the guest `mount | grep virtiofs` shows the share and files created on either side appear on the other.
 
-> *Not independently audited: verify before running.*
-
-Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/QEMU>
+Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/QEMU> · <https://libvirt.org/kbase/virtiofs.html> · <https://libvirt.org/formatdomain.html> · <https://archlinux.org/packages/extra/x86_64/virtiofsd/> · <https://github.com/libvirt/libvirt/blob/master/src/qemu/qemu_validate.c> · <https://github.com/libvirt/libvirt/blob/master/src/qemu/qemu_command.c>
 
 ---
 

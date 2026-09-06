@@ -237,13 +237,56 @@ Sources: <https://forum.endeavouros.com/t/kernel-panic-vfs-unable-to-mount-root-
 
 `broken-initramfs-after-update-boot-fallback` · severity: **critical** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `grub`, `limine`, `manjaro`, `omarchy`, `systemd-boot`
 
-**Symptom.** Right after a kernel or system update the normal boot entry drops to an emergency shell or hangs, but selecting the *fallback* entry in the boot menu boots fine. Users report this most often on encrypted Btrfs roots after a kernel bump.
+**Symptom.** Right after a kernel or system update the normal boot entry drops to an emergency shell or hangs. On plain Arch with a preset that still builds a fallback image, selecting the *fallback* entry in the boot menu boots fine. On Omarchy 4 the Limine menu has no fallback entry, only the normal Omarchy entry and the `Snapshots` submenu, so the first sign is the normal entry failing with nothing else to pick except a snapshot. Users report this most often on encrypted Btrfs roots after a kernel bump.
 
-**Cause.** The default initramfs is built with the `autodetect` hook, which strips out every module the running system was not using at build time. If mkinitcpio ran in a degraded environment (chroot without the real hardware, a full /boot, an interrupted upgrade), the resulting default image is missing the modules needed for your root device. The fallback image has no `autodetect`, so it still contains everything.
+**Cause.** The default initramfs is built with the `autodetect` hook, which strips out every module the running system was not using at build time. If mkinitcpio ran in a degraded environment (chroot without the real hardware, a full /boot, an interrupted upgrade), the resulting default image is missing the modules needed for your root device. A fallback image is built with `-S autodetect`, so it still contains everything.
 
-> ⚠️ **Risk.** Do not delete the fallback image to save space until the default image is confirmed working — the fallback is often the only thing standing between you and a live-USB rescue.
+Whether a fallback exists depends on the distro. On plain Arch it is built only if the kernel's preset lists it, and mkinitcpio 40 (2025-11-04) removed `fallback` from the default preset template, so an `/etc/mkinitcpio.d/linux.preset` from an older install still has `PRESETS=('default' 'fallback')` while a newer one has `PRESETS=('default')` alone.
+
+On Omarchy 4 the initramfs is not built from presets at all. `limine-mkinitcpio-hook` replaces mkinitcpio's pacman hook, `/etc/mkinitcpio.d` stays empty, and `/usr/share/libalpm/scripts/limine-mkinitcpio-install` builds one UKI per kernel at `/boot/EFI/Linux/omarchy_linux.efi`. It builds a fallback UKI only when `MKINITCPIO_FALLBACK` is `yes` or the kernel name, and Omarchy sets that nowhere: not in `/etc/limine-entry-tool.conf`, not in `/etc/limine-entry-tool.d/omarchy-defaults.conf` or `omarchy-uki.conf`, not in `/etc/default/limine`. With it unset the hook deletes any fallback UKI it finds. A stock Omarchy 4 has no fallback initramfs to boot.
+
+> **Audit corrected this record.** Checked on this machine (omarchy-settings 4.0.2-1, limine-mkinitcpio-hook 1.37.1-1, mkinitcpio 41.1-1) whether a fallback initramfs or fallback boot entry exists at all. It does not. /usr/share/libalpm/scripts/limine-mkinitcpio-install builds the fallback UKI only when MKINITCPIO_FALLBACK is yes or the kernel name, and otherwise calls remove_uki_if_present on the fallback path. MKINITCPIO_FALLBACK is commented out in /etc/limine-entry-tool.conf, absent from all three /etc/limine-entry-tool.d drop-ins (omarchy-defaults.conf, omarchy-uki.conf, resume.conf), absent from /etc/default/limine, and absent from the same two drop-ins in the basecamp/omarchy quattro tree. The record's symptom (the fallback entry boots fine) therefore cannot happen on a stock Omarchy 4, and its verify step names /boot/initramfs-linux.img and /boot/initramfs-linux-fallback.img, neither of which Omarchy 4 produces, since ENABLE_UKI=yes and CUSTOM_UKI_NAME=omarchy give /boot/EFI/Linux/omarchy_linux.efi. /etc/mkinitcpio.d is empty here because limine-mkinitcpio-hook ships /etc/pacman.d/hooks/90-mkinitcpio-install.hook, which shadows mkinitcpio's own hook of that name and never runs generate_presets, so the record's sudo mkinitcpio -P dies with 'No presets found in /etc/mkinitcpio.d' (mkinitcpio line 986) and the -g /boot/initramfs-linux.img form writes a file no Limine entry references. The limine-mkinitcpio line the record already has is the right Omarchy command and was confirmed against /usr/bin/limine-mkinitcpio and /usr/bin/limine-update. On plain Arch the mkinitcpio CHANGELOG (v40, 2025-11-04) says the default kernel preset no longer includes the fallback image, confirmed by PRESETS=('default') in /usr/share/mkinitcpio/hook.preset on 41.1, so the fallback entry now exists only on installs whose preset predates that or was edited. The cited EndeavourOS thread (March 2023, GRUB, encrypt hook) does support the plain-Arch symptom and the fallback-then-rebuild fix. The cited omarchy issue 8319 does not support anything in the record: it is a start-hyprland 'bad json' failure traced by the triage comment to a stale /usr/local/bin/start-hyprland, the reporter's initramfs hypothesis was ruled out there, and nobody in it booted a fallback. Not exercised: booting a Limine snapshot entry, running limine-mkinitcpio with MKINITCPIO_FALLBACK=yes, and the arch-chroot path. The fallback UKI name and the linux-fallback entry name in the corrected fix are read from set_kernel_context and process_uki_kernel in the hook script, not observed on disk.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On plain Arch do not delete the fallback image to save space until the default image is confirmed working. The fallback is often the only thing standing between you and a live-USB rescue. On Omarchy 4 there is no fallback image to keep, and `mkinitcpio -P` or `mkinitcpio -g` there can report success while the broken UKI at `/boot/EFI/Linux/omarchy_linux.efi` is untouched. `MKINITCPIO_FALLBACK=yes` costs ESP space, and the template's own note says especially so when keeping multiple snapshots.
 
 **Fix.**
+
+**Omarchy 4 (Limine + UKI)**
+
+There is no fallback entry to pick. Get to a working root first, either way:
+
+- In the Limine menu open `Snapshots` and boot the newest snapshot taken before the update. `omarchy update` takes a snapper snapshot before upgrading and `limine-snapper-sync` lists them in the menu.
+- Or boot the Omarchy ISO, unlock and mount the root subvolume at `/mnt`, mount the ESP at `/mnt/boot`, and `arch-chroot /mnt`.
+
+Then rebuild the UKI and its Limine entry:
+
+```sh
+sudo limine-mkinitcpio
+```
+
+Watch the output for `==> ERROR`, `==> WARNING: errors were encountered during the build`, or `mkinitcpio failed for kernel ..., skipping` from the hook, which means the old UKI was left in place. `sudo limine-update` does the same and also redeploys the Limine binary.
+
+Do not reach for `mkinitcpio -P` or `mkinitcpio -g /boot/initramfs-linux.img` here. `/etc/mkinitcpio.d` is empty on Omarchy 4, so `-P` exits with `No presets found in /etc/mkinitcpio.d`, and `-g` writes a file no Limine entry references. The `/usr/local/bin/mkinitcpio` wrapper that `limine-mkinitcpio-hook` installs prints `This does not update Limine boot entries` for exactly this reason.
+
+To have a fallback next time, opt in. `/etc/default/limine` is the user-owned file that overrides every drop-in:
+
+```sh
+echo 'MKINITCPIO_FALLBACK=yes' | sudo tee -a /etc/default/limine
+sudo limine-mkinitcpio
+```
+
+That builds `/boot/EFI/Linux/omarchy_linux-fallback.efi` with `-S autodetect` and adds a `linux-fallback` entry, which `BOOT_ORDER="*, *fallback, Snapshots"` in `omarchy-defaults.conf` already sorts after the normal entry.
+
+Check the result with a privileged listing, since `/boot` is mounted `dmask=0077`:
+
+```sh
+sudo ls -l --time-style=long-iso /boot/EFI/Linux/
+sudo limine-list
+```
+
+**Plain Arch (preset-driven, any bootloader)**
 
 Boot the fallback entry, then rebuild every preset:
 
@@ -260,17 +303,13 @@ sudo mkinitcpio -p linux-lts
 sudo mkinitcpio -k 6.12.10-arch1-1 -g /boot/initramfs-linux.img
 ```
 
-On Omarchy (Limine + UKI) rebuild through the distro wrapper so the unified kernel images on the ESP are refreshed too:
+If the menu has no fallback entry because the preset was generated by mkinitcpio 40 or later, uncomment `PRESETS=('default' 'fallback')` and the `fallback_image` and `fallback_options` lines in `/etc/mkinitcpio.d/linux.preset`, then run `sudo mkinitcpio -P` again. `ls -l /boot/initramfs-linux.img /boot/initramfs-linux-fallback.img` should show both with a current timestamp.
 
-```sh
-sudo limine-mkinitcpio
-```
-
-If the rebuild itself errors, fix the underlying cause first (usually a full /boot — see that record — or a hook referencing a module that no longer exists).
+If the rebuild itself errors, fix the underlying cause first (usually a full /boot, see that record, or a hook referencing a module that no longer exists).
 
 **Verify.** `ls -l /boot/initramfs-linux.img /boot/initramfs-linux-fallback.img` shows both files with a current timestamp and a plausible size (tens to hundreds of MB), and the *default* entry boots.
 
-Sources: <https://forum.endeavouros.com/t/solved-boots-into-emergency-shell-after-update-encrypted-root-is-not-mounted/38101> · <https://man.archlinux.org/man/mkinitcpio.8> · <https://github.com/basecamp/omarchy/issues/8319>
+Sources: <https://forum.endeavouros.com/t/solved-boots-into-emergency-shell-after-update-encrypted-root-is-not-mounted/38101> · <https://man.archlinux.org/man/mkinitcpio.8> · <https://github.com/basecamp/omarchy/issues/8319> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/CHANGELOG> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-uki.conf>
 
 ---
 
@@ -569,14 +608,24 @@ Consult /var/lib/dkms/nvidia-open/595.71.05/build/make.log for more information.
 ==> ERROR: module not found: 'nvidia_uvm'
 ==> ERROR: module not found: 'nvidia_drm'
 ==> WARNING: errors were encountered during the build. The image may not be complete.
-==> Creating unified kernel image: '/tmp/staging_uki.efi'
+==> Creating unified kernel image: '/tmp/limine-mkinitcpio.XXXXXX/linux.efi'
 ==> Unified kernel image generation successful
 ERROR: mkinitcpio failed for kernel 7.0.3-arch1-2, skipping.
 ```
 
+(Older versions of limine-mkinitcpio-hook printed the staging path as `/tmp/staging_uki.efi`. The `skipping` line is the one that matters.)
+
 pacman still exits 0 and `omarchy update` reports success. Sometimes `nvidia-smi` on a TTY prints `NVRM: API mismatch: this kernel module has version 595.58.03 but this NVIDIA driver component has version 595.71.05`.
 
-**Cause.** nvidia-open-dkms / nvidia-dkms failed to compile against the newly installed kernel — usually because the matching `linux-headers` package is not installed, the kernel and module were built with different GCC major versions (a stray `/opt/cuda/bin` in PATH is a classic cause), or the driver simply does not support that kernel yet. Omarchy's `install/hardware/nvidia.sh` puts `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` in `/etc/mkinitcpio.conf.d/nvidia.conf` for early KMS, and `omarchy_hooks.conf` drops the `kms` hook on NVIDIA-only machines, so when those four modules do not exist mkinitcpio cannot build a usable image and `limine-mkinitcpio-install` refuses to install the UKI. Nothing gets rebuilt, `/boot/EFI/Linux/omarchy_linux.efi` still holds the OLD kernel module, but userspace `nvidia-utils` on disk is new — the kernel/userspace version pair no longer matches, Hyprland aborts in `CHyprOpenGLImpl::initEGL`, and SDDM loops.
+**Cause.** nvidia-open-dkms / nvidia-dkms failed to compile against the newly installed kernel. On Omarchy 4 the usual reason is that the driver does not support that kernel yet (issue 5706 was a GCC internal compiler error in NVIDIA's source on 7.0.x), because `install/hardware/nvidia.sh` already installs the matching `<kernel>-headers` package. Missing headers is still the first thing to check for a second kernel you added yourself (`linux-lts` without `linux-lts-headers`) and on plain Arch, and a kernel and module built with different GCC major versions is the other classic cause.
+
+Omarchy's `install/hardware/nvidia.sh` writes `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` to `/etc/mkinitcpio.conf.d/nvidia.conf` for early KMS, and the package-owned `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` drops the `kms` hook when nvidia_drm is early-loaded and NVIDIA owns every display controller. When those four modules do not exist mkinitcpio prints `module not found` for each, still writes the image, then exits non-zero. `limine-mkinitcpio-install` treats that exit code as a failure, prints `mkinitcpio failed for kernel ..., skipping.` and never installs the staged UKI. Nothing gets rebuilt and pacman exits 0, so `/boot/EFI/Linux/omarchy_linux.efi` still holds the OLD kernel and the OLD nvidia module in its initramfs, while `nvidia-utils` on disk is new. The kernel/userspace version pair no longer matches, Hyprland aborts in `CHyprOpenGLImpl::initEGL`, and SDDM loops. On plain Arch with a normal initramfs the outcome is different: mkinitcpio -P installs the incomplete image anyway, the new kernel boots with no nvidia module, and you get a black screen or a bare framebuffer instead.
+
+One Omarchy detail decides whether you can recover without rebooting. Omarchy 4 installs `kernel-modules-hook`, whose pacman hooks copy the running kernel's whole module tree (including `build/` and `updates/dkms/`) aside before the transaction and restore it afterwards. DKMS therefore builds the new driver for the running kernel too, and if that build succeeded you can unload the stale module and load the new one in place. Plain Arch without that package deletes `/usr/lib/modules/<running kernel>` during the kernel upgrade, so nothing can be modprobed until you reboot.
+
+> **Audit corrected this record.** Confirmed on this machine (omarchy-settings 4.0.2-1, limine-mkinitcpio-hook 1.37.1-1, mkinitcpio 41.1-1, nvidia-open-dkms 610.57.04-1): /etc/mkinitcpio.conf.d/nvidia.conf is exactly MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm), /etc/modprobe.d/nvidia.conf is options nvidia_drm modeset=1, and both match install/hardware/nvidia.sh fetched from quattro. /etc/mkinitcpio.conf.d/omarchy_hooks.conf (owned by omarchy-settings) drops the kms hook only when nvidia_drm is in MODULES and every PCI class 0x03 device has vendor 0x10de, which is the case here (single RTX 3090). /usr/bin/limine-mkinitcpio exists and runs echo rebuild | /usr/share/libalpm/scripts/limine-mkinitcpio-install, whose error text is verbatim 'mkinitcpio failed for kernel X, skipping.' and which returns before limine-entry-tool --add-uki, so the old UKI stays. /usr/bin/mkinitcpio exits !!_builderrors (line 1238) and 'module not found' is an error() in /usr/lib/initcpio/functions:740 that counts, so the exit code claim holds. /etc/mkinitcpio.d is empty on Omarchy 4 because /etc/pacman.d/hooks/90-mkinitcpio-install.hook shadows the stock hook that would write linux.preset, so mkinitcpio -P dies with 'No presets found' (mkinitcpio:986): the wrapper-only claim holds and is stronger than stated. The ALPM guard (/usr/share/omarchy/bin/omarchy-update-pacman-guard) trips only when -S and -u are both present, so pacman -S --needed linux-headers passes. Issue 5706 (open, labels bug and nvidia) supports every element of the cause: DKMS built for the running kernel but not the new ones, UKI rebuild skipped, pacman exit 0, stale UKI with old module, initEGL abort, SDDM loop. What the record misses is WHY the in-place modprobe recovery works: Omarchy 4 installs kernel-modules-hook (line 66 of /usr/share/omarchy/install/omarchy-base.packages, installed 0.1.7-3 here), whose 10-linux-modules-pre/post alpm hooks rsync the running kernel's module tree, including build/ and updates/dkms/, around the transaction, so DKMS can build the new driver for the running kernel and modprobe can load it. On plain Arch without that package the kernel upgrade deletes /usr/lib/modules/$(uname -r), so the record's modprobe -r then modprobe nvidia_drm fails with 'Module nvidia_drm not found' and leaves no driver loaded at all. The reload also only helps when dkms status shows the new driver installed for $(uname -r), which the record never checks. Fix rewritten to gate the reload on that and to label the Omarchy versus plain Arch branch. Symptom transcript path updated: hook 1.37.1-1 builds to /tmp/limine-mkinitcpio.XXXXXX/<kernel>.efi, not /tmp/staging_uki.efi (that was an older hook, quoted from the May 2026 issue). Cause reordered so the Omarchy-typical trigger (driver does not build against the new kernel) comes first, since nvidia.sh already installs the headers. NOT exercised: no DKMS failure was induced, no reboot, no VM run, and dkms autoinstall -k was not executed. The kernel-modules-hook interaction with the dkms upgrade hook is read from the hook files, not observed.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Do not reboot while the transcript says `mkinitcpio failed for kernel ..., skipping.` — the boot image on the ESP is stale and may be the last working one. Never fix this with `pacman -Sy nvidia-utils`: that is a partial upgrade and will make the mismatch worse. `modprobe -r nvidia*` kills anything using the GPU, so save work first.
 
@@ -584,16 +633,7 @@ pacman still exits 0 and `omarchy update` reports success. Sometimes `nvidia-smi
 
 Get a text console with Ctrl+Alt+F2 and log in.
 
-If you are stuck in the SDDM login loop (kernel module and userspace disagree), unstick the running session first:
-
-```bash
-sudo systemctl stop sddm
-sudo modprobe -r nvidia_drm nvidia_uvm nvidia_modeset nvidia
-sudo modprobe nvidia_drm
-sudo systemctl start sddm
-```
-
-Now find out what actually failed:
+Find out what actually failed:
 
 ```bash
 uname -r
@@ -603,11 +643,23 @@ pacman -Q linux linux-lts linux-headers nvidia-open-dkms nvidia-utils 2>/dev/nul
 sudo tail -40 /var/lib/dkms/*/*/build/make.log
 ```
 
-Install the headers that match every installed kernel and rebuild the modules:
+**If you are stuck in the SDDM login loop** (kernel module and userspace disagree), you can unstick the running session without a reboot, but only when `dkms status` shows the NEW driver version `installed` for the kernel `uname -r` reports:
+
+```bash
+dkms status | grep "$(uname -r)"      # must list the new driver version as installed
+sudo systemctl stop sddm
+sudo modprobe -r nvidia_drm nvidia_uvm nvidia_modeset nvidia
+sudo modprobe nvidia_drm
+sudo systemctl start sddm
+```
+
+Omarchy 4 ships `kernel-modules-hook`, which is what keeps the running kernel's modules on disk through the upgrade so this works. On plain Arch without that package the running kernel's module directory is gone after a kernel upgrade, `modprobe nvidia_drm` will fail with `Module nvidia_drm not found`, and you would be left with no driver at all: skip this block, rebuild, and reboot.
+
+Install the headers that match every installed kernel and rebuild the modules. Omarchy 4 already installs `<kernel>-headers` for the kernel it found at install time, so this step matters for a second kernel you added and for plain Arch:
 
 ```bash
 sudo pacman -S --needed linux-headers        # add linux-lts-headers / linux-zen-headers as applicable
-env -u PATH PATH=/usr/bin:/usr/sbin sudo dkms autoinstall -k 7.0.3-arch1-2
+sudo dkms autoinstall -k 7.0.3-arch1-2       # the kernel version from ls /usr/lib/modules/
 dkms status                                   # every kernel should now show "installed"
 ```
 
@@ -617,7 +669,7 @@ Confirm the modules really exist before you rebuild the boot image:
 ls /usr/lib/modules/7.0.3-arch1-2/updates/dkms/nvidia*.ko*
 ```
 
-Rebuild the initramfs. On Omarchy 4 (Limine + UKI) you must use the Limine wrapper, not bare mkinitcpio, or the UKI on the ESP is never replaced:
+Rebuild the initramfs. On Omarchy 4 (Limine + UKI) you must use the Limine wrapper, not bare mkinitcpio: `/etc/mkinitcpio.d` is empty on Omarchy 4, so `mkinitcpio -P` stops with `No presets found` and the UKI on the ESP is never replaced:
 
 ```bash
 sudo limine-mkinitcpio      # Omarchy / limine-mkinitcpio-hook
@@ -641,11 +693,11 @@ sudo dkms autoinstall
 sudo limine-mkinitcpio
 ```
 
-If you are already at a black screen and cannot reach a TTY, pick a pre-update snapshot from the Limine menu, or add `nomodeset` at the boot menu to reach a console, then follow the steps above.
+If you are already at a black screen and cannot reach a TTY, pick a pre-update snapshot from the Limine menu (Omarchy ships limine-snapper-sync and lists snapshots under `Snapshots`), or press `e` on the boot entry and add `nomodeset` to the `cmdline:` line to reach a console, then follow the steps above.
 
 **Verify.** `dkms status` shows `installed` for every kernel in /usr/lib/modules; `sudo limine-mkinitcpio` completes with no `module not found` lines; after reboot `cat /sys/module/nvidia_drm/parameters/modeset` prints Y and `modinfo -F version nvidia` matches `pacman -Q nvidia-utils`.
 
-Sources: <https://github.com/basecamp/omarchy/issues/5706> · <https://github.com/basecamp/omarchy/blob/quattro/install/hardware/nvidia.sh> · <https://github.com/basecamp/omarchy/blob/quattro/etc/mkinitcpio.conf.d/omarchy_hooks.conf> · <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio> · <https://bbs.archlinux.org/viewtopic.php?id=295952> · <https://wiki.archlinux.org/title/Limine>
+Sources: <https://github.com/basecamp/omarchy/issues/5706> · <https://github.com/basecamp/omarchy/blob/quattro/install/hardware/nvidia.sh> · <https://github.com/basecamp/omarchy/blob/quattro/etc/mkinitcpio.conf.d/omarchy_hooks.conf> · <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio> · <https://bbs.archlinux.org/viewtopic.php?id=295952> · <https://wiki.archlinux.org/title/Limine> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md> · <https://github.com/limine-bootloader/limine/blob/trunk/common/menu.c>
 
 ---
 
@@ -662,21 +714,29 @@ Sources: <https://github.com/basecamp/omarchy/issues/5706> · <https://github.co
 
 On a docked laptop the prompt may be drawn on an external monitor that is still asleep.
 
-**Cause.** Plymouth takes over the console early in boot. If the `plymouth` hook runs *after* the `encrypt`/`sd-encrypt` hook, or if `splash` is on the kernel command line while plymouth is not actually in the initramfs, plymouth swallows the password prompt and the boot deadlocks waiting for input it never displays. Two related traps: `plymouth-encrypt` is not a hook on Arch at all (the `plymouth` package ships only `/usr/lib/initcpio/hooks/plymouth`; it is a Manjaro-only deprecated alias for `encrypt`), so guides recommending it make every rebuild fail; and plymouth defaults to SimpleDRM on UEFI, which does not light up secondary monitors, so a docked laptop can show the prompt on a dark screen.
+**Cause.** The `encrypt` hook asks for the passphrase in one of two ways. If plymouthd is already running in the initramfs (`plymouth --ping` succeeds) it hands the prompt to `plymouth ask-for-password`, which draws it on the splash and pipes what you type to cryptsetup. Otherwise it prints `A password is required to access the root volume:` as plain text. The hang happens in the first case when plymouthd is running but cannot draw: the initramfs has no early KMS driver for the GPU, or plymouth is on SimpleDRM and the output it chose is dark. The prompt is invisible but input still works, which is why typing the passphrase blind sometimes gets you in. This is what the Arch dm-crypt page means by "use the correct modules or Plymouth will swallow the password prompt".
+
+On Omarchy 4 the hook order is fixed by the package-owned `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` (plymouth right after udev, `encrypt` later, not `sd-encrypt`), so a wrong order only occurs when someone overrides HOOKS in `/etc/mkinitcpio.conf` or another drop-in. Even then the result is an unthemed text prompt rather than a deadlock, because plymouthd is not running yet when `encrypt` asks. The same file drops the `kms` hook on machines where NVIDIA owns every display controller and relies on `/etc/mkinitcpio.conf.d/nvidia.conf` early-loading `nvidia_drm`, so on those machines a missing nvidia module means no display driver at all at the prompt. Omarchy also ships `initramfs_async=0` because kernel 7.1 unpacks the initramfs asynchronously, plymouthd exits when it cannot read `/proc/cmdline`, and encrypted boots fall back to a text prompt.
+
+Two related traps: `plymouth-encrypt` is not a hook on Arch at all (the `plymouth` package ships only `/usr/lib/initcpio/hooks/plymouth`, and the name is a deprecated Manjaro alias for `encrypt`), so guides recommending it make every rebuild fail with `Hook 'plymouth-encrypt' cannot be found`. And plymouth defaults to SimpleDRM on UEFI, which does not light up secondary monitors, so a docked laptop can show the prompt on a dark screen.
+
+> **Audit corrected this record.** Confirmed on this machine (omarchy-settings 4.0.2-1, plymouth 26.134.222-2, limine-mkinitcpio-hook 1.37.1-1): the quoted HOOKS line is byte-identical to /etc/mkinitcpio.conf.d/omarchy_hooks.conf, Omarchy 4 uses the udev-based `encrypt` hook (not sd-encrypt) with cryptdevice= in /etc/default/limine and in the running /proc/cmdline, the vconsole.conf Latin-layout bundling is in the same file, and initramfs_async=0 with the kernel 7.1 race comment is verbatim in /etc/limine-entry-tool.d/omarchy-defaults.conf and present in /proc/cmdline. pacman -Ql plymouth lists only hooks/plymouth, install/plymouth and install/plymouth-shutdown, so plymouth-encrypt is not an Arch hook, and mkinitcpio's wording is verbatim "Hook 'X' cannot be found" (/usr/lib/initcpio/functions:1244). The Arch Plymouth page still says plymouth goes before encrypt or sd-encrypt, still documents SimpleDRM by default on UEFI with the docked-laptop warning, plymouth.use-simpledrm=0, plymouth.enable=0 disablehooks=plymouth and plymouth.debug, and the Dm-crypt/System_configuration troubleshooting section is the origin of the 'swallow the password prompt' wording. The drop-in mechanism holds: /usr/lib/limine/limine-common-functions loads /usr/share/limine-entry-tool.d, /etc/limine-entry-tool.conf, /etc/limine-entry-tool.d/*.conf, then /etc/default/limine, the local /etc/default/limine uses +=, and limine-mkinitcpio re-embeds the cmdline via limine-entry-tool --get-cmdline before --add-uki. The one-off Limine edit holds too: menu.c opens the entry editor on e/E, the entry tool writes a cmdline: line, CONFIG.md says the editor defaults to enabled unless a config hash is enrolled or Secure Boot is active, ENABLE_ENROLL_LIMINE_CONFIG is unset on Omarchy 4 and sbctl is not installed, and systemd-stub only refuses a load-options cmdline under Secure Boot. Two things were wrong. First, the cause's mechanism: /usr/lib/initcpio/hooks/encrypt only calls plymouth ask-for-password when plymouth --ping succeeds, so a plymouth hook ordered after encrypt gives a plain text prompt, not a hang, and splash with no plymouth in the initramfs cannot swallow anything because plymouthd is not running. The hang the symptom describes comes from plymouthd running but unable to draw (no early KMS driver, SimpleDRM on a dark output, or the kernel 7.1 race), which is what the Arch dm-crypt page's 'use the correct modules' means. Cause rewritten, and the Omarchy 4 angle added: omarchy_hooks.conf drops kms on NVIDIA-only machines and relies on nvidia.conf early-loading nvidia_drm. Second, the theme-reset block: plymouth-set-default-theme -R runs /usr/lib/plymouth/plymouth-update-initrd, which is bare mkinitcpio -P, and /etc/mkinitcpio.d is empty on Omarchy 4 so that cannot rebuild the UKI. omarchy-refresh-plymouth already runs plymouth-set-default-theme omarchy followed by limine-mkinitcpio and refuses to run under sudo, so on Omarchy it is the only command needed. NOT exercised: no boot was performed, no Limine edit, no rebuild, and the Manjaro plymouth-encrypt origin was not re-fetched (the Manjaro GitLab raw URL returned nothing), so that sentence rests on the previous audit. GitHub issue search was unavailable to this token, so no Omarchy issue was checked for this record.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Editing HOOKS wrongly is how people make a machine unbootable — dropping `encrypt`/`sd-encrypt` means nothing can unlock the root device, and dropping `filesystems` or `block` means it cannot be found. Change one thing, rebuild, read the output, and keep a fallback entry or a bootable snapshot available before you reboot. `plymouth.enable=0` is safe as a one-off boot parameter but leaves you with a plain text prompt; do not make it permanent if you also removed the plymouth hook, or you lose the themed prompt entirely. Never disable the passphrase prompt to "get past" this.
 
 **Fix.**
 
-**Get in first.** At the boot menu, edit the entry and disable plymouth for one boot — Limine: press `e` and edit `cmdline:`; GRUB: press `e`, edit the `linux` line, `Ctrl+X`:
+**Get in first.** At the boot menu, edit the entry and disable plymouth for one boot. Limine: press `e` on the entry and edit the `cmdline:` line (the editor is on by default. Omarchy does not enrol a config hash or set up Secure Boot, either of which would disable it and make the cmdline embedded in the UKI non-overridable). GRUB: press `e`, edit the `linux` line, `Ctrl+X`:
 
 ```
 plymouth.enable=0 disablehooks=plymouth
 ```
 
-Remove `quiet` and `splash` from the same line so you can see the prompt. The text `Enter passphrase for ...:` should now appear.
+Remove `quiet` and `splash` from the same line so you can see the prompt. The text `A password is required to access the root volume:` should now appear.
 
-**Fix the hook order.** `plymouth` must come after `udev` (or `systemd`) and *before* `encrypt`/`sd-encrypt`. This is Omarchy 4's shipped order, in the package-owned `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`:
+**Fix the hook order.** `plymouth` must come after `udev` (or `systemd`) and *before* `encrypt`/`sd-encrypt`, otherwise you get an unthemed text prompt. This is Omarchy 4's shipped order, in the package-owned `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, so on Omarchy check that nothing in `/etc/mkinitcpio.conf` or another drop-in overrides it:
 
 ```
 HOOKS=(base udev plymouth keyboard autodetect microcode modconf kms keymap consolefont block encrypt filesystems fsck btrfs-overlayfs)
@@ -688,9 +748,9 @@ On plain Arch, edit `/etc/mkinitcpio.conf` to the same shape:
 HOOKS=(base udev plymouth autodetect microcode modconf kms keyboard keymap consolefont block encrypt filesystems fsck)
 ```
 
-If you copied `plymouth-encrypt` from another distro's guide, replace it with plain `encrypt` — it does not exist on Arch.
+If you copied `plymouth-encrypt` from another distro's guide, replace it with plain `encrypt`. It does not exist on Arch.
 
-**Rebuild and read the output.** On Omarchy the entries are unified kernel images, so `mkinitcpio -P` alone will not update what actually boots:
+**Rebuild and read the output.** On Omarchy the entries are unified kernel images and `/etc/mkinitcpio.d` is empty, so `mkinitcpio -P` stops with `No presets found` and never touches what boots:
 
 ```bash
 sudo limine-mkinitcpio      # Omarchy 4 / Limine + UKI
@@ -700,13 +760,13 @@ sudo mkinitcpio -P
 
 There must be no `Hook '...' cannot be found`.
 
-**Docked laptop / external monitor** — make plymouth use the real GPU driver instead of the UEFI framebuffer so all outputs come up:
+**Docked laptop / external monitor.** Make plymouth use the real GPU driver instead of the UEFI framebuffer so all outputs come up:
 
 ```
 plymouth.use-simpledrm=0
 ```
 
-**Keyboard layout at the prompt.** If the passphrase is rejected rather than absent, the initramfs is using us layout. Omarchy bundles `/etc/vconsole.conf` into the image automatically for Latin layouts; on plain Arch add it yourself:
+**Keyboard layout at the prompt.** If the passphrase is rejected rather than absent, the initramfs is using us layout. Omarchy bundles `/etc/vconsole.conf` into the image automatically for Latin layouts. On plain Arch add it yourself:
 
 ```
 # /etc/mkinitcpio.conf.d/99-local.conf
@@ -715,7 +775,7 @@ FILES+=(/etc/vconsole.conf)
 
 **Debug what plymouth is doing** by adding `plymouth.debug` to the command line and reading `/var/log/plymouth-debug.log` after you get in.
 
-**Make a parameter permanent on Omarchy** (do not edit the generated `/boot/limine.conf`):
+**Make a parameter permanent on Omarchy** (do not edit the generated `/boot/limine.conf`). Drop-ins under `/etc/limine-entry-tool.d/` are read before `/etc/default/limine`, and Omarchy's `/etc/default/limine` appends with `+=`, so a drop-in survives:
 
 ```bash
 sudo tee /etc/limine-entry-tool.d/99-local.conf >/dev/null <<'EOF'
@@ -724,19 +784,25 @@ EOF
 sudo limine-mkinitcpio
 ```
 
-Note that Omarchy already ships `initramfs_async=0` in `/etc/limine-entry-tool.d/omarchy-defaults.conf` to work around a kernel 7.1 race in which plymouthd exits before it can read `/proc/cmdline`, dropping encrypted boots to an unthemed text prompt. If your booted `cat /proc/cmdline` is missing it, your boot image predates that default — `sudo limine-mkinitcpio` regenerates it.
+Note that Omarchy already ships `initramfs_async=0` in `/etc/limine-entry-tool.d/omarchy-defaults.conf` to work around a kernel 7.1 race in which plymouthd exits before it can read `/proc/cmdline`, dropping encrypted boots to an unthemed text prompt. If your booted `cat /proc/cmdline` is missing it, your boot image predates that default and `sudo limine-mkinitcpio` regenerates it.
 
-If the splash is merely ugly rather than broken, reset the theme instead of disabling plymouth:
+If the splash is merely ugly rather than broken, reset the theme instead of disabling plymouth. On Omarchy run this as your user, not under sudo (it refuses otherwise). It republishes the packaged theme, runs `plymouth-set-default-theme omarchy` and then `limine-mkinitcpio`:
 
 ```bash
-sudo plymouth-set-default-theme -R omarchy
-# Omarchy:
 omarchy-refresh-plymouth
 ```
 
+On plain Arch:
+
+```bash
+sudo plymouth-set-default-theme -R <theme>
+```
+
+Do not use `plymouth-set-default-theme -R` on Omarchy: its rebuild step is bare `mkinitcpio -P`, which has no presets to run there.
+
 **Verify.** After rebuilding, `sudo limine-mkinitcpio` (or `mkinitcpio -P`) reports no missing hooks; on the next boot the themed passphrase prompt appears and accepts input; `cat /proc/cmdline` contains the parameters you added.
 
-Sources: <https://wiki.archlinux.org/title/Plymouth> · <https://wiki.archlinux.org/title/Dm-crypt/System_configuration> · <https://github.com/basecamp/omarchy/blob/quattro/etc/mkinitcpio.conf.d/omarchy_hooks.conf> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://archlinux.org/packages/extra/x86_64/plymouth/files/> · <https://gitlab.manjaro.org/packages/extra/plymouth/-/blob/master/PKGBUILD> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio> · <https://wiki.archlinux.org/title/Kernel_parameters>
+Sources: <https://wiki.archlinux.org/title/Plymouth> · <https://wiki.archlinux.org/title/Dm-crypt/System_configuration> · <https://github.com/basecamp/omarchy/blob/quattro/etc/mkinitcpio.conf.d/omarchy_hooks.conf> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://archlinux.org/packages/extra/x86_64/plymouth/files/> · <https://gitlab.manjaro.org/packages/extra/plymouth/-/blob/master/PKGBUILD> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio> · <https://wiki.archlinux.org/title/Kernel_parameters> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md> · <https://github.com/limine-bootloader/limine/blob/trunk/common/menu.c> · <https://github.com/systemd/systemd/blob/main/man/systemd-stub.xml>
 
 ---
 
@@ -744,9 +810,28 @@ Sources: <https://wiki.archlinux.org/title/Plymouth> · <https://wiki.archlinux.
 
 `boot-esp-not-mounted-during-kernel-upgrade` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `laptop`, `limine`, `manjaro`, `omarchy`, `systemd-boot`, `uefi`
 
-**Symptom.** `pacman -Syu` (or `omarchy update`) finished with no errors at all, but the next boot fails — the boot loader cannot find the kernel, or the system boots and then everything modular breaks (no Wi-Fi, no GPU, `modprobe: FATAL: Module ... not found in directory /lib/modules/7.0.3-arch1-2`), or you land in an emergency shell. Once you get a shell, `uname -r` reports an older version than `pacman -Q linux`, and `ls /boot` shows either an empty directory or kernels that do not match. There was no warning during the upgrade — current mkinitcpio no longer prints the old "/boot appears to be a separate partition but is not mounted" message.
+**Symptom.** The kernel upgrade ran, but the next boot fails: the boot loader cannot find the kernel, or the system boots and then everything modular breaks (no Wi-Fi, no GPU, `modprobe: FATAL: Module ... not found in directory /lib/modules/7.0.3-arch1-2`), or you land in an emergency shell. Once you get a shell, `uname -r` reports an older version than `pacman -Q linux`, and `sudo ls /boot` shows either an empty directory or kernels that do not match.
 
-**Cause.** The EFI system partition was not mounted at `/boot` when the transaction ran, usually because the fstab entry is missing/wrong, because the mount silently failed earlier in the session (`vfat` module not loaded, dirty FAT flagged `errors=remount-ro`), or because the ESP is mounted somewhere else and you relied on systemd automount. pacman happily writes `vmlinuz-linux` and `initramfs-linux.img` into the plain `/boot` *directory* on the root filesystem, which the firmware cannot read. The modules under `/usr/lib/modules/<newver>` are updated, so the old kernel that the firmware does load has no matching modules.
+On plain Arch the upgrade printed no warning at all: current mkinitcpio no longer prints the old "/boot appears to be a separate partition but is not mounted" message. On Omarchy 4 the Limine hook did complain, and it is easy to scroll past inside `omarchy update`:
+
+```
+ERROR: Boot path '/boot' is not a mounted FAT32 boot partition.
+error: command failed to execute correctly
+```
+
+The transaction still finished, because a failing PostTransaction hook does not abort pacman.
+
+**Cause.** The EFI system partition was not mounted at `/boot` when the transaction ran, usually because the fstab entry is missing/wrong, because the mount silently failed earlier in the session (`vfat` module not loaded, dirty FAT flagged `errors=remount-ro`), or because the ESP is mounted somewhere else and you relied on systemd automount.
+
+Plain Arch: mkinitcpio's pacman hook happily writes `vmlinuz-linux` and `initramfs-linux.img` into the plain `/boot` *directory* on the root filesystem, which the firmware cannot read.
+
+Omarchy 4: `limine-mkinitcpio-hook` replaces that hook with `/etc/pacman.d/hooks/90-mkinitcpio-install.hook`. Its script checks that `ESP_PATH` (`/boot`, from `/etc/default/limine`) is a mounted vfat filesystem before building anything, fails with the error above, and writes nothing, so the UKI at `/boot/EFI/Linux/omarchy_linux.efi` on the unmounted ESP is simply left at the old version.
+
+Either way the modules under `/usr/lib/modules/<newver>` are updated and the old ones removed, so the old kernel that the firmware does load has no matching modules.
+
+> **Audit corrected this record.** Checked on this Omarchy 4 machine and against the mkinitcpio and limine-entry-tool sources. On Omarchy 4 /boot is the vfat ESP from fstab (fmask=0077,dmask=0077, confirmed with findmnt), the kernel package ships only /usr/lib/modules/<ver>/vmlinuz, and limine-mkinitcpio-hook overrides the stock hook with /etc/pacman.d/hooks/90-mkinitcpio-install.hook (same name, higher priority per alpm-hooks(5)), whose script runs initialize_header in /usr/lib/limine/limine-common-functions before touching anything. With the ESP unmounted that fails on check_boot_partition (`Boot path '/boot' is not a mounted FAT32 boot partition.`) or, without ESP_PATH, on find_boot_partition, and exits 1, so pacman prints `error: command failed to execute correctly` and nothing is written into the root-filesystem /boot directory. The record's symptom ("no errors at all") and cause (stray vmlinuz/initramfs on the root filesystem) therefore describe plain Arch, not Omarchy 4, though the consequence is the same: modules replaced, boot image not rebuilt, old kernel boots with no modules. Also wrong for Omarchy 4: `mkinitcpio -P` cannot serve as a fallback because /etc/mkinitcpio.d is empty here and mkinitcpio 41.1 dies with `No presets found` (line 986 of /usr/bin/mkinitcpio), and `ls /boot` needs sudo. What held: findmnt/lsblk diagnosis, the wiki ESP mount options and the vfat modules-load advice, daemon-reload before mount, `pacman -S linux linux-firmware` passing omarchy-update-pacman-guard (it aborts only when -S and -u are both present), the UKI path /boot/EFI/Linux/omarchy_linux.efi (CUSTOM_UKI_NAME=omarchy and the `${prefix}_${kernel}.efi` pattern in limine-mkinitcpio-install, also used by omarchy-refresh-limine), limine-mkinitcpio and limine-update as real commands (limine-update runs limine-install --no-efi-register then limine-mkinitcpio), subvol=@ and the `root` mapper name matching this machine's cmdline, and the old mkinitcpio warning being absent from both the installed 41.1 script and master. bbs 194153 quotes that old warning and the chroot-and-reinstall cure. bbs 285144 is a uname/pacman -Q mismatch thread and only weakly supports the record. Not exercised: an actual unmounted-ESP upgrade, the chroot path, or GRUB and systemd-boot.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Never `rm -rf /boot` while unsure whether the ESP is mounted — with the ESP mounted you delete your only boot loader and kernel. Move it aside instead. On a dual-boot machine the ESP also holds Windows' boot loader, so do not reformat it. If you chroot from a live USB onto btrfs, get `subvol=@` right or you will repair an empty top-level subvolume.
 
@@ -758,10 +843,12 @@ First confirm the diagnosis:
 findmnt /boot            # no output at all = the ESP is NOT mounted
 lsblk -f                 # find the vfat/FAT32 partition
 uname -r; pacman -Q linux
-ls -l /boot
+sudo ls -l /boot         # sudo: Omarchy mounts the ESP dmask=0077
 ```
 
-If the system still boots (on the old kernel), repair it in place. Move the stray files off the root filesystem first, otherwise they stay there forever wasting space and confusing you later:
+If the system still boots (on the old kernel), repair it in place.
+
+**Plain Arch only:** move the stray files off the root filesystem first, otherwise they stay there forever wasting space and confusing you later. On Omarchy 4 the hook wrote nothing, so the directory is empty and this step can be skipped (it is harmless if you do it anyway):
 
 ```bash
 sudo mv /boot /boot.stray
@@ -774,10 +861,14 @@ Add or fix the fstab entry, then mount:
 sudo blkid -s UUID -o value /dev/nvme0n1p1     # your ESP
 ```
 
+Omarchy's installer writes this shape (masks 0077, so only root can read the ESP):
+
 ```
 # /etc/fstab
-UUID=1234-ABCD  /boot  vfat  rw,relatime,fmask=0137,dmask=0027,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro  0 2
+UUID=1234-ABCD  /boot  vfat  rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro  0 2
 ```
+
+The Arch wiki's `fmask=0137,dmask=0027` variant is equally valid on plain Arch.
 
 ```bash
 sudo systemctl daemon-reload
@@ -785,7 +876,7 @@ sudo mount /boot
 findmnt /boot            # must now show the vfat device
 ```
 
-Reinstall every kernel you have and regenerate the boot image:
+Reinstall every kernel you have and regenerate the boot image. On Omarchy 4 the reinstall itself fires the Limine hook, which rebuilds the UKI, so the explicit command is belt and braces. `pacman -S` without `-u` is not blocked by Omarchy's update guard:
 
 ```bash
 sudo pacman -S linux linux-firmware          # add linux-lts etc. if installed
@@ -794,15 +885,17 @@ sudo limine-mkinitcpio                        # Omarchy 4 / Limine UKI
 sudo mkinitcpio -P
 ```
 
+Do not use `mkinitcpio -P` on Omarchy 4: it has no presets in `/etc/mkinitcpio.d/` and dies with `No presets found`, and the `/usr/local/bin/mkinitcpio` wrapper that Omarchy's hook package installs only warns and offers `limine-mkinitcpio` anyway.
+
 Then reinstall the boot loader entries:
 
 ```bash
-sudo limine-update            # Limine
+sudo limine-update            # Limine (also re-runs limine-mkinitcpio)
 sudo bootctl update           # systemd-boot
 sudo grub-mkconfig -o /boot/grub/grub.cfg   # GRUB
 ```
 
-If it no longer boots at all, do the same from the Arch/Omarchy ISO:
+If it no longer boots at all, do the same from the Arch/Omarchy ISO, booted in UEFI mode (the Limine tools refuse to build a UKI unless `/sys/firmware/efi` exists inside the chroot):
 
 ```bash
 lsblk -f
@@ -812,7 +905,8 @@ mount -o subvol=@ /dev/mapper/root /mnt      # drop -o subvol=@ if not btrfs
 mount --mkdir /dev/nvme0n1p1 /mnt/boot
 arch-chroot /mnt
 pacman -S linux linux-firmware
-limine-mkinitcpio || mkinitcpio -P
+limine-mkinitcpio        # Omarchy 4 / Limine
+mkinitcpio -P            # plain Arch instead
 exit
 umount -R /mnt
 ```
@@ -826,11 +920,11 @@ nls_cp437
 nls_ascii
 ```
 
-Once you are booting off the ESP again, delete `/boot.stray`.
+Once you are booting off the ESP again, delete `/boot.stray` if you created it.
 
 **Verify.** `findmnt /boot` shows the vfat partition, `ls /boot` lists the vmlinuz/initramfs (or /boot/EFI/Linux/omarchy_linux.efi on Omarchy) with today's date, and after a reboot `uname -r` matches `pacman -Q linux`.
 
-Sources: <https://wiki.archlinux.org/title/EFI_system_partition> · <https://bbs.archlinux.org/viewtopic.php?id=194153> · <https://bbs.archlinux.org/viewtopic.php?id=285144> · <https://wiki.archlinux.org/title/Limine> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio>
+Sources: <https://wiki.archlinux.org/title/EFI_system_partition> · <https://bbs.archlinux.org/viewtopic.php?id=194153> · <https://bbs.archlinux.org/viewtopic.php?id=285144> · <https://wiki.archlinux.org/title/Limine> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/libalpm/scripts/mkinitcpio> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/mkinitcpio> · <https://gitlab.com/Zesko/limine-entry-tool> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-refresh-limine> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-uki.conf> · <https://aur.archlinux.org/rpc/v5/info?arg[]=limine-snapper-sync&arg[]=limine-mkinitcpio-hook>
 
 ---
 
@@ -841,26 +935,36 @@ Sources: <https://wiki.archlinux.org/title/EFI_system_partition> · <https://bbs
 **Symptom.** After a hard power-off, a crash, or pulling an external drive, the boot stops with:
 
 ```
-/dev/nvme0n1p2: UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY.
+/dev/sda3: UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY.
 	(i.e., without -a or -p options)
 fsck failed with exit status 4.
 [FAILED] Failed to start File System Check on /dev/disk/by-uuid/1a2b3c4d-....
-[DEPEND] Dependency failed for /home.
+[DEPEND] Dependency failed for /data.
 You are in emergency mode. After logging in, type "journalctl -xb" to view
 system logs, "systemctl reboot" to reboot, "systemctl default" or "exit"
 to boot into default mode.
 Give root password for maintenance (or press Control-D to continue):
 ```
 
-On a machine where root has no password (the Omarchy default) that prompt is a dead end — Ctrl-D just loops.
+On plain Arch with an ext4 root the same `UNEXPECTED INCONSISTENCY` line can name the root partition and come from the initramfs instead, followed by a `FILESYSTEM CHECK FAILED` banner and a `[rootfs ]#` shell that reboots the machine when you leave it.
 
-**Cause.** fsck found damage it will not repair without confirmation (usually a dirty journal plus orphaned inodes on ext4) and exits non-zero. On Arch the check runs either from the mkinitcpio `fsck` hook for the root filesystem, or from `systemd-fsck@.service` for anything with a non-zero pass number in the 6th field of `/etc/fstab`. Either way systemd refuses to continue mounting and falls into emergency mode.
+On Omarchy 4 the root, `/home`, `/var/log` and `/var/cache/pacman/pkg` are btrfs subvolumes that are never checked, so this message only ever names an extra ext4 or XFS filesystem you added to `/etc/fstab` yourself. If the root account is locked, the maintenance prompt cannot be passed and Ctrl-D brings it straight back.
 
-> ⚠️ **Risk.** Running fsck on a mounted read-write filesystem will destroy it — always confirm with `findmnt` / `umount` first, and prefer a live USB for root. `fsck -y` on a physically failing disk can throw away recoverable data; if the drive is suspect, image it first with `ddrescue` and repair the image. Never run e2fsck against btrfs or XFS. `btrfs check --repair` is documented as dangerous and can make a recoverable filesystem unrecoverable — do not reach for it before trying a plain mount and `--readonly`.
+**Cause.** fsck found damage it will not repair without confirmation (usually a dirty journal plus orphaned inodes on ext4) and exits with status 4, "errors left uncorrected". On Arch the check runs from one of two places: the mkinitcpio `fsck` hook checks the root filesystem before it is mounted, and `systemd-fsck@.service` checks every other `/etc/fstab` entry with a non-zero pass number in the 6th field. `systemd-fsck@` fails on status 4, the mount unit that `Requires` it fails, and unless the entry carries `nofail`, `local-fs.target` activates `emergency.target`.
+
+On Omarchy 4 both paths are effectively off for the system's own filesystems. `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` keeps `fsck` in `HOOKS`, but with `autodetect` the hook packs only `fsck.btrfs`, a shell script from `btrfs-progs` that prints a hint and exits 0 without touching the disk. Every btrfs line the installer writes to `/etc/fstab` (`/`, `/home`, `/var/log`, `/var/cache/pacman/pkg`, all `subvol=/@...`) has pass `0`. The only entry with a pass number is the vfat ESP at `/boot` (pass `2`), which `systemd-fsck@` checks at every boot with `fsck.fat -a`, and `fsck.fat` only exits 0, 1 or 2, so it does not produce status 4. A broken ESP therefore surfaces as a mount failure (see `fstab-bad-entry-emergency-mode`), and an `UNEXPECTED INCONSISTENCY` on an Omarchy machine points at an ext4 or XFS filesystem you added to fstab.
+
+> **Audit corrected this record.** The generic Arch content held: the Fsck, Kernel_parameters and Btrfs wiki pages (raw wikitext) confirm the two check paths, fsck.mode=skip/force, fsck.repair=yes, the rw requirement for the mkinitcpio fsck hook, the fstab pass-number rules and the warning on btrfs check --repair, and the mkinitcpio hooks/fsck, install/fsck and init_functions sources confirm how the hook builds and what the initramfs does on status 4. rescue=usebackuproot (btrfs 5.9+), btrfs check --readonly as the default, findmnt --verify and fsck.fat exit codes 0/1/2 were confirmed from the local btrfs(5), btrfs-check(8), findmnt(8) and fsck.fat(8) man pages, and systemd-fsck@.service(8) confirms that a status-4 failure on a non-nofail fstab entry activates emergency.target. What did not hold is the Omarchy specialisation. On this machine /etc/mkinitcpio.conf.d/omarchy_hooks.conf does keep fsck in HOOKS, but with autodetect the hook packs only fsck.btrfs, which /usr/bin/fsck.btrfs (btrfs-progs 7.1) shows is a script that exits 0 without checking, and every btrfs line in /etc/fstab (/ /home /var/log /var/cache/pacman/pkg, all subvol=/@...) carries pass 0. The only checked entry is the vfat ESP at /boot with pass 2, and systemctl status shows systemd-fsck@ running fsck.fat 4.2 on it at every boot. fsck.fat cannot return 4, so the record's symptom (an ext4 message on nvme0n1p2, which is the LUKS root on Omarchy) cannot occur on an Omarchy install as shipped and only appears for an extra ext4 or XFS disk the user added with a non-zero pass number. The btrfs advice was moved to its own branch labelled as the Omarchy 4 root, with scrub as the safe check. The claim that root has no password on Omarchy is not a constant: getent shadow root on this 4.0.0 workstation shows the account locked (!*), but the current ISO configurator writes root_enc_password from the same hash as the user password (archinstall_adapter.py creates root with it) and omarchy-provision-owner line 741 sets root to the owner password with chpasswd on deferred-provisioning installs, so the fix now says to try the login password first. The kernel-parameter advice was given an Omarchy branch: the cmdline is embedded in the UKI, so it goes in a /etc/limine-entry-tool.d/ drop-in followed by limine-mkinitcpio, and systemd-stub(7) states that a passed cmdline is ignored under Secure Boot when a .cmdline section exists. Not exercised: no filesystem was damaged or repaired, no VM was booted (pool was down), the Limine menu editor path was not tested, and whether an ext4 root on plain Arch drops to the initramfs shell was taken from init_functions rather than reproduced.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Running fsck on a mounted read-write filesystem will destroy it. Confirm with `findmnt` and `umount` first, and use a live USB for root. `fsck -y` on a physically failing disk can throw away recoverable data. If the drive is suspect, image it first with `ddrescue` and repair the image. Never point e2fsck or xfs_repair at a btrfs device by hand: `fsck` dispatches by type and lands on the harmless `fsck.btrfs`, but `fsck.ext4 /dev/mapper/root` on a btrfs root will rewrite it into garbage. `btrfs check --repair` is called dangerous by btrfs-progs itself and can turn a mountable filesystem into an unmountable one. Reach for it only after `mount -o ro,rescue=usebackuproot` and `btrfs check --readonly` have failed and you hold a backup or an image, and never with `--force` on a mounted filesystem. On Omarchy 4 that one filesystem holds `/`, `/home`, the package cache and every Snapper snapshot, so there is no second copy on the disk to fall back to.
 
 **Fix.**
 
-**If the failing filesystem is not root** (a `/home`, `/data`, or `/boot` entry), you can repair it from the maintenance shell:
+**Getting past the maintenance prompt.** It asks for the root password. On Omarchy 4 that depends on how the machine was installed: the current ISO's configurator gives root the same password as the user you created, and a deferred-provisioning install sets root to the owner's password at first boot, but an early 4.0.0 install can have root locked. Try your own login password first. If root is locked the prompt cannot be passed, and you work from the ISO instead (the Omarchy ISO gives a root shell with no password on Ctrl+Alt+F2, the Arch ISO on tty1).
+
+**If the failing filesystem is not root** (an extra `/data`, or `/home` on plain Arch), repair it from the maintenance shell:
 
 ```bash
 findmnt --verify --fstab
@@ -869,26 +973,32 @@ fsck -f /dev/sda3         # answer y, or use -y to accept everything
 systemctl default
 ```
 
-**If it is the root filesystem**, do not fsck it from that shell — root is mounted. Boot the Arch/Omarchy ISO and work on it unmounted:
+**If it is an ext4 or XFS root** (plain Arch), do not fsck it from that shell, because root is mounted. Boot the Arch or Omarchy ISO and work on it unmounted:
 
 ```bash
 lsblk -f
-# open LUKS first if encrypted:
+# open LUKS first if encrypted (any mapper name works):
 cryptsetup open /dev/nvme0n1p2 root
 
 # ext4:
 e2fsck -f /dev/mapper/root          # add -y to auto-answer once you have read the prompts
 # xfs:
 xfs_repair /dev/mapper/root
-# vfat ESP:
+# vfat ESP (Omarchy: /dev/nvme0n1p1, normally mounted at /boot):
 fsck.fat -a /dev/nvme0n1p1
-# btrfs: DO NOT run fsck. Check only:
-btrfs check --readonly /dev/mapper/root
 ```
 
-For btrfs, a normal mount replays the log and fixes almost everything; if a mount fails, try `mount -o ro,rescue=usebackuproot` before considering repair tools.
+**If the root is btrfs** (every Omarchy 4 install, and archinstall's btrfs layout), there is nothing to fsck: `fsck.btrfs` is a no-op by design, and a normal mount replays the log and fixes almost everything. If the mount itself fails, from the ISO:
 
-**To get in once without repairing** (to take a backup first), add at the boot menu:
+```bash
+cryptsetup open /dev/nvme0n1p2 root
+mount -o ro,rescue=usebackuproot,subvol=@ /dev/mapper/root /mnt   # try the backup tree roots
+btrfs check --readonly /dev/mapper/root                            # unmounted, read-only, report only
+```
+
+Once it mounts, `btrfs scrub start /` followed by `btrfs scrub status /` is the safe integrity check, and it runs on the mounted filesystem. `btrfs check --repair` stays the last resort, after a backup or a `ddrescue` image.
+
+**To get in once without checking** (to take a backup first), add to the kernel command line:
 
 ```
 fsck.mode=skip
@@ -900,15 +1010,27 @@ fsck.mode=skip
 fsck.mode=force fsck.repair=yes
 ```
 
-Then make sure fstab is sane — this is a frequent cause of a check that never should have run. The 6th column is the pass number: `1` for root only, `2` for other checkable filesystems, `0` to skip. Anything non-Linux, or any network/removable mount, must be `0`:
+On plain Arch, edit the entry at the bootloader menu. On Omarchy 4 the command line is embedded in the UKI at `/boot/EFI/Linux/omarchy_linux.efi`, so put it in a drop-in and rebuild the UKI, as root, from a chroot if the machine does not boot:
+
+```bash
+echo 'KERNEL_CMDLINE[default]+=" fsck.mode=skip"' > /etc/limine-entry-tool.d/50-fsck-skip.conf
+limine-mkinitcpio
+```
+
+Delete the drop-in and run `limine-mkinitcpio` again afterwards. Editing the line at the Limine menu only takes effect with Secure Boot off, because systemd-stub ignores a passed command line when Secure Boot is on and the UKI carries its own. Neither parameter does much on Omarchy, where nothing but the ESP is checked.
+
+Then make sure fstab is sane, because a wrong pass number is a frequent cause of a check that never should have run. The 6th column is the pass number: `1` for an ext4 or XFS root only, `2` for other checkable filesystems, `0` to skip. btrfs, anything non-Linux, and any network or removable mount must be `0`:
 
 ```
-/dev/nvme0n1p2  /      ext4  defaults                                    0 1
-UUID=1234-ABCD  /boot  vfat  rw,relatime,fmask=0137,dmask=0027,utf8      0 2
-UUID=...        /data  ntfs3 defaults,nofail,x-systemd.device-timeout=5s 0 0
+UUID=974cda7f-...  /      btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@      0 0
+UUID=16AE-BBB4     /boot  vfat   rw,relatime,fmask=0077,dmask=0077,utf8,errors=remount-ro       0 2
+UUID=...           /data  ext4   defaults,nofail,x-systemd.device-timeout=5s                    0 2
+UUID=...           /win   ntfs3  defaults,nofail,x-systemd.device-timeout=5s                    0 0
 ```
 
-If you use the mkinitcpio `fsck` hook (the Arch and Omarchy default), the kernel command line must contain `rw`, not `ro`, or the check cannot run.
+The first two lines are what the Omarchy installer writes. On plain Arch with an ext4 root the root line is `/dev/nvme0n1p2  /  ext4  defaults  0 1`.
+
+If you use the mkinitcpio `fsck` hook (the Arch and Omarchy default), the kernel command line must contain `rw`, not `ro`, or the check cannot run. Omarchy's cmdline already has `rw`.
 
 Repeated inconsistencies mean failing hardware, not a software bug:
 
@@ -919,7 +1041,7 @@ sudo dmesg | grep -iE 'i/o error|medium error|nvme.*reset'
 
 **Verify.** `e2fsck -f` (or `xfs_repair`) exits 0 or 1 on a second run with no further corrections; `systemctl default` completes; after reboot `systemctl list-units --failed` is empty and `journalctl -b -u 'systemd-fsck@*'` shows clean checks.
 
-Sources: <https://wiki.archlinux.org/title/Fsck> · <https://wiki.archlinux.org/title/Kernel_parameters> · <https://wiki.archlinux.org/title/Btrfs> · <https://wiki.archlinux.org/title/Mkinitcpio>
+Sources: <https://wiki.archlinux.org/title/Fsck> · <https://wiki.archlinux.org/title/Kernel_parameters> · <https://wiki.archlinux.org/title/Btrfs> · <https://wiki.archlinux.org/title/Mkinitcpio> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/install/fsck> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/hooks/fsck> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/init_functions> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/share/omarchy-iso/orchestrator/archinstall_adapter.py> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/share/omarchy-iso/orchestrator/context.py> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-provision-owner> · <https://github.com/archlinux/archiso/blob/master/configs/releng/airootfs/etc/shadow>
 
 ---
 
@@ -1131,53 +1253,79 @@ and after rebooting you are back in the emergency shell.
 
 **Cause.** On Btrfs installs (Omarchy, EndeavourOS and CachyOS all default to Btrfs subvolumes) mounting `/dev/nvme0n1p2 /mnt` mounts the *top-level* subvolume, not the actual root. The chroot then sees an almost-empty filesystem, package scripts silently operate on the wrong tree, and the initramfs is written somewhere the bootloader never reads. The same class of failure comes from forgetting to mount the ESP at `/mnt/boot`, or forgetting to open the LUKS container first.
 
-> ⚠️ **Risk.** Running pacman/grub-install inside a wrongly-mounted chroot can overwrite files on the wrong filesystem and make a recoverable system unrecoverable. Always confirm `/etc/fstab` is visible inside the chroot before writing anything.
+> **Audit corrected this record.** Checked the Omarchy 4 layout on this machine (findmnt, /etc/fstab, lsblk, /proc/cmdline, /etc/default/limine, /etc/limine-entry-tool.d/*.conf) and against the ISO configurator in omacom/omarchy-iso quattro: the root is LUKS2 on p2 with btrfs subvolumes @, @home, @log and @pkg mounted at /, /home, /var/log and /var/cache/pacman/pkg, the ESP is vfat at /boot, and Snapper's /.snapshots is a subvolume nested inside @ (inode 256 here), so there is no @snapshots to mount. The record mounts only @ and @home, so pacman inside its chroot writes the package cache and logs into the @ subvolume instead of @pkg and @log. The mapper name cryptroot is neither of the names Omarchy uses (omarchy_root in the current configurator, root on this 4.0.0 install per the cmdline). Any name works for a chroot because the rebuilt cmdline is read from /etc/default/limine and the drop-ins inside the chroot, and the corrected fix says so. The rebuild step was the main defect: on Omarchy 4 /etc/mkinitcpio.d/ is empty, so mkinitcpio -P dies with 'No presets found in /etc/mkinitcpio.d' (mkinitcpio 41.1 line 986, confirmed here), the kernel boots as the UKI /boot/EFI/Linux/omarchy_linux.efi, and the right command is limine-mkinitcpio (or pacman -S linux, whose 90-mkinitcpio-install hook from limine-mkinitcpio-hook runs the same script). The verify step's ls -l /boot/vmlinuz-linux therefore does not apply to Omarchy. Confirmed from /usr/bin/omarchy-update-pacman-guard that the ALPM guard only aborts when -S and -u are combined, so pacman -S linux in a chroot is not blocked. Confirmed from /usr/lib/limine/limine-common-functions that the ESP is found by a vfat mount at /efi, /boot, /boot/efi or /limine and the tool stops with 'FAT32 boot partition not found' otherwise, and from limine-mkinitcpio-install that the UKI is only built when /sys/firmware/efi exists, which is why UEFI mode matters. Confirmed from the archiso releng profile (GitHub mirror) that both ISOs autologin root on tty1 with an empty root password and ship arch-install-scripts, btrfs-progs and dosfstools, and from omarchy-iso build-iso.sh that the Omarchy ISO is seeded from releng and adds cryptsetup, so the record's sudo prefixes are unnecessary and a shell is on Ctrl+Alt+F2. The cited EndeavourOS thread (post 15) does support the subvol=@ claim, arch-chroot(8) was re-read (plain arch-chroot /mnt still works, -S is optional), and the Omarchy manual security page confirms LUKS is the installer default. Not exercised: no chroot was performed, no VM was booted (the pool was down), and the mapper name on installs between 4.0.0 and the current ISO was not sampled beyond this machine.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Writing into a wrongly mounted chroot damages the wrong tree. On btrfs the top-level subvolume (subvolid 5) holds `@`, `@home`, `@log` and `@pkg` as directories and nothing else, so a chroot into it has no `/etc/fstab` and no `pacman`. Confirm `/etc/fstab` is visible before writing anything. With `/boot` left unmounted, plain Arch's `mkinitcpio -P` writes `/boot/vmlinuz-linux` into the root subvolume where the bootloader never looks. Omarchy's `limine-mkinitcpio` refuses instead (`FAT32 boot partition not found`), but an ESP mounted at the wrong path still leaves the UKI where the firmware will not find it. Do not run `btrfs check --repair` or delete subvolumes while hunting for the root: the missing files are a mount mistake, not filesystem damage, and on Omarchy that one filesystem holds `/home` and every Snapper snapshot.
 
 **Fix.**
 
-Boot the Arch (or Omarchy) ISO in **UEFI mode**, then:
+Boot the Arch ISO or the Omarchy ISO in **UEFI mode**. Both log you in as root, so no `sudo` is needed. On the Omarchy ISO the installer owns tty1: press Ctrl+Alt+F2 and log in as `root` with no password (the live image is built on the Arch releng profile, which ships an empty root password plus `arch-install-scripts`, `btrfs-progs`, `dosfstools` and `cryptsetup`).
+
+On Omarchy 4, try the **Snapshots** entry in the Limine menu before reaching for the ISO: it boots a Snapper snapshot of the root subvolume, and `omarchy-snapshot restore` can roll back from there. If that boots, you may not need a chroot at all.
 
 ```sh
-# 1. see the layout
+# 1. see the layout. Omarchy: p1 is the vfat ESP, p2 is LUKS (bare btrfs on an unencrypted install)
 lsblk -f
 
-# 2. unlock encryption if present (Omarchy full-disk encryption is the default)
-sudo cryptsetup open /dev/nvme0n1p2 cryptroot
+# 2. unlock encryption if present (the Omarchy installer encrypts by default).
+#    The mapper name is yours to choose here: Omarchy's own installs use
+#    "omarchy_root" (current ISO) or "root" (earlier 4.x installs), and the
+#    rebuilt boot files do not inherit whatever you type.
+cryptsetup open /dev/nvme0n1p2 omarchy_root
 
-# 3. list the Btrfs subvolumes so you mount the right one
-sudo mount /dev/mapper/cryptroot /mnt
-sudo btrfs subvolume list /mnt
-sudo umount /mnt
+# 3. list the subvolumes so you mount the right ones
+mount /dev/mapper/omarchy_root /mnt
+btrfs subvolume list /mnt
+umount /mnt
 
-# 4. mount the ROOT subvolume (commonly @ or @root)
-sudo mount -o subvol=@ /dev/mapper/cryptroot /mnt
-sudo mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
+# 4. mount the ROOT subvolume, then every other subvolume fstab expects.
+#    Omarchy 4 (from the ISO configurator): @ @home @log @pkg
+mount -o subvol=@,compress=zstd     /dev/mapper/omarchy_root /mnt
+mount -o subvol=@home,compress=zstd /dev/mapper/omarchy_root /mnt/home
+mount -o subvol=@log,compress=zstd  /dev/mapper/omarchy_root /mnt/var/log
+mount -o subvol=@pkg,compress=zstd  /dev/mapper/omarchy_root /mnt/var/cache/pacman/pkg
 
-# 5. mount the ESP where the installed system expects it (/boot or /boot/efi or /efi)
-sudo mount /dev/nvme0n1p1 /mnt/boot
+# 5. mount the ESP where the installed system expects it. Omarchy: /boot
+mount /dev/nvme0n1p1 /mnt/boot
 
 # 6. chroot
-sudo arch-chroot /mnt
+arch-chroot /mnt
 ```
 
-Inside the chroot, check `cat /etc/fstab` — it tells you the exact mount points and subvolume names the installed system uses. If `/mnt/boot` is empty or `/etc/fstab` names `/boot/efi`, unmount and remount accordingly before doing anything else.
+Snapper's `/.snapshots` on Omarchy is a subvolume nested inside `@`, so it comes along with step 4 and needs no separate mount. Plain Arch installed with `archinstall`'s btrfs layout has a separate `@snapshots` for `/.snapshots`. Mount it the same way.
 
-For a non-Btrfs (ext4) install, step 4 is simply `sudo mount /dev/nvme0n1p2 /mnt`.
+Inside the chroot, `cat /etc/fstab` tells you the exact mount points and subvolume names the installed system uses. If `/mnt/boot` is empty or `/etc/fstab` names `/boot/efi` or `/efi`, unmount and remount the ESP there before doing anything else.
+
+For a non-Btrfs (ext4) install, step 4 is simply `mount /dev/nvme0n1p2 /mnt`.
+
+Rebuilding the boot files differs between Omarchy 4 and plain Arch:
+
+**Omarchy 4.** `/etc/mkinitcpio.d/` is empty, so `mkinitcpio -P` stops with `No presets found in /etc/mkinitcpio.d`. The kernel boots as a UKI at `/boot/EFI/Linux/omarchy_linux.efi`, built by `limine-mkinitcpio-hook`. Run:
+
+```sh
+limine-mkinitcpio        # rebuilds the UKI and the Limine entries
+```
+
+or `pacman -S linux`, whose `90-mkinitcpio-install` hook runs the same script. The Omarchy ALPM guard only aborts a transaction that combines `-S` with `-u`, so a plain `pacman -S linux` goes through. The kernel command line is read from `/etc/default/limine` and `/etc/limine-entry-tool.d/*.conf` inside the chroot, not from the live ISO, so the mapper name from step 2 does not end up in the UKI. The tool locates the ESP by looking for a vfat mount at `/efi`, `/boot`, `/boot/efi` or `/limine`, and with `/boot` unmounted it stops with `FAT32 boot partition not found` instead of writing anywhere. The UKI is only built when `/sys/firmware/efi` exists, which is why the ISO must be booted in UEFI mode.
+
+**Plain Arch.** `pacman -S linux` or `mkinitcpio -P` writes `/boot/vmlinuz-linux` and `/boot/initramfs-linux.img`. Re-run your bootloader's install or config step afterwards if it copies files.
 
 When done:
 
 ```sh
 exit
-sudo umount -R /mnt
-sudo cryptsetup close cryptroot
+umount -R /mnt
+cryptsetup close omarchy_root
 reboot
 ```
 
-`arch-chroot` is provided by `arch-install-scripts` and handles mounting `/dev`, `/proc`, `/sys` and copying `resolv.conf` for you — do not use plain `chroot` unless you replicate those bind mounts by hand.
+`arch-chroot` is provided by `arch-install-scripts` and handles mounting `/dev`, `/proc`, `/sys` and copying `resolv.conf` for you. Do not use plain `chroot` unless you replicate those bind mounts by hand.
 
-**Verify.** Inside the chroot, `ls /etc/fstab /usr/bin/pacman` succeeds and `pacman -Q linux` prints your installed kernel — if either fails you mounted the wrong subvolume. After `pacman -S linux`, `ls -l /boot/vmlinuz-linux` shows a fresh timestamp.
+**Verify.** Inside the chroot, `cat /etc/fstab` shows the `subvol=/@` line for `/` and `pacman -Q linux` prints your installed kernel. If either fails you mounted the wrong subvolume. Omarchy 4: after `limine-mkinitcpio`, `ls -l /boot/EFI/Linux/omarchy_linux.efi` shows a fresh timestamp. Plain Arch: after `pacman -S linux`, `ls -l /boot/vmlinuz-linux /boot/initramfs-linux.img` shows fresh timestamps.
 
-Sources: <https://forum.endeavouros.com/t/boot-initramfs-linux-img-not-found-chroot-on-live-and-update-doesnt-help/50238> · <https://man.archlinux.org/man/arch-chroot.8> · <https://learn.omacom.io/2/the-omarchy-manual/93/security>
+Sources: <https://forum.endeavouros.com/t/boot-initramfs-linux-img-not-found-chroot-on-live-and-update-doesnt-help/50238> · <https://man.archlinux.org/man/arch-chroot.8> · <https://learn.omacom.io/2/the-omarchy-manual/93/security> · <https://wiki.archlinux.org/title/Chroot> · <https://gitlab.archlinux.org/archlinux/arch-install-scripts/-/raw/master/arch-chroot.in> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py> · <https://github.com/omacom/omarchy-iso/blob/quattro/builder/build-iso.sh> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/.automated_script.sh> · <https://github.com/archlinux/archiso/blob/master/configs/releng/packages.x86_64> · <https://github.com/archlinux/archiso/blob/master/configs/releng/airootfs/etc/shadow> · <https://github.com/archlinux/archiso/blob/master/configs/releng/airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf> · <https://github.com/basecamp/omarchy/blob/quattro/install/config/snapper.sh>
 
 ---
 
@@ -1194,22 +1342,26 @@ A start job is running for /dev/disk/by-uuid/1a2b-3c4d (1min 30s / no limit)
 and then:
 
 ```
-[FAILED] Failed to mount /boot/efi.
+[FAILED] Failed to mount /boot.
 [DEPEND] Dependency failed for Local File Systems.
 You are in emergency mode. After logging in, type "journalctl -xb" to view
 system logs, "systemctl reboot" to reboot ...
 Give root password for maintenance (or press Control-D to continue):
 ```
 
-Usually after swapping a disk, removing an external drive, reformatting the ESP, or turning off a swap partition.
+The mount point named is whatever line failed: `/boot` on Omarchy 4, where the ESP is mounted there, `/boot/efi` on EndeavourOS and many hand-built Arch installs. Usually after swapping a disk, removing an external drive, reformatting the ESP, or turning off a swap partition. On Omarchy the prompt appears after Plymouth quits, so it can follow a few seconds of blank splash.
 
 **Cause.** systemd generates a mount unit for every `/etc/fstab` line. If the device never appears, the generated `.device` unit waits (default 90 s) and then the mount fails; because `local-fs.target` *requires* it, the whole boot fails into emergency mode. A reformatted ESP or a re-created swap partition has a new UUID, so the old fstab line can never be satisfied.
 
-> ⚠️ **Risk.** Never add `nofail` to the root filesystem line. Editing fstab with a broken syntax (missing field, wrong pass number) can itself cause emergency mode — always run `sudo mount -a` before rebooting, and `sudo findmnt --verify` to validate the file.
+> **Audit corrected this record.** The systemd mechanics held against the installed systemd 261.2-1 man page (man -P cat systemd.mount, same text as https://man.archlinux.org/man/systemd.mount.5): fstab lines become mount units at boot and on daemon-reload, a block-backed mount gains Requires= and After= on its device unit, nofail turns the Requires= from local-fs.target into Wants= and drops the Before= ordering, and x-systemd.device-timeout= caps the device wait and is honoured only in fstab. systemctl show reports DefaultDeviceTimeoutUSec=1min 30s here, and /usr/lib/systemd/system/local-fs.target carries OnFailure=emergency.target, so the 90 second stall and the drop to emergency mode are confirmed on this machine. findmnt --verify is in findmnt(8) of util-linux 2.42.2, and mount -a is the correct dry run of the file. The root password prompt is reachable on Omarchy 4: the ISO configurator (omacom/omarchy-iso, quattro, configs/airootfs/root/configurator) writes root_enc_password with the same SHA-512 hash as the user's password into user_credentials.json, and orchestrator/archinstall_adapter.py's root_user() creates root from it, so root is not locked and the emergency prompt takes the login password. The wizard text says so too: "Used for user + root, and disk encryption when enabled". I could not confirm it against /etc/shadow here (root only), so it is from source, not this machine. What was wrong for Omarchy 4: the symptom names /boot/efi and the example fstab shows an ext4 root, while /etc/fstab here mounts the ESP at /boot (vfat, fmask=0077,dmask=0077, pass 2) and root is btrfs subvolumes (@, @home, @log, @pkg) on /dev/mapper/root, all pass 0. Omarchy's initramfs uses the busybox encrypt hook (HOOKS in /etc/mkinitcpio.conf.d/omarchy_hooks.conf) with cryptdevice=PARTUUID=...:root and rw on the kernel command line, so by the time emergency.target starts the mapper is open and / is mounted read-write, and lsblk -f and blkid show the mapper rather than the raw partition. The swap advice was the other miss: Omarchy has no swap partition, it hibernates to /swap/swapfile with resume=/dev/mapper/root resume_offset=... coming from /etc/limine-entry-tool.d/resume.conf, which is embedded in the UKI, so dropping resume= means removing that drop-in and running limine-mkinitcpio, not editing a GRUB line. omarchy-hibernation-remove deletes the swapfile, the fstab line and the resume hook but leaves resume.conf in place. On plain Arch with the mkinitcpio resume hook, hooks/resume calls resolve_device, which waits rootdelay (default 10 s per init_functions poll_device) and then continues, so the wait is 10 s rather than indefinite. The GRUB paths in the plain Arch branch are from https://wiki.archlinux.org/title/GRUB. The three EndeavourOS forum threads the record cites still resolve but were not re-read for this pass. The emergency shell itself was not exercised, and nothing was rebooted.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Never add `nofail` to the root filesystem line, and on Omarchy 4 never add it to the `/home`, `/var/log` or `/var/cache/pacman/pkg` subvolume lines either: they sit on the same device as root and Omarchy's update path expects them mounted. Editing fstab with a broken syntax (missing field, wrong pass number) can itself cause emergency mode: always run `sudo findmnt --verify` and `sudo mount -a` before rebooting. On Omarchy the ESP is `/boot` and holds the Limine UKI, so a wrong UUID on that line means the next kernel or firmware update writes the UKI into the root filesystem instead of the ESP and the machine boots the old kernel.
 
 **Fix.**
 
-At the emergency prompt log in as root (or boot a live USB and chroot). Compare fstab against reality:
+At the emergency prompt log in as root. On Omarchy 4 the root password is the password you chose at install, because the installer sets root and your user to the same one. If you cannot log in, boot a live USB and chroot instead. On an encrypted Omarchy install the LUKS container is already open (`/dev/mapper/root`) and `/` is mounted read-write by the time you reach this prompt. Compare fstab against reality:
 
 ```sh
 lsblk -f
@@ -1217,7 +1369,9 @@ blkid
 cat /etc/fstab
 ```
 
-Fix the UUIDs, or delete lines for devices that no longer exist. Root filesystem must stay mandatory, but make optional mounts non-fatal:
+Fix the UUIDs, or delete lines for devices that no longer exist. Root filesystem must stay mandatory, but make optional mounts non-fatal.
+
+**Plain Arch (ext4 root, ESP at `/boot/efi` or `/boot`):**
 
 ```
 # <device>                                <dir>       <type> <options>                          <dump> <pass>
@@ -1228,21 +1382,49 @@ UUID=dddd-eeee-ffff                       none        swap   defaults           
 UUID=1111-2222                            /mnt/data   ext4   defaults,nofail,x-systemd.device-timeout=10s  0 2
 ```
 
-`nofail` makes the mount *wanted* rather than *required* by `local-fs.target`, and `x-systemd.device-timeout=` caps how long systemd waits for the device instead of the 90-second default.
+**Omarchy 4 (btrfs subvolumes on `/dev/mapper/root`, ESP at `/boot`):** the installer writes one line per subvolume, all with the same UUID and pass `0`, and the ESP with pass `2`. Keep those as they are and only add `nofail` to drives you bolted on later:
+
+```
+# /dev/mapper/root
+UUID=<btrfs-uuid>  /                      btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@      0 0
+UUID=<btrfs-uuid>  /home                  btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@home  0 0
+UUID=<btrfs-uuid>  /var/cache/pacman/pkg  btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@pkg   0 0
+UUID=<btrfs-uuid>  /var/log               btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@log   0 0
+# /dev/nvme0n1p1
+UUID=<esp-uuid>    /boot                  vfat   rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro  0 2
+# Btrfs swapfile for system hibernation
+/swap/swapfile     none                   swap   defaults,pri=0  0 0
+# external / removable: never block boot
+UUID=1111-2222     /mnt/data              ext4   defaults,nofail,x-systemd.device-timeout=10s  0 2
+```
+
+`nofail` makes the mount *wanted* rather than *required* by `local-fs.target` and removes the ordering before it, so boot continues whether or not the device turns up. `x-systemd.device-timeout=` caps how long systemd waits for the device instead of the 90-second default. It only works in `/etc/fstab`, not in a unit file.
 
 Apply and test without rebooting blind:
 
 ```sh
+sudo findmnt --verify   # parse check of /etc/fstab
 sudo systemctl daemon-reload
 sudo mount -a          # must return with no errors
 sudo systemctl reboot
 ```
 
-If the failing entry is a swap partition you removed, also drop `resume=` from the kernel command line, or early boot will keep waiting for it.
+`daemon-reload` regenerates the mount units from the edited file. `mount -a` mounts every line not already mounted and fails loudly on a bad one, but it does not exercise the device timeout, so a `nofail` line for a missing drive still passes.
+
+If the failing entry is swap you removed, also drop `resume=` from the kernel command line so the initramfs stops looking for it:
+
+- **Plain Arch:** remove `resume=` from your bootloader's kernel line (for GRUB, `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` then `grub-mkconfig -o /boot/grub/grub.cfg`). With the mkinitcpio `resume` hook the wait is about 10 seconds (`rootdelay`), after which boot continues with an error in the log.
+- **Omarchy 4:** the swap is a swapfile, and `resume=/dev/mapper/root resume_offset=...` lives in `/etc/limine-entry-tool.d/resume.conf`, which is baked into the UKI. Prefer `omarchy-hibernation-remove`, which disables the swapfile, drops its fstab line and removes the `resume` hook, then delete the drop-in and rebuild the UKI:
+
+```sh
+omarchy-hibernation-remove
+sudo rm /etc/limine-entry-tool.d/resume.conf
+sudo limine-mkinitcpio
+```
 
 **Verify.** `sudo mount -a` produces no output, `systemctl --failed` is empty after reboot, and `systemd-analyze blame | head` no longer shows a ~90 s device job.
 
-Sources: <https://man.archlinux.org/man/systemd.mount.5> · <https://forum.endeavouros.com/t/emergency-mode-failed-to-mount-boot-efi-vfat-error-tried-base-reinstall-issue-persists/75747> · <https://forum.endeavouros.com/t/a-start-job-is-running-for-dev-disk-uui-running-for-5min/80783> · <https://forum.endeavouros.com/t/whenever-kernel-updates-efi-mount-fails-on-reboot/77575>
+Sources: <https://man.archlinux.org/man/systemd.mount.5> · <https://forum.endeavouros.com/t/emergency-mode-failed-to-mount-boot-efi-vfat-error-tried-base-reinstall-issue-persists/75747> · <https://forum.endeavouros.com/t/a-start-job-is-running-for-dev-disk-uui-running-for-5min/80783> · <https://forum.endeavouros.com/t/whenever-kernel-updates-efi-mount-fails-on-reboot/77575> · <https://man.archlinux.org/man/sulogin.8> · <https://man.archlinux.org/man/findmnt.8> · <https://wiki.archlinux.org/title/Fstab> · <https://wiki.archlinux.org/title/GRUB> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/hooks/resume> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/init_functions> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/share/omarchy-iso/orchestrator/archinstall_adapter.py> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hibernation-remove>
 
 ---
 
@@ -1366,9 +1548,13 @@ No Snapper configs found, so no snapshot was created.
 Configure Snapper with: sudo bash -euo pipefail "/usr/share/omarchy/install/config/snapper.sh"
 ```
 
-**Cause.** Four independent things must all be true for snapshot entries to appear: snapper must have a `root` config, `limine-snapper-sync.service` must be running, `/boot/limine.conf` must still contain the `//Snapshots` (or `/Snapshots`) keyword that tells the tool where to write entries, and the ESP must have room. Any of them silently produces an empty snapshot list. A hand-edited or restored `limine.conf`, or a run of `omarchy-refresh-limine`, can drop the keyword. Separately, Omarchy's Setup > Direct Boot adds an EFI entry that jumps past Limine entirely, so the menu is never shown even when the entries exist.
+**Cause.** Four independent things must all be true for snapshot entries to appear: snapper must have a `root` config, `limine-snapper-sync.service` must be running, `/boot/limine.conf` must still contain the `//Snapshots` (or `/Snapshots`) keyword that tells the tool where to write entries, and the ESP must have room. Any of them silently produces an empty snapshot list. On Omarchy 4 the keyword is placed by `limine-entry-tool` from `BOOT_ORDER="*, *fallback, Snapshots"` in `/etc/limine-entry-tool.d/omarchy-defaults.conf`, so it survives every kernel update. It goes missing when `/boot/limine.conf` is hand-edited, restored from an old copy, or left empty by a power cut mid-write (FAT32 has no journal). Separately, Omarchy's Setup > Direct Boot adds an EFI entry that jumps past Limine entirely, so the menu is never shown even when the entries exist.
 
-> ⚠️ **Risk.** `omarchy-refresh-limine` overwrites /boot/limine.conf wholesale (old file kept as /boot/limine.conf.bak) — any hand-added entries, notably a Windows entry, are lost and must be re-added. Snapshot restore replaces the root subvolume but not /home and not ~/.config, so a rollback can leave newer config formats in place. Each snapshot entry costs a kernel plus initramfs/UKI on the ESP; raising MAX_SNAPSHOT_ENTRIES on a small ESP can fill /boot and break the next kernel upgrade. Snapshots created before limine-snapper-sync was installed cannot be made bootable.
+> **Audit corrected this record.** Checked on this Omarchy 4 machine (omarchy-settings 4.0.2-1, limine-snapper-sync 1.31.0-1, limine-mkinitcpio-hook 1.37.1-1) and against the quattro tree and the upstream READMEs. What held: the quoted omarchy-snapshot message is verbatim from /usr/share/omarchy/bin/omarchy-snapshot (identical to quattro), install/config/snapper.sh installs default/snapper/root (NUMBER_LIMIT=5, TIMELINE_CREATE=no) and enables snapper-cleanup.timer plus limine-snapper-sync.service, the service is enabled and running here, limine-snapper-sync/-list/-info/-restore all exist in /usr/bin, the //Snapshots or /Snapshots keyword is documented in the Arch wiki Limine page and the limine-snapper-sync README, MAX_SNAPSHOT_ENTRIES=6 is in /etc/limine-entry-tool.d/omarchy-defaults.conf (owned by omarchy-settings) and PR 6175 shows the value in that drop-in is what limine-snapper-sync reads, ESP_PATH=/boot is in the installer-written /etc/default/limine and in quattro default/limine/default.conf, the probe order /efi, /boot, /boot/efi, /limine is in limine-common-functions, and Direct Boot bypassing the menu is in manual/47-system-snapshots.md and omarchy-setup-direct-boot. Three things were wrong. First, the fix runs `sudo omarchy-refresh-limine`: the script reads $OMARCHY_PATH, which is exported by default/bash/env-bootstrap and not by any sudoers env_keep (the four files in etc/sudoers.d were read), and sudo's env_reset is on by default, so under sudo the `cp "$OMARCHY_PATH/default/limine/limine.conf"` step fails after the live config has already been moved to limine.conf.bak. The script is marked requires-sudo and calls sudo itself, so it must be run bare. Second, the cause claims omarchy-refresh-limine can drop the keyword. It does the opposite, because limine-update regenerates the OS entry under BOOT_ORDER="*, *fallback, Snapshots" and the script then runs limine-snapper-sync. Third, /boot is mounted dmask=0077 here (findmnt and fstab), so the unprivileged `grep /boot/limine.conf` in step 3 prints Permission denied rather than nothing, and LIMIT_USAGE_PERCENT=85 lives in /etc/limine-snapper-sync.conf, which the config grep did not include. Also corrected: with a numeric MAX_SNAPSHOT_ENTRIES the usage limit stops new entries being added, and trimming on usage is the `auto` behaviour (both from the shipped conf comments). limine-snapper-list was confirmed to work without sudo here. Not exercised: omarchy-refresh-limine itself, a restore, Direct Boot, and the contents of /boot/limine.conf (unreadable without root).
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `omarchy-refresh-limine` overwrites /boot/limine.conf wholesale (old file kept as /boot/limine.conf.bak). `limine-update` re-adds systemd-boot, rEFInd and the default EFI loader if present (`FIND_BOOTLOADERS=yes`) but not a Windows entry added with `limine-scan`, so re-run `limine-scan` afterwards. Do not prefix it with `sudo`: sudo drops `$OMARCHY_PATH`, the template copy fails after the live config has been moved aside, and you boot from a config regenerated without Omarchy's header (no branding, default timeout, `default_entry` reset). Snapshot restore replaces the root subvolume but not /home and not ~/.config, so a rollback can leave newer config formats in place. Each snapshot entry costs a kernel plus initramfs/UKI on the ESP, and raising MAX_SNAPSHOT_ENTRIES on a small ESP can fill /boot and break the next kernel upgrade. Snapshots created before limine-snapper-sync was installed cannot be made bootable.
 
 **Fix.**
 
@@ -1394,16 +1580,16 @@ systemctl status limine-snapper-sync.service
 sudo systemctl enable --now limine-snapper-sync.service
 ```
 
-**3. Does limine.conf still have the placeholder?**
+**3. Does limine.conf still have the placeholder?** On Omarchy 4 `/boot` is mounted with `dmask=0077`, so this needs root or it prints `Permission denied` instead of the line:
 
 ```bash
-grep -nE '^[[:space:]]*/{1,2}Snapshots' /boot/limine.conf
+sudo grep -nE '^[[:space:]]*/{1,2}Snapshots' /boot/limine.conf
 ```
 
-If that prints nothing, restore Omarchy's packaged config (it backs the current one up to `/boot/limine.conf.bak`):
+If that prints nothing on Omarchy 4, regenerate the config. Run this **without** `sudo` in front: the script calls `sudo` itself and needs `$OMARCHY_PATH`, which sudo strips, and with it stripped the script moves your config aside and then fails to copy the template. It keeps the old file as `/boot/limine.conf.bak`, copies Omarchy's header, then runs `limine-update` (which rewrites the OS entry and the `Snapshots` placeholder) and `limine-snapper-sync`:
 
 ```bash
-sudo omarchy-refresh-limine
+omarchy-refresh-limine
 ```
 
 On plain Arch, add the keyword by hand inside the OS entry:
@@ -1423,18 +1609,18 @@ On plain Arch, add the keyword by hand inside the OS entry:
 
 ```bash
 sudo limine-snapper-sync
-limine-snapper-list
-sudo limine-snapper-info      # shows bootable snapshot count and flags missing/corrupt kernels
+limine-snapper-list        # works without sudo
+sudo limine-snapper-info    # shows bootable snapshot count and flags missing/corrupt kernels
 ```
 
-Check the caps in `/etc/default/limine` if fewer snapshots show than exist — entries are trimmed once the ESP crosses `LIMIT_USAGE_PERCENT` (default 85) or the `MAX_SNAPSHOT_ENTRIES` cap (Omarchy ships 6):
+Check the caps if fewer snapshots show than exist. With a numeric `MAX_SNAPSHOT_ENTRIES` (Omarchy ships 6, one above snapper's `NUMBER_LIMIT=5` so the freshly created sixth is not reported as an overflow) no entry beyond the cap is written, and once the ESP crosses `LIMIT_USAGE_PERCENT` (default 85) no new entries are added at all. With `MAX_SNAPSHOT_ENTRIES=auto` older entries are trimmed instead, without warning. `/etc/default/limine` overrides everything else:
 
 ```bash
-grep -nE 'ESP_PATH|MAX_SNAPSHOT_ENTRIES|LIMIT_USAGE_PERCENT' /etc/default/limine /etc/limine-entry-tool.d/*.conf
+grep -nE 'ESP_PATH|MAX_SNAPSHOT_ENTRIES|LIMIT_USAGE_PERCENT' /etc/default/limine /etc/limine-entry-tool.d/*.conf /etc/limine-snapper-sync.conf
 df -h /boot
 ```
 
-If `ESP_PATH` is unset the tool probes `/efi`, `/boot`, `/boot/efi`, `/limine`; Omarchy sets `ESP_PATH="/boot"`.
+If `ESP_PATH` is unset the tool probes `/efi`, `/boot`, `/boot/efi`, `/limine`. Omarchy's installer writes `ESP_PATH="/boot"` into `/etc/default/limine`.
 
 **Test end to end before you need it:**
 
@@ -1449,7 +1635,7 @@ To restore from a snapshot once you can boot one: click the notification that ap
 
 **Verify.** `limine-snapper-list` shows dated entries, `sudo limine-snapper-info` reports a non-zero bootable snapshot count with kernels verified, and the entries are visible under "Snapshots" in the Limine menu at the next reboot.
 
-Sources: <https://wiki.archlinux.org/title/Limine> · <https://gitlab.com/Zesko/limine-snapper-sync> · <https://github.com/basecamp/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-snapshot> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-refresh-limine> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://github.com/basecamp/omarchy/blob/quattro/manual/47-system-snapshots.md> · <https://wiki.archlinux.org/title/Snapper>
+Sources: <https://wiki.archlinux.org/title/Limine> · <https://gitlab.com/Zesko/limine-snapper-sync> · <https://github.com/basecamp/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-snapshot> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-refresh-limine> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://github.com/basecamp/omarchy/blob/quattro/manual/47-system-snapshots.md> · <https://wiki.archlinux.org/title/Snapper> · <https://gitlab.com/Zesko/limine-snapper-sync/-/blob/master/README.md> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-setup-direct-boot> · <https://github.com/basecamp/omarchy/blob/quattro/default/limine/default.conf> · <https://github.com/basecamp/omarchy/blob/quattro/default/limine/limine.conf> · <https://github.com/basecamp/omarchy/blob/quattro/default/bash/env-bootstrap> · <https://github.com/basecamp/omarchy/blob/quattro/manual/50-dual-boot-install.md> · <https://github.com/omacom/omarchy/pull/6175> · <https://aur.archlinux.org/rpc/v5/info?arg[]=limine-snapper-sync&arg[]=limine-mkinitcpio-hook>
 
 ---
 
@@ -1468,31 +1654,46 @@ linux-firmware-nvidia: /usr/lib/firmware/nvidia/ad107 exists in filesystem
 Errors occurred, no packages were upgraded.
 ```
 
-**Cause.** In `linux-firmware 20250613.12fe085f-5` upstream Arch split the monolithic `linux-firmware` package into vendor packages and changed the NVIDIA firmware symlink layout at the same time. pacman cannot reconcile the old directory/symlink with the new package's real files, so the transaction aborts. Anyone who skipped updates across June 2025 hits this on their next `-Syu`.
+**Cause.** In `linux-firmware 20250613.12fe085f-5` (Arch news, 2025-06-21) upstream Arch split the monolithic `linux-firmware` package into vendor packages (`linux-firmware-amdgpu`, `-atheros`, `-broadcom`, `-cirrus`, `-intel`, `-mediatek`, `-nvidia`, `-other`, `-radeon`, `-realtek`, plus `-whence` and optional `-liquidio`, `-marvell`, `-mellanox`, `-nfp`, `-qcom`, `-qlogic`), leaving `linux-firmware` as an empty package that depends on the default set. The same release picked up upstream's reorganised NVIDIA firmware symlink layout (`ad103`, `ad104`, `ad106` and `ad107` became symlinks to `ad102`). pacman cannot replace the old directories with the new package's symlinks, so the transaction aborts with conflicting files.
+
+This fires only when the installed `linux-firmware` is `20250508.788aadc8-2` or older, meaning the machine has not updated since June 2025. Any Arch or Omarchy install made after that date already has the split and never sees it. On Omarchy, `omarchy update` runs the same `pacman -Syu` and its conflict handler only clears files under Omarchy's own package names, so the update ends with "Something went wrong during the update" and the firmware conflict printed above it.
+
+> **Audit corrected this record.** The news item is https://archlinux.org/news/linux-firmware-2025061312fe085f-5-upgrade-requires-manual-intervention/ (2025-06-21, Jan Alexander Steffens), fetched as HTML. It gives exactly the two commands the record quotes and adds a scope the record omits: the conflict fires only when upgrading from linux-firmware 20250508.788aadc8-2 or earlier, and the four error lines in the symptom are reproduced verbatim from it. The split is confirmed current on this machine: pacman -Q shows linux-firmware 20260810-2 as an empty package depending on linux-firmware-amdgpu, -atheros, -broadcom, -cirrus, -intel, -mediatek, -nvidia, -other, -radeon, -realtek, with -whence installed and liquidio, marvell, mellanox, nfp, qcom, qlogic as optdepends, matching the core/any/linux-firmware JSON and the packaging .SRCINFO. /usr/lib/firmware/nvidia/ad103 through ad107 are symlinks to ad102 owned by linux-firmware-nvidia here, which is the layout change the news describes. Two things were wrong for Omarchy 4. First, the second command, pacman -Syu linux-firmware, is refused by /usr/share/libalpm/hooks/00-omarchy-update-guard.hook, whose /usr/bin/omarchy-update-pacman-guard exits 1 whenever the pacman command line carries both S and u unless OMARCHY_ALLOW_DIRECT_PACMAN=1 or OMARCHY_UPDATE_PACMAN=1 is set (read on this machine). The first command, pacman -Rdd, is a Remove operation and the hook only triggers on Operation = Upgrade, so it runs untouched. Second, routing the reinstall through omarchy update instead would leave the machine without firmware: pacman -Qii linux-firmware shows Required By none and only Optional For linux, so a plain -Syu never pulls it back, and omarchy-update-system-pkgs-when-conflicted only clears exists-in-filesystem lines whose package is omarchy, omarchy-dev, omarchy-settings or omarchy-settings-dev, so omarchy update cannot resolve the linux-firmware-nvidia conflict either. The manual initramfs rebuild is redundant on both platforms: 90-mkinitcpio-install.hook (Omarchy overrides it with /etc/pacman.d/hooks/90-mkinitcpio-install.hook from limine-mkinitcpio-hook, running limine-mkinitcpio-install) triggers on usr/lib/firmware/*, so the transaction rebuilds the initramfs or UKI itself. On Omarchy, mkinitcpio -P goes through the /usr/local/bin/mkinitcpio wrapper, which warns that it does not update Limine entries and offers limine-mkinitcpio. The problem is historical for any install made after June 2025: every Omarchy 4 ISO ships the split already, so a fresh install never sees it, but an older Omarchy or Arch machine that last updated before 2025-06-21 hits it on its next update, and omarchy update reports it as a failed transaction. The remedy itself was not exercised: no machine here has a pre-split linux-firmware to upgrade from.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Between `pacman -Rdd linux-firmware` and the reinstall your system has NO firmware files in /usr/lib/firmware. Do not reboot, suspend, or let the machine lose power in that window — you would boot without GPU/Wi-Fi firmware and possibly without a usable display.
 
 **Fix.**
 
-Arch's official news item gives the exact two-step remedy:
+Arch's news item gives the two-step remedy: remove the old package without touching dependents, then reinstall it as part of a full upgrade. Do **not** reboot between the two commands.
+
+**Plain Arch / EndeavourOS / CachyOS:**
 
 ```sh
 sudo pacman -Rdd linux-firmware
 sudo pacman -Syu linux-firmware
 ```
 
-`-Rdd` removes the package without touching dependencies or running scripts, leaving the files temporarily absent; the immediate `-Syu` reinstalls the new split packages over the top. Do **not** reboot between the two commands.
+**Omarchy 4:** the first command is a remove and passes Omarchy's pacman guard, but the second is a `-Syu` and the guard refuses it. Bypass the guard for that one transaction:
 
-After it completes, rebuild the initramfs so early-KMS firmware is picked up:
+```sh
+sudo pacman -Rdd linux-firmware
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu linux-firmware
+```
+
+Do not substitute `omarchy update` for the second step. Nothing depends on `linux-firmware` (the kernel lists it only as an optional dependency), so a plain system upgrade after `-Rdd` leaves the machine with no firmware installed. Name the package explicitly.
+
+`-Rdd` removes the package without checking dependencies and without running its scripts, so the firmware files are absent until the second command completes. The reinstall pulls in the new vendor packages, and the `mkinitcpio` pacman hook (on Omarchy, `limine-mkinitcpio-hook`'s version, which rebuilds the UKI) triggers on `usr/lib/firmware/*`, so the initramfs is rebuilt inside the same transaction. Watch for `Updating linux initcpios...` in the output. Only if that line is missing, rebuild by hand:
 
 ```sh
 sudo mkinitcpio -P        # Arch / EndeavourOS / CachyOS
-sudo limine-mkinitcpio    # Omarchy
+sudo limine-mkinitcpio    # Omarchy 4 (mkinitcpio -P alone does not update the Limine UKI)
 ```
 
 **Verify.** `pacman -Qs linux-firmware` lists the new vendor packages (e.g. `linux-firmware-nvidia`, `linux-firmware-amdgpu`, `linux-firmware-intel`), and `sudo pacman -Syu` completes with no conflicting-files error.
 
-Sources: <https://archlinux.org/news/linux-firmware-2025061312fe085f-5-upgrade-requires-manual-intervention/> · <https://archlinux.org/news/>
+Sources: <https://archlinux.org/news/linux-firmware-2025061312fe085f-5-upgrade-requires-manual-intervention/> · <https://archlinux.org/news/> · <https://archlinux.org/feeds/news/> · <https://archlinux.org/packages/core/any/linux-firmware/json/> · <https://gitlab.archlinux.org/archlinux/packaging/packages/linux-firmware/-/raw/main/.SRCINFO> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-pacman-guard> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-system-pkgs> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-system-pkgs-when-conflicted>
 
 ---
 
@@ -1504,14 +1705,19 @@ Sources: <https://archlinux.org/news/linux-firmware-2025061312fe085f-5-upgrade-r
 
 ```
 warning: /etc/mkinitcpio.conf installed as /etc/mkinitcpio.conf.pacnew
-warning: /etc/default/limine installed as /etc/default/limine.pacnew
+warning: /etc/mkinitcpio.conf.d/omarchy_hooks.conf installed as /etc/mkinitcpio.conf.d/omarchy_hooks.conf.pacnew
+warning: /etc/limine-entry-tool.conf installed as /etc/limine-entry-tool.conf.pacnew
 ```
 
-Nothing breaks that day. Weeks later a kernel update rebuilds the initramfs and the machine drops to an emergency shell, or the LUKS prompt never appears, or the root device is not found — because the file that is actually read no longer matches what the current package expects (a renamed hook, a changed default, a new required entry). Users also break it the other way round by running `mv /etc/mkinitcpio.conf.pacnew /etc/mkinitcpio.conf`, which silently deletes their `encrypt`, `plymouth`, or `btrfs-overlayfs` hooks.
+Nothing breaks that day. Weeks later a kernel update rebuilds the initramfs and the machine drops to an emergency shell, or the LUKS prompt never appears, or the root device is not found. The file that is actually read no longer matches what the current package expects: a renamed hook, a changed default, a new required entry. Users also break it the other way round by running `mv /etc/mkinitcpio.conf.pacnew /etc/mkinitcpio.conf` on plain Arch, or by overwriting `omarchy_hooks.conf` with its `.pacnew` on Omarchy, which silently deletes whatever hook they had added by hand. You only see these warnings for files you edited: on a stock Omarchy 4 install all three are `[unmodified]` and pacman replaces them in place.
 
-**Cause.** pacman never merges configuration. When a package ships a new version of a file you have edited, it writes `.pacnew` alongside and leaves yours untouched. `/etc/mkinitcpio.conf` (from mkinitcpio) and `/etc/default/limine` (from limine-entry-tool) are exactly such files, and they are the ones that decide whether the machine can boot. Because the damage only surfaces at the next initramfs rebuild, the cause and the symptom can be a month apart.
+**Cause.** pacman never merges configuration. When a package ships a new version of a file you have edited, it writes `.pacnew` alongside and leaves yours untouched. The files that decide whether this machine can boot are exactly such files. On plain Arch that is `/etc/mkinitcpio.conf` (from `mkinitcpio`). On Omarchy 4 the hook list lives in `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` (a backup file of `omarchy-settings`), and the Limine entry template is `/etc/limine-entry-tool.conf` (from `limine-mkinitcpio-hook`). `/etc/default/limine` is the user copy that template tells you to make, is owned by no package, and never gets a `.pacnew`. Because the damage only surfaces at the next initramfs rebuild, the cause and the symptom can be a month apart.
 
-> ⚠️ **Risk.** Overwriting /etc/mkinitcpio.conf (or the Omarchy hooks drop-in) with the .pacnew removes your encryption, plymouth and btrfs hooks and produces an initramfs that cannot open or find the root device — an unbootable machine. Merge, rebuild, and confirm the rebuild succeeded before you reboot. Keep a fallback boot entry, an LTS kernel, or a working snapshot available while you do this. Deleting a .pacsave loses the only copy of a config from a package you removed.
+> **Audit corrected this record.** Re-audited on 2026-09-06 after the record was exercised on a real Omarchy 4.0.1 VM (research/validation/, 6/6 assertions pass) and checked again on a 4.0.2 workstation with pacman -Qo, pacman -Qii and pacman -Qkk. The remediation (pacdiff, merge never overwrite, rebuild with limine-mkinitcpio and read the output, keep changes in drop-ins) is confirmed on the machine itself: /usr/local/bin/mkinitcpio is a wrapper from limine-mkinitcpio-hook that warns it does not update Limine entries. Three claims were wrong for Omarchy 4. The symptom quoted a .pacnew for /etc/default/limine, but no package owns that file (pacman -Qo errors), so pacman can never write one for it. The package-owned file is /etc/limine-entry-tool.conf, from limine-mkinitcpio-hook, whose header says to copy it to /etc/default/limine and edit the copy. The cause repeated the same error and named limine-entry-tool as the owner. The danger said overwriting /etc/mkinitcpio.conf with its .pacnew removes the encrypt, plymouth and btrfs-overlayfs hooks. On Omarchy 4 it does not: those hooks are assigned wholesale by /etc/mkinitcpio.conf.d/omarchy_hooks.conf, a backup file of omarchy-settings that mkinitcpio reads after the main file, and the effective HOOKS measured on the VM did not change whatever was done to mkinitcpio.conf. Also, a stock install leaves /etc/mkinitcpio.conf [unmodified], so the .pacnew only appears if you edited it. The file on Omarchy 4 that can both get a .pacnew and carry the hook list is omarchy_hooks.conf itself. Symptom, cause and danger rewritten to name the right files. The fix stands as written.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On plain Arch, overwriting `/etc/mkinitcpio.conf` with the `.pacnew` removes your encryption, plymouth and btrfs hooks and produces an initramfs that cannot open or find the root device: an unbootable machine. On Omarchy 4 the hook list is assigned by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, which mkinitcpio reads after the main file, so replacing `mkinitcpio.conf` does not touch the hooks, but overwriting `omarchy_hooks.conf` with its `.pacnew` drops any hook you added to it by hand. Merge, rebuild, and confirm the rebuild succeeded before you reboot. Keep a fallback boot entry, an LTS kernel, or a working snapshot available while you do this. Deleting a `.pacsave` loses the only copy of a config from a package you removed.
 
 **Fix.**
 
@@ -2165,16 +2371,45 @@ Sources: <https://forum.endeavouros.com/t/windows-boot-manager-not-showing-in-gr
 
 **Symptom.** After the mkinitcpio 38 / systemd 255.4 upgrade, boot entries that hand-list microcode still work but `mkinitcpio` warns about the deprecated `--microcode` flag, or CPU microcode silently stops being loaded (`dmesg | grep -i microcode` shows no early update). Users on manual systemd-boot entries also report the boot failing to find `/intel-ucode.img` after cleaning /boot.
 
-**Cause.** Arch moved the `systemd`, `udev`, `encrypt`, `sd-encrypt`, `lvm2` and `mdadm_udev` hooks from distro packages into upstream mkinitcpio, and deprecated the `--microcode` flag and the `microcode` preset option in favour of a new `microcode` **hook** that embeds the CPU microcode into the initramfs itself. Configs written before March 2024 still use the old two-initrd approach.
+**Cause.** Arch moved the `systemd`, `udev`, `encrypt`, `sd-encrypt`, `lvm2` and `mdadm_udev` hooks from distro packages into upstream mkinitcpio, and deprecated the `--microcode` flag and the `microcode` preset option in favour of a new `microcode` **hook** that embeds the CPU microcode into the initramfs itself. Configs written before March 2024 still use the old two-initrd approach. mkinitcpio 41 still accepts the old flag and preset option, with a deprecation warning, so a preset or boot entry that was never migrated keeps working and keeps warning.
+
+Omarchy 4 is not affected. It was packaged after this change, and its hooks are assigned wholesale by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` (owned by `omarchy-settings`), which already carries `microcode` right after `autodetect`. The microcode is inside the UKI at `/boot/EFI/Linux/omarchy_linux.efi`, so no separate `intel-ucode.img` or `amd-ucode.img` line exists in the Limine entry.
+
+> **Audit corrected this record.** Version claims checked against the mkinitcpio CHANGELOG and the gitlab tags: v38 was tagged 2024-02-28 with '--microcode has been deprecated and replaced by the new microcode hook', v38.1 on 2024-03-12 noted the hook prefers /usr/lib/firmware/*-ucode/ and uses /boot/*-ucode.img only as a fallback, and the Arch news post is dated 2024-03-04 and lists mkinitcpio 38-3, systemd 255.4-2, lvm2 2.03.23-3, mdadm 4.3-2 and cryptsetup 2.7.0-3. So 'mkinitcpio 38 / systemd 255.4 / March 2024' holds. On this machine mkinitcpio 41.1 still accepts --microcode with the warning 'The --microcode option has deprecated' (/usr/bin/mkinitcpio line 982) and warns on a preset's *_microcode or ALL_microcode option (lines 727 to 731), so the symptom is still reachable on an Arch install carrying a pre-2024 preset. The wiki Microcode page confirms the hook, the autodetect-before-microcode narrowing, the lsinitcpio --early check, and the separate-file layouts for GRUB, systemd-boot and Limine that the record describes. Omarchy 4 is not affected and the fix as written misdirects there: /etc/mkinitcpio.conf.d/omarchy_hooks.conf (owned by omarchy-settings 4.0.2-1) assigns HOOKS wholesale with microcode directly after autodetect, so the record's edit to HOOKS in /etc/mkinitcpio.conf is silently replaced when the drop-in is sourced afterwards. journalctl -k on this machine shows 'microcode: Updated early from: 0x000000ae' to revision 0x000000f8 with intel-ucode 20260812-1, confirming early loading works stock. sudo pacman -Syu mkinitcpio systemd lvm2 mdadm cryptsetup is refused on Omarchy 4 by /etc/pacman.d/hooks/00-omarchy-update-guard.hook, whose script aborts any pacman invocation carrying both S and u (omarchy-update-pacman-guard lines 23 to 47), while pacman -S amd-ucode passes because it has no u. sudo mkinitcpio -P exits with 'No presets found in /etc/mkinitcpio.d' because that directory is empty here (limine-mkinitcpio-hook shadows mkinitcpio's pacman hook and never generates presets), so the rebuild on Omarchy is limine-mkinitcpio, and the record's advice to grep /etc/mkinitcpio.d/*.preset has nothing to grep. The verify field also names mkinitcpio -P, which does not apply on Omarchy 4. Not exercised: lsinitcpio --early on the UKI (needs root to read /boot), a rebuild, and the systemd-boot and GRUB branches, which were checked against the wiki only.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Removing the `initrd /*-ucode.img` line from a systemd-boot entry *before* the `microcode` hook is in place and the image rebuilt leaves you booting without microcode updates. Do the HOOKS edit and `mkinitcpio -P` first, then edit the loader entry.
 
 **Fix.**
 
-Update the five packages together (they must move as a set):
+**Omarchy 4**
+
+Nothing to migrate. Confirm the hook is present and the microcode loads:
 
 ```sh
-sudo pacman -Syu mkinitcpio systemd lvm2 mdadm cryptsetup
+grep -h microcode /etc/mkinitcpio.conf.d/*.conf
+journalctl -k --grep='microcode:'
+```
+
+Expect a `HOOKS=(... autodetect microcode ...)` line from `omarchy_hooks.conf` and `microcode: Updated early from: ...` in the journal. Do not edit `HOOKS` in `/etc/mkinitcpio.conf`: the drop-in assigns `HOOKS=(...)` after that file is read and replaces whatever you set there.
+
+If the journal shows no early update, the microcode package is missing. Install the one for your CPU, then rebuild the UKI:
+
+```sh
+sudo pacman -S amd-ucode      # AMD
+sudo pacman -S intel-ucode    # Intel
+sudo limine-mkinitcpio
+```
+
+`pacman -S <pkg>` passes the ALPM guard, which only refuses `-Syu`. Use `limine-mkinitcpio`, not `mkinitcpio -P`: `/etc/mkinitcpio.d` is empty on Omarchy 4 and `-P` exits with `No presets found`. Do not add `initrd=/intel-ucode.img` to a `/etc/limine-entry-tool.d` file or a `module_path` line to `/boot/limine.conf`. Keep the packages current with `omarchy update`, since a direct `pacman -Syu` is refused.
+
+**Plain Arch**
+
+Bring the system fully current. The March 2024 announcement required mkinitcpio 38-3, systemd 255.4-2, lvm2 2.03.23-3, mdadm 4.3-2 and cryptsetup 2.7.0-3 to move as a set, and a full upgrade does that:
+
+```sh
+sudo pacman -Syu
 ```
 
 Install the microcode package for your CPU if it is not already there:
@@ -2196,7 +2431,7 @@ Rebuild:
 sudo mkinitcpio -P
 ```
 
-If you use **systemd-boot with hand-written entries**, the separate microcode initrd line is now redundant — `/boot/loader/entries/arch.conf` becomes:
+If you use **systemd-boot with hand-written entries**, the separate microcode initrd line is now redundant. `/boot/loader/entries/arch.conf` becomes:
 
 ```
 title   Arch Linux
@@ -2205,13 +2440,18 @@ initrd  /initramfs-linux.img
 options root=UUID=xxxx-xxxx rw
 ```
 
-(delete any `initrd /amd-ucode.img` or `initrd /intel-ucode.img` line). GRUB users need do nothing extra beyond `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
+(delete any `initrd /amd-ucode.img` or `initrd /intel-ucode.img` line). GRUB users need do nothing extra beyond `sudo grub-mkconfig -o /boot/grub/grub.cfg`. Limine users with a hand-written `limine.conf` can drop the `module_path: boot():/<cpu>-ucode.img` line once the hook is in place.
 
-Also check `/etc/mkinitcpio.d/*.preset` for a leftover `--microcode` in `default_options`/`fallback_options` and remove it.
+Also check `/etc/mkinitcpio.d/*.preset` for a leftover `--microcode` in `default_options` or `fallback_options` and remove it. Then confirm:
+
+```sh
+journalctl -k --grep='microcode:'
+sudo lsinitcpio --early /boot/initramfs-linux.img | grep microcode
+```
 
 **Verify.** `dmesg | grep -i 'microcode'` shows `microcode: Current revision: ...` / `updated early`, and `mkinitcpio -P` runs without deprecation warnings.
 
-Sources: <https://archlinux.org/news/mkinitcpio-hook-migration-and-early-microcode/> · <https://man.archlinux.org/man/mkinitcpio.conf.5> · <https://man.archlinux.org/man/mkinitcpio.8>
+Sources: <https://archlinux.org/news/mkinitcpio-hook-migration-and-early-microcode/> · <https://man.archlinux.org/man/mkinitcpio.conf.5> · <https://man.archlinux.org/man/mkinitcpio.8> · <https://wiki.archlinux.org/title/Microcode> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/CHANGELOG>
 
 ---
 
@@ -2288,47 +2528,68 @@ Sources: <https://github.com/basecamp/omarchy/issues/7867> · <https://github.co
 
 `resume-hook-after-filesystems-hibernation` · severity: **medium** · frequency: **common** · applies to: `arch`, `btrfs`, `cachyos`, `endeavouros`, `laptop`, `limine`, `luks`, `omarchy`
 
-**Symptom.** You set up hibernation, the machine hibernates fine, but every resume is a cold boot — the swap image is ignored and any unsaved work is gone. On Omarchy this happens on every install with hibernation enabled, regardless of GPU. Inspecting the config shows `resume` at the end of the hook list, after `filesystems`, `fsck` and `btrfs-overlayfs`.
+**Symptom.** After `omarchy hibernation setup` the machine hibernates, but powering on gives a cold boot and unsaved work is gone. Looking for the cause you find `resume` at the end of the effective hook list, after `filesystems`, `fsck` and `btrfs-overlayfs`, because `/etc/mkinitcpio.conf.d/omarchy_resume.conf` only appends `HOOKS+=(resume)`. That ordering is harmless. So far the failing machines are hybrid Intel+NVIDIA and AMD+NVIDIA laptops, and `journalctl -b | grep -iE 'PM: hibernation|nv_pmops'` shows `nvidia ... pci_pm_freeze(): nv_pmops_freeze [nvidia] returns -5` followed by `PM: hibernation: resume failed (-5)`.
 
-**Cause.** mkinitcpio hooks run in array order, and `resume` must write the swap device to `/sys/power/resume` **before** `filesystems` mounts the real root — otherwise the root FS is already mounted read-write and the kernel refuses to resume. On Omarchy, `omarchy-settings` ships `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` which *assigns* `HOOKS=(...)`, while `omarchy-hibernation-setup` ships `omarchy_resume.conf` which only *appends* `HOOKS+=(resume)`. Drop-ins are read in alphabetical order, so the assignment always runs first and the append can only ever put `resume` last. Tracked as basecamp/omarchy#8471.
+**Cause.** The position of `resume` relative to `filesystems` does not matter in a busybox initramfs. mkinitcpio's `init` runs every hook's `run_hook` function first and mounts the real root on `/sysroot` afterwards, and the `filesystems` hook has no runtime script at all (its install script only adds filesystem modules and `mount.*` helpers to the image). The only ordering rules are that `resume` come after `udev` and after whatever provides the swap device (`encrypt`, `lvm2`), and Omarchy's `encrypt ... resume` order meets both. The Arch wiki's own example puts `resume` after `filesystems`. Issue basecamp/omarchy#8471 argues the ordering is wrong on paper and its reporter says they could not show a failure caused by it.
 
-> ⚠️ **Risk.** A hand-written HOOKS line that omits `encrypt`/`sd-encrypt`, `block` or `filesystems` produces an initramfs that cannot mount root — an unbootable system. Copy the existing list verbatim and only move `resume` into it; keep the fallback image so you have a way back.
+The cold boots reported on Omarchy come from a different drop-in. `install/hardware/nvidia.sh` writes `/etc/mkinitcpio.conf.d/nvidia.conf` with `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` on every NVIDIA machine, including hybrid laptops where the iGPU drives the only panel. Those modules load from the initramfs before the resume hook runs. When the kernel then tries to load the hibernation image it has to freeze every loaded driver, the NVIDIA instance in the initramfs fails `pci_pm_freeze()` with `-5`, and the kernel logs `Failed to load image, recovering` and continues as a normal boot. That is basecamp/omarchy#8352, confirmed by two more reporters on different hardware, and moving `resume` earlier does not change it because the modules are loaded by the `MODULES` array before any hook runs.
+
+Two other things produce the same cold boot on Omarchy without any NVIDIA involvement. `omarchy-hibernation-setup` writes `resume=<device> resume_offset=<offset>` to `/etc/limine-entry-tool.d/resume.conf`, and if `btrfs inspect-internal map-swapfile` failed during setup the file carries an empty `resume_offset=`, which the script knows how to repair on its next run. And if `/sys/power/disk` reads `[disabled]` the kernel will not hibernate at all.
+
+> **Audit corrected this record.** The cause is disproved by mkinitcpio's own init script. In the busybox initramfs, `init` runs `run_hookfunctions 'run_hook' 'hook' $HOOKS` for every hook in the array and only afterwards calls `fsck_root` and `"$mount_handler" /sysroot`, so root is mounted after all runtime hooks, including a `resume` placed last. The `filesystems` hook has only a `build()` function and no runtime script, so it cannot mount anything at boot. The Arch wiki's own busybox example is `block filesystems resume fsck`, and its stated constraints are only that `resume` follow `udev` and any of `encrypt`/`lvm2`, which Omarchy's `encrypt ... resume` order satisfies. Issue 8471, the record's main source, has zero comments and its reporter writes that they could not demonstrate a resume failure attributable to the ordering. Issue 8352 is the real defect behind cold boots on Omarchy: `install/hardware/nvidia.sh` writes `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` on hybrid laptops, the initramfs instance of `nvidia` fails its freeze callback with -5 and the kernel discards the image, and two independent reporters confirm that stripping the modules fixes it, while the reporter states reordering `resume` does not help. This workstation, an Omarchy 4.0.2-1 install with `resume` last, logs `PM: Image not found (code -22)` on every boot, which is the kernel checking the configured resume device before root is mounted. The record's fix also names `cmdline:` in `/boot/limine.conf`, which `limine-entry-tool` regenerates from `/etc/limine-entry-tool.d/*.conf`, where `omarchy-hibernation-setup` already writes `resume.conf`, and its example HOOKS line drops `plymouth`. `omarchy_resume.conf` is written by `bin/omarchy-hibernation-setup` on the quattro branch, not shipped by a package. Both issues now resolve under `omacom/omarchy` on GitHub. The corrected fix below is built from the issue 8352 reports and the setup script and was not exercised with a hibernate cycle on this machine.
+>
+> *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Only strip the NVIDIA modules on a machine where another GPU drives the display. On an NVIDIA-only machine `omarchy_hooks.conf` has already dropped the `kms` hook because `nvidia_drm` is early-loaded, so removing the modules as well leaves Plymouth and the LUKS passphrase prompt without early KMS. Do not hand-edit `/boot/limine.conf`: `limine-entry-tool` overwrites it on the next rebuild. Leave `HOOKS` alone. A hand-written `HOOKS=` drop-in that omits `encrypt`, `block`, `filesystems` or `plymouth` produces an initramfs that cannot unlock or mount root, or loses the splash, for no benefit.
 
 **Fix.**
 
-Add a drop-in that sorts **after** both existing files and re-declares the full array with `resume` in the right place — after the hook that provides the swap device (`encrypt`/`sd-encrypt`/`lvm2`) and before `filesystems`:
+Do not rewrite `HOOKS`. First confirm the hook order is what Omarchy intends and read the journal from the boot that should have resumed:
 
 ```sh
-sudo tee /etc/mkinitcpio.conf.d/zz-resume-order.conf >/dev/null <<'EOF'
-HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt resume filesystems fsck btrfs-overlayfs)
+bash -c 'source /etc/mkinitcpio.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source "$f"; done; printf "%s\n" "${HOOKS[@]}" | nl'
+journalctl -b | grep -iE 'PM: (hibernation|image)|nv_pmops|hibernate-resume'
+cat /proc/cmdline | tr ' ' '\n' | grep resume
+```
+
+`resume` after `encrypt` is correct wherever it sits. A normal boot with `resume=` set logs `PM: Image not found (code -22)`, which shows the resume device was checked before root was mounted.
+
+If the journal shows `nv_pmops_freeze [nvidia] returns -5` and the machine is a hybrid laptop whose panel is driven by an Intel or AMD iGPU, keep the NVIDIA modules out of the initramfs. This is the workaround from basecamp/omarchy#8352, verified with real hibernate cycles by its reporters. The `zz-` name sorts after `nvidia.conf` and after `omarchy_hooks.conf`, so the `kms` hook decision in `omarchy_hooks.conf` is unchanged:
+
+```sh
+sudo tee /etc/mkinitcpio.conf.d/zz-hibernate-no-nvidia.conf >/dev/null <<'EOF'
+_zz_filtered=()
+for _zz_m in "${MODULES[@]}"; do
+  case "$_zz_m" in
+    nvidia|nvidia_modeset|nvidia_uvm|nvidia_drm) continue ;;
+  esac
+  _zz_filtered+=("$_zz_m")
+done
+MODULES=("${_zz_filtered[@]}")
+unset _zz_filtered _zz_m
 EOF
+sudo limine-mkinitcpio
 ```
 
-Copy the exact hook list your system currently uses as the starting point — print it first so you do not drop a distro-specific hook:
+If the journal shows no resume attempt, check the Limine cmdline drop-in rather than `/boot/limine.conf`, which `limine-entry-tool` regenerates from `/etc/limine-entry-tool.d/`:
 
 ```sh
-grep -h '^HOOKS' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf
+cat /etc/limine-entry-tool.d/resume.conf
+sudo btrfs inspect-internal map-swapfile -r /swap/swapfile
+findmnt -no SOURCE -T /swap/swapfile
 ```
 
-Make sure the kernel command line names the swap device. For Limine, add to the `cmdline:` in `/boot/limine.conf` (or the Omarchy cmdline drop-in):
-
-```
-resume=UUID=<swap-uuid>
-```
-and for a swapfile on Btrfs, also `resume_offset=<offset>` from `sudo btrfs inspect-internal map-swapfile -r /swap/swapfile`.
-
-Rebuild:
+The device must be the block device backing the swapfile (`/dev/mapper/root` on an encrypted Omarchy install, not the swap UUID) and the offset must match the `map-swapfile` output. If `resume_offset=` is empty, rerun the setup, which repairs it and rebuilds the UKI:
 
 ```sh
-sudo limine-mkinitcpio     # Omarchy
-sudo mkinitcpio -P         # plain Arch
+omarchy hibernation setup
 ```
+
+If `cat /sys/power/disk` prints `[disabled]`, the kernel cannot hibernate on this machine and no initramfs change will help.
 
 **Verify.** `lsinitcpio /boot/initramfs-linux.img | grep -n resume` (or inspect the UKI) shows the resume hook, and `sudo systemctl hibernate` followed by power-on returns you to your open windows. `journalctl -b | grep -i 'resume'` shows the resume device being used.
 
-> *Not independently audited: verify before running.*
-
-Sources: <https://github.com/basecamp/omarchy/issues/8471> · <https://github.com/basecamp/omarchy/issues/8352> · <https://man.archlinux.org/man/mkinitcpio.conf.5>
+Sources: <https://github.com/basecamp/omarchy/issues/8471> · <https://github.com/basecamp/omarchy/issues/8352> · <https://man.archlinux.org/man/mkinitcpio.conf.5> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-hibernation-setup> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/init> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/init_functions> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/hooks/resume> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/install/resume> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/install/filesystems> · <https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/raw/master/man/mkinitcpio.conf.5.adoc>
 
 ---
 

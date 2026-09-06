@@ -1119,25 +1119,47 @@ Sources: <https://wiki.archlinux.org/title/Security> · <https://wiki.archlinux.
 
 **Cause.** The NVIDIA driver has no implicit synchronisation. Explicit sync (`linux-drm-syncobj-v1`) is only negotiated when XWayland, wayland-protocols and the NVIDIA driver are all new enough; older combinations present buffers before rendering has finished.
 
-> ⚠️ **Risk.** Downgrading to the 535xx AUR branch pins you to an old driver; do not mix `nvidia-535xx-utils` with the repo `lib32-nvidia-utils` — install the matching `lib32-nvidia-535xx-utils` or 32-bit games will fail with GLX/Vulkan errors.
+> **Audit corrected this record.** Checked the Hyprland wiki Nvidia page (content/nvidia/_index.md), which still has the Flickering in Xwayland games section with the same floors: xorg-xwayland 24.1, wayland-protocols 1.34, NVIDIA 555, and a 535xx fallback for GPUs the 555 driver dropped. Symptom, cause and the three version floors are confirmed, and the Arch wiki NVIDIA page carries the same note about pre-555 drivers and linux-drm-syncobj-v1. Four things were wrong. The Kepler claim is wrong: the Arch wiki NVIDIA driver table puts Kepler on nvidia-470xx-dkms and Maxwell, Pascal and Volta on nvidia-580xx-dkms, so no GPU family needs 535xx today and the 580 branch already exceeds the 555 floor, while Kepler cannot run any explicit-sync driver at all. `hl.set` does not exist: the wiki config-options page documents `hl.config({ ... })` and every Omarchy file under /usr/share/omarchy uses that form, so the Lua block was replaced with `hl.config({ render = { direct_scanout = 0 } })` and the 0/1/2 values were added from the same page, which also shows the default is 0. `sudo pacman -Syu <pkgs>` is blocked by Omarchy's ALPM guard, so the fix now uses `omarchy update`. The danger overstated the lib32 mixing risk: AUR metadata shows lib32-nvidia-535xx-utils and lib32-nvidia-580xx-utils depend on an exactly matching nvidia-utils version and conflict with the repo lib32-nvidia-utils, so pacman refuses the mismatch rather than letting 32-bit games fail. `hyprctl systeminfo` reporting the driver version was confirmed on this machine, which prints an NVRM version line for 610.57.04. Current repo versions (xorg-xwayland 24.1.13, wayland-protocols 1.49, nvidia-utils 610.57.04) and the AUR packages 535xx 535.309.01, 580xx 580.178.04 and 470xx 470.256.02 were read from archlinux.org and the AUR RPC on 2026-09-06. The cited raw Variables.md URL now returns 404 and was replaced with the current config-options page.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** The legacy branches are AUR packages that pin you to a driver NVIDIA has stopped updating, and the whole set must move together. `lib32-nvidia-580xx-utils` and `lib32-nvidia-535xx-utils` each depend on an exactly matching `nvidia-utils` version and conflict with the repo `lib32-nvidia-utils`, so pacman refuses a mismatched pair rather than installing it. Remove the repo `nvidia-utils`, `lib32-nvidia-utils` and your `nvidia-open-dkms` or `nvidia-dkms` before installing the branch, and install the branch's dkms, utils and lib32 packages in one transaction. Installing a branch that does not support your GPU (for example 580xx on Kepler) leaves you with no display after reboot, so confirm the GPU family on the Arch wiki NVIDIA table first.
 
 **Fix.**
 
-Bring the whole stack up to the versions that support explicit sync:
+Bring the whole stack up to the versions that negotiate explicit sync. On Omarchy, direct `pacman -Syu` is blocked by the ALPM guard, so update through the supported command:
 
 ```bash
-sudo pacman -Syu xorg-xwayland wayland-protocols nvidia-utils
+omarchy update
 pacman -Q xorg-xwayland wayland-protocols nvidia-utils
 ```
 
-You need at minimum:
-- `xorg-xwayland` ≥ 24.1
-- `wayland-protocols` ≥ 1.34
-- NVIDIA driver ≥ 555
+On plain Arch the equivalent is `sudo pacman -Syu`. The floors, from the Hyprland Nvidia page, are:
 
-If your GPU is too old for the 555+ drivers (Kepler and older), the last driver series without this bug is 535 — install one of the `nvidia-535xx-*` AUR packages instead.
+- `xorg-xwayland` >= 24.1
+- `wayland-protocols` >= 1.34
+- NVIDIA driver >= 555
 
-If a specific fullscreen game still glitches, disable direct scanout for it. Hyprland ≤ 0.54:
+The Arch repos are well past all three (xorg-xwayland 24.1.13, wayland-protocols 1.49, nvidia-utils 610.57.04 as of 2026-09-06), so a fully updated install already meets them. If `pacman -Q` shows older versions, the update did not complete.
+
+If the current `nvidia-utils` no longer supports your GPU, pick the legacy branch by GPU family rather than reaching for 535xx:
+
+- Maxwell, Pascal and Volta (GTX 900, GTX 10 series, Titan V) are dropped from the current driver but supported by the 580 branch, which is newer than 555 and negotiates explicit sync. Install `nvidia-580xx-dkms`, `nvidia-580xx-utils` and, for Steam and 32-bit games, `lib32-nvidia-580xx-utils` from the AUR in place of the repo packages.
+- Kepler (GTX 600 and 700 series) and older ended with the 470 branch. No driver those cards can run has explicit sync, and the 535xx AUR packages do not support them either. The Hyprland wiki points older cards at Nouveau.
+
+Check which branch you are on:
+
+```bash
+hyprctl systeminfo | grep 'NVRM version'
+```
+
+If a specific fullscreen game still glitches after the stack is current, make sure direct scanout is off. It defaults to `0` in Hyprland and Omarchy does not change it, so this only matters if you enabled it. In `~/.config/hypr/hyprland.lua` (Hyprland 0.55+):
+
+```lua
+hl.config({ render = { direct_scanout = 0 } })
+```
+
+Valid values are `0` (off), `1` (on) and `2` (auto, on for windows with content type game). On Hyprland 0.54 and earlier the hyprlang form is:
 
 ```
 render {
@@ -1145,17 +1167,9 @@ render {
 }
 ```
 
-Hyprland 0.55+:
-
-```lua
-hl.set("render:direct_scanout", 0)
-```
-
 **Verify.** `pacman -Q xorg-xwayland wayland-protocols nvidia-utils` meets the version floors above, and the game renders cleanly. `hyprctl systeminfo` reports the NVIDIA driver version in use.
 
-> *Not independently audited: verify before running.*
-
-Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/NVIDIA> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Variables.md>
+Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/NVIDIA> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Variables.md> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/nvidia/_index.md> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/configuring/core/config-options.md> · <https://archlinux.org/packages/extra/x86_64/xorg-xwayland/> · <https://archlinux.org/packages/extra/any/wayland-protocols/> · <https://archlinux.org/packages/extra/x86_64/nvidia-utils/> · <https://archlinux.org/packages/multilib/x86_64/lib32-nvidia-utils/> · <https://aur.archlinux.org/packages/lib32-nvidia-535xx-utils> · <https://aur.archlinux.org/packages/nvidia-580xx-dkms> · <https://aur.archlinux.org/packages/nvidia-470xx-dkms>
 
 ---
 
