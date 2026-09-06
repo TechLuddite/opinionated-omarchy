@@ -304,10 +304,12 @@ load-bearing:
 - **The chat lane grades what a model *says*.** Tasks ask for commands; checks look for
   the right tool and the trap avoided. A real ceiling, not an oversight.
 - **The agentic lane can drive `pi` OR `opencode`.** `params.agent: "opencode"` runs
-  `opencode run --format json`, which finally gives turns, tokens and cost per case. Three
+  `opencode run --format json`, which finally gives turns, tokens and cost per case. Four
   traps, each of which makes every case score the do-nothing floor while the transcript
-  shows correct behaviour: `--dir "$HOME"` is required or every write is auto-rejected as
-  unapprovable; `HOME` must NOT be relocated to control skills, or the task loses the config
+  shows correct behaviour. The worst is that **opencode auto-rejects any tool call outside
+  its working directory and records no error on the case**, so a refused agent is
+  indistinguishable from one that gave up; it voided runs 43 to 46 and forced a published
+  retraction. Then: `--dir "$HOME"` is required; `HOME` must NOT be relocated to control skills, or the task loses the config
   it edits; and the skill arm must be built by rewriting `~/.agents/skills`, because Omarchy
   symlinks its own skills there on every install so **a stock machine has no bare
   condition**. See [skillbench/ZEN.md](skillbench/ZEN.md). Models come from `opencode-go/`,

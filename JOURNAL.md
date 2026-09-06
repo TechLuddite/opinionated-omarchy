@@ -1,28 +1,36 @@
 # Journal: handoff
 
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 
-> ## THE AGENTIC LANE QUESTION IS ANSWERED, AND IT IS A NULL
+> ## START HERE: four agentic cloud runs are void, and need repeating
 >
-> Runs 28 and 31, both n=31 and both clean, `devstral-small-2:24b`:
+> Runs 43, 45 and 46 were contaminated by opencode **auto-rejecting** every tool call
+> outside its working directory, which records **no error on the case**. The fix is in
+> (`app/runner.py` writes the permission grant per case, pinned by a test); the runs are
+> not.
 >
-> | bench | none | skill | lift | p |
-> | --- | ---: | ---: | ---: | ---: |
-> | `omarchy-agentic-stale-advice` | 0.871 | 0.890 | +1.9 pt | 0.59 |
-> | `linux-agentic-deep-triage` (control) | 0.747 | 0.765 | +1.7 pt | 0.47 |
-> | **difference in differences** | | | **+0.2 pt** | **0.98** |
+> **Repeat these, in this order:**
+> ```sh
+> cd skillbench && set -a && . ./secrets/zen.env && set +a \
+>   && export SB_CHAT_BASE=https://opencode.ai/zen && docker compose up -d --build
+> # then, via the UI or POST /api/runs, params {"agent":"opencode","agent_timeout":600}:
+> #   omarchy-agentic-stale-advice   GLM ladder, 5 repeats   (was run 43)
+> #   linux-agentic-deep-triage      same models, control    (was run 44)
+> ```
+> `opencode-go/` models are subscription-covered and cost nothing. Balance is $4.20 and
+> should stay there.
 >
-> **`skill:omarchy` moves general Linux by the same amount it moves Omarchy.** That is the
-> exact condition the controls exist to detect. Reproduce with
-> `python3 skillbench/tools/lift_test.py 28 31`.
+> **Then check for the refusal before trusting any floor score:**
+> `grep -c auto-rejecting` over the case output. It is not in the JSON event stream.
 >
-> Consequences for the skill being built, and none of them are "the corpus will fail":
+> Two claims are withdrawn and must not be re-quoted from old runs: "the skill diverts an
+> agent into research" (was published on the site, now retracted there) and "these models
+> have a five-turn budget". Given an unobstructed task the same model runs 22 steps.
 >
-> - **The chat lane's +29.3 pt is the only demonstrated skill effect in this repository.**
-> - "Do not regress the incumbent on the agentic lane" is trivially satisfiable, because
->   there is nothing there to regress. That bar needs replacing, not meeting.
-> - A corpus-backed skill that shows a surviving agentic lift at n=31 would be a **new**
->   result. Nothing here says that is impossible; it says the incumbent never did it.
+> The chat-lane result (+22.6 to +28.8 pt on four models, controls flat) and the n=31
+> agentic null (DiD +0.2, p=0.98) are **unaffected**: both ran through `pi`.
+>
+> `omarchy-agentic-published-wrong` is **NOT CALIBRATED**; its header says why.
 
 ## Session of 2026-09-05 (fourth): the turn budget was not real, and four runs are void
 

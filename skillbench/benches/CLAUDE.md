@@ -95,6 +95,23 @@ distrust any assertion that looks green on first outing.
   whose command line contains the pattern, so `command_fails` could never pass. Write
   `[b]ench-marker`.
 
+### Before blaming the model, check for a silent refusal
+
+Under `agent: opencode`, a tool call outside the working directory is **auto-rejected** with
+no error recorded on the case. Status stays `ok`, the transcript ends at
+`reason: "tool-calls"`, and the case scores the do-nothing floor: identical to a model that
+simply stopped. It voided runs 43 to 46 and produced two conclusions that had to be
+withdrawn, one of them already published.
+
+```sh
+grep -l auto-rejecting   # in the case output; it is NOT in the JSON event stream
+```
+
+`app/runner.py` now grants the permission per case, but the diagnostic habit is the point:
+**four separate harness bugs in this lane have imitated a capability failure** (scratch
+HOME, working directory, permission refusal, and run 21's VRAM spill). A floor score is the
+first thing to distrust, not the last.
+
 **Write every assertion so it fails before the fix and passes after, and check both on a
 VM by hand.** A control that passes trivially is not evidence of anything.
 
