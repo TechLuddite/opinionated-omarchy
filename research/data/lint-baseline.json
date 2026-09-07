@@ -424,6 +424,9 @@
  "vantablack-white-theme-broken-icon-placeholders": [
   "sudo-pacman-Syu"
  ],
+ "verify-installed-files-against-package-database": [
+  "sudo-pacman-Syu"
+ ],
  "vfat-module-missing-boot-efi-mount-fails": [
   "boot-efi",
   "boot-vmlinuz-or-initramfs",

@@ -474,9 +474,9 @@ mark their provenance rather than letting them blend in with audited ones. As of
 `merge_gapfill.py` still assigns it when an audit agent dies.
 
 **`audit_status: ok` means "matches its cited sources", not "true on Omarchy 4".** On
-2026-09-06 fifteen `ok` records were checked against what Omarchy 4 actually ships (this
-workstation, the `quattro` tree, the cited issues read in full) and **all fifteen were
-wrong**: `mkinitcpio -P` with no presets, a fallback boot entry that does not exist, hooks
+2026-09-06 and 2026-09-07 thirty-three `ok` records were checked against what Omarchy 4
+actually ships (this workstation, the `quattro` tree, the cited issues read in full) and
+**all thirty-three were wrong**: `mkinitcpio -P` with no presets, a fallback boot entry that does not exist, hooks
 overridden by `omarchy_hooks.conf`, a two-subvolume chroot on a four-subvolume layout,
 cited issues that did not support the claim. The brief that found them is
 `research/tools/reaudit-brief.md`; hand it to one agent per one or two records with the
@@ -484,17 +484,18 @@ record JSON and an output directory. A verdict may carry `corrected_fix`,
 `corrected_cause`, `corrected_symptom`, `corrected_danger`, `corrected_verify` and
 `sources`, and `merge_gapfill.py` applies all of them (sources are appended). Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 229 `ok` records remain on one source pass, and 142 of them carry a `danger` and
+merge. 211 `ok` records remain on one source pass, and 124 of them carry a `danger` and
 apply to Omarchy.
 
 A second provenance field, `cause_reconciled` (a date, or absent), exists because the
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
 could therefore keep a `cause` its own `audit_note` disproved. All 130 such records were
 read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from their notes.
-A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, and 12 more on
+A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, 12 more on
 2026-09-06 by the audit of the last unaudited records, the first VM-found defect and a
-re-audit of ten boot-kernel records against Omarchy 4, so **41 records carry the stamp
-across three dates**. **The disclaimer printed under the audit
+re-audit of ten boot-kernel records against Omarchy 4, and 11 more on 2026-09-07 by the
+re-audit of eighteen `pacman-aur` records, so **52 records carry the stamp across four
+dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
@@ -639,9 +640,9 @@ Three things are specific to this repo and are the ones that get got wrong:
   description, a bullet list of three introduced as "two ways", and a `README` recipe
   naming the workflow that does the opposite of what it claimed.
 
-**`research/data/problems.jsonl` is deliberately excluded for now.** 1,839 em and en dashes
-sit across 418 of its 456 records as of 2026-09-06 (the fifteen records rewritten that day
-carry none, which is where the count moved), and cleaning them means rewriting the source of truth
+**`research/data/problems.jsonl` is deliberately excluded for now.** 1,790 em and en dashes
+sit across 407 of its 456 records as of 2026-09-07 (the thirty-three records rewritten by
+the re-audits carry none, which is where the count moved), and cleaning them means rewriting the source of truth
 and regenerating `research/docs/` in the same commit. Tracked in
 [JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose
 piecemeal: a partial pass makes the remaining records look like a deliberate choice.

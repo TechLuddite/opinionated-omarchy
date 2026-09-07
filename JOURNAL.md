@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-06
+Last updated: 2026-09-07
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -22,12 +22,12 @@ Last updated: 2026-09-06
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 229 records carry that status on one source pass. The first ten re-audited
->    for that, the boot-kernel records with a `danger`, all needed correcting. Use
+>    4", and 211 records carry that status on one source pass. The first 28 re-audited
+>    for that, boot-kernel and pacman-aur records with a `danger`, all needed correcting. Use
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
 >    left"; O1, a lint for the known-bad shapes, landed the same day and holds 138
->    records as candidates. The corpus prose has 1,839 dashes across 418 records, item 6
+>    records as candidates. The corpus prose has 1,790 dashes across 407 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -44,6 +44,71 @@ Last updated: 2026-09-06
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-07: eighteen pacman-aur records re-audited, all wrong, and the lint earned its keep
+
+O3 on `pacman-aur`: the 22 records that were `ok` with a `danger` and apply to Omarchy,
+one auditor per two records, the same brief as the boot-kernel batch plus a section of
+pacman facts read off this workstation (the guard script, `DownloadUser = alpm`, the
+`[omarchy]` repo, `HoldPkg`, yay from the Omarchy repo and no paru). Eleven auditors were
+launched; five died on a session limit, but three of those had already written both
+verdicts, so **18 of 22 records came back, all `corrected`, all at high confidence**. The
+operator then said not to relaunch, so the four lost records stay `ok` and are named under
+item 8 of "What's left".
+
+### 1. What was wrong, again in clusters
+
+- **Every upgrade command was `sudo pacman -Syu`**, which the guard aborts. Sixteen of
+  the eighteen. The Omarchy form is `omarchy update`, or the one-transaction bypass.
+- **Omarchy already does the thing the record tells you to do**, and the record did not
+  know: `omarchy-update-keyring` refreshes the keyring before every update,
+  `omarchy-update-pkg-prune` runs `paccache -rk2`, `omarchy-update-system-pkgs-when-conflicted`
+  moves conflicting `omarchy*` files aside and retries, `omarchy-update-requires-free-space`
+  refuses to run under 10 GiB free, and `omarchy-update-aur-pkgs` runs yay with
+  `--cleanafter`. `pacman-contrib` is a hard dependency of `omarchy`, so four "install it
+  first" lines were no-ops.
+- **The mirror model is different.** Omarchy 4's mirrorlist is one line,
+  `stable-mirror.omarchy.org`, a pinned snapshot that lagged Arch by twelve days on the
+  day of the audit; the maintainer tells users not to run reflector. Rolling Arch back
+  through the archive while the `[omarchy]` repo, which has no archive, stays current
+  produces a mismatched system, so the ALA record now leads with the Snapper and Limine
+  Snapshots restore.
+- **Three records cited evidence that did not support them.** Issue 4197 is a keyring
+  case cited for a checksum claim, issues 3877 and 3902 are Omarchy 3.2 with a yay built
+  against an older libalpm (yay 13 dlopens `libalpm.so.16` and cannot produce the loader
+  error at all), and issue 3497 is Omarchy 3 behaviour for `omarchy-refresh-pacman`,
+  which `omarchy update` on 4.0.2 never calls.
+- **Four claims were disproved from pacman's source.** The HoldPkg prompt fires only in
+  `pacman -R`; `ignoring package upgrade` never reaches `pacman.log`; a provider question
+  under `--noconfirm` picks the first provider silently rather than aborting; and
+  `nvidia-dkms` no longer exists in the repos.
+- **`omarchy-update-overwrites-pacman-conf` describes Omarchy 3.** On 4.0.2 the file is a
+  pacman backup file, gets a `.pacnew`, and the supported way to keep a custom repo is the
+  `pre-refresh-pacman` hook Omarchy ships a sample for.
+
+### 2. The lint caught the auditors
+
+`lint_corpus.py --check` ran after the merge and flagged three new hits. One was a
+labelled plain-Arch aside and went into the baseline. The other two were the auditors'
+own `sudo omarchy-snapshot create`, in two rewritten fixes, and `omarchy-snapshot` calls
+sudo itself and reads `OMARCHY_PATH`, which sudo strips. That is the shape the lint was
+built from one day earlier, written fresh by an agent holding the brief that names it.
+Both records were patched through `corpus.write_jsonl` with a sentence appended to the
+audit note, and the baseline was rewritten deliberately: 139 records, the three changes
+listed in the commit.
+
+### 3. Verified, and not
+
+Dry-run then diff: exactly eighteen records changed, only in the named fields, and the
+four records without a verdict came through untouched. `research/tests/run.sh` passes
+(18), the site builds. Nothing was exercised on a VM, no stale keyring, lock or conflict
+was induced, and the six verdicts from auditors that died after writing were read in full
+rather than trusted on their status.
+
+The corpus is now **456 records, `ok` 211 / `corrected` 245 / `unaudited` 0**, 912
+distinct sources, 52 `cause_reconciled` stamps across four dates, 1,790 dashes across 407
+records. Thirty-three `ok` records have been checked against Omarchy 4 since 2026-09-06,
+and thirty-three needed correcting.
 
 ## Session of 2026-09-06 (second): the last four unaudited records, the VM findings, and ten boot-kernel re-audits
 
@@ -2365,10 +2430,15 @@ again.
   stamps `cause_reconciled`, the same rules as `merge_gapfill.py`. The other two schemas
   gained the same keys. None of the three has been run since; the change is verified by
   evaluating each script's prompt section under node, not by a workflow run.
-- **O3. Re-audit the 142 `ok` records with a `danger` that apply to Omarchy**, using the
-  brief. `pacman-aur` (22) first, then `gpu-drivers` (14). About 750k to 900k tokens per
-  ten records, one agent per two records, through `merge_gapfill.py` with the
-  dry-run-then-diff discipline. Not started.
+- **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
+  brief. STARTED 2026-09-06, paused 2026-09-07 on the operator's instruction: 18 of the
+  22 `pacman-aur` records are done (all corrected, see the 2026-09-07 session), 4 were
+  lost to a session limit and are still `ok`: `local-package-database-corrupted`,
+  `hook-failed-command-failed-to-execute-correctly`,
+  `aur-package-deleted-merged-or-renamed`, `filesystem-full-during-pacman-transaction`.
+  124 remain across the other categories, `apps-services` 23 and `gpu-drivers` 14 the
+  largest. About 750k to 900k tokens per ten records, one agent per two records, through
+  `merge_gapfill.py` with the dry-run-then-diff discipline.
 - **O4. Harvest from `basecamp/omarchy` issues rather than the web.** Two records cited
   issues that did not support them. A harvester that reads issue threads with comments on
   the `quattro` tree and records only fixes a maintainer or a second reporter confirmed
