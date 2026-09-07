@@ -289,6 +289,13 @@ slugs audited, dry-run `merge_gapfill.py` on a copy, diff the copy against the c
 confirm only those records changed, then run it for real. A verdict may replace `fix`,
 `cause`, `symptom`, `danger` and `verify`, and its `sources` are appended to the record.
 
+To build records from the upstream issue tracker rather than the web, see
+[tools/issue-harvest-brief.md](tools/issue-harvest-brief.md) and
+[tools/issue_candidates.py](tools/issue_candidates.py), which lists issues worth reading.
+A record exists only where the thread carries a fix a maintainer or a second reporter
+confirmed. Harvest output lands in `raw/` and needs deduplication and an audit pass before
+it reaches the corpus.
+
 `tools/lint_corpus.py` lists the records still carrying shapes the re-audit found wrong
 (`mkinitcpio -P`, `sudo pacman -Syu`, `/boot/limine.conf` edits and eight more). It is a
 candidate list for that brief, not an audit. `--check` fails on any hit outside

@@ -26,8 +26,8 @@ Last updated: 2026-09-07
 >    for that, boot-kernel and pacman-aur records with a `danger`, all needed correcting. Use
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
->    left"; O1, a lint for the known-bad shapes, landed the same day and holds 138
->    records as candidates. The corpus prose has 1,756 dashes across 405 records, item 6
+>    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
+>    and `pacman-aur`, and O4 is paused mid-harvest with 40 records banked unmerged. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -44,6 +44,90 @@ Last updated: 2026-09-07
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-07 (second): O4 harvests from the issue tracker, and stops one batch short
+
+O4, the option that says stop harvesting the web and read the upstream tracker instead.
+Six corpus records had cited GitHub issues that did not support them, so the standard here
+is narrow: **a record exists only where the thread carries a fix a maintainer or a second
+reporter confirmed.** A plausible workaround nobody confirmed is not a record.
+
+**Nothing from this reached the corpus, deliberately.** `data/problems.jsonl` is untouched
+and still reads `ok` 207 / `corrected` 249 / `unaudited` 0. The harvest is banked as raw
+provenance in [research/raw/issue-harvest-partial.json](research/raw/issue-harvest-partial.json),
+which says so in its own `status` field.
+
+### 1. What was built
+
+- **[research/tools/issue_candidates.py](research/tools/issue_candidates.py)** selects what
+  is worth reading: closed issues since the 4.0.0 release with at least two comments, plus
+  the most-discussed open ones, minus the `enhancement` / `question` / `duplicate` /
+  `invalid` / `wontfix` labels. It found **109 candidates**, 49 closed and 60 open, and
+  writes `raw/issue-candidates.json` so the selection is reproducible rather than a
+  judgement made once in a prompt.
+- **[research/tools/issue-harvest-brief.md](research/tools/issue-harvest-brief.md)** is the
+  harvester prompt. It requires reading `reaudit-brief.md` first, reading each issue in full
+  with its comments and linked PRs, grepping the corpus before writing a slug, and sorting
+  every assigned issue into exactly one of `records`, `existing` or `skipped`.
+
+### 2. What came back
+
+Eleven harvesters, ten issues each. **Ten of eleven finished; batch 01 died on the weekly
+limit** and its ten issues (6858, 6868, 6882, 6887, 6888, 6889, 6890, 6894, 6909, 6917) were
+never read. From 99 issues:
+
+| | |
+| --- | ---: |
+| records written | 40 |
+| issues mapped to an existing record instead | 21 |
+| skipped as unconfirmed, feature requests or duplicates | 37 |
+
+The skip rate is the point. Thirty-seven threads had no fix anyone confirmed, and under the
+old standard several would have become records.
+
+The `existing` list is the more valuable half and is **re-audit fuel for O3**: it names
+records whose cause the tracker contradicts. Among them, `chromium-video-black-hybrid-angle`
+(the variable comes from `nvidia.lua`, went live in 4.0.1, and needs a logout),
+`laptop-display-stays-dark-after-external-unplug` (the cause is Hyprland 0.56's FALLBACK
+output, not a stale monitor list), and `suspend-fails-nvidia-video-memory` (carries a
+`mkinitcpio -P` defect the lint already flags).
+
+### 3. Why it was not merged
+
+Two blockers, either one sufficient:
+
+- **No audit pass.** These are harvester output. Every other record in the corpus was
+  audited by a second agent before entering it, and the whole 2026-09-06 finding is that
+  one pass is not enough.
+- **Six near-duplicate pairs, two of them certain.** `ingest.py`'s own symptom-fingerprint
+  detector flags them, and two cite the same issue number from different batches
+  (7514 and 8833). Two batches independently wrote the AV1 firmware corruption and the
+  bash 5.3 migration failure. The pairs are listed in the banked payload under
+  `near_duplicates_to_reconcile`.
+
+Merging would also have put 21 `omarchy-core` records into a category that has 2 `ok`
+records with a `danger` today, skewing the corpus toward the tooling and away from the
+hardware problems users hit.
+
+### 4. Two live facts changed under us, both now corrected
+
+- **The upstream repo is `omacom/omarchy`, renamed from `basecamp/omarchy`.** The old name
+  redirects for `gh issue view` and raw content, but **GitHub's search API does not follow
+  it** and returns a 422. That cost the first sizing run. Corrected in the domain facts and
+  in `reaudit-brief.md`.
+- **This workstation is `omarchy 4.0.2-1`**, not the 4.0.0-1 `CLAUDE.md` claimed. Caught by
+  a harvester checking a fix against the local install. The VM figure is left as last
+  measured and labelled as unverified, because the VMs were not booted today.
+
+### 5. Where to pick this up
+
+1. Run batch 01: `gh issue view <n> -R omacom/omarchy --comments` for the ten numbers above,
+   with `issue-harvest-brief.md`.
+2. Reconcile the six near-duplicate pairs into one record each.
+3. Audit all 40 with `reaudit-brief.md`, one agent per one or two records.
+4. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect
+   `merge_gapfill.py` to need a small change: its append path assigns `gapfill-unaudited`
+   and these records will arrive already audited.
 
 ## Session of 2026-09-07: all 22 pacman-aur records re-audited, all wrong, and the lint earned its keep
 
@@ -2465,10 +2549,14 @@ again.
   `omarchy-theming` 15, `network` 15, `gpu-drivers` 14, `hyprland-config` 12,
   `wayland-compat` 9, `audio-input` 9, `display-monitors` 5, `omarchy-core` 2. About 750k to 900k tokens per ten records, one agent per two records, through
   `merge_gapfill.py` with the dry-run-then-diff discipline.
-- **O4. Harvest from `basecamp/omarchy` issues rather than the web.** Two records cited
-  issues that did not support them. A harvester that reads issue threads with comments on
-  the `quattro` tree and records only fixes a maintainer or a second reporter confirmed
-  produces Omarchy-specific records the generic harvest cannot. Not started.
+- **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused
+  2026-09-07 on the weekly token limit. The selector (`tools/issue_candidates.py`) and the
+  harvester brief (`tools/issue-harvest-brief.md`) are built and committed. Ten of eleven
+  batches ran over 99 of 109 candidate issues and produced **40 records, 21 mappings onto
+  existing records and 37 skipped as unconfirmed**, banked unmerged in
+  `raw/issue-harvest-partial.json`. Before any of it enters the corpus: run batch 01,
+  reconcile six near-duplicate pairs, and audit all 40. The `existing` list is re-audit
+  fuel for O3 and names three records the tracker contradicts.
 - **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
   its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
   consumers, covered by the `FIELDS` tests. Not started.

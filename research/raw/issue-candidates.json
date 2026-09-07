@@ -1,0 +1,1188 @@
+{
+ "repo": "omacom/omarchy",
+ "since": "2026-08-14",
+ "candidates": [
+  {
+   "number": 6952,
+   "title": "Quickshell SIGSEGV in QQuickRepeater when PipeWire removes USB audio nodes",
+   "state": "open",
+   "labels": [],
+   "comments": 33,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6952"
+  },
+  {
+   "number": 7106,
+   "title": "Saving a file under ~/.config/omarchy/plugins/ while locked strands the session, and omarchy-restart-shell refuses to help",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 23,
+   "created_at": "2026-08-16",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7106"
+  },
+  {
+   "number": 8215,
+   "title": "4.0.1: `shell_succeeds` fix enables NVDEC VAAPI routing on hybrid laptops with Intel-driven displays, corrupting browser video",
+   "state": "open",
+   "labels": [],
+   "comments": 20,
+   "created_at": "2026-08-25",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8215"
+  },
+  {
+   "number": 6888,
+   "title": "Stranded-lock recovery never completes: requestSessionLock() early-returns on  sessionLock.secure, so the session stays on \"lockscreen app died\" forever",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 17,
+   "created_at": "2026-08-14",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6888"
+  },
+  {
+   "number": 6956,
+   "title": "Bluetooth widget disappears from shell when turned off",
+   "state": "open",
+   "labels": [],
+   "comments": 14,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6956"
+  },
+  {
+   "number": 6909,
+   "title": "[Quattro] eDP-1 monitor scaling forces 2x reset on mixed-monitor array with Quickshell navbar",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 13,
+   "created_at": "2026-08-14",
+   "closed_at": "2026-08-22",
+   "url": "https://github.com/omacom/omarchy/issues/6909"
+  },
+  {
+   "number": 7145,
+   "title": "Lock screen repeatedly flashes blank due to periodic \"no outputs\" Wayland glitch",
+   "state": "open",
+   "labels": [],
+   "comments": 11,
+   "created_at": "2026-08-16",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7145"
+  },
+  {
+   "number": 7380,
+   "title": "omarchy-shell crashes and relaunches on every wake from idle lock (FALLBACK monitor removal, fatal Wayland error)",
+   "state": "open",
+   "labels": [],
+   "comments": 11,
+   "created_at": "2026-08-18",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7380"
+  },
+  {
+   "number": 7704,
+   "title": "Omarchy 4.0.0 install fails because gst-plugin-gtk is missing from offline mirror",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 11,
+   "created_at": "2026-08-21",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7704"
+  },
+  {
+   "number": 6985,
+   "title": "Quattro (4.0) install fails: fix-synaptic-touchpad.sh psmouse module mismatch + vulkan.sh offline mirror missing files",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 10,
+   "created_at": "2026-08-15",
+   "closed_at": "2026-08-24",
+   "url": "https://github.com/omacom/omarchy/issues/6985"
+  },
+  {
+   "number": 9334,
+   "title": "Windows VM 4.0.2: launch fails silently after polkit auth (setgid chmod check can never pass)",
+   "state": "open",
+   "labels": [],
+   "comments": 10,
+   "created_at": "2026-08-31",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9334"
+  },
+  {
+   "number": 7045,
+   "title": "NVIDIA 50xx Users - Can't Install - Boots to black screen",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 9,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7045"
+  },
+  {
+   "number": 7362,
+   "title": "Quickshell heap corruption after Omarchy local-plugin hot reload (QV4::Chunk::sweep / jemalloc)",
+   "state": "open",
+   "labels": [],
+   "comments": 9,
+   "created_at": "2026-08-18",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7362"
+  },
+  {
+   "number": 7377,
+   "title": "YouTube videos, colors shifting",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 9,
+   "created_at": "2026-08-18",
+   "closed_at": "2026-08-24",
+   "url": "https://github.com/omacom/omarchy/issues/7377"
+  },
+  {
+   "number": 7835,
+   "title": "I am trying to install and run Omarchy inside VMware, but I consistently get a black screen after entering my password.",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 9,
+   "created_at": "2026-08-23",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7835"
+  },
+  {
+   "number": 7909,
+   "title": "Random hard reboots on ThinkPad X1 Carbon Gen 11 — Omarchy only, Ubuntu stable",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 9,
+   "created_at": "2026-08-23",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7909"
+  },
+  {
+   "number": 8113,
+   "title": "Omarchy unusable under VMware Workstation with 3D acceleration enabled",
+   "state": "open",
+   "labels": [],
+   "comments": 9,
+   "created_at": "2026-08-24",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8113"
+  },
+  {
+   "number": 8328,
+   "title": "nvidia.lua forces LIBVA_DRIVER_NAME=nvidia on hybrid laptops where the dGPU drives no displays",
+   "state": "open",
+   "labels": [],
+   "comments": 9,
+   "created_at": "2026-08-26",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8328"
+  },
+  {
+   "number": 6889,
+   "title": "Coding Agent out of Date - Gemini --> Antigravity",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 8,
+   "created_at": "2026-08-14",
+   "closed_at": "2026-08-20",
+   "url": "https://github.com/omacom/omarchy/issues/6889"
+  },
+  {
+   "number": 6976,
+   "title": "running low when upgrading to Omarchy Quattro this morning.",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 8,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6976"
+  },
+  {
+   "number": 6995,
+   "title": "Idle cycle restarts during a pending lock and launches a second screensaver into it — new ttfx aborts (isLocked guard passes while lock-pending)",
+   "state": "open",
+   "labels": [],
+   "comments": 8,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6995"
+  },
+  {
+   "number": 7229,
+   "title": "Fingerprint reader fails after suspend: fprintd reports \"Cannot run while suspended\"",
+   "state": "open",
+   "labels": [],
+   "comments": 8,
+   "created_at": "2026-08-17",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7229"
+  },
+  {
+   "number": 7648,
+   "title": "Codex 0.149 breaks Agents panel limit display",
+   "state": "closed",
+   "labels": [],
+   "comments": 8,
+   "created_at": "2026-08-21",
+   "closed_at": "2026-08-25",
+   "url": "https://github.com/omacom/omarchy/issues/7648"
+  },
+  {
+   "number": 7755,
+   "title": "NVIDIA env vars (NVD_BACKEND, LIBVA_DRIVER_NAME, __GLX_VENDOR_LIBRARY_NAME) never set: os.execute() broken inside Hyprland Lua config",
+   "state": "open",
+   "labels": [],
+   "comments": 8,
+   "created_at": "2026-08-22",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7755"
+  },
+  {
+   "number": 8311,
+   "title": "Nautilus \"Set as Wallpaper\" context menu action does nothing on Hyprland",
+   "state": "closed",
+   "labels": [],
+   "comments": 8,
+   "created_at": "2026-08-25",
+   "closed_at": "2026-09-02",
+   "url": "https://github.com/omacom/omarchy/issues/8311"
+  },
+  {
+   "number": 8544,
+   "title": "Installation fails on Lenovo Ideapad Z50-70 with black screen during boot",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 8,
+   "created_at": "2026-08-27",
+   "closed_at": "2026-08-28",
+   "url": "https://github.com/omacom/omarchy/issues/8544"
+  },
+  {
+   "number": 8989,
+   "title": "Hybrid iGPU-primary laptops: nvidia.lua forces NVIDIA env session-wide — video corruption (root cause of #4901) and blocked dGPU runtime suspend",
+   "state": "open",
+   "labels": [],
+   "comments": 8,
+   "created_at": "2026-08-29",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8989"
+  },
+  {
+   "number": 6917,
+   "title": "Screensaver opens as a small floating window and self-terminates after 1s when a bar panel is open",
+   "state": "open",
+   "labels": [],
+   "comments": 7,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6917"
+  },
+  {
+   "number": 6989,
+   "title": "Quitting the speedtest midway leaves orphan processes",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 7,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6989"
+  },
+  {
+   "number": 7634,
+   "title": "Omarchy update installs incompatible quickshell",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 7,
+   "created_at": "2026-08-20",
+   "closed_at": "2026-08-21",
+   "url": "https://github.com/omacom/omarchy/issues/7634"
+  },
+  {
+   "number": 7750,
+   "title": "Qt 6.11.2 SIGSEGV in QUntypedPropertyBinding on Omarchy shell startup (Variants / Repeater)",
+   "state": "closed",
+   "labels": [],
+   "comments": 7,
+   "created_at": "2026-08-22",
+   "closed_at": "2026-08-24",
+   "url": "https://github.com/omacom/omarchy/issues/7750"
+  },
+  {
+   "number": 8262,
+   "title": "Theme switcher and background keybindings broken: menu never renders, theme set silently fails from menu action",
+   "state": "open",
+   "labels": [],
+   "comments": 7,
+   "created_at": "2026-08-25",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8262"
+  },
+  {
+   "number": 8553,
+   "title": "AGY (Antigravity cli), despite docs, does not exist as a stub.",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 7,
+   "created_at": "2026-08-27",
+   "closed_at": "2026-09-06",
+   "url": "https://github.com/omacom/omarchy/issues/8553"
+  },
+  {
+   "number": 9235,
+   "title": "default-keyring.sh writes an unparseable stub keyring, wiping Chrome/Docker secrets on every login",
+   "state": "open",
+   "labels": [],
+   "comments": 7,
+   "created_at": "2026-08-30",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9235"
+  },
+  {
+   "number": 9890,
+   "title": "hypr/nvidia.lua: LIBVA_DRIVER_NAME=nvidia corrupts hardware video decode on hybrid laptops where the compositor renders on the iGPU",
+   "state": "open",
+   "labels": [],
+   "comments": 7,
+   "created_at": "2026-09-02",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9890"
+  },
+  {
+   "number": 10410,
+   "title": "LIBVA_DRIVER_NAME=nvidia is set even when the NVIDIA GPU drives no output, stalling video playback on hybrid laptops",
+   "state": "open",
+   "labels": [],
+   "comments": 7,
+   "created_at": "2026-09-06",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/10410"
+  },
+  {
+   "number": 6947,
+   "title": "Steam idle-inhibit rule matches the client but not steam_app games",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6947"
+  },
+  {
+   "number": 7025,
+   "title": "omarchy-menu-keybindings hangs forever when a user Lua config iterates hl.get_monitors()",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7025"
+  },
+  {
+   "number": 7199,
+   "title": "Screensaver triggers during fullscreen YouTube video in Zen Browser (works fine in Chromium)",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 6,
+   "created_at": "2026-08-17",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7199"
+  },
+  {
+   "number": 7280,
+   "title": "omarchy-sleep-lock.service fails on resume: Restart=always re-runs systemd-inhibit while logind's sleep operation is still in flight",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-17",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7280"
+  },
+  {
+   "number": 7573,
+   "title": "Bluetooth panel latches \"Turned Off\" when the adapter powers up after quickshell, disabling GUI pairing and the toggle",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-20",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7573"
+  },
+  {
+   "number": 7596,
+   "title": "Quickshell unable to restart after latest update on Edge branch",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 6,
+   "created_at": "2026-08-20",
+   "closed_at": "2026-08-21",
+   "url": "https://github.com/omacom/omarchy/issues/7596"
+  },
+  {
+   "number": 7640,
+   "title": "Screen recording fails on Pascal GPUs: -fallback-cpu-encoding yes doesn't catch NVENC API version mismatch",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-20",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7640"
+  },
+  {
+   "number": 7711,
+   "title": "Crash capture notification cannot be dismissed without launching AI diagnosis",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 6,
+   "created_at": "2026-08-21",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7711"
+  },
+  {
+   "number": 7776,
+   "title": "Built-in camera does not work on a fresh Omarchy install.",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 6,
+   "created_at": "2026-08-22",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7776"
+  },
+  {
+   "number": 8108,
+   "title": "Default Agent: Gemini entry cannot sign in since Google ended individual access on 2026-06-18",
+   "state": "closed",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-24",
+   "closed_at": "2026-09-06",
+   "url": "https://github.com/omacom/omarchy/issues/8108"
+  },
+  {
+   "number": 8460,
+   "title": "Agents widget: Codex collector hardcodes stale --ask-for-approval value, breaks limits fetch",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-26",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8460"
+  },
+  {
+   "number": 9441,
+   "title": "Plugin hot-reload while locked destroys the lock client; Quickshell then SIGABRTs",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-08-31",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9441"
+  },
+  {
+   "number": 9647,
+   "title": "quickshell crash (SIGSEGV) during PipeWire audio device switch — QML Repeater binding update",
+   "state": "open",
+   "labels": [],
+   "comments": 6,
+   "created_at": "2026-09-01",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9647"
+  },
+  {
+   "number": 10122,
+   "title": "Omarchy Top-Bar Intermittent Mouse Click Failure — Forensic Investigation Report",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 6,
+   "created_at": "2026-09-04",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/10122"
+  },
+  {
+   "number": 6868,
+   "title": "Shipped Ghostty epoll workaround can crash Ghostty on x86_64",
+   "state": "open",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-14",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6868"
+  },
+  {
+   "number": 6981,
+   "title": "Plugin hot-reload never picks up changed plugin code (stale QML component cache)",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6981"
+  },
+  {
+   "number": 7019,
+   "title": "Cannot run Migration (1786643346) because an \"browser window is open\" according to the migration.",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7019"
+  },
+  {
+   "number": 7217,
+   "title": "screenrecord: NVENC fallback doesn't trigger on API version mismatch (Pascal/580xx driver)",
+   "state": "open",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-17",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7217"
+  },
+  {
+   "number": 7263,
+   "title": "Dual-boot install fails when the free space is on a different disk than Windows itself",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-17",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7263"
+  },
+  {
+   "number": 7423,
+   "title": "Dropbox widget hides the tray icon without replacing its menu: no Preferences, no Quit, and the login button does nothing",
+   "state": "open",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-18",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7423"
+  },
+  {
+   "number": 7515,
+   "title": "Free space install (alongside exsisting data) Doesn't work alongside non-OS partitions",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-19",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7515"
+  },
+  {
+   "number": 7530,
+   "title": "Screen recording silently fails on external monitors driven by the dGPU (hybrid laptops)",
+   "state": "open",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-19",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7530"
+  },
+  {
+   "number": 7549,
+   "title": "Frequent kernel panics after upgrade to Quattro.",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-19",
+   "closed_at": "2026-09-01",
+   "url": "https://github.com/omacom/omarchy/issues/7549"
+  },
+  {
+   "number": 7645,
+   "title": "Quickshell lock crashes in PamSubprocess during overlapping fingerprint retries",
+   "state": "open",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-20",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7645"
+  },
+  {
+   "number": 7749,
+   "title": "[Quattro] Lock screen re-blanks slow DPMS monitors after fixed 5-second wake timeout",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-22",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7749"
+  },
+  {
+   "number": 8032,
+   "title": "AI Agents panel: Codex tab stuck showing \"initialize\" (invalid --ask-for-approval value 'untrusted')",
+   "state": "closed",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-24",
+   "closed_at": "2026-08-25",
+   "url": "https://github.com/omacom/omarchy/issues/8032"
+  },
+  {
+   "number": 8282,
+   "title": "Update Omarchy to 4.0.1 updates to release candidate and moves users to edge channel forcefully",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-25",
+   "closed_at": "2026-08-26",
+   "url": "https://github.com/omacom/omarchy/issues/8282"
+  },
+  {
+   "number": 8725,
+   "title": "Error mounting an external hard drive",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-28",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8725"
+  },
+  {
+   "number": 8832,
+   "title": "Migration 1787515927 failed",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 5,
+   "created_at": "2026-08-28",
+   "closed_at": "2026-08-29",
+   "url": "https://github.com/omacom/omarchy/issues/8832"
+  },
+  {
+   "number": 9292,
+   "title": "Lock screen password field doesn't have keyboard focus until clicked",
+   "state": "open",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-31",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9292"
+  },
+  {
+   "number": 9380,
+   "title": "Selecting a Bluetooth headset input can leave it in A2DP with a silent microphone",
+   "state": "closed",
+   "labels": [],
+   "comments": 5,
+   "created_at": "2026-08-31",
+   "closed_at": "2026-09-02",
+   "url": "https://github.com/omacom/omarchy/issues/9380"
+  },
+  {
+   "number": 6858,
+   "title": "Lock screen auto-focus not working",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 4,
+   "created_at": "2026-08-14",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6858"
+  },
+  {
+   "number": 6948,
+   "title": "Invalid mise config.toml keeps getting generated",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 4,
+   "created_at": "2026-08-15",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/6948"
+  },
+  {
+   "number": 7054,
+   "title": "Media bar widget marquee freezes mid-scroll, showing only a few leading characters",
+   "state": "open",
+   "labels": [],
+   "comments": 4,
+   "created_at": "2026-08-16",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7054"
+  },
+  {
+   "number": 7084,
+   "title": "Clamshell watcher ignores desc: rules for the internal panel and overwrites its scale every 2s",
+   "state": "open",
+   "labels": [],
+   "comments": 4,
+   "created_at": "2026-08-16",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7084"
+  },
+  {
+   "number": 7565,
+   "title": "Calculator keybindings survive `omarchy-remove-preinstalls`, point at removed `omacalc`",
+   "state": "open",
+   "labels": [],
+   "comments": 4,
+   "created_at": "2026-08-20",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7565"
+  },
+  {
+   "number": 7930,
+   "title": "Spending coulomb is scientifically wrong",
+   "state": "open",
+   "labels": [],
+   "comments": 4,
+   "created_at": "2026-08-23",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/7930"
+  },
+  {
+   "number": 8126,
+   "title": "Suspend breaks NVIDIA 580xx installs: gpu-screen-recorder sets PreserveVideoMemoryAllocations=1 but the required nvidia power services are never enabled",
+   "state": "open",
+   "labels": [],
+   "comments": 4,
+   "created_at": "2026-08-25",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8126"
+  },
+  {
+   "number": 8518,
+   "title": "YouTube videos not rendering correctly after upgrading to Omarchy 4.0.1",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 4,
+   "created_at": "2026-08-27",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8518"
+  },
+  {
+   "number": 8687,
+   "title": "colors.toml breaks all themes",
+   "state": "open",
+   "labels": [
+    "bug"
+   ],
+   "comments": 4,
+   "created_at": "2026-08-27",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/8687"
+  },
+  {
+   "number": 9635,
+   "title": "Calendar grid duplicates September 5 and shifts dates in month view",
+   "state": "open",
+   "labels": [],
+   "comments": 4,
+   "created_at": "2026-09-01",
+   "closed_at": null,
+   "url": "https://github.com/omacom/omarchy/issues/9635"
+  },
+  {
+   "number": 7059,
+   "title": "Bitwarden menu installation fails after installing Zed",
+   "state": "closed",
+   "labels": [],
+   "comments": 3,
+   "created_at": "2026-08-16",
+   "closed_at": "2026-08-16",
+   "url": "https://github.com/omacom/omarchy/issues/7059"
+  },
+  {
+   "number": 7303,
+   "title": "Quattro: Suspend hard-freezes (s2idle) on ASUS ROG Strix G16 G614FR",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 3,
+   "created_at": "2026-08-17",
+   "closed_at": "2026-08-29",
+   "url": "https://github.com/omacom/omarchy/issues/7303"
+  },
+  {
+   "number": 7996,
+   "title": "Installer hangs/fails on missing offline packages, local keyring sync, and synaptic touchpad script",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 3,
+   "created_at": "2026-08-24",
+   "closed_at": "2026-08-30",
+   "url": "https://github.com/omacom/omarchy/issues/7996"
+  },
+  {
+   "number": 7997,
+   "title": "Codex agent usage collector passes an approval policy codex-cli no longer accepts",
+   "state": "closed",
+   "labels": [],
+   "comments": 3,
+   "created_at": "2026-08-24",
+   "closed_at": "2026-08-25",
+   "url": "https://github.com/omacom/omarchy/issues/7997"
+  },
+  {
+   "number": 8070,
+   "title": "omarchy/grok-bot 0.18.0 is broken; bump to 0.24.0 in omarchy-pkgs",
+   "state": "closed",
+   "labels": [],
+   "comments": 3,
+   "created_at": "2026-08-24",
+   "closed_at": "2026-08-24",
+   "url": "https://github.com/omacom/omarchy/issues/8070"
+  },
+  {
+   "number": 8833,
+   "title": "omarchy-theme-set-browser-policy exits 1 on success under Bash 5.3, breaking omarchy update at migration 1787515927",
+   "state": "closed",
+   "labels": [],
+   "comments": 3,
+   "created_at": "2026-08-28",
+   "closed_at": "2026-08-29",
+   "url": "https://github.com/omacom/omarchy/issues/8833"
+  },
+  {
+   "number": 9046,
+   "title": "Omawrite Save File dialog exceeds 2x logical display bounds",
+   "state": "closed",
+   "labels": [],
+   "comments": 3,
+   "created_at": "2026-08-30",
+   "closed_at": "2026-09-01",
+   "url": "https://github.com/omacom/omarchy/issues/9046"
+  },
+  {
+   "number": 6882,
+   "title": "windows-vm: launch fires xfreerdp3 before the guest is ready because the readiness wait greps stale log lines",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-14",
+   "closed_at": "2026-08-15",
+   "url": "https://github.com/omacom/omarchy/issues/6882"
+  },
+  {
+   "number": 6887,
+   "title": "Any mise-wrapped tool hits broken aqua attestations: gh wrapper fails on Quattro (affects omarchy-mise-install defaults)",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-14",
+   "closed_at": "2026-08-15",
+   "url": "https://github.com/omacom/omarchy/issues/6887"
+  },
+  {
+   "number": 6890,
+   "title": "Can't upgrade to Quattro. Stuck on 3.8.5 that's not listed on releases page.",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-14",
+   "closed_at": "2026-08-14",
+   "url": "https://github.com/omacom/omarchy/issues/6890"
+  },
+  {
+   "number": 6894,
+   "title": "System does not boot after upgrade to quattro",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-14",
+   "closed_at": "2026-08-17",
+   "url": "https://github.com/omacom/omarchy/issues/6894"
+  },
+  {
+   "number": 6925,
+   "title": "Lock screen can expose password text after failed authentication",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-15",
+   "closed_at": "2026-08-15",
+   "url": "https://github.com/omacom/omarchy/issues/6925"
+  },
+  {
+   "number": 6975,
+   "title": "Deleting apps doesnt work",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-15",
+   "closed_at": "2026-08-15",
+   "url": "https://github.com/omacom/omarchy/issues/6975"
+  },
+  {
+   "number": 7325,
+   "title": "Omazed fails when installing Zed",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-17",
+   "closed_at": "2026-08-21",
+   "url": "https://github.com/omacom/omarchy/issues/7325"
+  },
+  {
+   "number": 7453,
+   "title": "Omarchy migration not working",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-19",
+   "closed_at": "2026-08-20",
+   "url": "https://github.com/omacom/omarchy/issues/7453"
+  },
+  {
+   "number": 7514,
+   "title": "Stable mirror contains broken linux-firmware-amdgpu 20260810-1",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-19",
+   "closed_at": "2026-08-21",
+   "url": "https://github.com/omacom/omarchy/issues/7514"
+  },
+  {
+   "number": 7562,
+   "title": "Keyboard backlight not restored on wake/unlock",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-20",
+   "closed_at": "2026-08-21",
+   "url": "https://github.com/omacom/omarchy/issues/7562"
+  },
+  {
+   "number": 7789,
+   "title": "Lock screen never clears the password buffer across suspend/resume",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-22",
+   "closed_at": "2026-08-27",
+   "url": "https://github.com/omacom/omarchy/issues/7789"
+  },
+  {
+   "number": 7842,
+   "title": "Agents panel: Codex tab shows \"initialize\" error — codex-cli 0.149.0 rejects the collector's --ask-for-approval value",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-23",
+   "closed_at": "2026-08-25",
+   "url": "https://github.com/omacom/omarchy/issues/7842"
+  },
+  {
+   "number": 7873,
+   "title": "Agents plugin cannot read Codex limits with Codex CLI 0.149.0 because `-a untrusted` is invalid",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-23",
+   "closed_at": "2026-08-25",
+   "url": "https://github.com/omacom/omarchy/issues/7873"
+  },
+  {
+   "number": 8027,
+   "title": "Laptop display never re-enabled after unplugging an external monitor: Hyprland's FALLBACK output is counted as an external display",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-24",
+   "closed_at": "2026-08-27",
+   "url": "https://github.com/omacom/omarchy/issues/8027"
+  },
+  {
+   "number": 8366,
+   "title": "Impossible to connect to hidden networks",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-26",
+   "closed_at": "2026-08-26",
+   "url": "https://github.com/omacom/omarchy/issues/8366"
+  },
+  {
+   "number": 8387,
+   "title": "Screensaver appears while video is playing on Omarchy 4",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-26",
+   "closed_at": "2026-08-26",
+   "url": "https://github.com/omacom/omarchy/issues/8387"
+  },
+  {
+   "number": 8456,
+   "title": "Gemini CLI consumer auth shut down 2026-06-18 — mise install fails with node-pty build error",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-26",
+   "closed_at": "2026-09-06",
+   "url": "https://github.com/omacom/omarchy/issues/8456"
+  },
+  {
+   "number": 8747,
+   "title": "Lock screen fingerprint auth hangs ~25-30s if fprintd restarts while locked (e.g. after suspend on drivers needing a post-resume reset)",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-28",
+   "closed_at": "2026-08-28",
+   "url": "https://github.com/omacom/omarchy/issues/8747"
+  },
+  {
+   "number": 8817,
+   "title": "Hyprland window rule for LocalSend does not match (class is 'org.localsend.localsend_app')",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-28",
+   "closed_at": "2026-09-03",
+   "url": "https://github.com/omacom/omarchy/issues/8817"
+  },
+  {
+   "number": 9079,
+   "title": "omarchy-update-restart: confirm_reboot has no unattended guard, still hangs under -y",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-30",
+   "closed_at": "2026-08-30",
+   "url": "https://github.com/omacom/omarchy/issues/9079"
+  },
+  {
+   "number": 9117,
+   "title": "Please - Add Google Antigravity CLI (agy) as a supported default AI agent",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-08-30",
+   "closed_at": "2026-09-06",
+   "url": "https://github.com/omacom/omarchy/issues/9117"
+  },
+  {
+   "number": 9262,
+   "title": "omarchy-shell (quickshell 0.3.1) crashes with EGL 0x3000/'fatal error: Invalid argument' when monitor powers off on idle (DPMS), then crash-loops",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-08-30",
+   "closed_at": "2026-08-30",
+   "url": "https://github.com/omacom/omarchy/issues/9262"
+  },
+  {
+   "number": 10042,
+   "title": "Update default agent: Replace legacy Gemini (NPM) with native Antigravity (agy)",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-09-03",
+   "closed_at": "2026-09-06",
+   "url": "https://github.com/omacom/omarchy/issues/10042"
+  },
+  {
+   "number": 10089,
+   "title": "Turning off Bluetooth from the panel makes the adapter disappear (\"No bluetooth adapter\") until Update > Hardware > Bluetooth reload",
+   "state": "closed",
+   "labels": [
+    "bug"
+   ],
+   "comments": 2,
+   "created_at": "2026-09-03",
+   "closed_at": "2026-09-04",
+   "url": "https://github.com/omacom/omarchy/issues/10089"
+  },
+  {
+   "number": 10409,
+   "title": "nautilus \"Trash Settings\" / \"File History Settings\" buttons error out of the box (no gnome-control-center)",
+   "state": "closed",
+   "labels": [],
+   "comments": 2,
+   "created_at": "2026-09-06",
+   "closed_at": "2026-09-06",
+   "url": "https://github.com/omacom/omarchy/issues/10409"
+  }
+ ]
+}

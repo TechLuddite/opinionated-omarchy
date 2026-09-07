@@ -46,10 +46,12 @@ the scripts there, `pacman -Ql limine-mkinitcpio-hook`, `cat /etc/limine-entry-t
 - wiki.archlinux.org is behind Anubis anti-bot. Fetch raw wikitext:
   `curl -sA 'Mozilla/5.0' 'https://wiki.archlinux.org/index.php?title=<Title>&action=raw'`.
   Cite the canonical https://wiki.archlinux.org/title/<Title> URL.
-- basecamp/omarchy's default branch is `quattro`; `master` is Omarchy 3 and 404s on many
-  paths. Use `gh api -H 'Accept: application/vnd.github.raw' repos/basecamp/omarchy/contents/<path>?ref=quattro`,
-  `gh api repos/basecamp/omarchy/git/trees/quattro?recursive=1 | jq -r '.tree[].path' | grep <x>`,
-  and `gh issue view <n> -R basecamp/omarchy --comments`. Read cited issues in full and say
+- The upstream repo is **`omacom/omarchy`** (renamed from `basecamp/omarchy`, which still
+  redirects for `gh issue view` but NOT for the search API). Its default branch is
+  `quattro`; `master` is Omarchy 3 and 404s on many paths. Use
+  `gh api -H 'Accept: application/vnd.github.raw' repos/omacom/omarchy/contents/<path>?ref=quattro`,
+  `gh api repos/omacom/omarchy/git/trees/quattro?recursive=1 | jq -r '.tree[].path' | grep <x>`,
+  and `gh issue view <n> -R omacom/omarchy --comments`. Read cited issues in full and say
   whether they actually support the claim.
 - wiki.hypr.land is JS-only; fetch markdown from hyprwm/hyprland-wiki via gh api
   (content/... paths). Cite the canonical https://wiki.hypr.land/... URL.
