@@ -35,6 +35,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import corpus            # noqa: E402
 import ingest            # noqa: E402
 import merge_gapfill     # noqa: E402
+import lint_corpus       # noqa: E402
 
 
 def a_full_record(slug="fixture-every-field"):
@@ -273,6 +274,38 @@ class TestMergeExtendPath(unittest.TestCase):
         self.assertEqual(got["cause_reconciled"], "2026-08-30")
         self.assertEqual(got["sources"], ["https://example.invalid/fixture",
                                           "https://example.invalid/new"])
+
+
+class TestCorpusLint(unittest.TestCase):
+    """lint_corpus.py flags the shapes the 2026-09-06 re-audit found wrong on Omarchy 4.
+    It is a candidate finder, not an audit, so the live corpus is held to its baseline
+    rather than to zero: a new record or edit must not reintroduce a known-bad shape."""
+
+    def test_a_known_bad_shape_is_flagged_on_an_omarchy_record(self):
+        rec = a_full_record("omarchy-rebuild")
+        rec["fix"] = "Rebuild with:\n\n```sh\nsudo mkinitcpio -P\n```"
+        self.assertIn("mkinitcpio-P", lint_corpus.lint_record(rec))
+
+    def test_the_same_shape_is_allowed_on_a_plain_arch_record(self):
+        rec = a_full_record("arch-only-rebuild")
+        rec["applies_to"] = ["arch"]
+        rec["fix"] = "```sh\nsudo mkinitcpio -P\n```"
+        self.assertEqual(lint_corpus.lint_record(rec), [])
+
+    def test_syu_is_not_mistaken_for_a_partial_upgrade(self):
+        rec = a_full_record("full-upgrade")
+        rec["fix"] = "```sh\nsudo pacman -Syu foo\n```"
+        hits = lint_corpus.lint_record(rec)
+        self.assertIn("sudo-pacman-Syu", hits)
+        self.assertNotIn("bare-pacman-Sy", hits)
+
+    def test_the_live_corpus_has_no_hits_outside_the_baseline(self):
+        """Fails when a harvest or an edit reintroduces a shape the baseline does not
+        carry. Clearing a record from the baseline belongs in the commit that
+        re-audits it, never in the one that adds the hit."""
+        current = lint_corpus.lint(corpus.read_jsonl(ROOT / "data" / "problems.jsonl"))
+        fresh = lint_corpus.new_hits(current, lint_corpus.load_baseline())
+        self.assertEqual(fresh, {}, "new lint hits; run tools/lint_corpus.py --check")
 
 
 if __name__ == "__main__":

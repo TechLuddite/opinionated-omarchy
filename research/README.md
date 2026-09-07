@@ -73,6 +73,7 @@ research/
   validation/             records exercised on a real VM — a SEPARATE signal from the
                           audit, and never merged into audit_status (see below)
   tests/                  stdlib-unittest tests for the corpus writers; ./tests/run.sh
+  tools/lint_corpus.py    flags known-bad shapes; data/lint-baseline.json is the known set
   tools/corpus.py         the record schema (FIELDS) + the only reader/writer
   tools/build_db.py       JSONL -> DB + markdown
   tools/ask.py            symptom search
@@ -88,7 +89,8 @@ research/
 
 ```sh
 python3 tools/build_db.py                              # rebuild after editing JSONL
-./tests/run.sh                                         # 13 tests, stdlib only
+python3 tools/lint_corpus.py                           # records carrying shapes wrong on Omarchy 4
+./tests/run.sh                                         # 18 tests, stdlib only
 
 python3 tools/ask.py "screen share is black in zoom"   # search by symptom
 python3 tools/ask.py "wifi keeps dropping" -v          # include verify steps + sources
@@ -285,6 +287,13 @@ writing a `verdict-<slug>.json`. Assemble the verdicts into a payload with one
 slugs audited, dry-run `merge_gapfill.py` on a copy, diff the copy against the corpus to
 confirm only those records changed, then run it for real. A verdict may replace `fix`,
 `cause`, `symptom`, `danger` and `verify`, and its `sources` are appended to the record.
+
+`tools/lint_corpus.py` lists the records still carrying shapes the re-audit found wrong
+(`mkinitcpio -P`, `sudo pacman -Syu`, `/boot/limine.conf` edits and eight more). It is a
+candidate list for that brief, not an audit. `--check` fails on any hit outside
+`data/lint-baseline.json`, and so does the test suite, so a new record cannot bring one
+back unnoticed. When a re-audit clears a record, remove it from the baseline in the same
+commit.
 
 Pick the workflow by what the records need, not by category. `gapfill-workflow.js`
 **harvests new records** against named gaps; it audits nothing that already exists.

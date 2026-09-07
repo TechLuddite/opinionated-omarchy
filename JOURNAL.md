@@ -25,7 +25,9 @@ Last updated: 2026-09-06
 >    4", and 229 records carry that status on one source pass. The first ten re-audited
 >    for that, the boot-kernel records with a `danger`, all needed correcting. Use
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
->    the ones a VM can reach. The corpus prose has 1,839 dashes across 418 records, item 6
+>    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
+>    left"; O1, a lint for the known-bad shapes, landed the same day and holds 138
+>    records as candidates. The corpus prose has 1,839 dashes across 418 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -187,6 +189,19 @@ provenance disclaimer still renders. With zero unaudited records that grep is em
 the first site build after this work stopped before deploy. The check now asserts that
 every record page carries an audit LED and that at least one carries a non-clean one,
 which is the property it meant to guard. Fixed in a follow-up PR the same day.
+
+### 6. O1 landed: a lint for the shapes the re-audit found
+
+`research/tools/lint_corpus.py` greps every record that applies to Omarchy for eleven
+shapes today's audits found wrong on Omarchy 4: `mkinitcpio -P`, `sudo pacman -Syu`,
+bare `pacman -Sy`, `/boot/vmlinuz-linux`, the Omarchy 3 tree, `hyprland.conf`, `hl.set`,
+edits to `/boot/limine.conf`, bare `hyprctl dispatch`, `sudo omarchy-`, and `/boot/efi`.
+It is a candidate finder, not an audit: some hits sit in a branch labelled plain Arch.
+**138 of 456 records carry at least one hit**, and `mkinitcpio -P` alone is in 52 (18
+still `ok`). `data/lint-baseline.json` records those 138 as known, `--check` and a test
+fail on any hit outside it, and the test was proved able to fail by injecting a hit into a
+clean record. Clearing a slug from the baseline belongs in the commit that re-audits it.
+The six options themselves are item 8 under "What's left".
 
 **What this says about the other 219 `ok` records.** Fifteen records checked against
 Omarchy 4 today, fifteen wrong. The boot-kernel set was chosen because it is where the
@@ -2316,6 +2331,48 @@ deliberate editorial choice rather than work not yet done.
   NVIDIA laptops, which a virtio GPU cannot imitate.
 - `research/` root holds ~17 loose Hyprland wiki pages. Not corpus, no tooling reads them.
   Left in place deliberately.
+
+### 8. Six ways to make the corpus true on Omarchy 4, not only source-consistent
+
+Recorded 2026-09-06 after fifteen of fifteen `ok` records checked against Omarchy 4
+needed correcting. Cheapest and most forward-fixing first. Recommendation at the time:
+O1 and O2 now, O3 on `pacman-aur` next, O4 and O6 before the generic harvest is run
+again.
+
+- **O1. Mechanical lint before any agent spend.** DONE 2026-09-06:
+  `research/tools/lint_corpus.py`, baseline of 138 records, `--check` and a test fail on
+  new hits. Section 6 of the second 2026-09-06 session has the per-pattern counts.
+- **O2. Put the environment facts into the harvesters, not only the auditors.** The
+  "what Omarchy 4 ships" section of `research/tools/reaudit-brief.md` is what made the
+  re-audit work. Prepend it to every harvester and auditor prompt in the three workflow
+  scripts so new records are written Omarchy-true the first time. Not started.
+- **O3. Re-audit the 142 `ok` records with a `danger` that apply to Omarchy**, using the
+  brief. `pacman-aur` (22) first, then `gpu-drivers` (14). About 750k to 900k tokens per
+  ten records, one agent per two records, through `merge_gapfill.py` with the
+  dry-run-then-diff discipline. Not started.
+- **O4. Harvest from `basecamp/omarchy` issues rather than the web.** Two records cited
+  issues that did not support them. A harvester that reads issue threads with comments on
+  the `quattro` tree and records only fixes a maintainer or a second reporter confirmed
+  produces Omarchy-specific records the generic harvest cannot. Not started.
+- **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
+  its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
+  consumers, covered by the `FIELDS` tests. Not started.
+- **O6. Make the harvest extend rather than replace.** `harvest-workflow.js` output goes
+  through `ingest.py`, which replaces the corpus and would discard every correction and
+  `cause_reconciled` stamp. Route it through the merge path with slug-collision
+  suffixing before any full harvest runs again. Not started, and a precondition for
+  item 1 of START HERE.
+
+### 9. Backlog: Omarchy plug-ins as corpus content
+
+Idea from the operator, 2026-09-06. Omarchy has a plug-in ecosystem: a plug-in
+installer the operator rates highly, one or two plug-ins of the operator's own, and a
+plug-in library. None of it is in the corpus, which has no `plugins` category. The
+library is a natural source for a common-problems-and-fixes list, in the same shape as
+the existing categories, and the operator's own plug-ins are cases where the fix can be
+verified against the author. Not started: the installer and plug-ins are not on this
+workstation yet, and their names are not recorded here until they can be checked.
+Recorded in the Substrata ideas backlog as well.
 
 ## Session of 2026-08-28/29: the Skill Bench landed
 
