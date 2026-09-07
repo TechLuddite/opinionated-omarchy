@@ -53,6 +53,9 @@ research/                the troubleshooting corpus + its tooling
     lint_corpus.py       flags shapes known wrong on Omarchy 4; data/lint-baseline.json
                          holds the known hits and a test fails on new ones
     reaudit-brief.md     the prompt for checking an `ok` record against Omarchy 4
+    issue-harvest-brief.md  the prompt for building records from omacom/omarchy issue
+                         threads, confirmed fixes only
+    issue_candidates.py  lists issues worth harvesting -> raw/issue-candidates.json
     build_site.py        generates the public site into the repo-root docs/, INCLUDING
                          the project docs listed in its DOCS table, which are rendered
                          from markdown rather than linked out to GitHub
@@ -133,8 +136,8 @@ Fixes can now be *checked*, not only cited. That happens in the throwaway VMs de
 under "Test VMs" below, never on this workstation, so a fix that breaks boot or eats a
 partition costs a rebuild instead of a machine.
 
-Mind the version skew: `pacman -Q omarchy` reports **4.0.1-1** in the VMs and **4.0.0-1**
-on this workstation, so a VM is not a mirror of the dev box and a difference between them
+Mind the version skew: `pacman -Q omarchy` reports **4.0.2-1** on this workstation as of
+2026-09-07, and last reported **4.0.1-1** in the VMs, which have not been checked since, so a VM is not a mirror of the dev box and a difference between them
 may be a release change rather than a bug. Read that from pacman, not from
 `/usr/share/omarchy/version`; that file says `4.0.0.alpha` on *both* and is branding, not
 the package version.
@@ -183,7 +186,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | omarchy `4.0.1-1` (workstation is `4.0.0-1`) |
+| Version | omarchy `4.0.1-1` as last measured (workstation is `4.0.2-1` as of 2026-09-07) |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |
@@ -539,8 +542,11 @@ cd research && ./tests/run.sh
 Get these wrong and you will write fixes that break machines. They were all verified
 against primary sources during the research and repeatedly caught stale advice.
 
-- **`basecamp/omarchy`'s default branch is `quattro`, not `master`.** `master` is still
-  the Omarchy 3 tree; several raw URLs 404 against it. Fetch from `quattro`.
+- **The upstream repo is `omacom/omarchy`, renamed from `basecamp/omarchy`** (confirmed
+  2026-09-07). The old name still redirects for `gh issue view` and for raw content URLs,
+  but **GitHub's search API does not follow it** and returns a 422 validation error, so
+  anything issue-searching must use the new name. Its default branch is `quattro`, not
+  `master`: `master` is still the Omarchy 3 tree and several raw URLs 404 against it.
 - **Omarchy 4 ("Quattro") is pacman-packaged at `/usr/share/omarchy`**, with state in
   `~/.local/state/omarchy`. It is *not* a git checkout at `~/.local/share/omarchy`;
   that was Omarchy 3, and most advice online still assumes it.
