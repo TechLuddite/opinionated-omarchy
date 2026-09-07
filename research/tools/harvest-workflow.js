@@ -9,6 +9,40 @@ export const meta = {
   ],
 }
 
+// The corpus path, supplied by the caller. Pass it as the Workflow tool's `args`:
+//     Workflow({ scriptPath: "...", args: { root: "/abs/path/to/research" } })
+// Every agent reads tools/reaudit-brief.md from it before writing anything.
+const ROOT = (typeof args === 'object' && args && args.root) || (() => {
+  throw new Error("pass args { root: '/abs/path/to/research' } -- see the note above")
+})()
+const BRIEF = ROOT + '/tools/reaudit-brief.md'
+
+// O2 (2026-09-06): fifteen of fifteen `ok` records checked against what Omarchy 4
+// actually ships were wrong. The facts that catch them live in tools/reaudit-brief.md,
+// and every harvester and auditor reads that file before writing a word.
+const OMARCHY4 = (brief) =>
+  "### Before anything else: what Omarchy 4 actually ships\n" +
+  "Read `" + brief + "` in full and hold every claim to it. A record that matches the Arch wiki " +
+  "but not that file is WRONG for this corpus. The shapes that caught the most records so far:\n" +
+  "- `mkinitcpio -P` has no presets on Omarchy 4 (`/etc/mkinitcpio.d/` is empty). The rebuild is " +
+  "`limine-mkinitcpio`, or `pacman -S linux`. There is NO fallback initramfs or fallback boot entry.\n" +
+  "- The kernel is a UKI at `/boot/EFI/Linux/omarchy_linux.efi`; `/boot/vmlinuz-linux` does not exist. " +
+  "The command line is inside the UKI, so kernel parameters go in `/etc/limine-entry-tool.d/*.conf`, " +
+  "never `/boot/limine.conf`, which `limine-entry-tool` regenerates.\n" +
+  "- `HOOKS` is assigned wholesale by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`; edits to " +
+  "`/etc/mkinitcpio.conf` are overridden. Root is btrfs with subvolumes `@ @home @log @pkg`, ESP at `/boot`.\n" +
+  "- `sudo pacman -Syu` is refused by the ALPM guard (it aborts any transaction carrying both `-S` " +
+  "and `-u`). The path is `omarchy update`, or `OMARCHY_ALLOW_DIRECT_PACMAN=1` for one transaction. " +
+  "A bare `pacman -Sy <pkg>` is a partial upgrade and a defect anywhere.\n" +
+  "- Hyprland config is Lua: `hl.config({ section = { key = v } })`, `hl.window_rule`, `hl.monitor`. " +
+  "`hl.set` does not exist. `hyprctl dispatch` takes Lua, not a bare dispatcher name.\n" +
+  "- `sudo omarchy-<cmd>` breaks because sudo strips `OMARCHY_PATH`; the scripts call sudo themselves.\n" +
+  "- `/etc/default/limine` is owned by no package and cannot get a `.pacnew`; the template is " +
+  "`/etc/limine-entry-tool.conf`.\n" +
+  "Where a fix differs between Omarchy 4 and plain Arch, write BOTH branches and label them. Use the " +
+  "brief's fetching section for the Arch wiki (Anubis), the Hyprland wiki (JS-only) and the `quattro` " +
+  "branch. Return verdicts through the structured output, not as files.\n\n"
+
 // ── Record schema ────────────────────────────────────────────────────────────
 // Each problem is a discrete, DB-loadable record. Fixes must be copy-pasteable.
 const PROBLEM_ITEM = {
@@ -52,7 +86,12 @@ const AUDIT_SCHEMA = {
           slug: { type: "string" },
           status: { enum: ["ok", "corrected", "reject"], description: "reject = wrong, dangerous, obsolete, or fabricated" },
           reason: { type: "string" },
-          corrected_fix: { type: "string", description: "ONLY if status=corrected: the fixed version of the fix field" },
+          corrected_fix: { type: "string", description: "ONLY if status=corrected: the full replacement fix, markdown fenced" },
+          corrected_cause: { type: "string", description: "ONLY if the CAUSE is also wrong: the full replacement cause" },
+          corrected_symptom: { type: "string", description: "ONLY if the symptom quotes a file, path or message that cannot occur: the full replacement" },
+          corrected_danger: { type: "string", description: "ONLY if the danger is wrong or overstated for Omarchy 4: the full replacement" },
+          corrected_verify: { type: "string", description: "ONLY if the verify step names something that does not exist on Omarchy 4: the full replacement" },
+          sources: { type: "array", items: { type: "string" }, description: "every URL you actually retrieved and relied on for this verdict" },
           confidence: { enum: ["high", "medium", "low"] },
         },
       },
@@ -81,6 +120,7 @@ const HARVEST_PROMPT = (c) =>
   "You are building a practical troubleshooting corpus for users of **Omarchy Linux** (DHH's opinionated Arch + Hyprland distro) " +
   "and other Arch-based distros (Arch, EndeavourOS, CachyOS, Manjaro) on desktops and laptops.\n\n" +
   "### Your category\n**" + c.label + "**\n" + c.focus + "\n\n" +
+  OMARCHY4(BRIEF) +
   "### Task\n" +
   "Run SEVERAL WebSearch queries (at least 4-6 distinct ones, varying phrasing — use the words real users type, " +
   "including verbatim error strings) and WebFetch the highest-signal pages. Prioritize these sources:\n" +
@@ -104,6 +144,7 @@ const AUDIT_PROMPT = (c, batch) =>
   "## Technical Auditor: " + c.label + "\n\n" +
   "Below are harvested troubleshooting records for Arch/Omarchy Linux. Users will COPY-PASTE these commands into a root shell. " +
   "A wrong command here breaks someone's machine. Audit them adversarially.\n\n" +
+  OMARCHY4(BRIEF) +
   "### Records\n" +
   batch.problems.map((p, i) =>
     "#### [" + i + "] " + p.slug + "\n" +
@@ -118,7 +159,9 @@ const AUDIT_PROMPT = (c, batch) =>
   "(e.g. pre-PipeWire pulseaudio advice, old nvidia-drm flags, `pacman -Sy` alone causing partial upgrade); " +
   "it is dangerous without warning; the cited source does not plausibly exist or does not support it; " +
   "the 'problem' is fabricated or not a real reported issue; the fix is vague hand-waving.\n" +
-  "- **corrected** if the problem is real but the fix is wrong or incomplete — supply `corrected_fix` with the right commands.\n" +
+  "- **corrected** if the problem is real but the fix is wrong or incomplete — supply `corrected_fix` with the right commands. " +
+  "If the cause, symptom, danger or verify is also wrong, supply `corrected_cause`, `corrected_symptom`, " +
+  "`corrected_danger` or `corrected_verify` as full replacements, and list the `sources` you relied on.\n" +
   "- **ok** if it is accurate, current, and actionable.\n\n" +
   "Use WebSearch/WebFetch against wiki.archlinux.org and wiki.hypr.land to CHECK specifics: exact package names, " +
   "current option names, current file paths. Do not approve from memory alone for anything version-sensitive.\n" +
@@ -130,6 +173,7 @@ const GAPFILL_PROMPT = (c, missing) =>
   "## Gap-fill Harvester: " + c.label + "\n\n" +
   "A prior pass over this category missed these specific problems:\n" +
   missing.map(m => "- " + m).join("\n") + "\n\n" +
+  OMARCHY4(BRIEF) +
   "Research and produce records for these (and any closely-related common problems you find), using the same standard:\n" +
   "concrete copy-pasteable fixes with real commands and file paths, real fetched source URLs, no invented citations.\n" +
   "Verify specifics against wiki.archlinux.org / wiki.hypr.land before writing the fix.\n\n" +
@@ -184,8 +228,15 @@ for (const r of results.filter(Boolean)) {
     // No verdict (auditor failed or missed it) → keep but mark unaudited.
     if (!v) { kept.push({ ...p, category: r.c.key, audit_status: "unaudited", audit_confidence: "low" }); continue }
     if (v.status === "reject") { rejected.push({ slug: p.slug, category: r.c.key, reason: v.reason }); rej++; continue }
-    if (v.status === "corrected" && v.corrected_fix) {
-      kept.push({ ...p, fix: v.corrected_fix, category: r.c.key, audit_status: "corrected", audit_note: v.reason, audit_confidence: v.confidence || "medium" })
+    if (v.status === "corrected") {
+      // Same rules as merge_gapfill.py: replace whole fields, stamp a rewritten cause,
+      // keep the sources the auditor relied on. A verdict with no replacement text is
+      // still `corrected`: the note says what was wrong.
+      const fixed = { ...p, category: r.c.key, audit_status: "corrected", audit_note: v.reason, audit_confidence: v.confidence || "medium" }
+      for (const f of ["fix", "cause", "symptom", "danger", "verify"]) if (v["corrected_" + f]) fixed[f] = v["corrected_" + f]
+      if (v.corrected_cause) fixed.cause_reconciled = new Date().toISOString().slice(0, 10)
+      for (const u of v.sources || []) if (/^https?:\/\//.test(u) && !(fixed.sources || []).includes(u)) fixed.sources = [...(fixed.sources || []), u]
+      kept.push(fixed)
       corrected++
     } else {
       kept.push({ ...p, category: r.c.key, audit_status: "ok", audit_confidence: v.confidence || "medium" })

@@ -723,6 +723,12 @@ Workflow({ scriptPath: "research/tools/audit-existing-workflow.js",
            args: { root: "/abs/path/to/research" } })
 ```
 
+**All three now open every agent prompt by reading `research/tools/reaudit-brief.md`** (O2,
+2026-09-06), so a harvester or auditor is held to what Omarchy 4 ships and not only to the
+Arch wiki. Their audit schemas accept `corrected_fix`, `corrected_cause`,
+`corrected_symptom`, `corrected_danger`, `corrected_verify` and `sources`. After any merge,
+run `python3 tools/lint_corpus.py --check` before staging.
+
 **They do different jobs and the difference is not obvious from the names:**
 
 - `harvest-workflow.js`: full harvest from scratch, one harvester per category, each

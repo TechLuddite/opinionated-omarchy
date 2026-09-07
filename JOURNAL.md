@@ -203,6 +203,20 @@ fail on any hit outside it, and the test was proved able to fail by injecting a 
 clean record. Clearing a slug from the baseline belongs in the commit that re-audits it.
 The six options themselves are item 8 under "What's left".
 
+### 7. O2 landed: the workflows now read the brief first
+
+All three workflow scripts prepend the same preamble to every harvester, gap-filler and
+auditor prompt: read `tools/reaudit-brief.md` from the corpus root before writing
+anything, hold every claim to it, and write both branches where Omarchy 4 and plain Arch
+differ. The preamble also carries inline the shapes that caught the most records, so an
+agent that skims the file still sees them. `harvest-workflow.js` now takes `args.root`
+(CLAUDE.md had said all three did; only two did), its audit schema accepts every
+`corrected_*` field plus `sources`, and its merge applies them with a `cause_reconciled`
+stamp instead of honouring `corrected_fix` alone. Verified by evaluating each script's
+constant section under node with a fake root; no workflow was run. O6, making that
+harvest extend the corpus rather than replace it through `ingest.py`, is still open and
+still a precondition for running it.
+
 **What this says about the other 219 `ok` records.** Fifteen records checked against
 Omarchy 4 today, fifteen wrong. The boot-kernel set was chosen because it is where the
 cost is highest, not because it is where the errors are, so the rate elsewhere is
@@ -2342,10 +2356,15 @@ again.
 - **O1. Mechanical lint before any agent spend.** DONE 2026-09-06:
   `research/tools/lint_corpus.py`, baseline of 138 records, `--check` and a test fail on
   new hits. Section 6 of the second 2026-09-06 session has the per-pattern counts.
-- **O2. Put the environment facts into the harvesters, not only the auditors.** The
-  "what Omarchy 4 ships" section of `research/tools/reaudit-brief.md` is what made the
-  re-audit work. Prepend it to every harvester and auditor prompt in the three workflow
-  scripts so new records are written Omarchy-true the first time. Not started.
+- **O2. Put the environment facts into the harvesters, not only the auditors.** DONE
+  2026-09-06: every harvester, gap-filler and auditor prompt in the three workflow scripts
+  now opens by reading `research/tools/reaudit-brief.md` from `args.root` and carries the
+  eight shapes that caught the most records inline. `harvest-workflow.js` takes `args.root`
+  like the other two, its audit schema accepts `corrected_cause`, `corrected_symptom`,
+  `corrected_danger`, `corrected_verify` and `sources`, and its merge applies them and
+  stamps `cause_reconciled`, the same rules as `merge_gapfill.py`. The other two schemas
+  gained the same keys. None of the three has been run since; the change is verified by
+  evaluating each script's prompt section under node, not by a workflow run.
 - **O3. Re-audit the 142 `ok` records with a `danger` that apply to Omarchy**, using the
   brief. `pacman-aur` (22) first, then `gpu-drivers` (14). About 750k to 900k tokens per
   ten records, one agent per two records, through `merge_gapfill.py` with the

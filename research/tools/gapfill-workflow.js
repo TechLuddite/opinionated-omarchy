@@ -23,6 +23,33 @@ const ROOT = (typeof args === 'object' && args && args.root) || (() => {
 })()
 const JSONL = ROOT + '/data/problems.jsonl'
 const TODO = ROOT + '/raw/gapfill-todo.json'
+const BRIEF = ROOT + '/tools/reaudit-brief.md'
+
+// O2 (2026-09-06): fifteen of fifteen `ok` records checked against what Omarchy 4
+// actually ships were wrong. The facts that catch them live in tools/reaudit-brief.md,
+// and every harvester and auditor reads that file before writing a word.
+const OMARCHY4 = (brief) =>
+  "### Before anything else: what Omarchy 4 actually ships\n" +
+  "Read `" + brief + "` in full and hold every claim to it. A record that matches the Arch wiki " +
+  "but not that file is WRONG for this corpus. The shapes that caught the most records so far:\n" +
+  "- `mkinitcpio -P` has no presets on Omarchy 4 (`/etc/mkinitcpio.d/` is empty). The rebuild is " +
+  "`limine-mkinitcpio`, or `pacman -S linux`. There is NO fallback initramfs or fallback boot entry.\n" +
+  "- The kernel is a UKI at `/boot/EFI/Linux/omarchy_linux.efi`; `/boot/vmlinuz-linux` does not exist. " +
+  "The command line is inside the UKI, so kernel parameters go in `/etc/limine-entry-tool.d/*.conf`, " +
+  "never `/boot/limine.conf`, which `limine-entry-tool` regenerates.\n" +
+  "- `HOOKS` is assigned wholesale by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`; edits to " +
+  "`/etc/mkinitcpio.conf` are overridden. Root is btrfs with subvolumes `@ @home @log @pkg`, ESP at `/boot`.\n" +
+  "- `sudo pacman -Syu` is refused by the ALPM guard (it aborts any transaction carrying both `-S` " +
+  "and `-u`). The path is `omarchy update`, or `OMARCHY_ALLOW_DIRECT_PACMAN=1` for one transaction. " +
+  "A bare `pacman -Sy <pkg>` is a partial upgrade and a defect anywhere.\n" +
+  "- Hyprland config is Lua: `hl.config({ section = { key = v } })`, `hl.window_rule`, `hl.monitor`. " +
+  "`hl.set` does not exist. `hyprctl dispatch` takes Lua, not a bare dispatcher name.\n" +
+  "- `sudo omarchy-<cmd>` breaks because sudo strips `OMARCHY_PATH`; the scripts call sudo themselves.\n" +
+  "- `/etc/default/limine` is owned by no package and cannot get a `.pacnew`; the template is " +
+  "`/etc/limine-entry-tool.conf`.\n" +
+  "Where a fix differs between Omarchy 4 and plain Arch, write BOTH branches and label them. Use the " +
+  "brief's fetching section for the Arch wiki (Anubis), the Hyprland wiki (JS-only) and the `quattro` " +
+  "branch. Return verdicts through the structured output, not as files.\n\n"
 
 const PROBLEM_ITEM = {
   type: "object",
@@ -62,7 +89,11 @@ const AUDIT_SCHEMA = {
           status: { enum: ["ok", "corrected", "reject"] },
           reason: { type: "string" },
           corrected_fix: { type: "string", description: "ONLY if status=corrected" },
-          corrected_cause: { type: "string", description: "ONLY if the CAUSE is also wrong — supply the corrected cause" },
+          corrected_cause: { type: "string", description: "ONLY if the CAUSE is also wrong: the full replacement cause" },
+          corrected_symptom: { type: "string", description: "ONLY if the symptom quotes a file, path or message that cannot occur: the full replacement" },
+          corrected_danger: { type: "string", description: "ONLY if the danger is wrong or overstated for Omarchy 4: the full replacement" },
+          corrected_verify: { type: "string", description: "ONLY if the verify step names something that does not exist on Omarchy 4: the full replacement" },
+          sources: { type: "array", items: { type: "string" }, description: "every URL you actually retrieved and relied on for this verdict" },
           confidence: { enum: ["high", "medium", "low"] },
         },
       },
@@ -74,6 +105,7 @@ const AUDIT_SCHEMA = {
 // corrected records still carried the error the auditor had just identified.
 // This prompt asks for `corrected_cause` too.
 const AUDIT_RULES =
+  OMARCHY4(BRIEF) +
   "### Verdict rules\n" +
   "- **reject** if: the command/package/path does not exist or is misspelled; the advice is obsolete " +
   "(pre-PipeWire pulseaudio advice, `pacman -Sy` alone causing a partial upgrade, pre-Quattro Omarchy layout); " +
@@ -81,7 +113,8 @@ const AUDIT_RULES =
   "- **corrected** if the problem is real but the fix is wrong or incomplete — supply `corrected_fix`.\n" +
   "- **ok** if accurate, current, and actionable.\n\n" +
   "**If the `cause` is ALSO wrong, supply `corrected_cause` as well.** Do not leave a cause standing that you just " +
-  "disproved in your reason — a reader trusts the cause to decide whether the record even applies to them.\n\n" +
+  "disproved in your reason — a reader trusts the cause to decide whether the record even applies to them. " +
+  "The same for `corrected_symptom`, `corrected_danger` and `corrected_verify`, and list the `sources` you relied on.\n\n" +
   "Verify specifics against wiki.archlinux.org and wiki.hypr.land — exact package names, current option names, " +
   "current file paths. Do not approve version-sensitive claims from memory.\n\n" +
   "Context that matters: **Omarchy 4 ('Quattro') is pacman-packaged at /usr/share/omarchy**, not a git checkout at " +
@@ -120,6 +153,7 @@ const GAPFILL_PROMPT = (cat, topics) =>
   "### Avoid duplicating what exists\n" +
   "Records already in the corpus live in `" + JSONL + "` under `\"category\": \"" + cat + "\"`. Skim their `slug` " +
   "and `symptom` fields first and do NOT re-file a problem that is already covered — the point is new coverage.\n\n" +
+  OMARCHY4(BRIEF) +
   "### Standard for every record\n" +
   "1. It is a problem real users hit and report — not one you invented.\n" +
   "2. `symptom` is in a user's words, with the literal error message where there is one.\n" +
