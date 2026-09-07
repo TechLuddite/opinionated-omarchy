@@ -301,79 +301,143 @@ Sources: <https://bbs.archlinux.org/viewtopic.php?id=278308> · <https://wiki.ar
 
 `hook-failed-command-failed-to-execute-correctly` · severity: **critical** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** An upgrade appears to succeed, then prints a red error at the very end:
+**Symptom.** A pacman transaction prints a red `error: command failed to execute correctly` right after a hook's `(n/m) <Description>` line. What it means depends on which hook, and Omarchy 4 has two shapes plain Arch never shows.
+
+Omarchy 4, before anything is installed, after a direct `sudo pacman -Syu`:
 ```
-(6/9) Install DKMS modules
+:: Running pre-transaction hooks...
+(1/2) Checking Omarchy update entrypoint...
+
+Woah partner...
+
+This looks like a direct pacman system upgrade. Omarchy updates should normally
+run through:
+
+  omarchy update
+error: command failed to execute correctly
+error: failed to commit transaction (failed to run transaction hooks)
+Errors occurred, no packages were upgraded.
+```
+
+Omarchy 4, after the packages are on disk, when `/boot` is not mounted:
+```
+(7/9) Updating linux initcpios...
+ERROR: Boot path '/boot' is not a mounted FAT32 boot partition.
+error: command failed to execute correctly
+(8/9) Arming ConditionNeedsUpdate...
+```
+
+Plain Arch, after the packages are on disk, when mkinitcpio itself fails:
+```
 (7/9) Updating linux initcpios...
 ==> Building image from preset: /etc/mkinitcpio.d/linux.preset: 'default'
-==> ERROR: '/usr/lib/modules/7.1.10-arch1-1' is not a valid kernel module directory
+==> ERROR: '/usr/lib/modules/7.2.3-arch1-3' is not a valid kernel module directory
 error: command failed to execute correctly
 (8/9) Arming ConditionNeedsUpdate...
 ```
 Users ask: "pacman said the packages installed but printed `error: command failed to execute correctly`. Did the update work? Is it safe to reboot?"
 
-**Cause.** `error: command failed to execute correctly` is pacman's generic message for "an alpm hook exited non-zero". Per alpm-hooks(5), `AbortOnFail` applies **only to PreTransaction hooks** — and every kernel, initramfs, DKMS and bootloader hook is a *PostTransaction* hook. So by the time one of these fails, pacman has already unpacked the new packages onto disk and nothing is rolled back. The package database says the new kernel is installed while /boot may hold a stale, truncated or zero-length image. Some hooks (font caches, icon caches, desktop database, man-db) are purely cosmetic; the boot-critical ones are not, and pacman's output does not distinguish them.
+**Cause.** `error: command failed to execute correctly` is libalpm's message for any hook `Exec` that exited non-zero (`lib/libalpm/util.c`). What it means depends on when the hook ran. Per alpm-hooks(5), `AbortOnFail` applies only to PreTransaction hooks, and on an Omarchy 4 install exactly one hook sets it: Omarchy's own `00-omarchy-update-guard.hook`. So there are two cases.
 
-> ⚠️ **Risk.** A failed mkinitcpio or UKI hook can leave a zero-length or truncated initramfs while the package database happily reports the new kernel as installed. Rebooting then drops you at `ERROR: device 'UUID=...' not found. Skipping fs check` and an initramfs emergency shell, and recovery requires a live USB. Never reboot on an unresolved mkinitcpio, DKMS or bootloader hook failure. Have an Arch ISO on a USB stick before you start poking at this.
+**1. The Omarchy update guard.** `/usr/share/libalpm/hooks/00-omarchy-update-guard.hook` runs `/usr/bin/omarchy-update-pacman-guard` before every transaction that upgrades a package, with `AbortOnFail`. The script exits 1 when the pacman command line carries both `-S` and `-u` (`-Syu`, `-Su`, `--sync --sysupgrade`) and neither `OMARCHY_UPDATE_PACMAN=1` nor `OMARCHY_ALLOW_DIRECT_PACMAN=1` is set. pacman then prints `error: failed to commit transaction (failed to run transaction hooks)` and `Errors occurred, no packages were upgraded.` Nothing was installed. This is the most common way to see the message on Omarchy and it is harmless: the `Woah partner...` banner above it is the tell.
+
+**2. Every other hook.** None of the kernel, initramfs, DKMS or bootloader hooks sets `AbortOnFail`. The ones that build things are PostTransaction (`90-mkinitcpio-install`, `70-dkms-install`, `80-limine-efi-deploy`, `99-omarchy-limine`), and the PreTransaction ones (`60-mkinitcpio-remove`, `70-dkms-upgrade`, `60-limine-mkinitcpio-remove-pre`, `10-linux-modules-pre`) cannot abort either. So when one of these fails the packages are already unpacked and the database already says the new kernel is installed, and nothing is rolled back.
+
+Which hook produced the error matters more than the error itself:
+
+- On plain Arch, mkinitcpio's `90-mkinitcpio-install.hook` passes mkinitcpio's exit status through, so a broken initramfs build is the classic source and `/boot` can hold a stale or truncated image.
+- On Omarchy 4 that hook is overridden by `limine-mkinitcpio-hook`'s `/etc/pacman.d/hooks/90-mkinitcpio-install.hook` (same file name in a higher-priority hook directory, which alpm-hooks(5) defines as an override). It runs `/usr/share/libalpm/scripts/limine-mkinitcpio-install`, which exits non-zero only when its ESP check fails (`/boot` missing, not a mountpoint, or not vfat) or a `/etc/boot/hooks/*.d` hook exits 100 or above. A failed mkinitcpio build inside it prints `ERROR: mkinitcpio failed for kernel <ver>, skipping.` and exits 0, so pacman prints no error for it at all. The UKI is built in `/tmp` and installed afterwards, so a failed build leaves the previous `/boot/EFI/Linux/omarchy_linux.efi` in place rather than a truncated one.
+- The DKMS hook script `/usr/share/libalpm/scripts/dkms` prints `==> ERROR: Missing <ver> kernel headers for module ...` when a module cannot be built and still returns 0, so a missing NVIDIA module never produces this pacman error either.
+- Cosmetic hooks (font, icon, MIME and desktop caches, man-db, dbus, systemd catalog) fail the same way and mean nothing for boot.
+
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, limine-mkinitcpio-hook 1.37.1-1, mkinitcpio 41.1-1, dkms 3.4.3-2, pacman 7.1.0) by listing every hook in /usr/share/libalpm/hooks and /etc/pacman.d/hooks with its owner and reading the Omarchy ones: 00-omarchy-update-guard (PreTransaction, AbortOnFail, /usr/bin/omarchy-update-pacman-guard), the 10/90 omarchy-hyprland-reload pause/resume pair (every failure path in /usr/bin/omarchy-hyprland-reload-guard is swallowed), 10-limine-snapper-lock, kernel-modules-hook's 10-linux-modules-pre/post, limine-mkinitcpio-hook's 60/80/90 hooks plus its /etc/pacman.d/hooks/90-mkinitcpio-install.hook override, the unowned /etc/pacman.d/hooks/99-omarchy-limine.hook, and the dkms trio. alpm-hooks(5) (local man page, pacman 7.1.0) confirms AbortOnFail is PreTransaction only and that a same-named file in a higher-priority hook directory overrides. libalpm sources confirm the strings: util.c prints `command failed to execute correctly` on any non-zero hook exit, trans.c returns ALPM_ERR_TRANS_HOOK_FAILED when a PreTransaction AbortOnFail hook fails, and src/pacman/sync.c at v7.1.0 prints `failed to commit transaction (%s)` and `Errors occurred, no packages were upgraded.` What was wrong: the record does not know that on Omarchy the commonest source of this exact error is the update guard, which fires BEFORE the transaction and installs nothing, so its title and cause (`after the transaction already committed`, `nothing is rolled back`) are the opposite of the usual Omarchy case. Its claim that every kernel, DKMS and bootloader hook is PostTransaction is false (60-mkinitcpio-remove, 70-dkms-upgrade, 60-limine-mkinitcpio-remove-pre and 10-linux-modules-pre are PreTransaction), though the conclusion survives because none sets AbortOnFail. Its sample output cannot occur on Omarchy 4: /etc/mkinitcpio.d/ is empty here (no preset line), and /usr/share/libalpm/scripts/limine-mkinitcpio-install swallows mkinitcpio failures (`process_kernel ... || true`, `process_uki_kernel || return 0`) and exits non-zero only when check_boot_partition in /usr/lib/limine/limine-common-functions fails or a /etc/boot/hooks hook exits 100 or above, so on Omarchy the error at `Updating linux initcpios...` means an ESP problem, not a bad build. The DKMS hook script ends in `return 0` after printing its ERROR lines, so DKMS failures never produce this pacman error on either distribution, which the record's table implied. Fix corrections: `ls /boot/EFI/Linux/` needs sudo (dmask=0077, confirmed by a permission error as the user and a sudo listing showing a 144 MB omarchy_linux.efi dated 2026-09-06), `sudo limine-mkinitcpio` followed by `sudo limine-update` runs limine-mkinitcpio twice because limine-update already calls it (read /usr/bin/limine-update), `sudo mkinitcpio -P` on Omarchy 4 dies on `No presets found` (/usr/bin/mkinitcpio line 986) before the /usr/local/bin wrapper offers limine-mkinitcpio, the cosmetic list named 30-systemd-update.hook where systemd 261.2-1 ships 35-systemd-update.hook, and `pacman -S linux` when a newer kernel is available is a lone kernel upgrade that strands linux-headers (installed from omarchy-other.packages) and nvidia-open-dkms. The `if it fires anyway` bypass was dropped because the guard script cannot fire on `-S linux`. Danger corrected for Omarchy: the UKI is built in /tmp and installed by limine-entry-tool afterwards, no fallback UKI exists (MKINITCPIO_FALLBACK unset in /etc/limine-entry-tool.conf, /etc/limine-entry-tool.d/*.conf and /etc/default/limine, and /boot/EFI/Linux holds only omarchy_linux.efi), and /boot/limine.conf carries a Snapshots submenu with per-snapshot UKI copies under limine_history. Sources: bbs 291242 supports only that the error follows a non-zero mkinitcpio hook on plain Arch. GitHub discussion 3700 (now under omacom/omarchy) rendered only its title through curl, so its body was not checked. Not exercised: no hook was made to fail, no transaction was run, and the guard output shape was assembled from the hook script's banner and the pacman source strings rather than observed.
+>
+> *The Cause above was rewritten on 2026-09-07 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On plain Arch a failed mkinitcpio hook can leave a zero-length or truncated initramfs while the package database happily reports the new kernel as installed. Rebooting then drops you at `ERROR: device 'UUID=...' not found. Skipping fs check` and an initramfs emergency shell, and recovery requires a live USB. On Omarchy 4 a failed UKI build leaves the previous `/boot/EFI/Linux/omarchy_linux.efi` in place and `kernel-modules-hook` restores the running kernel's modules after the transaction, so the previous kernel still boots, but there is no fallback UKI (`MKINITCPIO_FALLBACK` is unset) and the previous kernel's modules are gone once the new one has booted. The Limine boot menu's `Snapshots` submenu boots the last five `omarchy update` snapshots with the kernel each one had, which is the recovery path if the new UKI turns out bad. Never reboot on an unresolved mkinitcpio, limine or DKMS failure. Have an Arch ISO on a USB stick before you start poking at this.
 
 **Fix.**
 
-**1. Identify which hook failed.** The `(n/m) <Description>` line immediately above the error names it.
+**1. Identify which hook failed.** The `(n/m) <Description>` line immediately above the error names it. Find the file by its description and read its `Exec =` line:
 
 ```bash
 sudo tail -n 200 /var/log/pacman.log
-ls /usr/share/libalpm/hooks/ /etc/pacman.d/hooks/ 2>/dev/null
+grep -l 'Description = Updating linux initcpios' /usr/share/libalpm/hooks/*.hook /etc/pacman.d/hooks/*.hook
+pacman -Qo /etc/pacman.d/hooks/90-mkinitcpio-install.hook     # which package owns it
+cat /etc/pacman.d/hooks/90-mkinitcpio-install.hook             # the Exec line is what to rerun
 ```
 
-**2. Classify it.** Cosmetic — reboot is safe, fix at leisure:
-`fontconfig`, `gtk-update-icon-cache`, `update-desktop-database`, `texinfo-install`, `man-db`, `dbus-reload`, `glib-compile-schemas`, `30-systemd-update.hook`.
+A file in `/etc/pacman.d/hooks/` overrides a file of the same name in `/usr/share/libalpm/hooks/`. On Omarchy 4 both `90-mkinitcpio-install.hook` files exist and the `/etc` one (from `limine-mkinitcpio-hook`) is the one that ran.
 
-Boot-critical — **do not reboot until it succeeds**:
+**2. Classify it.**
 
-| Hook file | Package |
-|---|---|
-| `70-dkms-install.hook`, `70-dkms-upgrade.hook`, `71-dkms-remove.hook` | `dkms` |
-| `60-mkinitcpio-remove.hook`, `90-mkinitcpio-install.hook` | `mkinitcpio` |
-| limine / GRUB / systemd-boot entry hooks | bootloader integration |
-
-**3. Re-run the critical hook by hand — this time the real error is on your screen, not buried in scrollback:**
+Omarchy update guard, nothing installed, reboot is irrelevant: the output carries `Woah partner...` and `Errors occurred, no packages were upgraded.` Run the supported path instead:
 
 ```bash
-# DKMS
-sudo dkms status
-sudo dkms autoinstall
+omarchy update
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu     # one transaction, if you really mean to bypass it
+```
 
-# initramfs — Arch / EndeavourOS / CachyOS / Manjaro
-sudo mkinitcpio -P
+Cosmetic, reboot is safe, fix at leisure: `fontconfig.hook`, `gtk-update-icon-cache.hook`, `update-desktop-database.hook`, `texinfo-install.hook`, `man-db-remove-cache.hook`, `dbus-reload.hook`, `glib-compile-schemas.hook`, `35-systemd-update.hook`.
 
-# Omarchy 4 (limine + UKI) — these are the wrappers the hook actually calls
-sudo limine-mkinitcpio
+Boot-critical, do not reboot until it succeeds:
+
+| Description | Hook file | Package | Runs |
+|---|---|---|---|
+| Updating linux initcpios... | `90-mkinitcpio-install.hook` in `/usr/share/libalpm/hooks/` | `mkinitcpio` | `mkinitcpio -P` (plain Arch) |
+| Updating linux initcpios... | `90-mkinitcpio-install.hook` in `/etc/pacman.d/hooks/` | `limine-mkinitcpio-hook` | `limine-mkinitcpio-install` (Omarchy 4, builds the UKI and the Limine entry) |
+| Deploying Limine after upgrade... | `80-limine-efi-deploy.hook` | `limine-mkinitcpio-hook` | `limine-install` |
+| Deploying Omarchy Limine after upgrade... | `99-omarchy-limine.hook` in `/etc/pacman.d/hooks/` | none (written at install time) | `cp /usr/share/limine/BOOTX64.EFI /boot/EFI/limine/limine_x64.efi` |
+| Install DKMS modules | `70-dkms-install.hook` | `dkms` | `dkms install` per module and kernel, always exits 0 |
+
+**3. Re-run the critical hook by hand, so the real error is on your screen.**
+
+Omarchy 4. Every `limine-*` failure above starts with the ESP check, so mount `/boot` first if it was not mounted, then rebuild everything with one command. `limine-update` runs `limine-install --no-efi-register` and then `limine-mkinitcpio`, so there is no need to run both:
+
+```bash
+findmnt /boot || sudo mount /boot
 sudo limine-update
 ```
 
-**4. Prove the files were really written** (a hook can "succeed" after writing a truncated image):
+Do not reach for `sudo mkinitcpio -P` on Omarchy 4: `/etc/mkinitcpio.d/` is empty, so `/usr/bin/mkinitcpio -P` dies with `No presets found in /etc/mkinitcpio.d`, and the `/usr/local/bin/mkinitcpio` wrapper only offers to run `limine-mkinitcpio` afterwards.
+
+Plain Arch, EndeavourOS, CachyOS, Manjaro:
 
 ```bash
-ls -l --time-style=full-iso /boot/vmlinuz-* /boot/initramfs-*.img 2>/dev/null
-ls -l --time-style=full-iso /boot/EFI/Linux/          # Omarchy UKI lives here
+sudo mkinitcpio -P
+```
+
+DKMS, any distribution. `nvidia-open-dkms` needs `linux-headers` at the same version as `linux`:
+
+```bash
+dkms status
+pacman -Q linux linux-headers
+sudo dkms autoinstall
+```
+
+**4. Prove the files were really written.** `/boot` is mounted `dmask=0077` on Omarchy 4, so listing it needs root:
+
+```bash
+sudo ls -l --time-style=full-iso /boot/EFI/Linux/                   # Omarchy 4: omarchy_linux.efi, over 100 MB, dated now
+ls -l --time-style=full-iso /boot/vmlinuz-* /boot/initramfs-*.img    # plain Arch
 pacman -Q linux; uname -r
 ```
 
-**5. Sledgehammer that re-fires every kernel hook** — reinstalling the kernel package re-triggers the whole chain:
+**5. Sledgehammer that re-fires every kernel hook.** Reinstalling the kernel package re-triggers the whole chain (`10-linux-modules-*`, `70-dkms-install`, `90-mkinitcpio-install`). The Omarchy update guard passes `-S linux`, because it only aborts on `-S` together with `-u`. Only do this when pacman says it is a reinstall:
 
 ```bash
 sudo pacman -S linux          # or linux-lts / linux-zen
 ```
 
-On Omarchy the update guard blocks `-Syu` but not a plain `-S`. If it fires anyway:
-
-```bash
-sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -S linux
+```
+warning: linux-7.1.9.arch1-2 is up to date -- reinstalling
 ```
 
-**Verify.** `sudo mkinitcpio -P` (or `sudo limine-mkinitcpio && sudo limine-update` on Omarchy) exits 0 with no `==> ERROR` lines; `ls -l /boot/initramfs-linux.img` (or `/boot/EFI/Linux/omarchy_linux.efi`) shows a multi-megabyte file with a timestamp from the last minute; a second `sudo pacman -S linux` runs clean end to end.
+If it offers a newer version instead, stop and run `omarchy update`. A lone kernel upgrade leaves `linux-headers` behind, `nvidia-open-dkms` then reports `Missing ... kernel headers` and builds nothing, and the hook's exit code does not tell you.
 
-Sources: <https://man.archlinux.org/man/alpm-hooks.5> · <https://wiki.archlinux.org/title/Pacman> · <https://bbs.archlinux.org/viewtopic.php?id=291242> · <https://archlinux.org/packages/core/any/mkinitcpio/files/> · <https://archlinux.org/packages/extra/any/dkms/files/> · <https://wiki.archlinux.org/title/Limine> · <https://github.com/basecamp/omarchy/discussions/3700>
+**Verify.** `sudo limine-update` on Omarchy 4 (or `sudo mkinitcpio -P` on plain Arch) exits 0 with no `ERROR` lines. `sudo ls -l /boot/EFI/Linux/omarchy_linux.efi` (or `ls -l /boot/initramfs-linux.img`) shows a file over 100 MB (or several MB) with a timestamp from the last minute. `pacman -Q linux` and `uname -r` agree after the reboot. A second `sudo pacman -S linux` runs clean end to end.
+
+Sources: <https://man.archlinux.org/man/alpm-hooks.5> · <https://wiki.archlinux.org/title/Pacman> · <https://bbs.archlinux.org/viewtopic.php?id=291242> · <https://archlinux.org/packages/core/any/mkinitcpio/files/> · <https://archlinux.org/packages/extra/any/dkms/files/> · <https://wiki.archlinux.org/title/Limine> · <https://github.com/basecamp/omarchy/discussions/3700> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/util.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/hook.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/v7.1.0/lib/libalpm/trans.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/v7.1.0/src/pacman/sync.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/v7.1.0/src/pacman/pacman.c> · <https://archlinux.org/packages/core/x86_64/linux/json/>
 
 ---
 
@@ -459,20 +523,42 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.or
 
 **Cause.** /var/lib/pacman/local — pacman's record of what is installed — has been deleted, truncated, or corrupted (a full disk mid-transaction, a bad `rm`, a filesystem error, or restoring / from an incomplete backup). The files on disk are fine; pacman just no longer knows about them.
 
-> ⚠️ **Risk.** This procedure uses `--dbonly --overwrite '*' --nodeps`, the most dangerous flag combination pacman has. Run it ONLY for database reconstruction, exactly as written. Get it wrong and you will need a full reinstall. Back up /var/lib/pacman and /var/log/pacman.log before starting. If /var/log/pacman.log is also gone, this method cannot be used.
+> **Audit corrected this record.** Checked the wiki procedure against Pacman/Restore_local_database (raw wikitext, fetched 2026-09-06) and the pacman 7.1.0 source, and checked every Omarchy claim on this Omarchy 4 workstation (omarchy 4.0.2-1, pacman 7.1.0.r9.g54d9411-2). What held: the symptoms, the pacrecover script, the recovery-pacman flags, the ALPM_DB_VERSION note (the file exists here and contains 9, and /usr/bin/pacman-db-upgrade still ships and writes 9), and the tar prevention. What was wrong for Omarchy 4: the closing `sudo pacman -Su` is aborted by 00-omarchy-update-guard.hook, whose script /usr/bin/omarchy-update-pacman-guard treats the single argument -Su as both sync and sysupgrade (read on this machine), so the fix now ends with `omarchy update` or the OMARCHY_ALLOW_DIRECT_PACMAN=1 bypass, and the verify line no longer tells Omarchy users to run `pacman -Syu`. The record also ignored the better first recovery on Omarchy: `omarchy update` runs `omarchy-snapshot create` before every upgrade (read /usr/share/omarchy/bin/omarchy-update and omarchy-snapshot), the Snapper config is SUBVOLUME=/ with NUMBER_LIMIT=5 and TIMELINE_CREATE=no (/etc/snapper/configs/root and /usr/share/omarchy/default/snapper/root), and `sudo snapper list` here shows snapshots 1 and 2, with /.snapshots/2/snapshot/var/lib/pacman/local holding 1185 entries against 1188 live, while /.snapshots/2/snapshot/var/log is empty because /var/log is the separate @log subvolume (findmnt and btrfs subvolume list). The corrected fix adds that copy as the Omarchy first step and keeps the log-driven pass to close the gap, since the snapshot database predates the last update. Two defects that apply on plain Arch too: `expac -l '\n' '%E' base` without -S reads the local database being rebuilt (expac(1): -S searches the sync databases), and `pacman -S --needed pacman-contrib expac` against an empty database pulls the whole dependency tree into file conflicts, so the install now uses -dd --overwrite (pacman(8): -d twice skips all dependency checks). On Omarchy both tools are already installed from omarchy-base.packages. Confirmed from src/pacman/pacman.c at tag v7.1.0 that --dbonly sets NOSCRIPTLET and NOHOOKS, so no hook, including the guard, runs during the recovery-pacman steps. Added the single-package `pacman -S --overwrite` branch from the Pacman page and a yay build-directory argument for AUR packages (yay -Pg reports buildDir ~/.cache/yay here). Not exercised: no database was damaged or restored, no snapshot copy was made, and the recovery commands were not run. The snapshot copy and the -dd install are derived from the sources named, not from a live run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** This procedure uses `--dbonly --overwrite '*' --nodeps`, the most dangerous flag combination pacman has. Run it ONLY for database reconstruction, exactly as written. Get it wrong and you will need a full reinstall. Back up /var/lib/pacman and /var/log/pacman.log before starting. If /var/log/pacman.log is also gone, the log-driven method cannot be used. A database copied out of a Snapper snapshot is older than the files on disk. Stopping after the copy leaves pacman believing older versions are installed, and the next upgrade rewrites every package changed since the snapshot. `omarchy-snapshot restore` rolls back the whole root subvolume, not only the database, and discards every change made on / since that snapshot.
 
 **Fix.**
 
-You need /var/log/pacman.log to be intact. Check first:
+`pacman -Q` reads only `/var/lib/pacman/local`. The package files on disk and `/var/log/pacman.log` are intact, and both recoveries below lean on the log, so check it is there first:
 
 ```bash
 ls -l /var/log/pacman.log
 ```
 
-Install pacman-contrib for `paclog-pkglist`, then rebuild the list of what should be installed:
+**Omarchy 4: copy the database out of the last Snapper snapshot.** `omarchy update` takes a Snapper snapshot of the root subvolume before every upgrade (`omarchy-snapshot create`, retention `NUMBER_LIMIT="5"`, timeline snapshots off), and `/var/lib/pacman` lives on that subvolume, so the newest snapshot holds a complete local database as it stood before the last update. `/var/log` is its own subvolume (`@log`) and is not in the snapshot, which is why the log survives whatever happened to the database.
 
 ```bash
-sudo pacman -S --needed pacman-contrib expac
+sudo snapper list                                   # pick the newest number, N
+sudo mv /var/lib/pacman/local /var/lib/pacman/local.broken
+sudo cp -a /.snapshots/N/snapshot/var/lib/pacman/local /var/lib/pacman/local
+pacman -Q | wc -l                                   # a full Omarchy install is over 1,000
+```
+
+That database is older than the files on disk: every package upgraded or installed since the snapshot is missing or recorded at the wrong version. Do not stop here. Continue with the log-driven pass below, which with `--needed` only touches those packages.
+
+If more than the database is damaged, `omarchy-snapshot restore` rolls the whole root subvolume back to a snapshot, and the Limine boot menu lists the same snapshots under "Snapshots" with the kernel each one had. That returns `/usr` and the database to a matching state at the cost of everything changed on `/` since. `/home` is its own subvolume and is untouched. Run it as `omarchy-snapshot restore`, not under `sudo`: the script calls `sudo` itself.
+
+**All systems: rebuild the database from the log.** `paclog-pkglist` (pacman-contrib) and `expac` are both in Omarchy's base package set, so on Omarchy they are already on disk and this install changes nothing. On plain Arch with an empty database a normal `pacman -S` would try to install their whole dependency tree and stop on file conflicts, so skip dependency checks and let it overwrite:
+
+```bash
+sudo pacman -S -dd --needed --overwrite '*' pacman-contrib expac
+```
+
+Create the recovery script. Any extra directory holding package files can be passed as an argument. yay's build directory (`~/.cache/yay`) matters for AUR packages, which are in no repository and can only come back from a cached file:
+
+```bash
 cat > /tmp/pacrecover <<'EOF'
 #!/bin/bash -e
 . /etc/makepkg.conf
@@ -488,12 +574,14 @@ done
 EOF
 chmod +x /tmp/pacrecover
 cd /tmp
-paclog-pkglist /var/log/pacman.log | ./pacrecover >files.list 2>pkglist.orig
+paclog-pkglist /var/log/pacman.log | ./pacrecover ~/.cache/yay/*/ >files.list 2>pkglist.orig
 { cat pkglist.orig; pacman -Slq; } | sort | uniq -d > pkglist
-comm -23 <({ echo base; expac -l '\n' '%E' base; } | sort) pkglist.orig >> pkglist
+comm -23 <({ echo base; expac -S -l '\n' '%E' base; } | sort) pkglist.orig >> pkglist
 ```
 
-Then reconstruct the database only (no files are touched):
+`expac -S` reads the sync databases. Without `-S` expac reads the local database you are trying to rebuild and returns nothing for `base`.
+
+Then reconstruct the database only. `--dbonly` also implies `--noscriptlet` and `--nohooks`, so no hook runs during these steps, including Omarchy's update guard:
 
 ```bash
 recovery-pacman() { sudo pacman "$@" --log /dev/null --noscriptlet --dbonly --overwrite '*' --nodeps --needed; }
@@ -502,19 +590,35 @@ recovery-pacman -U $(< /tmp/files.list)
 recovery-pacman -S $(< /tmp/pkglist)
 sudo pacman -D --asdeps $(pacman -Qq)
 sudo pacman -D --asexplicit $(pacman -Qtq)
-sudo pacman -Su
 ```
 
-If you get `failed to initialise alpm library`, run `sudo pacman-db-upgrade` then `sudo pacman -Sy` and retry.
+The two `pacman -D` lines recompute the install reason of every package. Skip them if you restored from a snapshot, which already carried the right reasons.
 
-**Prevention** — back the database up regularly:
+If you get `failed to initialise alpm library`, check for `/var/lib/pacman/local/ALPM_DB_VERSION` (pacman 7 writes `9` there). If it is missing, run `sudo pacman-db-upgrade`, then `sudo pacman -Sy`, and retry.
+
+Finish with a full upgrade. On Omarchy the update guard aborts any pacman command line that carries both `-S` and `-u`, and `-Su` counts, so use the supported path or the one-transaction bypass:
+
+```bash
+omarchy update                                       # Omarchy 4
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Su    # Omarchy 4, one transaction only
+sudo pacman -Su                                      # plain Arch
+```
+
+**One damaged entry rather than the whole directory.** If the error names a single package (`could not open file /var/lib/pacman/local/<pkg>-<ver>/desc`, or `file exists in filesystem` for one package because its `files` list is empty or missing), the Pacman wiki's fix is to reinstall only that package with `--overwrite`:
+
+```bash
+sudo pacman -S --overwrite '*' <pkg>
+```
+
+**Prevention.** `omarchy update` already snapshots the root subvolume before each upgrade, so on Omarchy the last five updates are recoverable without any extra step. A tarball still covers the case where the snapshots are gone too:
+
 ```bash
 sudo tar -cjf ~/pacman_database.tar.bz2 /var/lib/pacman/local
 ```
 
-**Verify.** `pacman -Q | wc -l` returns a plausible package count, `pacman -Qtdq` lists only genuine orphans, and `sudo pacman -Syu` behaves normally. `pacman -Qk` reports few or no missing files.
+**Verify.** `pacman -Q | wc -l` returns a plausible package count, `pacman -Qtdq` lists only genuine orphans, and a full upgrade behaves normally: `omarchy update` on Omarchy 4, `sudo pacman -Syu` on plain Arch. `pacman -Qk` reports few or no missing files. If you copied the database from a snapshot, `pacman -Qkk` reports no size or checksum mismatches once the log-driven pass has run.
 
-Sources: <https://wiki.archlinux.org/title/Pacman/Restore_local_database> · <https://wiki.archlinux.org/title/Pacman/Tips_and_tricks> · <https://man.archlinux.org/man/pacman.8>
+Sources: <https://wiki.archlinux.org/title/Pacman/Restore_local_database> · <https://wiki.archlinux.org/title/Pacman/Tips_and_tricks> · <https://man.archlinux.org/man/pacman.8> · <https://wiki.archlinux.org/title/Pacman> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/v7.1.0/src/pacman/pacman.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/trans.c>
 
 ---
 
@@ -733,50 +837,77 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://w
 
 `filesystem-full-during-pacman-transaction` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** Two distinct failures depending on which phase you are in.
+**Symptom.** Two distinct failures, and with `CheckSpace` on (the Arch and Omarchy default) pacman usually stops before either one writes anything.
 
-Download phase (no space to write the .zst files):
+Before download or before commit (`CheckSpace` measuring the cache directory, then the install targets):
+```
+error: Partition / too full: 1450000 blocks needed, 12000 blocks free
+error: not enough free disk space
+error: failed to commit transaction (not enough free disk space)
+```
+The mount point named is the one that ran out. On Omarchy 4 the package cache is its own subvolume, so the download check names `/var/cache/pacman/pkg` and the commit check names `/`. Both live on the same btrfs, so the free figure is shared.
+
+Mid-download (space ran out while downloading, or `CheckSpace` is commented out):
 ```
 error: failed retrieving file 'chromium-...-x86_64.pkg.tar.zst' from mirror : Failed writing received data to disk/application
 warning: failed to retrieve some files
 error: failed to commit transaction (failed to retrieve some files)
 ```
-Commit phase (`CheckSpace` catching it before extraction):
-```
-error: Partition /var too full: 1450000 blocks needed, 12000 blocks free
-error: not enough free disk space
-```
-On Omarchy: `You need at least 10 GiB free to safely update Omarchy.`
-Worst case `df -h /` shows 100% and even `sudo pacman -Sc` fails.
 
-**Cause.** pacman needs room twice: once for the downloaded `.zst` packages in `/var/cache/pacman/pkg`, and again for the extracted files at commit time. `CheckSpace` (enabled by default in Arch's and Omarchy's `pacman.conf`) catches the second case and aborts cleanly before touching anything; the first case dies mid-download and leaves `.part` files behind, wasting more space. On btrfs — the default on Omarchy and CachyOS — `df` can report free space while the metadata chunk is exhausted, and every snapper snapshot pins the old version of every file an update replaced, so a few updates with `NUMBER_LIMIT=5` can consume the root subvolume.
+On Omarchy 4, `omarchy update` refuses to start at all below 10 GiB free on `/`:
+```
+You need at least 10 GiB free to safely update Omarchy.
+```
 
-> ⚠️ **Risk.** `pacman -Scc` empties the cache including the versions currently installed — no offline reinstall and no downgrade path afterwards. `journalctl --vacuum-size=0` destroys every boot log, including the ones needed to diagnose why the disk filled. Deleting snapper snapshots is irreversible and removes your rollback points — delete the oldest first and never the snapshot matching your last known-good boot, and remember that on Omarchy those snapshots are also the Limine boot-menu rollback entries. `btrfs balance` on a nearly-full filesystem can itself fail with ENOSPC and must never be interrupted; free something else first and let it finish. Never delete anything under `/var/lib/pacman` — that is the package database, and losing it means pacman no longer knows what is installed.
+Worst case `df -h /` shows 100% and even `sudo pacman -Sc` fails with `failed to init transaction (unable to lock database)`, because pacman cannot create `/var/lib/pacman/db.lck`.
+
+**Cause.** pacman needs room twice: once for the downloaded `.zst` packages in `/var/cache/pacman/pkg`, and again for the extracted files at commit time. With `CheckSpace` enabled (it is, in Arch's stock `pacman.conf` and in Omarchy's `default/pacman/pacman-stable.conf`) libalpm checks both: the total download size against the cache directory's mount point before downloading, and the installed size against every affected mount point before commit, with a cushion of 5% of the filesystem or 20 MiB, whichever is smaller. A `Failed writing received data` error mid-download therefore means space vanished during the download (another process writing, or btrfs metadata exhaustion that `statvfs` does not see) or `CheckSpace` was turned off. An interrupted download leaves `.part` files behind, on pacman 7 inside a `download-XXXXXX` directory in the cache.
+
+On btrfs, the default on Omarchy and CachyOS, `df` can report free space while the metadata chunks are exhausted, and snapshots pin the old version of every file an update replaced. Omarchy 4 installs one btrfs filesystem with subvolumes `@` on `/`, `@home`, `@log` on `/var/log` and `@pkg` on `/var/cache/pacman/pkg`. Snapper's only config, `root`, snapshots `@`, so a snapshot pins `/usr`, `/opt` and `/var/lib` but not the package cache and not the journal: pruning those two frees space immediately, deleting a file under `/usr` frees nothing until every snapshot holding it is gone. `omarchy update` creates one `number` snapshot per run and keeps `NUMBER_LIMIT="5"`, so five updates' worth of replaced files stay allocated on a stock install.
+
+> **Audit corrected this record.** Read libalpm sync.c, diskspace.c, util.c, handle.c and error.c from gitlab.archlinux.org. CheckSpace guards both phases, not only commit: sync.c calls _alpm_check_downloadspace against the cache directory before any download starts (line 797) and _alpm_check_diskspace before commit (line 1319), both printing 'Partition <mountpoint> too full: N blocks needed, N blocks free' then 'not enough free disk space'. The record's claim that the download phase 'dies mid-download' is only true when CheckSpace is off or space vanishes during the download, so the cause was rewritten. Omarchy 4 layout confirmed from /etc/fstab here and tools/make-test-vm.sh (the ISO configurator layout): one btrfs with @ on /, @home, @log on /var/log and @pkg on /var/cache/pacman/pkg. /var is not a separate mount, so the example 'Partition /var too full' was generalised. Snapper's only config is root with SUBVOLUME="/" (default/snapper/root, identical upstream and local), so snapshots pin /usr and /var/lib but never the package cache or the journal, which the record did not say. The 10 GiB string is verbatim from bin/omarchy-update-requires-free-space (identical to quattro), and bin/omarchy-update calls it BEFORE omarchy-update-pkg-prune and omarchy-snapshot, so under 10 GiB omarchy update refuses without pruning anything. Added the manual prune (omarchy-update-pkg-prune, which is sudo paccache -rk2, matching the record's -rk2 advice) and the OMARCHY_UPDATE_FORCE=1 bypass. Snapshot count: omarchy-snapshot create runs snapper create -c number then cleanup number with NUMBER_LIMIT=5, and snapper-cleanup.timer is enabled here, so a stock install holds at most 5 snapshots (6 briefly, per etc/limine-entry-tool.d/omarchy-defaults.conf). Snapshots are Limine boot entries: limine-snapper-sync 1.31.0-1 is installed and BOOT_ORDER contains Snapshots. Added --sync from the Snapper wiki so freed space shows immediately. The escape hatch and the retry used sudo pacman -Syu, which the Omarchy guard rejects, so both now carry OMARCHY_ALLOW_DIRECT_PACMAN=1 in a labelled branch. pacman 7 with DownloadUser=alpm creates a download-XXXXXX subdirectory chowned to alpm inside the cache dir (util.c _alpm_download_dir_setup), so a root-owned --cachedir works. The 'even pacman -Sc fails' line is now explained rather than asserted: -Sc takes the database lock (src/pacman/sync.c line 910) by creating /var/lib/pacman/db.lck, which can fail on a full filesystem as 'failed to init transaction (unable to lock database)'. That failure was reasoned from source, not reproduced. btrfs filesystem usage, btrfs filesystem df and balance advice match the Btrfs wiki page. Not exercised: filling a filesystem on a VM.
+>
+> *The Cause above was rewritten on 2026-09-07 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `pacman -Scc` empties the cache including the versions currently installed, so no offline reinstall and no downgrade path afterwards. `journalctl --vacuum-size=0` destroys every boot log, including the ones needed to diagnose why the disk filled. Deleting snapper snapshots is irreversible and removes your rollback points: delete the oldest first and never the snapshot matching your last known-good boot, and remember that on Omarchy those snapshots are also the Limine boot-menu rollback entries. `OMARCHY_UPDATE_FORCE=1` skips the 10 GiB check only, the update still needs room for the download and the commit, and a snapshot taken on a nearly full filesystem can itself push it to full. `btrfs balance` on a nearly-full filesystem can itself fail with ENOSPC and must never be interrupted: free something else first and let it finish, or temporarily add a device as the Btrfs wiki describes. `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu` upgrades packages without Omarchy's snapshot, migrations or post-update hooks, so run `omarchy update` afterwards. Never delete anything under `/var/lib/pacman`: that is the package database, and losing it means pacman no longer knows what is installed.
 
 **Fix.**
 
-**Reclaim in this order — least destructive first.** Start by measuring:
+**Reclaim in this order, least destructive first.** Start by measuring:
 
 ```bash
-df -h / /var /boot
+df -h / /boot
 sudo du -xhd1 /var | sort -h | tail
 sudo btrfs filesystem usage /        # btrfs: look at Metadata and Unallocated
+btrfs filesystem df /                # same numbers without root
 ```
 
-**1. Journal — biggest instant win, always safe:**
+**Omarchy 4 first:** `omarchy update` checks for 10 GiB free on `/` before it prunes the cache or takes a snapshot, so below that it refuses and frees nothing. Prune by hand, then retry:
+
+```bash
+omarchy-update-pkg-prune            # runs: sudo paccache -rk2 (do not prefix with sudo)
+omarchy update
+```
+To run an update anyway with less than 10 GiB free:
+
+```bash
+OMARCHY_UPDATE_FORCE=1 omarchy update
+```
+
+**1. Journal, biggest instant win, always safe:**
 ```bash
 journalctl --disk-usage
 sudo journalctl --vacuum-size=200M
 ```
 
-**2. Package cache — keep 2 versions so you can still downgrade:**
+**2. Package cache, keep 2 versions so you can still downgrade** (this is exactly what `omarchy update` does on every run):
 ```bash
 sudo pacman -S --needed pacman-contrib
 sudo paccache -rk2
 sudo paccache -ruk0            # drop everything for packages you no longer have
 ```
 
-**3. Interrupted-download leftovers:**
+**3. Interrupted-download leftovers** (pacman 7 puts them in a `download-XXXXXX` subdirectory, the find recurses into it):
 ```bash
 sudo find /var/cache/pacman/pkg -name '*.part' -delete
 ```
@@ -787,32 +918,45 @@ yay -Sc
 rm -rf ~/.cache/yay/* ~/.cache/paru/clone/* ~/.cache/thumbnails ~/.cache/mesa_shader_cache*
 ```
 
-**5. Btrfs snapshots — this is what actually frees a full Omarchy root:**
+**5. Btrfs snapshots, what actually frees a full Omarchy root.** A stock Omarchy 4 keeps at most 5 (`NUMBER_LIMIT="5"` in `/etc/snapper/configs/root`, cleaned by `snapper-cleanup.timer`), so more than that means the timer is off or the config was changed. Delete the oldest, never the newest, and use `--sync` so the space is returned before you measure again:
 ```bash
 sudo snapper -c root list
-sudo snapper -c root delete 12-18          # oldest ranges first
+sudo snapper -c root delete --sync 12-14   # oldest numbers first, keep the latest
 sudo btrfs balance start -dusage=50 /
 sudo btrfs filesystem usage /
 ```
+On Omarchy those snapshots are also Limine boot entries (`limine-snapper-sync`, `BOOT_ORDER="*, *fallback, Snapshots"`), and `limine-snapper-sync.service` drops the entry when the snapshot goes.
 
 **6. Old kernels / UKIs on a full `/boot`:** see the ESP-full record.
 
-**Escape hatch when nothing can be freed** — download to another disk for this one transaction:
+**Escape hatch when nothing can be freed:** download to another disk for this one transaction. pacman 7 creates an `alpm`-owned `download-XXXXXX` directory inside the path you give, so a root-owned directory is fine.
+
+Plain Arch:
 ```bash
 sudo mkdir -p /run/media/$USER/BIGDISK/pkgcache
 sudo pacman -Syu --cachedir /run/media/$USER/BIGDISK/pkgcache
 ```
+Omarchy 4 (the update guard rejects a bare `pacman -Syu`, and this bypasses `omarchy update`'s snapshot and migrations, so run `omarchy update` afterwards):
+```bash
+sudo mkdir -p /run/media/$USER/BIGDISK/pkgcache
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu --cachedir /run/media/$USER/BIGDISK/pkgcache
+omarchy update
+```
 
 **Then retry:**
+
+Plain Arch:
 ```bash
 sudo pacman -Syu
-# Omarchy:
+```
+Omarchy 4:
+```bash
 omarchy update
 ```
 
 **Verify.** `df -h /` shows more than 10 GiB free (Omarchy's own hard threshold in `omarchy-update-requires-free-space`); `sudo btrfs filesystem usage /` shows non-zero `Device unallocated`; `sudo pacman -Syu` or `omarchy update` runs to completion with no `too full` or `Failed writing received data` errors.
 
-Sources: <https://wiki.archlinux.org/title/Pacman> · <https://man.archlinux.org/man/pacman.conf.5> · <https://wiki.archlinux.org/title/System_maintenance> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update-requires-free-space> · <https://github.com/basecamp/omarchy/blob/quattro/default/pacman/pacman-stable.conf>
+Sources: <https://wiki.archlinux.org/title/Pacman> · <https://man.archlinux.org/man/pacman.conf.5> · <https://wiki.archlinux.org/title/System_maintenance> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update-requires-free-space> · <https://github.com/basecamp/omarchy/blob/quattro/default/pacman/pacman-stable.conf> · <https://wiki.archlinux.org/title/Btrfs> · <https://wiki.archlinux.org/title/Snapper> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/sync.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/diskspace.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/util.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/handle.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/error.c> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update-pkg-prune> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-snapshot> · <https://github.com/basecamp/omarchy/blob/quattro/default/snapper/root> · <https://github.com/basecamp/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/basecamp/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf> · <https://github.com/basecamp/omarchy/blob/quattro/test/shell.d/update-pkg-prune-test.sh>
 
 ---
 
@@ -1173,13 +1317,13 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://w
 ```
 yay: error while loading shared libraries: libalpm.so.15: cannot open shared object file: No such file or directory
 ```
-(or `libalpm.so.14` or `libalpm.so.16`, the number moves). `paru` shows the same. This is a yay 12.5.x or older, or a paru, problem: yay 12.6.0 and later, including the yay 13.0.1 Omarchy 4 ships, load libalpm at runtime and do not fail this way. On Omarchy, if any AUR package is installed (`pacman -Qem` prints something), `omarchy update` fails at the "Update AUR packages" step and aborts. With no AUR packages installed that step never runs yay, so the update completes and only direct yay use fails.
+(or `libalpm.so.14` or `libalpm.so.16`, the number moves). `paru` shows the same. This is a yay 12.5.x or older, or a paru, problem: yay 12.6.0 and later, including the yay 13.0.1 Omarchy 4 ships, load libalpm at runtime and do not fail this way. On Omarchy, if any AUR package is installed (`pacman -Qem` prints something), the "Update AUR packages" step of `omarchy update` prints the loader error and the update carries on without touching the AUR packages, because `omarchy-update-aur-pkgs` ends with an `echo` and exits 0 whatever yay returned. With no AUR packages installed that step never runs yay, so the update completes and only direct yay use fails.
 
 **Cause.** yay up to 12.5.x was linked at build time against a specific libalpm soname (cgo), and paru still is (its AUR PKGBUILD depends on `libalpm.so>=14`). When pacman bumps that soname, as pacman 7.1.0 did on 2025-12-13 by moving to `libalpm.so=16-64`, a helper built against the old one cannot start, and because it is the tool you would use to rebuild itself, you are stuck. For paru the wait was for the Rust `alpm` crate to support libalpm 16 (archlinux/alpm.rs issue 59). For yay the wait was for a rebuilt release. On Omarchy 3 in December 2025 the yay in Omarchy's own repo was still built against `libalpm.so.15` while pacman came from Arch core with `.16`, which is what omacom/omarchy issues 3877 and 3902 record.
 
 Since yay 12.6.0 (2026-06-07) yay no longer links libalpm at all. It loads `libalpm.so.16` at runtime through dyalpm and falls back to the unversioned `/usr/lib/libalpm.so` that the pacman package always installs, so `ldd /usr/bin/yay` lists only libc. Omarchy 4 ships yay 13.0.1 from its `[omarchy]` repo, and that build cannot produce this loader error. If you see it on Omarchy 4, the machine is still running an older yay or you are running paru.
 
-> **Audit corrected this record.** Checked on this Omarchy 4 workstation: yay 13.0.1-1 is installed from the [omarchy] repo (pacman -Si yay reports Repository: omarchy, pacman -Sl omarchy lists yay and yay-debug, and yay is line 147 of /usr/share/omarchy/install/omarchy-base.packages), paru is not installed, and pacman 7.1.0.r9.g54d9411-2 ships libalpm.so.16 and libalpm.so.16.0.1 plus the unversioned /usr/lib/libalpm.so. ldd /usr/bin/yay lists only libc: yay 12.6.0 (2026-06-07) switched to dyalpm, which dlopens libalpm.so.16 and falls back to libalpm.so (Jguer/dyalpm internal/lib/loader.go at v0.1.4, the version yay 13.0.1's go.mod pins), so the record's loader error cannot come from the yay Omarchy 4 ships. The error is real for yay 12.5.x and earlier and for paru, whose AUR PKGBUILD still depends on libalpm.so>=14. The cited issues 3877 and 3902 (both December 2025, Omarchy 3.2.3, yay 12.5.x, both closed) support the symptom and show it was Omarchy's own repo shipping a yay built against libalpm.so.15 while core moved to .16, which the cause did not say. alpm.rs issue 59 is about paru only, so 'a lag against alpm.rs' is the wrong cause for yay. The fix opened with sudo pacman -Syu, which the ALPM guard (/usr/bin/omarchy-update-pacman-guard, aborts on -S plus -u without OMARCHY_UPDATE_PACMAN=1 or OMARCHY_ALLOW_DIRECT_PACMAN=1) blocks on Omarchy 4. The claim that omarchy-update aborts at 'Update AUR packages' holds (omarchy-update has set -e and omarchy-update-aur-pkgs returns yay's exit code) but only when pacman -Qem lists a foreign package, because that script never calls yay otherwise. The danger's claim that Omarchy replaces a hand-built yay on the next update is only true for the yay package name, and omarchy-reinstall-pkgs conflicts with yay-bin. The omarchy-pkgs yay PKGBUILD is byte-identical to the AUR one. Not exercised: I did not break libalpm or rebuild yay or paru here, and I did not test what yay 13 prints if libalpm.so.16 is absent.
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation: yay 13.0.1-1 is installed from the [omarchy] repo (pacman -Si yay reports Repository: omarchy, pacman -Sl omarchy lists yay and yay-debug, and yay is line 147 of /usr/share/omarchy/install/omarchy-base.packages), paru is not installed, and pacman 7.1.0.r9.g54d9411-2 ships libalpm.so.16 and libalpm.so.16.0.1 plus the unversioned /usr/lib/libalpm.so. ldd /usr/bin/yay lists only libc: yay 12.6.0 (2026-06-07) switched to dyalpm, which dlopens libalpm.so.16 and falls back to libalpm.so (Jguer/dyalpm internal/lib/loader.go at v0.1.4, the version yay 13.0.1's go.mod pins), so the record's loader error cannot come from the yay Omarchy 4 ships. The error is real for yay 12.5.x and earlier and for paru, whose AUR PKGBUILD still depends on libalpm.so>=14. The cited issues 3877 and 3902 (both December 2025, Omarchy 3.2.3, yay 12.5.x, both closed) support the symptom and show it was Omarchy's own repo shipping a yay built against libalpm.so.15 while core moved to .16, which the cause did not say. alpm.rs issue 59 is about paru only, so 'a lag against alpm.rs' is the wrong cause for yay. The fix opened with sudo pacman -Syu, which the ALPM guard (/usr/bin/omarchy-update-pacman-guard, aborts on -S plus -u without OMARCHY_UPDATE_PACMAN=1 or OMARCHY_ALLOW_DIRECT_PACMAN=1) blocks on Omarchy 4. The original claim that omarchy-update aborts at 'Update AUR packages' was accepted here at first and is wrong: /usr/share/omarchy/bin/omarchy-update-aur-pkgs runs yay inside an if-body whose last command is echo, so the script exits 0 whatever yay returned and omarchy-update continues. Corrected 2026-09-07 after a sibling audit (aur-package-deleted-merged-or-renamed) read the script; the symptom now says the AUR step prints the error and is skipped over. The danger's claim that Omarchy replaces a hand-built yay on the next update is only true for the yay package name, and omarchy-reinstall-pkgs conflicts with yay-bin. The omarchy-pkgs yay PKGBUILD is byte-identical to the AUR one. Not exercised: I did not break libalpm or rebuild yay or paru here, and I did not test what yay 13 prints if libalpm.so.16 is absent.
 >
 > *The Cause above was rewritten on 2026-09-07 to match this note. The Fix was corrected by the audit itself.*
 
@@ -1802,34 +1946,42 @@ Sources: <https://archlinux.org/news/switch-to-the-base-devel-meta-package-requi
 
 `aur-package-deleted-merged-or-renamed` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** ```
-$ yay -Syu
-:: Searching AUR for updates...
- -> Could not find all required packages:
-	spotify-adblock (Target)
+**Symptom.** An installed AUR package that no longer exists in the AUR is reported on every update. With yay 13 (Omarchy 4 ships 13.0.1) the wording is a warning, not an error:
 ```
-or
+:: Searching AUR for updates...
+ -> Packages not in AUR:  spotify-adblock
+```
+You see it from `yay -Sua`, from `yay -Syu` on plain Arch, and on Omarchy inside `omarchy update` under the `Update AUR packages` heading, which then carries on. Older yay releases printed `Could not find all required packages:` with the name and `(Target)`. Asking yay for the package by name fails outright:
+```
+$ yay -S my-package
+ -> No AUR package found for  my-package
+```
+and pacman never searches the AUR at all:
 ```
 $ sudo pacman -S my-package
 error: target not found: my-package
 ```
-`pacman -Qm` still lists it as installed, but https://aur.archlinux.org/packages/<name> returns 404 or redirects to a differently-named package. Every subsequent update run repeats the same complaint.
+`pacman -Qm` still lists the package as installed, but https://aur.archlinux.org/packages/<name> returns 404 or lands on a differently named package. On Omarchy 4 `yay -Syu` itself stops with `Woah partner...` from the pacman update guard before it gets far, because yay runs `pacman -S -y -u` underneath. Use `omarchy update` or `yay -Sua` there.
 
-**Cause.** AUR packages get deleted (submission-rule violation, dead upstream), merged into another package base, renamed by the maintainer, or adopted into the official `extra` repository. Your locally-built copy stays installed forever, receives no updates, and every helper run flags it. Separately, `pacman -S` says `target not found` for anything that only ever existed in the AUR — pacman searches only configured repositories, never the AUR.
+**Cause.** AUR packages get deleted (submission-rule violation, dead upstream, a malware or licence report), merged into another package base, renamed by the maintainer, or adopted into the official `extra` repository. Your locally built copy stays installed forever, receives no updates, and every helper run flags it: yay asks the AUR RPC for every foreign package and warns `Packages not in AUR:` for any name the RPC does not return. Separately, `pacman -S` says `target not found` for anything that only ever existed in the AUR, because pacman searches only the configured repositories, never the AUR. On Omarchy 4 the AUR step of `omarchy update` (`omarchy-update-aur-pkgs`) runs `yay -Sua --noconfirm` only when `pacman -Qem` lists an explicitly installed foreign package, and it ignores yay's exit status, so the warning repeats on every update but the update completes. If the AUR is unreachable that step is skipped entirely with `AUR is unavailable (so skipping updates)` (`omarchy-pkg-aur-accessible`), so a package that is unreachable and one that is deleted look different.
+
+> **Audit corrected this record.** Checked the four RPC calls live: rpc/v5/info?arg[]=yay&arg[]=nonexistent-pkg-xyz123 returned resultcount 1 with only yay, rpc/v5/search/yay?by=name returned 19 results, and packages.gz serves a bare sorted name list, so the comm one-liner, which is verbatim from the Arch User Repository wiki page, works. The symptom text is wrong for the yay this system ships: the strings 'Could not find all required packages' and '(Target)' do not exist anywhere in the yay v13.0.1 source (the version installed here, pacman -Q yay = 13.0.1-1). pkg/query/aur_warnings.go prints the non-fatal warning 'Packages not in AUR:' for an installed foreign package the RPC no longer knows, and pkg/dep/dep_graph.go prints 'No AUR package found for' when you ask yay -S for a name that is gone. On Omarchy 4 the symptom's opening command, yay -Syu, is blocked: yay formats its pacman call as separate -S -y -u flags (pkg/settings/parser/parser.go) and /usr/bin/omarchy-update-pacman-guard aborts any pacman command line carrying both S and u, so the record needed an Omarchy branch (omarchy update, or yay -Sua which in AUR-only mode never calls pacman -S, cmd.go line 446). The Omarchy note was also wrong about what happens: /usr/share/omarchy/bin/omarchy-update-aur-pkgs (byte-identical to quattro) only runs yay when pacman -Qem lists an explicitly installed foreign package, and its if-body ends in echo, so the script exits 0 whatever yay returned. omarchy update therefore prints the warning and continues, it does not abort at the AUR step. A sibling verdict in this batch claims the opposite (that omarchy-update-aur-pkgs returns yay's exit code) and is wrong. pacman -Qm is the right list of foreign packages (System_maintenance wiki and pacman -Qm here, which is empty on this workstation, so no live yay output could be observed). pacman -S, pacman -S --needed, pacman -Rns and pacman -Ss pass the guard because none carries -u. pactree comes from pacman-contrib, which omarchy-base.packages installs and which is Required By omarchy here. Not exercised: an actual deleted package on a live yay run, and the git clone of a deleted package's repo (the wiki says the repo typically remains).
+>
+> *The Cause above was rewritten on 2026-09-07 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `pacman -Rns` on a package other things depend on cascades — always run `pactree -r PKGNAME` first and read the removal list. Never edit `/var/lib/pacman/local` by hand to silence the helper; that corrupts the package database. A deleted AUR package was often deleted for a reason (unmaintained, licensing, malware report) — check the aur-requests mailing list archive before rebuilding it from an old git clone and running its PKGBUILD, which executes arbitrary code on your machine.
 
 **Fix.**
 
-**1. List every foreign (non-repo) package and check which ones are gone** — the ArchWiki one-liner:
+**1. List every foreign (non-repo) package and check which ones are gone.** The one-liner is from the Arch User Repository wiki page:
 
 ```bash
 pacman -Qqm
 comm -23 <(pacman -Qqm | sort) <(curl -s https://aur.archlinux.org/packages.gz | gzip -cd | sort)
 ```
-Anything printed no longer exists in the AUR.
+Anything printed no longer exists in the AUR. Packages you built yourself from a local PKGBUILD will be listed too.
 
-**2. For one package, ask the AUR RPC directly** — an empty `results` array means it is gone:
+**2. For one package, ask the AUR RPC directly.** An empty `results` array (`resultcount: 0`) means it is gone:
 
 ```bash
 curl -s 'https://aur.archlinux.org/rpc/v5/info?arg[]=PKGNAME' | head -c 400
@@ -1840,14 +1992,20 @@ curl -s 'https://aur.archlinux.org/rpc/v5/info?arg[]=PKGNAME' | head -c 400
 ```bash
 # (a) adopted into the official repos
 pacman -Ss '^PKGNAME$'
-sudo pacman -S PKGNAME          # the repo version replaces your local build
+```
+If it is there, refresh and upgrade first so the sync database is current, then install the repo build over your local one. On Omarchy 4 the refresh is `omarchy update` (a direct `pacman -Syu` is blocked by the update guard), on plain Arch it is `sudo pacman -Syu`. Then:
 
-# (b) renamed or merged — search by name, then by what it provides
+```bash
+sudo pacman -S PKGNAME          # the repo version replaces your local build
+```
+
+```bash
+# (b) renamed or merged: search by name, then by what it provides
 curl -s 'https://aur.archlinux.org/rpc/v5/search/PARTIALNAME?by=name' | head -c 800
 curl -s 'https://aur.archlinux.org/rpc/v5/search/PKGNAME?by=provides' | head -c 800
 ```
 
-**4. Migrate — install the successor, then drop the stale one:**
+**4. Migrate: install the successor, then drop the stale one.** `pactree` is in `pacman-contrib`, which Omarchy installs by default:
 
 ```bash
 sudo pacman -S --needed pacman-contrib
@@ -1856,7 +2014,7 @@ yay -S NEW-PKGNAME
 sudo pacman -Rns OLD-PKGNAME
 ```
 
-**5. If nothing replaced it and you still want it**, the git repo of a deleted AUR package usually survives — clone it and maintain it yourself:
+**5. If nothing replaced it and you still want it**, the git repo of a deleted AUR package usually survives. Clone it and maintain it yourself:
 
 ```bash
 git clone https://aur.archlinux.org/PKGNAME.git
@@ -1869,11 +2027,11 @@ cd PKGNAME && makepkg -si
 sudo pacman -Rns PKGNAME
 ```
 
-**Omarchy note:** `omarchy update` runs `omarchy-update-aur-pkgs`, which skips the AUR entirely when it is unreachable (`omarchy-pkg-aur-accessible`). A package that is *deleted* rather than merely unreachable will keep being reported on every single update until you migrate or remove it.
+**Omarchy 4 note:** `omarchy update` runs `omarchy-update-aur-pkgs`, which calls `yay -Sua --noconfirm` only when `pacman -Qem` lists an explicitly installed foreign package, and skips the AUR entirely when `omarchy-pkg-aur-accessible` cannot reach the RPC. The `Packages not in AUR:` warning does not stop the update, so a deleted package is reported on every run until you migrate or remove it. Do not use `yay -Syu` on Omarchy: the pacman update guard rejects the `pacman -S -y -u` it runs underneath. `yay -Sua` (AUR only, no pacman sync) is fine.
 
 **Verify.** `comm -23 <(pacman -Qqm | sort) <(curl -s https://aur.archlinux.org/packages.gz | gzip -cd | sort)` prints nothing (or only packages you deliberately build locally), and `yay -Syu` completes without `Could not find all required packages`.
 
-Sources: <https://wiki.archlinux.org/title/Arch_User_Repository> · <https://aur.archlinux.org/rpc/v5/info?arg[]=yay> · <https://aur.archlinux.org/packages.gz> · <https://wiki.archlinux.org/title/System_maintenance>
+Sources: <https://wiki.archlinux.org/title/Arch_User_Repository> · <https://aur.archlinux.org/rpc/v5/info?arg[]=yay> · <https://aur.archlinux.org/packages.gz> · <https://wiki.archlinux.org/title/System_maintenance> · <https://wiki.archlinux.org/title/Aurweb_RPC_interface> · <https://aur.archlinux.org/rpc/v5/info?arg[]=yay&arg[]=nonexistent-pkg-xyz123> · <https://aur.archlinux.org/rpc/v5/search/yay?by=name> · <https://github.com/Jguer/yay/blob/v13.0.1/pkg/query/aur_warnings.go> · <https://github.com/Jguer/yay/blob/v13.0.1/pkg/dep/dep_graph.go> · <https://github.com/Jguer/yay/blob/v13.0.1/pkg/settings/parser/parser.go> · <https://github.com/Jguer/yay/blob/v13.0.1/cmd.go> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update-aur-pkgs> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-pkg-aur-accessible> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update>
 
 ---
 

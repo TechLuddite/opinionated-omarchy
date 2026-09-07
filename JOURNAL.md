@@ -22,12 +22,12 @@ Last updated: 2026-09-07
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 211 records carry that status on one source pass. The first 28 re-audited
+>    4", and 207 records carry that status on one source pass. The first 32 re-audited
 >    for that, boot-kernel and pacman-aur records with a `danger`, all needed correcting. Use
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
 >    left"; O1, a lint for the known-bad shapes, landed the same day and holds 138
->    records as candidates. The corpus prose has 1,790 dashes across 407 records, item 6
+>    records as candidates. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -45,7 +45,7 @@ Last updated: 2026-09-07
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-07: eighteen pacman-aur records re-audited, all wrong, and the lint earned its keep
+## Session of 2026-09-07: all 22 pacman-aur records re-audited, all wrong, and the lint earned its keep
 
 O3 on `pacman-aur`: the 22 records that were `ok` with a `danger` and apply to Omarchy,
 one auditor per two records, the same brief as the boot-kernel batch plus a section of
@@ -53,8 +53,9 @@ pacman facts read off this workstation (the guard script, `DownloadUser = alpm`,
 `[omarchy]` repo, `HoldPkg`, yay from the Omarchy repo and no paru). Eleven auditors were
 launched; five died on a session limit, but three of those had already written both
 verdicts, so **18 of 22 records came back, all `corrected`, all at high confidence**. The
-operator then said not to relaunch, so the four lost records stay `ok` and are named under
-item 8 of "What's left".
+operator paused there, then resumed for the four lost records with two more auditors:
+all four `corrected`, three at high confidence and `local-package-database-corrupted` at
+medium. Section 4 has them. O3 stops after this category.
 
 ### 1. What was wrong, again in clusters
 
@@ -105,10 +106,37 @@ four records without a verdict came through untouched. `research/tests/run.sh` p
 was induced, and the six verdicts from auditors that died after writing were read in full
 rather than trusted on their status.
 
-The corpus is now **456 records, `ok` 211 / `corrected` 245 / `unaudited` 0**, 912
-distinct sources, 52 `cause_reconciled` stamps across four dates, 1,790 dashes across 407
-records. Thirty-three `ok` records have been checked against Omarchy 4 since 2026-09-06,
-and thirty-three needed correcting.
+After the first eighteen: `ok` 211 / `corrected` 245.
+
+### 4. The four lost records, and a sibling audit catching an applied one
+
+The four came back with the same shapes plus two the batch had not seen. The hook-failed
+record's title and cause were the opposite of what happens on Omarchy: the commonest source
+of `command failed to execute correctly` here is the update guard, the only hook on the
+machine with `AbortOnFail`, and it installs nothing. Its sample output cannot occur at all
+(no presets, and limine-mkinitcpio-hook's script swallows build failures and fails only on
+the ESP check). The database record gained the recovery Omarchy makes cheap: every
+`omarchy update` snapshots the root subvolume, and `/.snapshots/N/snapshot/var/lib/pacman/local`
+is a complete copy to restore from. The AUR record quoted yay 12 text that yay 13 does not
+print. The disk-full record now says the 10 GiB check runs before the prune, so under
+10 GiB `omarchy update` frees nothing.
+
+One of those auditors also read `omarchy-update-aur-pkgs` and contradicted a claim the
+yay-libalpm verdict had made and I had merged the day before: that `omarchy update` aborts
+at the AUR step. The script runs yay inside an `if` body whose last command is `echo`, so
+it exits 0 whatever yay returned and the update continues. Confirmed by reading the script,
+the applied record's symptom was rewritten and its audit note says what was wrong and who
+caught it. Two auditors, two readings of the same file, and the one that read it more
+carefully was right. That is the argument for reading every verdict rather than trusting
+its confidence field.
+
+The lint flagged two new hits after the merge, both legitimate (a labelled plain-Arch line
+and a symptom block that shows the guard firing), and the baseline is now 140 records.
+
+The corpus is now **456 records, `ok` 207 / `corrected` 249 / `unaudited` 0**, 925
+distinct sources, 55 `cause_reconciled` stamps across four dates, 1,756 dashes across 405
+records. Thirty-seven `ok` records have been checked against Omarchy 4 since 2026-09-06,
+and thirty-seven needed correcting.
 
 ## Session of 2026-09-06 (second): the last four unaudited records, the VM findings, and ten boot-kernel re-audits
 
@@ -2431,13 +2459,11 @@ again.
   gained the same keys. None of the three has been run since; the change is verified by
   evaluating each script's prompt section under node, not by a workflow run.
 - **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
-  brief. STARTED 2026-09-06, paused 2026-09-07 on the operator's instruction: 18 of the
-  22 `pacman-aur` records are done (all corrected, see the 2026-09-07 session), 4 were
-  lost to a session limit and are still `ok`: `local-package-database-corrupted`,
-  `hook-failed-command-failed-to-execute-correctly`,
-  `aur-package-deleted-merged-or-renamed`, `filesystem-full-during-pacman-transaction`.
-  124 remain across the other categories, `apps-services` 23 and `gpu-drivers` 14 the
-  largest. About 750k to 900k tokens per ten records, one agent per two records, through
+  brief. STARTED 2026-09-06. `pacman-aur` is complete as of 2026-09-07: all 22 records
+  corrected (see the 2026-09-07 session). Paused there on the operator's instruction.
+  120 remain across the other categories: `apps-services` 23, `power-suspend` 16,
+  `omarchy-theming` 15, `network` 15, `gpu-drivers` 14, `hyprland-config` 12,
+  `wayland-compat` 9, `audio-input` 9, `display-monitors` 5, `omarchy-core` 2. About 750k to 900k tokens per ten records, one agent per two records, through
   `merge_gapfill.py` with the dry-run-then-diff discipline.
 - **O4. Harvest from `basecamp/omarchy` issues rather than the web.** Two records cited
   issues that did not support them. A harvester that reads issue threads with comments on

@@ -21,6 +21,9 @@
  "aur-build-fails-missing-base-devel": [
   "sudo-pacman-Syu"
  ],
+ "aur-package-deleted-merged-or-renamed": [
+  "sudo-pacman-Syu"
+ ],
  "aur-package-needs-rebuild-after-soname-bump": [
   "sudo-pacman-Syu"
  ],
@@ -150,7 +153,8 @@
  ],
  "hook-failed-command-failed-to-execute-correctly": [
   "boot-vmlinuz-or-initramfs",
-  "mkinitcpio-P"
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
  ],
  "hyprctl-keyword-noop-under-lua": [
   "hyprctl-dispatch-bare"

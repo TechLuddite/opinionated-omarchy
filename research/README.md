@@ -8,18 +8,18 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**456 problems across 12 categories**, drawn from 912 distinct sources. Every record
+**456 problems across 12 categories**, drawn from 925 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 211 | audited and confirmed accurate |
-| `corrected` | 245 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `ok` | 207 | audited and confirmed accurate |
+| `corrected` | 249 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
 So all 456 records have been through an adversarial audit. That audit checked each record
-against its cited sources. It did not check it against Omarchy 4 itself, and when thirty-three
-`ok` records were checked that way on 2026-09-06 and 2026-09-07, all thirty-three needed
+against its cited sources. It did not check it against Omarchy 4 itself, and when thirty-seven
+`ok` records were checked that way on 2026-09-06 and 2026-09-07, all thirty-seven needed
 correcting. See
 "Refreshing the corpus" for the re-audit path. The last
 `gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
@@ -171,8 +171,8 @@ is 22.
 
 The 2026-09-01 audit stamped a further **7**, and the 2026-09-06 audit of the last four
 unaudited records, the first VM-validated record and ten boot-kernel records re-audited
-for Omarchy 4 stamped **12** more, and the 2026-09-07 re-audit of eighteen `pacman-aur`
-records **11** more, so 52 records carry `cause_reconciled` across four dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+for Omarchy 4 stamped **12** more, and the 2026-09-07 re-audit of all 22 `pacman-aur`
+records **14** more, so 55 records carry `cause_reconciled` across four dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
 whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See
