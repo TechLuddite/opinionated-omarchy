@@ -1,0 +1,469 @@
+{
+ "amdgpu-flip-done-timed-out": [
+  "boot-limine-conf"
+ ],
+ "amdgpu-idle-freeze-gfxoff-ppfeaturemask": [
+  "boot-limine-conf"
+ ],
+ "amdgpu-screen-flicker-white-sg-display": [
+  "boot-limine-conf"
+ ],
+ "amdgpu-washed-out-colors-abm": [
+  "boot-limine-conf"
+ ],
+ "archlinux-keyring-outdated-blocks-every-upgrade": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "audio-pop-crack-when-playback-starts": [
+  "mkinitcpio-P"
+ ],
+ "aur-build-fails-missing-base-devel": [
+  "sudo-pacman-Syu"
+ ],
+ "aur-package-needs-rebuild-after-soname-bump": [
+  "sudo-pacman-Syu"
+ ],
+ "battery-charge-threshold-resets-or-missing": [
+  "sudo-pacman-Syu"
+ ],
+ "black-screen-on-resume-from-hibernate-early-kms": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "boot-esp-not-mounted-during-kernel-upgrade": [
+  "mkinitcpio-P"
+ ],
+ "broken-initramfs-after-update-boot-fallback": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "btrfs-metadata-exhaustion-enospc-truncated-initramfs": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "chrome-sharing-indicator-stuck-center-screen": [
+  "hyprland-conf",
+  "omarchy3-tree"
+ ],
+ "chroot-recovery-btrfs-missing-subvol": [
+  "boot-efi",
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "clipboard-lost-when-source-app-closes": [
+  "hyprland-conf"
+ ],
+ "conflicting-files-exists-in-filesystem": [
+  "sudo-pacman-Syu"
+ ],
+ "corrupted-package-checksum-part-files": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "cpu-power-limit-throttling-low-clocks": [
+  "sudo-pacman-Syu"
+ ],
+ "custom-theme-missing-color-keys-rgb-parse-error": [
+  "omarchy3-tree"
+ ],
+ "customizations-lost-editing-omarchy-defaults": [
+  "omarchy3-tree"
+ ],
+ "dev-channel-broke-my-desktop": [
+  "omarchy3-tree"
+ ],
+ "discord-screenshare-stops-after-one-second": [
+  "sudo-pacman-Syu"
+ ],
+ "displaylink-dock-monitors-not-redetected": [
+  "hyprctl-dispatch-bare"
+ ],
+ "dkms-module-build-fails-on-kernel-upgrade": [
+  "bare-pacman-Sy",
+  "mkinitcpio-P"
+ ],
+ "dkms-nvidia-build-fails-after-kernel-update": [
+  "bare-pacman-Sy",
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "downgrade-a-broken-package": [
+  "mkinitcpio-P"
+ ],
+ "dpms-external-monitor-wont-wake-after-idle": [
+  "hyprctl-dispatch-bare"
+ ],
+ "edid-override-for-bad-or-missing-monitor-edid": [
+  "boot-limine-conf",
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "egpu-nvidia-hotplug-wayland": [
+  "mkinitcpio-P"
+ ],
+ "emergency-shell-device-uuid-not-found": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
+ "esp-boot-partition-full-no-space": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "esp-full-during-kernel-upgrade": [
+  "boot-vmlinuz-or-initramfs"
+ ],
+ "failed-retrieving-file-404-stale-mirror": [
+  "sudo-pacman-Syu"
+ ],
+ "filesystem-full-during-pacman-transaction": [
+  "sudo-pacman-Syu"
+ ],
+ "fstab-bad-entry-emergency-mode": [
+  "boot-efi"
+ ],
+ "gamepad-not-detected-or-no-input": [
+  "sudo-pacman-Syu"
+ ],
+ "gdk-scale-apps-too-large-hyprland": [
+  "hyprland-conf"
+ ],
+ "gdk-scale-mismatch-oversized-xwayland": [
+  "omarchy3-tree"
+ ],
+ "gestures-workspace-swipe-does-not-exist-051": [
+  "omarchy3-tree"
+ ],
+ "gpgme-error-no-data-captive-portal": [
+  "sudo-pacman-Syu"
+ ],
+ "grub-ran-out-of-memory-zen5-large-initramfs": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "hdr-10bit-washed-out-and-broken-capture": [
+  "hl-set"
+ ],
+ "hibernate-resume-hook-missing-or-misordered": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "hook-failed-command-failed-to-execute-correctly": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "hyprctl-keyword-noop-under-lua": [
+  "hyprctl-dispatch-bare"
+ ],
+ "hyprland-055-lua-config-input-ignored": [
+  "hyprland-conf"
+ ],
+ "hyprland-055-removed-options-pseudotile-border-locked": [
+  "omarchy3-tree"
+ ],
+ "hyprland-nvidia-cursor-artifacts-hardware-cursors": [
+  "hl-set",
+  "hyprland-conf"
+ ],
+ "hyprlang-deprecated-lua-config-not-loading": [
+  "hyprland-conf"
+ ],
+ "hyprlock-hypridle-conf-not-lua": [
+  "hyprland-conf"
+ ],
+ "ignorepkg-holdpkg-blocking-upgrade": [
+  "sudo-pacman-Syu"
+ ],
+ "igpu-electron-stall-i915-module-order": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "installed-theme-without-colors-toml-breaks-foot": [
+  "hyprland-conf"
+ ],
+ "interrupted-upgrade-unbootable-pacman-broken": [
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "iwlwifi-hang-on-second-suspend": [
+  "mkinitcpio-P"
+ ],
+ "iwlwifi-no-suitable-firmware-new-intel-card": [
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "java-gray-window-nonreparenting": [
+  "hyprland-conf"
+ ],
+ "kernel-panic-vfs-unable-to-mount-root-fs": [
+  "boot-efi",
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "libvirt-virt-manager-permission-denied": [
+  "hyprland-conf"
+ ],
+ "limine-boot-entry-missing-after-install": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
+ "limine-snapper-wrong-config-path": [
+  "boot-limine-conf"
+ ],
+ "limine-snapshot-entries-missing-from-boot-menu": [
+  "boot-efi",
+  "boot-limine-conf"
+ ],
+ "linux-firmware-nvidia-exists-in-filesystem": [
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "linux-firmware-split-exists-in-filesystem": [
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "local-package-database-corrupted": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "luks-passphrase-rejected-at-boot": [
+  "mkinitcpio-P"
+ ],
+ "makepkg-as-root-not-allowed": [
+  "bare-pacman-Sy"
+ ],
+ "microcode-hook-migration-mkinitcpio-38": [
+  "boot-limine-conf",
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "mixed-refresh-rate-monitors-animation-judder": [
+  "sudo-pacman-Syu"
+ ],
+ "mkinitcpio-pacnew-unhandled-breaks-next-boot": [
+  "mkinitcpio-P"
+ ],
+ "mkinitcpio-possibly-missing-firmware-warnings": [
+  "mkinitcpio-P"
+ ],
+ "monitor-stuck-at-60hz-high-refresh": [
+  "mkinitcpio-P"
+ ],
+ "mouse-acceleration-sensitivity-hyprland": [
+  "hyprland-conf"
+ ],
+ "mt7921e-dead-after-suspend-aspm": [
+  "boot-limine-conf"
+ ],
+ "nm-wifi-backend-iwd-orphaned-after-quattro": [
+  "sudo-pacman-Syu"
+ ],
+ "no-snapshot-rollback-without-limine-btrfs": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-590-drops-pascal-broken-desktop": [
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "nvidia-black-screen-external-after-suspend": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-dkms-login-loop-after-update": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-drm-modeset-disabled-black-screen-hyprland": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
+ "nvidia-early-kms-breaks-hibernation": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "nvidia-external-monitor-no-signal-hybrid-laptop": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-gsp-firmware-crashes": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-hyprland-modeset-cursors-mgpu": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-modules-missing-from-initramfs-black-screen": [
+  "bare-pacman-Sy",
+  "mkinitcpio-P"
+ ],
+ "nvidia-suspend-resume-black-screen-vram": [
+  "mkinitcpio-P"
+ ],
+ "nvidia-vrr-tty-switch-flip-timeout": [
+  "boot-limine-conf",
+  "hl-set",
+  "hyprland-conf"
+ ],
+ "omarchy-keyring-signature-unknown-trust": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "omarchy-limine-panic-stale-arch-linux-efi": [
+  "boot-limine-conf",
+  "sudo-omarchy-cmd"
+ ],
+ "omarchy-limine-windows-entry-wiped": [
+  "boot-limine-conf"
+ ],
+ "omarchy-lua-configs-with-older-hyprland": [
+  "sudo-omarchy-cmd"
+ ],
+ "omarchy-mirror-outage-tls-404-sig": [
+  "sudo-pacman-Syu"
+ ],
+ "omarchy-nvidia-580xx-target-not-found": [
+  "mkinitcpio-P",
+  "omarchy3-tree"
+ ],
+ "omarchy-update-aborted-midway": [
+  "sudo-pacman-Syu"
+ ],
+ "omarchy-update-overwrites-pacman-conf": [
+  "sudo-pacman-Syu"
+ ],
+ "package-conflict-and-provider-prompts-during-upgrade": [
+  "sudo-pacman-Syu"
+ ],
+ "pacman-cache-filling-disk": [
+  "sudo-pacman-Syu"
+ ],
+ "pacman-syu-instead-of-omarchy-update": [
+  "sudo-pacman-Syu"
+ ],
+ "pacman-unable-to-lock-database": [
+  "sudo-pacman-Syu"
+ ],
+ "pacman7-local-repo-alpm-download-user": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "partial-upgrade-broken-shared-libraries": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "partial-upgrade-pacman-sy-breaks-boot": [
+  "bare-pacman-Sy",
+  "mkinitcpio-P",
+  "sudo-pacman-Syu"
+ ],
+ "pgp-signature-invalid-wrong-system-clock": [
+  "sudo-pacman-Syu"
+ ],
+ "plymouth-swallows-luks-passphrase-prompt": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
+ "r8169-rtl8111-link-flapping-r8168-dkms": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
+ "resolved-inactive-breaks-upgrade-dns": [
+  "sudo-pacman-Syu"
+ ],
+ "restore-whole-system-to-earlier-date-ala": [
+  "bare-pacman-Sy"
+ ],
+ "resume-hook-after-filesystems-hibernation": [
+  "boot-limine-conf",
+  "boot-vmlinuz-or-initramfs"
+ ],
+ "rollback-kernel-after-bad-update": [
+  "mkinitcpio-P"
+ ],
+ "rtw88-rtl8821ce-unstable-disable-aspm": [
+  "mkinitcpio-P"
+ ],
+ "screen-never-wakes-after-dpms-off": [
+  "hyprctl-dispatch-bare"
+ ],
+ "screenshare-black-screen-no-portal": [
+  "hyprland-conf"
+ ],
+ "sddm-greeter-not-following-theme-white-black-on-black": [
+  "mkinitcpio-P"
+ ],
+ "secure-boot-violation-sbctl": [
+  "boot-vmlinuz-or-initramfs"
+ ],
+ "share-picker-crashes-missing-qt6-wayland": [
+  "sudo-pacman-Syu"
+ ],
+ "signature-unknown-trust-keyring-out-of-date": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
+ "snapshot-restore-does-not-restore-home": [
+  "omarchy3-tree"
+ ],
+ "steam-games-xwayland-fullscreen-flicker": [
+  "hyprland-conf"
+ ],
+ "stuck-in-submap-no-keys-work": [
+  "hyprctl-dispatch-bare"
+ ],
+ "suspend-fails-nvidia-video-memory": [
+  "mkinitcpio-P"
+ ],
+ "synaptics-touchpad-dead-needs-intertouch": [
+  "mkinitcpio-P"
+ ],
+ "third-party-repo-keyring-untrusted": [
+  "sudo-pacman-Syu"
+ ],
+ "touchpad-kernel-panic-on-resume-intel-lpss": [
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "vantablack-white-theme-broken-icon-placeholders": [
+  "sudo-pacman-Syu"
+ ],
+ "vfat-module-missing-boot-efi-mount-fails": [
+  "boot-efi",
+  "boot-vmlinuz-or-initramfs",
+  "mkinitcpio-P"
+ ],
+ "vfio-gpu-passthrough-group-not-viable": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
+ "vm-remote-desktop-steals-or-leaks-compositor-binds": [
+  "hyprctl-dispatch-bare"
+ ],
+ "webp-wallpaper-black-lock-screen": [
+  "sudo-pacman-Syu"
+ ],
+ "windowrule-float-on-title-change-never-fires": [
+  "hyprctl-dispatch-bare"
+ ],
+ "windowrule-syntax-overhaul-053-invalid-field": [
+  "omarchy3-tree"
+ ],
+ "workspace-not-pinned-to-monitor": [
+  "hyprctl-dispatch-bare"
+ ],
+ "xdg-desktop-portal-not-starting-hyprland": [
+  "hyprland-conf"
+ ],
+ "xwayland-app-cannot-share-wayland-windows": [
+  "hyprland-conf"
+ ],
+ "xwayland-apps-blurry-hidpi": [
+  "hyprland-conf"
+ ],
+ "xwayland-game-flicker-explicit-sync": [
+  "sudo-pacman-Syu"
+ ],
+ "yay-libalpm-shared-library-error": [
+  "bare-pacman-Sy"
+ ],
+ "yay-paru-libalpm-so-mismatch": [
+  "sudo-pacman-Syu"
+ ]
+}

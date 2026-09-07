@@ -50,6 +50,9 @@ research/                the troubleshooting corpus + its tooling
   assets/fonts/          vendored Departure Mono (OFL) for the public site
   tools/                 build/search/ingest scripts + the three workflow scripts
     corpus.py            the record schema + the only corpus reader/writer
+    lint_corpus.py       flags shapes known wrong on Omarchy 4; data/lint-baseline.json
+                         holds the known hits and a test fails on new ones
+    reaudit-brief.md     the prompt for checking an `ok` record against Omarchy 4
     build_site.py        generates the public site into the repo-root docs/, INCLUDING
                          the project docs listed in its DOCS table, which are rendered
                          from markdown rather than linked out to GitHub
@@ -415,7 +418,8 @@ python3 tools/ask.py "zoom screen share is a black rectangle"   # search by symp
 python3 tools/ask.py --tag nvidia --tag laptop --list           # filter by tag
 python3 tools/ask.py --slug some-problem-slug -v                # exact lookup + sources
 python3 tools/build_db.py                                       # rebuild DB + docs from JSONL
-./tests/run.sh                                                  # 13 tests, stdlib only
+python3 tools/lint_corpus.py --check                            # no new known-bad shapes
+./tests/run.sh                                                  # 18 tests, stdlib only
 ```
 
 **The JSONL is authoritative; the `.db` and `docs/` are derived.** Edit the JSONL, then
