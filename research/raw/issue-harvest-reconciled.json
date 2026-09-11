@@ -1,8 +1,8 @@
 {
   "what": "Partial O4 harvest: records built from omacom/omarchy issue threads, confirmed fixes only.",
-  "status": "NOT MERGED. Duplicates are reconciled (2026-09-10) and batch 01 is harvested (2026-09-10), so the harvest is complete at 39 records. No record has had an audit pass. Do not run this through merge_gapfill.py until every record has been audited against Omarchy 4 with research/tools/reaudit-brief.md.",
+  "status": "NOT MERGED. Duplicates reconciled in two passes (2026-09-10 and 2026-09-11) and batch 01 harvested (2026-09-10), so the harvest is complete at 36 records. No record has had an audit pass. Do not run this through merge_gapfill.py until every record has been audited against Omarchy 4 with research/tools/reaudit-brief.md.",
   "harvested_on": "2026-09-07, batch 01 on 2026-09-10",
-  "reconciled_on": "2026-09-10",
+  "reconciled_on": "2026-09-10, second duplicate pass 2026-09-11",
   "repo": "omacom/omarchy",
   "brief": "research/tools/issue-harvest-brief.md",
   "candidates": "research/raw/issue-candidates.json",
@@ -21,9 +21,9 @@
   ],
   "batches_not_run": [],
   "reconciliation": {
-    "method": "Token-set Jaccard over title, symptom and cause across all 40 records, then each candidate group read in full and settled against upstream sources and this workstation (omarchy 4.0.2-1). The harvest's own near_duplicates_to_reconcile list held six pairs, which are five groups because three codex records overlap. A sixth group, the two plugin-lock records, was not on that list.",
+    "method": "Two passes. The first, on 2026-09-10, used token-set Jaccard over title, symptom and cause with a 0.25 threshold and settled the six groups it found. That threshold was too high and MISSED three groups: the pair at 0.231, the pair at 0.214 and the pair at 0.160, all of which are plainly one defect each. The second pass, on 2026-09-11, lowered the threshold to 0.15 and added two signals that do not depend on wording, a shared source URL between two records and two or more shared file paths. Those signals are what caught all three. Use them first in any future dedup: two harvesters writing up the same defect agree on the file they blame long before they agree on prose. Nine groups over nineteen records became nine records, and every group was read in full and settled against upstream sources and an omarchy 4.0.2-1 workstation rather than by keeping the longer record.",
     "records_before": 40,
-    "records_after": 39,
+    "records_after": 36,
     "groups": [
       {
         "keep": "installer-mounting-the-esp-failed-squashfs-superblock",
@@ -86,24 +86,54 @@
         "why": "One defect with two outcomes from the same teardown, a silent stall or a delayed SIGABRT, depending on what the rebuilt lock service reads through the dangling pointer. Same root cause and the same upstream fix, PR #9485. This pair was NOT in the harvest's near_duplicates list; it surfaced on a second similarity pass over all 40 records.",
         "changed": "Both records said the fix was in no tagged release. It is: v4.0.3, published 2026-09-08, contains commit d3d23fdd, confirmed by reading shell.qml at that tag, where unloadPluginServices consults serviceKeepLoaded. The fix section now says update to 4.0.3. Resolved a contradiction between the two records about omarchy-restart-shell: it refuses while the wedged service still reports .secure or .requested, and re-locks a fresh shell when neither is true, which is what lines 28 to 36 of the installed script do. Severity high and frequency common, from the record with the wider trigger set. Filled danger for the last-resort step that returns the session unlocked.",
         "audit": "Q6"
+      },
+      {
+        "keep": "nvidia-env-forced-on-igpu-primary-hybrid-laptop",
+        "drop": [
+          "libva-driver-name-nvidia-forced-on-hybrid-laptop"
+        ],
+        "decision": "merged",
+        "why": "One defect, three open upstream issues between them (8989, 9890, 10410) and the same three open pull requests. Both records name /usr/share/omarchy/default/hypr/nvidia.lua, both name commit 33d7363c as what made the branch live in 4.0.1, and both fix it with the same hl.env override below the require. Token similarity was 0.231, under the 0.25 threshold of the first pass, and the shared file paths are what caught it.",
+        "changed": "Took the second record as the base, because its cause isolates the Chromium modifier CHECK and the missing VA encode entrypoints, and folded in the first record's dGPU runtime-suspend consequence, its Pascal and older branch caveat including the Quadro P520 case that has no confirmed fix, the PRIME offload note and the chromium-flags cleanup. Severity high, from the record that carried the power consequence. Filled danger, which both left empty while describing in the fix how the override is wrong on a muxed laptop. Confirmed on 2026-09-11 that nvidia.lua is unchanged at the v4.0.3 tag and that all three pull requests are open.",
+        "audit": "Q7"
+      },
+      {
+        "keep": "migration-1786643346-browser-window-open-loop",
+        "drop": [
+          "copy-url-migration-stuck-on-stale-browser-singleton-lock"
+        ],
+        "decision": "merged",
+        "why": "One defect, issues 7019 and 7453, both blocked by a stale SingletonLock under ~/.config and both fixed by deleting it. Token similarity 0.214, and the shared migration file name is what caught it.",
+        "changed": "Kept the slug that names the migration number, since that is what a reader greps for. Took the first record's cause, which quotes the shipped profile_open() test, and the second's confirmed delete commands, which cover more browsers. Corrected one point both records blurred: the shipped check looks at SingletonLock and SingletonSocket only, so deleting SingletonCookie is harmless but is not what unsticks it, read at line 129 of the migration on 4.0.2-1. Kept the danger the first record carried and the second left empty. PR 7026 confirmed still open on 2026-09-11. Normalised a basecamp/omarchy source URL to omacom.",
+        "audit": "Q8"
+      },
+      {
+        "keep": "vmware-shell-black-desktop-qt-quick-dmabuf",
+        "drop": [
+          "vmware-black-desktop-cursor-only-quickshell-dmabuf",
+          "vmware-3d-shell-crash-loop-wl-surface-attach"
+        ],
+        "decision": "merged",
+        "why": "One defect with two presentations, a silent black desktop and a shell crash-loop, issues 7835 and 8113. Same mechanism, a Qt Quick dmabuf modifier vmwgfx cannot satisfy, and the same fix, QT_QUICK_BACKEND=software. Token similarity 0.160, well under the first pass's threshold.",
+        "changed": "New slug, because one old slug said cursor-only and the other said crash-loop and the merged record covers both. Category wayland-compat rather than omarchy-core, because a bare qml6 window reproduces the error with no Omarchy involved. Took the crash-loop record as the base for its mechanism and its three ruled-out alternatives, and folded in the other's TTY route and the VMware Accelerate 3D Graphics setting. Corrected the placement advice: one record told the reader to add the line immediately after the bootstrap dofile, which is above where Omarchy's own defaults load. It works for this variable because Omarchy sets no QT_QUICK_BACKEND, confirmed on 4.0.2-1, and the merged record says to put it below the require anyway and explains why.",
+        "audit": "Q9"
       }
     ],
     "unchanged": [
       "bluetooth-panel-turned-off-while-adapter-powered",
-      "copy-url-migration-stuck-on-stale-browser-singleton-lock",
       "crash-capture-notification-dismiss-or-disable",
+      "ghostty-epoll-backend-segfault-write-queue",
       "grok-bot-0-18-0-404-needs-package-bump",
       "installer-usb-black-screen-nvidia-nomodeset",
+      "internal-panel-forced-to-2x-scale-clamshell-poll",
       "iso-install-failed-retrieving-file-offline-mirror",
-      "libva-driver-name-nvidia-forced-on-hybrid-laptop",
       "localsend-opens-tiled-window-rule-class-mismatch",
       "lock-screen-fingerprint-fails-after-suspend-cannot-run-while-suspended",
       "lock-screen-reblanks-slow-dpms-monitor",
-      "migration-1786643346-browser-window-open-loop",
       "mise-config-toml-corrupted-by-wrapper-race",
+      "mise-stale-registry-attestation-install-failure",
       "nautilus-set-as-wallpaper-does-nothing",
       "ntfs-external-drive-mount-fails-volume-dirty",
-      "nvidia-env-forced-on-igpu-primary-hybrid-laptop",
       "omarchy-install-fails-psmouse-module-not-found",
       "omarchy-plugin-edit-not-applied-until-shell-restart",
       "omarchy-shell-quickshell-undefined-symbol-qt-private-api",
@@ -111,11 +141,12 @@
       "omarchy-windows-vm-launch-silent-setgid-chmod",
       "omawrite-save-dialog-oversized-gtk3-double-font-scale",
       "omazed-could-not-determine-current-omarchy-theme",
+      "quattro-upgrade-uki-missing-root-parameter",
       "screenrecord-nvenc-api-13-1-required-pascal-580xx",
+      "screensaver-self-dismisses-and-session-never-locks",
       "steam-game-fullscreen-not-inhibiting-idle",
       "ttfx-screensaver-core-dump-on-lock",
-      "vmware-3d-shell-crash-loop-wl-surface-attach",
-      "vmware-black-desktop-cursor-only-quickshell-dmabuf"
+      "windows-vm-launch-no-rdp-window-stale-log"
     ],
     "open_questions_for_audit": {
       "Q1": "installer-mounting-the-esp-failed-squashfs-superblock: omarchy-iso#111 is still open, so the -t vfat and udevadm settle patch is a proposed fix rather than an accepted one. Nobody explained why pre-creating an EFI partition helped two reporters when the installer ignores it. Settle both, and check whether the ESP size note in the configurator's own tip (2GB more if no ESP already exists) matches the unconditional EFI_SIZE_B the code uses.",
@@ -123,9 +154,12 @@
       "Q3": "codex-limits-unavailable-agents-panel: find and cite the openai/codex issue or release note that retired the untrusted approval policy in 0.149. Frequency is set to common; one of the three source records argued very-common on the strength of seven duplicate closures, so decide it on the thread count.",
       "Q4": "default-agent-gemini-fails-antigravity-replacement: verify the date Google stopped serving Gemini CLI to individual accounts. Both source records said 2026-06-18 and cited nothing for it, so the merged record omits it. Also check whether the node-pty install failure has a fix of its own, in which case it should be split back out of this record.",
       "Q5": "omarchy-update-migration-1787515927-fails-bash-5-3: the two source records disagreed on whether the affected reporters were on the dev or the edge channel. The version string 4.0.0.r1872.g7d58bb9-1 is a source checkout, which points at dev, but confirm from the threads.",
-      "Q6": "plugin-file-write-while-locked-strands-session: PR #7169, recovery of a shell process that has already taken the damage, was still open on 2026-09-10, as is the same teardown reached through omarchy plugin disable or remove while locked. Re-read both when a release after v4.0.3 ships."
+      "Q6": "plugin-file-write-while-locked-strands-session: PR #7169, recovery of a shell process that has already taken the damage, was still open on 2026-09-10, as is the same teardown reached through omarchy plugin disable or remove while locked. Re-read both when a release after v4.0.3 ships.",
+      "Q7": "nvidia-env-forced-on-igpu-primary-hybrid-laptop: three pull requests propose different gates and none has merged, so the override is the whole fix and it has to be re-read when one lands. The Pascal and older branch is unresolved: one Quadro P520 reporter had the dGPU pinned awake with no CUDA context and no confirmed fix, and the record says so rather than implying the override helps there. Confirm the AMD radeonsi value, which only one reporter used.",
+      "Q8": "migration-1786643346-browser-window-open-loop: check whether PR 7026 has merged, because the manual deletion stops being the fix the moment it ships. Confirm that no shipped release after 4.0.2 changed profile_open().",
+      "Q9": "vmware-shell-black-desktop-qt-quick-dmabuf: the cause was established by reporters rather than by a maintainer, and the fix is a workaround in the user's own config. Check hyprwm/Hyprland#12966 for a compositor-side fix, and whether omacom/omarchy#7918, the invisible cursor on the same driver, needs its own record."
     },
-    "lint_notes": "tools/lint_corpus.py patterns were run over these 39 records and hit three times, all legitimate. Two are `sudo pacman -Syu` inside a branch labelled plain Arch, in av1-video-color-corruption-linux-firmware-amdgpu-20260810-1 and screenrecord-nvenc-api-13-1-required-pascal-580xx. The third is /boot/limine.conf in the symptom of quattro-upgrade-uki-missing-root-parameter, where a reporter observed that generated file carrying a truncated cmdline line, which is a symptom rather than advice to edit it. All three are new hits, so `lint_corpus.py --check` will fail the first time these records enter the corpus. Add them to data/lint-baseline.json in the merge commit rather than rewording correct text."
+    "lint_notes": "tools/lint_corpus.py patterns were run over these 36 records and hit three times, all legitimate. Two are `sudo pacman -Syu` inside a branch labelled plain Arch, in av1-video-color-corruption-linux-firmware-amdgpu-20260810-1 and screenrecord-nvenc-api-13-1-required-pascal-580xx. The third is /boot/limine.conf in the symptom of quattro-upgrade-uki-missing-root-parameter, where a reporter observed that generated file carrying a truncated cmdline line, which is a symptom rather than advice to edit it. All three are new hits, so `lint_corpus.py --check` will fail the first time these records enter the corpus. Add them to data/lint-baseline.json in the merge commit rather than rewording correct text."
   },
   "records": [
     {
@@ -259,23 +293,25 @@
       "slug": "migration-1786643346-browser-window-open-loop",
       "title": "Unstick migration 1786643346 when it insists a browser window is open",
       "category": "omarchy-core",
-      "symptom": "On Omarchy 4.0.0-1 stable, `omarchy update` stops at migration `1786643346` (\"Repair the Copy URL shortcut for profiles that predate its pinned extension id\"). It says a browser window is open and asks you to close it, even after every browser is closed, after `pkill -f` on all of them, and after several reboots. Confirming the prompt re-prompts forever. Declining exits 1, and because `omarchy-migrate` runs under `set -euo pipefail` and `omarchy-update` calls it under `set -e`, every migration that sorts after it never runs and the rest of the update (post-update hook, AUR packages, mise, orphan cleanup) is skipped.",
-      "cause": "Established in the thread and confirmed against `migrations/1786643346.sh` on `quattro`: the migration never looks at processes or windows. `profile_open()` decides a Chromium-family profile is open purely from filesystem markers in the profile's user-data-dir:\n\n```bash\n[[ -L $1/SingletonLock || -e $1/SingletonLock || -S $1/SingletonSocket ]]\n```\n\nChromium-family browsers create `SingletonLock` as a symlink to `<hostname>-<pid>` and unlink it on a clean exit, but leave it behind after a crash, a `SIGKILL`, or a hard power-off. It lives under `~/.config/`, so a reboot never clears it and `pkill` has nothing left to signal. The guard is a `while` loop, so a marker that is permanently present re-prompts forever. The migration only checks profiles that actually need the repair, so the stale marker can sit in a profile you stopped using long ago (the second reporter's was an old Brave profile).",
-      "fix": "With every Chromium-family browser genuinely closed, find the stale markers:\n\n```bash\nls -l ~/.config/{chromium,google-chrome*,BraveSoftware/Brave-Browser*,microsoft-edge*,vivaldi,opera,helium}/Singleton* 2>/dev/null\n```\n\nDelete the `SingletonLock` (and `SingletonSocket`, if one is there) in whichever profile roots turn up. A dangling symlink to a `<hostname>-<pid>` that no longer exists is the signature. For example:\n\n```bash\nrm ~/.config/BraveSoftware/Brave-Browser/SingletonLock\nrm -f ~/.config/BraveSoftware/Brave-Browser/SingletonSocket\n```\n\nThen run the migrations again, which also finishes the rest of the interrupted update:\n\n```bash\nomarchy-migrate\nomarchy update\n```\n\nPR #7026 makes `profile_open()` check that the PID named by the `SingletonLock` symlink is alive (`kill -0`) and ignore an orphaned lock. It is still open and unmerged as of 2026-09-07, so the manual removal is the fix on every shipped release up to 4.0.2.",
-      "verify": "```bash\nomarchy-migrate                                   # runs to the end without the prompt\nls ~/.local/state/omarchy/migrations/ | grep 1786643346   # marker written once it completed\n```\n\nThe marker directory is `STATE_DIR` in `omarchy-migrate` (line 32 on 4.0.2-1). The second reporter confirmed the `ls` command found the stale marker and removing the profile directory let the migration run.",
+      "symptom": "`omarchy update` stops at migration `1786643346`, \"Repair the Copy URL shortcut for profiles that predate its pinned extension id\", and asks you to close the browser:\n\n```\nClose the browser windows to repair the Copy URL shortcut, then continue\n```\n\nIt asks again however many times you confirm, with every browser closed, after `pkill -f` on all of them, and after several reboots. Declining prints:\n\n```\nA running browser would undo the Copy URL shortcut repair.\nClose the browser windows, then run: omarchy-migrate\n```\n\nand exits 1. Because `omarchy-migrate` runs under `set -euo pipefail` and `omarchy-update` calls it under `set -e`, every migration sorting after it never runs and the rest of the update is skipped: the post-update hook, AUR packages, mise and the orphan cleanup. A pending-migration notification then appears at every login.\n\nReported on Omarchy 4.0.0-1 stable and after an Omarchy 3 to Quattro upgrade, with Brave, and confirmed by a second reporter with Vivaldi and Chromium.",
+      "cause": "Established in the threads and confirmed against the shipped migration on an omarchy 4.0.2-1 install, where `profile_open()` at line 129 reads:\n\n```bash\nprofile_open() {\n  [[ -L $1/SingletonLock || -e $1/SingletonLock || -S $1/SingletonSocket ]]\n}\n```\n\nThe migration never looks at processes or windows. It decides a Chromium-family profile is open purely from those filesystem markers in the profile's user-data-dir. Chromium-family browsers create `SingletonLock` as a symlink to `<hostname>-<pid>` and unlink it on a clean exit, but leave it behind after a crash, a `SIGKILL` or a hard power-off. It lives under `~/.config/`, so a reboot never clears it and `pkill` has nothing left to signal. The guard is a `while` loop, so a marker that is permanently present re-prompts forever.\n\nThe migration only checks profiles that actually need the repair, so the stale marker can sit in a profile you stopped using long ago. The second reporter's was an old Brave profile.\n\nPR 7026 makes `profile_open()` check that the PID named by the `SingletonLock` symlink is alive with `kill -0` and ignore an orphaned lock. It is still open on 2026-09-11, so the manual removal below is the fix on every shipped release through 4.0.2.",
+      "fix": "With every Chromium-family browser genuinely closed, find the stale markers:\n\n```bash\nls -l ~/.config/{chromium,google-chrome*,BraveSoftware/Brave-Browser*,microsoft-edge*,vivaldi,opera,helium}/Singleton* 2>/dev/null\n```\n\nA dangling symlink to a `<hostname>-<pid>` that no longer exists is the signature. Delete `SingletonLock`, and `SingletonSocket` if one is there, in whichever profile roots turn up. The two commands reporters confirmed, for Brave plus Chromium and for Chromium plus Vivaldi:\n\n```bash\nrm -vf ~/.config/BraveSoftware/Brave-Browser/Singleton{Lock,Socket} ~/.config/chromium/Singleton{Lock,Socket}\nrm -vf ~/.config/chromium/Singleton{Lock,Socket} ~/.config/vivaldi/Singleton{Lock,Socket}\n```\n\nThe same files live under the profile root of any other Chromium-family browser the migration scans, including the beta and nightly variants. `SingletonCookie` sits beside them and reporters deleted it too, which is harmless, but the shipped check does not look at it so removing it is not what unsticks the migration.\n\nThen run the migrations again, which also finishes the rest of the interrupted update:\n\n```bash\nomarchy-migrate\nomarchy update\n```",
+      "verify": "```bash\nomarchy-migrate                                            # runs to the end without the prompt\nomarchy-migrate --pending                                  # prints nothing\nls ~/.local/state/omarchy/migrations/ | grep 1786643346    # the completion marker is written\n```\n\nNo migration notification appears at the next login. Both reporters confirmed the migration ran through once the stale lock files were gone.",
       "applies_to": [
         "omarchy",
         "arch",
         "chromium",
-        "brave"
+        "brave",
+        "vivaldi"
       ],
       "severity": "medium",
       "frequency": "occasional",
       "danger": "Only remove `SingletonLock` while no Chromium-family browser is running. Removing it under a live browser lets a second instance open the same profile, which can corrupt that profile.",
       "sources": [
         "https://github.com/omacom/omarchy/issues/7019",
-        "https://github.com/basecamp/omarchy/blob/quattro/migrations/1786643346.sh",
-        "https://github.com/omacom/omarchy/pull/7026"
+        "https://github.com/omacom/omarchy/issues/7453",
+        "https://github.com/omacom/omarchy/pull/7026",
+        "https://github.com/omacom/omarchy/blob/quattro/migrations/1786643346.sh"
       ]
     },
     {
@@ -506,29 +542,6 @@
       ]
     },
     {
-      "slug": "copy-url-migration-stuck-on-stale-browser-singleton-lock",
-      "title": "Finish the Copy URL migration that re-prompts at every login and does nothing on Yes",
-      "category": "omarchy-core",
-      "symptom": "After upgrading Omarchy 3 to Quattro (reported on 4.0.0-1), a pending-migration notification appears at every login. Running the migration shows the prompt `Close the browser windows to repair the Copy URL shortcut, then continue`. Choosing Yes does nothing and the prompt comes straight back, even with every browser window closed. On decline the migration prints:\n\n```\nA running browser would undo the Copy URL shortcut repair.\nClose the browser windows, then run: omarchy-migrate\n```\n\nReported with Brave, and confirmed by a second reporter with Vivaldi and Chromium.",
-      "cause": "The thread established that stale browser lock files were the blocker: `SingletonLock`, `SingletonCookie` and `SingletonSocket` left in the browser's config directory by a browser that had exited without cleaning them up. The migration is `migrations/1786643346.sh`, which repairs the Copy URL extension shortcut in Chromium-family `Preferences` files. Read on this machine (omarchy 4.0.2-1), its `profile_open` check treats a profile as open when `SingletonLock` exists, including as a dangling symlink, or `SingletonSocket` exists, and it loops on the confirm prompt until no affected profile is open. A stale lock therefore looks like a running browser forever, so the migration never completes and `omarchy-migrate-notify` reports it as pending at every login.",
-      "fix": "Close every Chromium-family browser, then delete the stale lock files for the browsers you have. The two confirmed commands from the thread, for Chromium plus Vivaldi and for Brave plus Chromium:\n\n```bash\nrm -v ~/.config/chromium/SingletonLock ~/.config/chromium/SingletonCookie ~/.config/chromium/SingletonSocket ~/.config/vivaldi/SingletonLock ~/.config/vivaldi/SingletonCookie ~/.config/vivaldi/SingletonSocket\n```\n\n```bash\nrm -vf ~/.config/BraveSoftware/Brave-Browser/Singleton{Lock,Cookie,Socket} ~/.config/chromium/Singleton{Lock,Cookie,Socket}\n```\n\nThe same three files live under the profile root of any other Chromium-family browser the migration scans: `~/.config/google-chrome`, `~/.config/microsoft-edge`, `~/.config/opera`, `~/.config/helium` and the beta and nightly variants. Then run the migration again:\n\n```bash\nomarchy-migrate\n```\n\nOnly delete the files while the browser is not running. A live browser owns them and removing them lets a second instance start against the same profile.",
-      "verify": "`omarchy-migrate --pending` prints nothing, and no migration notification appears at the next login. Both reporters confirmed `omarchy-migrate` ran through once the lock files were gone.",
-      "applies_to": [
-        "omarchy",
-        "arch",
-        "brave",
-        "chromium",
-        "vivaldi"
-      ],
-      "severity": "medium",
-      "frequency": "occasional",
-      "danger": "",
-      "sources": [
-        "https://github.com/omacom/omarchy/issues/7453",
-        "https://github.com/omacom/omarchy/blob/quattro/migrations/1786643346.sh"
-      ]
-    },
-    {
       "slug": "bluetooth-panel-turned-off-while-adapter-powered",
       "title": "Fix the Bluetooth panel stuck on 'Turned Off' while bluetoothctl says Powered: yes",
       "category": "omarchy-core",
@@ -679,26 +692,32 @@
       ]
     },
     {
-      "slug": "vmware-black-desktop-cursor-only-quickshell-dmabuf",
-      "title": "Fix a black desktop with a working cursor in a VMware guest (omarchy-shell cannot use vmwgfx DMA-BUF buffers)",
-      "category": "omarchy-core",
-      "symptom": "Omarchy installs cleanly in a VMware guest (reported with Windows 10 and Ubuntu hosts, VMware 26H1). After the login password is accepted the screen is black or dark grey with only the mouse cursor visible. Hyprland itself is running: `Super + Enter` opens a terminal and the browser launches, but there is no bar, no wallpaper, and `Super + Space` does nothing. Reported on Omarchy 4.0.0 in August 2026, with one later report on 4.0.1.",
-      "cause": "Diagnosed by the reporter who found the fix, not by a maintainer. VMware's `vmwgfx` driver advertises a DMA-BUF modifier that Qt Quick cannot use. omarchy-shell is a Quickshell (Qt Quick) client, so when it creates its rendering buffers Hyprland rejects the `wl_surface.attach`, and the shell that draws the bar, wallpaper and menus never appears. The compositor and non-Qt clients are unaffected, which is why a terminal still opens. One reporter also found the VM needed `Accelerate 3D Graphics` enabled in VMware's display settings before the fix worked. A separate open issue, #7918, covers the invisible cursor on the same driver.",
-      "fix": "Run Quickshell's Qt Quick scene graph on the software rasterizer. `hl.env` in the Hyprland config exports the variable to every client Hyprland launches, which includes omarchy-shell.\n\nIf you cannot get to a terminal, log in, then press `Ctrl+Alt+F2` for a TTY. `nano` is not installed on the reported systems, so use `nvim` or `vim`.\n\nIn `~/.config/hypr/hyprland.lua`, find:\n\n```lua\ndofile((os.getenv(\"OMARCHY_PATH\") or \"/usr/share/omarchy\") .. \"/default/hypr/bootstrap.lua\")\n```\n\nand add immediately after it:\n\n```lua\n-- VMware compatibility: avoid invalid Qt Quick DMA-BUF attachments.\nhl.env(\"QT_QUICK_BACKEND\", \"software\")\n```\n\nThen reboot, or log out and back in, so omarchy-shell is restarted with the new environment. The original reporter used `hyprctl reload` and saw the desktop come up, and two further reporters confirmed the same edit fixed their guests, one after a reboot.\n\nBefore powering the VM on, in VMware's VM Settings, Display, enable `Accelerate 3D Graphics`.\n\n**Plain Arch:** the variable is the same for any Qt Quick client on vmwgfx. Set `QT_QUICK_BACKEND=software` in the environment of whatever launches the Qt application.",
-      "verify": "After logging back in the bar, wallpaper and `Super + Space` menu appear. From a terminal, `hyprctl clients -j | jq -r '.[].class'` lists the shell, and `cat /proc/$(pgrep -o quickshell)/environ | tr '\\0' '\\n' | grep QT_QUICK_BACKEND` prints `QT_QUICK_BACKEND=software`.",
+      "slug": "vmware-shell-black-desktop-qt-quick-dmabuf",
+      "title": "Fix a black desktop with only a cursor in a VMware guest, where omarchy-shell cannot attach its buffers",
+      "category": "wayland-compat",
+      "symptom": "Omarchy 4.0.x installs cleanly as a VMware guest and then boots to a uniform dark screen with only the mouse cursor. There is no bar and no wallpaper, and `Super + Space` does nothing, but Hyprland itself is running, so `Super + Enter` opens a terminal and applications launch.\n\n`omarchy-launch-shell` relaunches the shell five times in under a minute and gives up. Running the shell by hand with `WAYLAND_DEBUG=1` shows the fatal protocol error:\n\n```\n[Default Queue] -> zwp_linux_buffer_params_v1#34.create_immed(new id wl_buffer#46, 1718, 52, 875713089, 0)\n[Default Queue] -> wl_surface#42.attach(wl_buffer#46, 0, 0)\n[Display Queue] wl_display#1.error(wl_display#1, 1, \"invalid arguments for wl_surface#42.attach\")\nWARN: The Wayland connection experienced a fatal error: Invalid argument\n```\n\nHyprland logs `unknown object (61), message attach(?oii)` and `error in client communication`. Other GPU-rendered clients hit the same error, including `mpv --vo=gpu`, and XWayland dies when an X11 application such as Spotify starts.\n\nReported on Omarchy 4.0.0 through 4.0.2 with Hyprland 0.56.2, Mesa 26.2.1 and `vmwgfx` 2.21.0 on VMware SVGA II `15ad:0405`, with Windows 10 and Ubuntu hosts, both with and without VMware's `Accelerate 3D Graphics` enabled.",
+      "cause": "Established in the threads by the reporters rather than by a maintainer verdict, with the failure point pinned in a debug trace.\n\nMesa's `svga` driver advertises no DMA-BUF render modifiers for the scanout formats while `vmwgfx` KMS advertises only `LINEAR`, so a GL-backed Qt Quick client hands the compositor a dmabuf whose modifier Hyprland rejects at `wl_surface.attach`, which is a fatal protocol error. Qt exits without a signal, so Quickshell's crash handler never runs and the supervisor sees a bare exit. omarchy-shell is a Quickshell client, which is why the bar, wallpaper and menus never appear while the compositor and non-Qt clients carry on.\n\nThe compositor itself is not affected: Hyprland with no environment overrides composites on `vmwgfx` and falls back to implicit modifiers, logging `GBM: Allocating with modifiers failed, falling back to implicit`. A minimal `qml6` window reproduces the same error with no Omarchy involved, which is what places this in the graphics stack rather than in Omarchy.\n\nUpstream discussion is `hyprwm/Hyprland#12966`. One reporter posted a Hyprland source patch that closes vmwgfx surface handles with `DRM_VMW_UNREF_SURFACE`, which nobody else confirmed. A separate open issue, `omacom/omarchy#7918`, covers the invisible cursor on the same driver.",
+      "fix": "Run Quickshell's Qt Quick scene graph on the software rasterizer, so its surface is an shm buffer and no dmabuf is created. The compositor stays on the GPU. Two reporters confirmed this on 4.0.2 and two more on earlier releases.\n\nIf you cannot reach a terminal, log in and press `Ctrl+Alt+F2` for a TTY. `nano` is not installed on the reported systems, so use `nvim`.\n\nAdd the line to `~/.config/hypr/hyprland.lua`, below the `require(\"default.hypr.omarchy\")` line:\n\n```lua\n-- VMware: avoid Qt Quick dmabuf attachments vmwgfx cannot satisfy.\nhl.env(\"QT_QUICK_BACKEND\", \"software\")\n```\n\nOmarchy sets no `QT_QUICK_BACKEND` of its own, confirmed on 4.0.2-1, so anywhere after the bootstrap line works. Below the `require` is the habit to keep, because that is the only placement that also wins against a variable Omarchy does set.\n\nThen log out and back in. `hl.env` only reaches processes started after the session begins, so `hyprctl reload` alone is not enough, although one reporter saw the desktop come up after a reload.\n\nIf XWayland applications still kill XWayland, one reporter added this as well and tested the two together:\n\n```lua\nhl.env(\"XWAYLAND_NO_GLAMOR\", \"1\")\n```\n\nThat makes X11 applications render in software, and the same reporter measured Spotify at about 60% of a core with it.\n\nThree alternatives do not work, and two of them look like they should. `QSG_RHI_BACKEND=software` changes nothing, and the journal says why: `Unknown key \"software\" for QSG_RHI_BACKEND, falling back to default backend`. `QT_WAYLAND_DISABLE_HARDWARE_INTEGRATION=1` does not help. `LIBGL_ALWAYS_SOFTWARE=1` does stop the crash, but it forces the whole session including the compositor onto llvmpipe, measured at about 12% idle CPU for Hyprland against 4% with the Qt-only switch, and one reporter on a fresh 4.0.2 install got no shell with it at all.\n\nOn the VMware side, one reporter needed `Accelerate 3D Graphics` enabled in VM Settings, Display, before the fix worked, while the crash-loop reports came from guests that had it enabled all along. Treat it as a setting to check rather than as the fix.\n\n**Plain Arch:** the variable is the same for any Qt Quick client on `vmwgfx`. Set `QT_QUICK_BACKEND=software` in the environment of whatever launches the Qt application.",
+      "verify": "After a fresh login the bar, wallpaper and `Super + Space` menu appear and the shell stays up:\n\n```bash\njournalctl -b -t omarchy-shell | grep -c 'exited with status'     # 0 relaunches\nhyprctl clients -j | jq -r '.[].class'                            # the shell is listed\ncat /proc/$(pgrep -o quickshell)/environ | tr '\\0' '\\n' | grep QT_QUICK_BACKEND\n```\n\nThe last command prints `QT_QUICK_BACKEND=software`. The journal shows `Disabling glamor and dri3 support, XWAYLAND_NO_GLAMOR is set` if that variable was added.",
       "applies_to": [
         "omarchy",
+        "arch",
         "hyprland",
         "wayland",
         "quickshell",
         "omarchy-shell",
-        "vmware"
+        "vmware",
+        "vmwgfx",
+        "xwayland"
       ],
       "severity": "high",
       "frequency": "occasional",
       "danger": "",
       "sources": [
         "https://github.com/omacom/omarchy/issues/7835",
+        "https://github.com/omacom/omarchy/issues/8113",
+        "https://github.com/omacom/omarchy/issues/7918",
+        "https://github.com/hyprwm/Hyprland/issues/12966",
         "https://doc.qt.io/qt-6/qtquick-visualcanvas-adaptations.html"
       ]
     },
@@ -750,32 +769,6 @@
         "https://github.com/omacom/omarchy/pull/6900",
         "https://github.com/omacom/omarchy/pull/8952",
         "https://github.com/omacom/omarchy/blob/quattro/migrations/1786719479.sh"
-      ]
-    },
-    {
-      "slug": "vmware-3d-shell-crash-loop-wl-surface-attach",
-      "title": "Fix the Omarchy shell crash-looping under VMware with 3D acceleration: 'invalid arguments for wl_surface.attach'",
-      "category": "wayland-compat",
-      "symptom": "Omarchy 4.0.x as a VMware Workstation guest with **Accelerate 3D graphics** enabled boots into Hyprland, but the desktop is a uniform dark fill with only the cursor: no bar, no wallpaper. `omarchy-launch-shell` relaunches the shell five times in under a minute and gives up. Running the shell by hand with `WAYLAND_DEBUG=1` shows the fatal protocol error:\n\n```\n[Default Queue] -> zwp_linux_buffer_params_v1#34.create_immed(new id wl_buffer#46, 1718, 52, 875713089, 0)\n[Default Queue] -> wl_surface#42.attach(wl_buffer#46, 0, 0)\n[Display Queue] wl_display#1.error(wl_display#1, 1, \"invalid arguments for wl_surface#42.attach\")\nWARN: The Wayland connection experienced a fatal error: Invalid argument\n```\n\nHyprland logs `unknown object (61), message attach(?oii)` and `error in client communication`. Other GPU-rendered clients hit the same error: `mpv --vo=gpu`, and XWayland dies when an X11 app such as Spotify starts (`XWAYLAND: wl_display#1: error 1: invalid arguments for wl_surface#18.attach`). Reported on Omarchy 4.0.0 through 4.0.2 with Hyprland 0.56.2, Mesa 26.2.1, `vmwgfx` 2.21.0, VMware SVGA II `15ad:0405`.",
-      "cause": "The thread establishes the failure point, not a maintainer verdict. Mesa's `svga` driver advertises no DMA-BUF render modifiers for the scanout formats while `vmwgfx` KMS advertises only `LINEAR`, so a GL-backed Qt Quick client hands Hyprland a dmabuf whose modifier the compositor rejects at `wl_surface.attach`, a fatal protocol error. Qt exits without a signal, so Quickshell's crash handler never runs and the supervisor sees a bare exit. The compositor itself is not affected: a Hyprland with no env overrides composites on `vmwgfx` and falls back to implicit modifiers (`GBM: Allocating with modifiers failed, falling back to implicit`). A minimal `qml6` window reproduces it with no Omarchy involved. Upstream discussion is hyprwm/Hyprland #12966. One reporter posted a Hyprland source patch that closes vmwgfx surface handles with `DRM_VMW_UNREF_SURFACE`, which nobody else confirmed.",
-      "fix": "Make the shell render with the Qt Quick software rasterizer, so its surface is a shm buffer and no dmabuf is created. The compositor stays on the GPU. Two reporters confirmed this on 4.0.2. Put it in `~/.config/hypr/hyprland.lua` after `require(\"default.hypr.omarchy\")`:\n\n```lua\nhl.env(\"QT_QUICK_BACKEND\", \"software\")\n```\n\nIf XWayland applications (Spotify, Electron apps forced to X11) still kill XWayland, also disable glamor (one reporter, tested only together with the line above):\n\n```lua\nhl.env(\"XWAYLAND_NO_GLAMOR\", \"1\")\n```\n\nLog out and back in. `hl.env` only reaches processes started after the session begins, so `hyprctl reload` is not enough.\n\nDo not use `QSG_RHI_BACKEND=software`. Two reporters found it changes nothing, and the journal on the installed Qt stack says why:\n\n```\nUnknown key \"software\" for QSG_RHI_BACKEND, falling back to default backend.\n```\n\n`LIBGL_ALWAYS_SOFTWARE=1` also stops the crash, but it forces the whole session, compositor included, onto llvmpipe (Hyprland idle CPU measured at about 12% against 4% with the Qt-only switch), and one reporter on a fresh 4.0.2 install got no shell with it at all. `QT_WAYLAND_DISABLE_HARDWARE_INTEGRATION=1` does not help.\n\nThe cost is that XWayland applications render in software. One reporter measured Spotify at about 60% of a core with `XWAYLAND_NO_GLAMOR=1`.",
-      "verify": "After a fresh login the bar and wallpaper appear and the shell stays up. Count supervisor relaunches, which should be 0:\n\n```bash\njournalctl -b -t omarchy-shell | grep -c 'exited with status'\n```\n\nThe journal shows `Disabling glamor and dri3 support, XWAYLAND_NO_GLAMOR is set` if that variable was added.",
-      "applies_to": [
-        "omarchy",
-        "arch",
-        "hyprland",
-        "wayland",
-        "quickshell",
-        "omarchy-shell",
-        "vmware",
-        "vmwgfx",
-        "xwayland"
-      ],
-      "severity": "high",
-      "frequency": "occasional",
-      "danger": "",
-      "sources": [
-        "https://github.com/omacom/omarchy/issues/8113"
       ]
     },
     {
@@ -881,12 +874,12 @@
     },
     {
       "slug": "nvidia-env-forced-on-igpu-primary-hybrid-laptop",
-      "title": "Video corruption in Chromium and Electron apps, and a dGPU that never sleeps, on a hybrid laptop whose panel runs on the iGPU",
+      "title": "Fix corrupted browser video and a dGPU that never sleeps on a hybrid laptop whose panel runs on the iGPU",
       "category": "gpu-drivers",
-      "symptom": "Omarchy 4.0.1 and 4.0.2 on Intel or AMD laptops with an NVIDIA dGPU that drives no connected display. Chromium, Chrome, Discord and other Electron apps show corrupted or black video, ghosting while scrolling, elements that only paint on mouse hover, or a WebRTC stream that never paints. Launched from a terminal Chromium prints hundreds of:\n\n```\neglCreateImage failed with 0x00003009\nUnable to initialize binding from pixmap\nOzoneImageBacking::ProduceSkiaGanesh failed to create GL representation\n```\n\n`vainfo` reports `VA-API NVDEC driver` instead of the Intel or AMD driver, and the session environment carries the NVIDIA values:\n\n```console\n$ systemctl --user show-environment | grep -E 'LIBVA|NVD_BACKEND|__GLX'\nLIBVA_DRIVER_NAME=nvidia\nNVD_BACKEND=direct\n__GLX_VENDOR_LIBRARY_NAME=nvidia\n```\n\nOn battery the dGPU never runtime-suspends while a browser is open: `/sys/bus/pci/devices/<dgpu>/power/runtime_status` stays `active` and `runtime_suspended_time` stays 0. One reporter measured the dGPU at about a third of idle draw on a 99.9 Wh laptop.",
-      "cause": "Established in the thread and confirmed in source by the repository's triage bot. `/usr/share/omarchy/default/hypr/nvidia.lua` (loaded from `default/hypr/envs.lua`, which `default/hypr/omarchy.lua` requires) checks only whether an NVIDIA display-class PCI device exists, via `omarchy-hw-nvidia` and `omarchy-hw-nvidia-gsp`, and never whether it drives a display. On Turing or newer (device ID 0x1e00 and up, the GSP branch) it sets `NVD_BACKEND=direct`, `LIBVA_DRIVER_NAME=nvidia` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` at config parse. `default/hypr/autostart.lua` then exports the whole environment session-wide on `hyprland.start` with `systemctl --user import-environment` and `dbus-update-activation-environment --systemd --all`, so every app inherits it. On a laptop whose panel is on the iGPU, Chromium decodes video on NVDEC through `libva-nvidia-driver` and presents on the Intel or AMD GPU, and importing those DMA-BUFs into the iGPU fails with `EGL_BAD_MATCH`. Any app touching video decode also opens `/dev/nvidia-uvm`, which blocks runtime suspend. The branch went live in 4.0.1 via commit `33d7363c`, which fixed `o.shell_succeeds()` and un-masked code that had been dead in 4.0.0. All three files above were read on this machine (omarchy 4.0.2-1) and match the thread. Two limits established in the thread: an `hl.env` placed before `require(\"default.hypr.omarchy\")` loses because the default loads after it, and `~/.config/hypr/envs.lua` is never loaded by anything (nothing in `/usr/share/omarchy` requires `hypr.envs`, confirmed here), so an override written there does nothing. Pascal and older cards take a different branch (`NVD_BACKEND=egl`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`, no `LIBVA_DRIVER_NAME`) and one Quadro P520 reporter found the dGPU pinned awake with no CUDA context at all. That machine is not fixed by the override below and the thread had no confirmed fix for it.",
-      "fix": "No upstream fix has merged as of 2026-09-07. PR #9483 (export the NVIDIA variables only when an NVIDIA card owns a connected display) is open. The override below was verified by the reporter and independently by a second reporter on an HP Arrow Lake plus RTX 5070 laptop, and a Discord-only `LIBVA_DRIVER_NAME=iHD` restored incoming streams for a third. Put it in `~/.config/hypr/hyprland.lua` **after** the line `require(\"default.hypr.omarchy\")`, because the last assignment during parse wins:\n\n```lua\n-- ~/.config/hypr/hyprland.lua, below require(\"default.hypr.omarchy\")\nhl.env(\"LIBVA_DRIVER_NAME\", \"iHD\")           -- Intel iGPU\nhl.env(\"__GLX_VENDOR_LIBRARY_NAME\", \"mesa\")\n```\n\nThe reporter notes `radeonsi` in place of `iHD` for an AMD iGPU. That value was not confirmed by a second reporter in the thread. Then log out and back in. A `hyprctl reload` re-parses the config but the session-wide export only happens on `hyprland.start`, and processes already running keep the old values.\n\nDo not put the override in `~/.config/hypr/envs.lua`, which is not loaded, and do not put it above the `require`. Remove any `--disable-gpu-compositing` line from `~/.config/chromium-flags.conf` or `chrome-flags.conf` afterwards, because both reporters found full GPU compositing works once the driver matches. `--disable-features=VaapiVideoDecoder` does not fix this, because the NVIDIA VA driver still loads.\n\nApps that should run on the dGPU keep working with PRIME offload scoped to their own launch, for example `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <game>`.",
-      "verify": "After a fresh login:\n\n```bash\nsystemctl --user show-environment | grep -E 'LIBVA|__GLX'   # LIBVA_DRIVER_NAME=iHD, __GLX_VENDOR_LIBRARY_NAME=mesa\nvainfo 2>/dev/null | head -3                                  # Intel iHD driver, not NVDEC\ndgpu=$(grep -l 0x10de /sys/bus/pci/devices/*/vendor | head -1 | xargs dirname)\ncat \"$dgpu/power/runtime_status\"                             # suspended, even during YouTube playback\ncat \"$dgpu/power/runtime_suspended_time\"                     # grows over time\n```\n\nChromium should play video with no `eglCreateImage failed with 0x00003009` lines in its terminal output.",
+      "symptom": "Omarchy 4.0.1 or later on a hybrid laptop where the Intel or AMD iGPU drives the panel and the NVIDIA card drives nothing.\n\nChromium, Chrome, Edge, Discord, Teams and other Electron apps show corrupted or black video, ghosting while scrolling, elements that paint only on mouse hover, hard scroll stalls on video-heavy pages, or a WebRTC stream that never paints. Live streams with a chat panel open are the most reliable trigger, while static pages stay smooth and ordinary playback can look fine. Rarely the browser's GPU process aborts with `SIGTRAP` and leaves a `chromium` core with `--type=gpu-process` in `coredumpctl`. Launched from a terminal, Chromium prints hundreds of:\n\n```\neglCreateImage failed with 0x00003009\nUnable to initialize binding from pixmap\nOzoneImageBacking::ProduceSkiaGanesh failed to create GL representation\n```\n\nThe session carries the NVIDIA values even though no NVIDIA connector is live:\n\n```console\n$ systemctl --user show-environment | grep -E 'LIBVA|NVD_BACKEND|__GLX'\nLIBVA_DRIVER_NAME=nvidia\nNVD_BACKEND=direct\n__GLX_VENDOR_LIBRARY_NAME=nvidia\n```\n\n`vainfo` reports the NVDEC driver rather than the Intel or AMD one, and installing `intel-media-driver` alone changes nothing. Every NVIDIA connector under `/sys/class/drm/` reads `disconnected` and `disabled` while the iGPU's `eDP-1` is `connected`.\n\nOn battery the dGPU never runtime-suspends while a browser is open. `/sys/bus/pci/devices/<dgpu>/power/runtime_status` stays `active` and `runtime_suspended_time` stays 0. One reporter measured the dGPU at about a third of idle draw on a 99.9 Wh laptop.",
+      "cause": "Established in the threads by the repository's triage collaborator, from source, and confirmed on an omarchy 4.0.2-1 workstation where `nvidia.lua` and both detectors read exactly as described. The file is unchanged at the `v4.0.3` tag.\n\n`/usr/share/omarchy/default/hypr/nvidia.lua`, loaded from `default/hypr/envs.lua`, which `default/hypr/omarchy.lua` requires, runs `hl.env(\"NVD_BACKEND\", \"direct\")`, `hl.env(\"LIBVA_DRIVER_NAME\", \"nvidia\")` and `hl.env(\"__GLX_VENDOR_LIBRARY_NAME\", \"nvidia\")` whenever `bin/omarchy-hw-nvidia` and `bin/omarchy-hw-nvidia-gsp` both succeed. Those detectors only check that a PCI device with vendor `0x10de` at class `0x03*` exists with a device id at or above `0x1e00`, which is Turing and newer. Neither asks whether the NVIDIA GPU renders or scans out anything, and class `0x0302`, a 3D controller, drives no display by definition. `default/hypr/autostart.lua` then exports the whole environment session-wide on `hyprland.start` through `systemctl --user import-environment` and `dbus-update-activation-environment --systemd --all`, so every app inherits it.\n\n`LIBVA_DRIVER_NAME` overrides libva's DRM-based autodetection, so every VA-API client loads `nvidia_drv_video.so` against the iGPU's render node. Compositing then happens on the iGPU while NVDEC decode runs on the NVIDIA card and the exported frames cross GPUs, which fails on import with `EGL_BAD_MATCH`. A contributor isolated the rare abort to Chromium's `CHECK_EQ(handle.modifier, object.drm_format_modifier)` in `VaapiWrapper::ExportVASurfaceAsNativePixmapDmaBufUnwrapped`, because `libva-nvidia-driver` returns a different NVIDIA block-linear modifier for the half-height UV plane than for the Y plane. The NVIDIA VA driver is decode only and exposes no `VAEntrypointEnc*` entrypoints, so the pin removes the iGPU's hardware encode as well. Any app touching video decode also opens `/dev/nvidia-uvm`, which is what blocks runtime suspend. Which mechanism breaks Teams was not isolated.\n\nThe branch went live in 4.0.1 through commit `33d7363c`, which fixed `o.shell_succeeds()` always returning false inside Hyprland and so un-masked code that had been dead in 4.0.0. These machines were accidentally correct before that.\n\nTwo limits established in the threads. An `hl.env` placed before `require(\"default.hypr.omarchy\")` loses, because the default loads after it. And `~/.config/hypr/envs.lua` is never loaded by anything, confirmed here: nothing in `/usr/share/omarchy` requires `hypr.envs`, so an override written there does nothing.\n\nPascal and older cards take the other branch, `NVD_BACKEND=egl` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` with no `LIBVA_DRIVER_NAME`. One Quadro P520 reporter found the dGPU pinned awake with no CUDA context at all, and that machine is not fixed by the override below. The thread had no confirmed fix for it.\n\nThree upstream pull requests propose different gates, 7851, 9483 and 10588, and none has merged as of 2026-09-11.",
+      "fix": "Omarchy 4 only, and only on a machine where the NVIDIA card drives no display. Check that first, because on a muxed laptop or one whose NVIDIA card actually drives the panel the shipped setting is correct and this override is wrong:\n\n```sh\nfor c in /sys/class/drm/card*-*; do printf '%s status=%s enabled=%s\\n' \"$(basename \"$c\")\" \"$(cat \"$c/status\")\" \"$(cat \"$c/enabled\")\"; done\nreadlink -f /sys/class/drm/card*/device | xargs -n1 basename\n```\n\nIf every connector on the NVIDIA card is `disconnected` and `disabled` and only the iGPU's `eDP-1` is `enabled`, the override applies.\n\nIntel iGPU, install the media driver first:\n\n```sh\nomarchy update                      # fetch the sync databases first on a fresh install\nsudo pacman -S intel-media-driver\n```\n\nThen override the variable from your own config, which loads after Omarchy's defaults, so the last `hl.env` assignment wins. Put it in `~/.config/hypr/hyprland.lua` **below** the `require(\"default.hypr.omarchy\")` line:\n\n```lua\n-- ~/.config/hypr/hyprland.lua, below require(\"default.hypr.omarchy\")\nhl.env(\"LIBVA_DRIVER_NAME\", \"iHD\")              -- Intel iGPU\nhl.env(\"__GLX_VENDOR_LIBRARY_NAME\", \"mesa\")\n```\n\nOn an AMD iGPU use `radeonsi` in place of `iHD`. Mesa is already installed there. The `__GLX_VENDOR_LIBRARY_NAME` line was confirmed by the reporter who found the fix and an Arrow Lake plus RTX 5070 reporter, and a third restored incoming Discord streams with `LIBVA_DRIVER_NAME=iHD` alone, so the `LIBVA` line is the one that matters.\n\nThen log out and back in. `hyprctl reload` re-parses the config and processes Hyprland spawns afterwards do see the new value, but Omarchy's autostart runs `systemctl --user import-environment` at session start, so apps launched through systemd user scopes keep the old value until the next login. Fully quit any browser or Electron app that was running before the change, because each keeps its old environment until restarted.\n\nLeave `NVD_BACKEND=direct` alone. The same branch still sets it and it is inert once the NVIDIA VA driver is no longer loaded.\n\nRemove any `--disable-gpu-compositing` line from `~/.config/chromium-flags.conf` or `chrome-flags.conf` afterwards, because reporters found full GPU compositing works once the driver matches. `--disable-features=VaapiVideoDecoder` does not fix this, because the NVIDIA VA driver still loads.\n\nApps that should run on the dGPU keep working with PRIME offload scoped to their own launch:\n\n```sh\n__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <game>\n```",
+      "verify": "After a fresh login:\n\n```bash\nsystemctl --user show-environment | grep -E 'LIBVA|__GLX'   # iHD or radeonsi, and mesa\nvainfo 2>/dev/null | head -3                                # the iGPU driver, not NVDEC\ndgpu=$(grep -l 0x10de /sys/bus/pci/devices/*/vendor | head -1 | xargs dirname)\ncat \"$dgpu/power/runtime_status\"                            # suspended, even during playback\ncat \"$dgpu/power/runtime_suspended_time\"                    # grows over time\n```\n\nThen restart the browser and check what its GPU process actually maps:\n\n```bash\nGP=$(pgrep -f 'type=gpu-process' | head -n1)\ngrep -oE '/usr/lib/dri/[a-z0-9_]+_drv_video\\.so' /proc/$GP/maps | sort -u\ngrep -oE 'lib(cuda|nvcuvid)\\.so[.0-9]*' /proc/$GP/maps | sort -u\nls -l /proc/$GP/fd | grep -oE 'renderD[0-9]+|nvidia[a-z0-9-]*' | sort | uniq -c\n```\n\nOn Intel, `iHD_drv_video.so` is mapped, the `libcuda` and `libnvcuvid` grep is empty, and the `/dev/nvidia0` and `/dev/nvidia-uvm` fds are gone. On AMD, `nvidia_drv_video.so` is absent, since the radeonsi driver resolves to `libgallium-*.so`, and the count of `/dev/nvidia0` fds is zero. Do not read `/proc/<pid>/environ` of the browser process, because Chromium rewrites that region for process titles and it reads back as garbage. The `chrome_crashpad_handler` child inherits the same environment and reads correctly. Chromium should also play video with no `eglCreateImage failed with 0x00003009` lines.",
       "applies_to": [
         "omarchy",
         "hyprland",
@@ -895,13 +888,22 @@
         "amd",
         "laptop",
         "chromium",
-        "electron"
+        "chrome",
+        "edge",
+        "electron",
+        "teams"
       ],
       "severity": "high",
       "frequency": "common",
-      "danger": "",
+      "danger": "On a muxed laptop, or a hybrid laptop whose NVIDIA card does drive the panel, `LIBVA_DRIVER_NAME=nvidia` is the correct setting and this override will break hardware decode instead of fixing it. Check the connector status first, as the fix shows.",
       "sources": [
-        "https://github.com/omacom/omarchy/issues/8989"
+        "https://github.com/omacom/omarchy/issues/8989",
+        "https://github.com/omacom/omarchy/issues/9890",
+        "https://github.com/omacom/omarchy/issues/10410",
+        "https://github.com/omacom/omarchy/pull/7851",
+        "https://github.com/omacom/omarchy/pull/9483",
+        "https://github.com/omacom/omarchy/pull/10588",
+        "https://github.com/omacom/omarchy/commit/33d7363c337134f11ec6ffcea132c92053bc8fe8"
       ]
     },
     {
@@ -953,39 +955,6 @@
         "https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/10311",
         "https://gitlab.gnome.org/GNOME/gtk/-/commit/b3034371",
         "https://archlinux.org/packages/extra/x86_64/gtk3/"
-      ]
-    },
-    {
-      "slug": "libva-driver-name-nvidia-forced-on-hybrid-laptop",
-      "title": "Fix corrupted, stalling or crashing browser video when Omarchy sets LIBVA_DRIVER_NAME=nvidia on a hybrid laptop whose dGPU drives no output",
-      "category": "gpu-drivers",
-      "symptom": "On a hybrid laptop (Intel or AMD iGPU driving the panel, NVIDIA dGPU driving nothing) running Omarchy 4.0.1 or 4.0.2, Chromium, Chrome, Edge and Electron apps show video artifacts and glitching, most reliably on a live stream with the chat panel open, hard scroll stalls on video-heavy pages such as reddit.com, Chrome flicker while scrolling, and failed Microsoft Teams meetings. Static pages are smooth and ordinary playback can look fine. Rarely the browser GPU process aborts with `SIGTRAP` and `coredumpctl` records a `chromium` core with `--type=gpu-process`. The session carries `LIBVA_DRIVER_NAME=nvidia` and `NVD_BACKEND=direct` even though `/sys/class/drm/` shows every NVIDIA connector `disconnected` and `disabled` while the iGPU's `eDP-1` is `connected`. `vainfo` looks healthy, and installing `intel-media-driver` alone changes nothing. In the browser GPU process the mismatch is visible directly:\n\n```\n$ grep -oE '[a-z_]+_drv_video\\.so' /proc/$(pgrep -f 'chrome --type=gpu-process')/maps\nnvidia_drv_video.so\n$ grep -oE 'lib(cuda|nvcuvid)\\.so[.0-9]*' /proc/<gpu-process>/maps\nlibcuda.so.610.57.04\nlibnvcuvid.so.610.57.04\n```\n\nwhile the same process holds its render node fds on the iGPU (`renderD129`, i915 or amdgpu). Reported on Lenovo Legion 5 15IAX10, Dell RTX 3050 laptop, ThinkPad P1 Gen 6, Razer Blade (AMD Cezanne plus RTX 3080 Mobile), and an Intel Iris Xe plus RTX 3050 Ti Mobile machine, all on 4.0.2-1.",
-      "cause": "Established in the thread by the Omarchy triage collaborator, from source. `/usr/share/omarchy/default/hypr/nvidia.lua` (lines 10 to 14, loaded from `default/hypr/envs.lua:39`) runs `hl.env(\"NVD_BACKEND\", \"direct\")`, `hl.env(\"LIBVA_DRIVER_NAME\", \"nvidia\")` and `hl.env(\"__GLX_VENDOR_LIBRARY_NAME\", \"nvidia\")` whenever `bin/omarchy-hw-nvidia` and `bin/omarchy-hw-nvidia-gsp` both succeed. Those detectors only check that a PCI device with vendor `0x10de` at class `0x03*` exists and has a device id at or above `0x1e00`. Neither asks whether the NVIDIA GPU renders or scans out anything, and class `0x0302` (3D controller) drives no display by definition. The branch became live in 4.0.1 through commit `33d7363c`, which fixed `o.shell_succeeds()` always returning false inside Hyprland. Under 4.0.0 the whole `if` was dead and these machines were accidentally correct. `LIBVA_DRIVER_NAME` overrides libva's DRM-based autodetection, so every VA-API client loads `nvidia_drv_video.so` against the iGPU's render node. Compositing then happens on the iGPU while NVDEC decode runs on the NVIDIA card, and the exported frames cross GPUs. One contributor isolated the rare abort to Chromium's `CHECK_EQ(handle.modifier, object.drm_format_modifier)` in `VaapiWrapper::ExportVASurfaceAsNativePixmapDmaBufUnwrapped`, because `libva-nvidia-driver` returns a different NVIDIA block-linear modifier for the half-height UV plane than for the Y plane. The NVIDIA VA driver is also decode only and exposes no `VAEntrypointEnc*` entrypoints, so the pin removes the iGPU's hardware encode too. Which mechanism breaks Teams was not isolated. Three upstream pull requests (#7851, #9483, #10588) propose different gates and none is merged as of 2026-09-07. Verified on this workstation (omarchy 4.0.2-1): `nvidia.lua` and both detectors read exactly as described.",
-      "fix": "Omarchy 4 only. Override the variable from your own config, which loads after Omarchy's defaults, so the last `hl.env` assignment wins. Put the line in `~/.config/hypr/hyprland.lua` after `require(\"default.hypr.omarchy\")`. Do not create `~/.config/hypr/envs.lua`: nothing requires that file, so it is never loaded.\n\nIntel iGPU (i915 or xe): install the Intel media driver first, then pin it.\n\n```sh\nomarchy update            # fetch the sync databases first on a fresh install\nsudo pacman -S intel-media-driver\n```\n\n```lua\n-- ~/.config/hypr/hyprland.lua, below require(\"default.hypr.omarchy\")\nhl.env(\"LIBVA_DRIVER_NAME\", \"iHD\")\n```\n\nAMD iGPU (amdgpu): the Mesa driver is already installed.\n\n```lua\n-- ~/.config/hypr/hyprland.lua, below require(\"default.hypr.omarchy\")\nhl.env(\"LIBVA_DRIVER_NAME\", \"radeonsi\")\n```\n\nThen log out and back in. `hyprctl reload` re-parses the config and processes Hyprland spawns afterwards do see the new value, but Omarchy's autostart runs `systemctl --user import-environment` at session start and apps launched through systemd user scopes keep the old `nvidia` value until the next login. Fully quit the browser and any Electron app (Discord, Teams) that was started before the change. Each of them keeps the old environment until restarted.\n\n`NVD_BACKEND=direct` is still set by the same branch and is inert once the NVIDIA VA driver is no longer loaded. Leave `__GLX_VENDOR_LIBRARY_NAME` alone: the reporters did not test changing it.\n\nOn a muxed laptop, or a hybrid laptop whose NVIDIA card actually drives the panel, `LIBVA_DRIVER_NAME=nvidia` is the correct setting and this override is wrong. Check which GPU drives the display before applying it:\n\n```sh\nfor c in /sys/class/drm/card*-*; do printf '%s status=%s enabled=%s\\n' \"$(basename \"$c\")\" \"$(cat \"$c/status\")\" \"$(cat \"$c/enabled\")\"; done\nreadlink -f /sys/class/drm/card*/device | xargs -n1 basename   # PCI address per card\n```\n\nIf every connector on the NVIDIA card is `disconnected` and `disabled` and only the iGPU's `eDP-1` is `enabled`, the override applies.",
-      "verify": "After re-login and a browser restart, the GPU process maps the iGPU driver and no longer touches the NVIDIA decode stack:\n\n```sh\nGP=$(pgrep -f 'type=gpu-process' | head -n1)\ngrep -oE '/usr/lib/dri/[a-z0-9_]+_drv_video\\.so' /proc/$GP/maps | sort -u\ngrep -oE 'lib(cuda|nvcuvid)\\.so[.0-9]*' /proc/$GP/maps | sort -u\nls -l /proc/$GP/fd | grep -oE 'renderD[0-9]+|nvidia[a-z0-9-]*' | sort | uniq -c\n```\n\nIntel: `iHD_drv_video.so` is mapped, the `libcuda`/`libnvcuvid` grep is empty, and the `/dev/nvidia0` and `/dev/nvidia-uvm` fds are gone. AMD: `nvidia_drv_video.so` is absent (the radeonsi driver resolves to `libgallium-*.so`, so grep for its own name never matches) and the count of `/dev/nvidia0` fds is zero. Do not read `/proc/<pid>/environ` of the browser process: Chromium rewrites that region for process titles and it reads back as garbage. The `chrome_crashpad_handler` child inherits the same environment and reads correctly. Reporters confirmed the artifacts, scroll stalls, flicker and Teams failures stopped after the change.",
-      "applies_to": [
-        "omarchy",
-        "hyprland",
-        "nvidia",
-        "intel",
-        "amd",
-        "laptop",
-        "chromium",
-        "chrome",
-        "edge",
-        "electron",
-        "teams"
-      ],
-      "severity": "medium",
-      "frequency": "common",
-      "danger": "",
-      "sources": [
-        "https://github.com/omacom/omarchy/issues/9890",
-        "https://github.com/omacom/omarchy/issues/10410",
-        "https://github.com/omacom/omarchy/pull/10588",
-        "https://github.com/omacom/omarchy/pull/7851",
-        "https://github.com/omacom/omarchy/pull/9483",
-        "https://github.com/omacom/omarchy/commit/33d7363c337134f11ec6ffcea132c92053bc8fe8"
       ]
     },
     {

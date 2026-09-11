@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -45,22 +45,40 @@ Last updated: 2026-09-10
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-10: O4 finished harvesting, 39 records banked and still unaudited
+## Session of 2026-09-10 and 2026-09-11: O4 finished harvesting, 36 records banked and the audit started
 
 Steps 2 and 1 of the O4 pick-up list, in that order: the duplicates reconciled, then batch
-01 read. The harvest is now complete at 39 records and every one of them is still unaudited.
+01 read, then a second duplicate pass on 2026-09-11 that found three groups the first pass had
+missed. The harvest is complete at 36 records and the audit of them has started.
 `data/problems.jsonl` is untouched and still reads `ok` 207 / `corrected` 249 / `unaudited` 0.
 The banked set is [research/raw/issue-harvest-reconciled.json](research/raw/issue-harvest-reconciled.json),
 batch 01 on its own is `raw/harvest-01.json`, and `issue-harvest-partial.json` is left exactly
 as the workflow wrote it, so the provenance of what the harvesters actually produced survives.
 
-### 1. Six groups, not six pairs
+### 1. Nine groups, found in two passes, and the first pass was not good enough
 
 The banked payload listed six `near_duplicates_to_reconcile` pairs. Three of those pairs
-share a record, so they are five groups covering eleven records. A second similarity pass
-over all 40, token-set Jaccard on title plus symptom plus cause, found a sixth group the
+share a record, so they are five groups covering eleven records. A similarity pass over all 40,
+token-set Jaccard on title plus symptom plus cause at a 0.25 threshold, found a sixth group the
 harvest's own detector missed: the two plugin-lock records, from issues 7106 and 9441, which
 are one defect with two outcomes. Thirteen records became six.
+
+**That threshold was too high, and it cost a second pass.** On 2026-09-11, while batching the
+records for audit, two of them turned out to be the same defect by reading their titles side by
+side: `nvidia-env-forced-on-igpu-primary-hybrid-laptop` and
+`libva-driver-name-nvidia-forced-on-hybrid-laptop`, both blaming
+`/usr/share/omarchy/default/hypr/nvidia.lua`, both citing commit `33d7363c`, both fixed by the
+same `hl.env` override. They score 0.231. Re-running the sweep at 0.15, and adding two signals
+that do not depend on wording, found two more: the two migration 1786643346 records at 0.214
+and the two VMware records at 0.160.
+
+The two signals are worth keeping for any future dedup, because each one caught a pair on its
+own: **a source URL shared between two records**, and **two or more shared file paths**. Two
+harvesters writing up the same defect agree on the file they blame long before they agree on
+prose. After the second pass the only candidate left is two records that happen to cite the
+same release tag, which is not a duplicate.
+
+Nine groups over nineteen records became nine records. 40 plus batch 01's six, minus ten, is 36.
 
 | group | records in | kept |
 | --- | --- | --- |
@@ -70,11 +88,14 @@ are one defect with two outcomes. Thirteen records became six.
 | Gemini default agent | 2 | `default-agent-gemini-fails-antigravity-replacement` |
 | migration 1787515927 | 2 | `omarchy-update-migration-1787515927-fails-bash-5-3` |
 | plugin write while locked | 2 | `plugin-file-write-while-locked-strands-session` |
+| NVIDIA env on a hybrid laptop | 2 | `nvidia-env-forced-on-igpu-primary-hybrid-laptop` |
+| migration 1786643346 | 2 | `migration-1786643346-browser-window-open-loop` |
+| VMware shell black desktop | 2 | `vmware-shell-black-desktop-qt-quick-dmabuf` |
 
-The 27 records outside those groups are carried through byte-identical and in their
-original order, and the `existing` and `skipped` lists are untouched.
+The records outside those groups are carried through byte-identical and in their original
+order, and the `existing` and `skipped` lists are untouched.
 
-### 2. Reconciling is not deduplicating, and four groups disagreed with themselves
+### 2. Reconciling is not deduplicating, and six groups disagreed with themselves
 
 Every group was read in full and settled against upstream sources and this workstation
 rather than by keeping the longer record. What that turned up:
@@ -107,6 +128,15 @@ rather than by keeping the longer record. What that turned up:
   Stable still ships Gemini at the `v4.0.3` tag: `install/user/mise.sh` runs
   `omarchy-mise-install gemini`, there is no `migrations/1786719479.sh`, and the packaged
   menu still lists `setup.default.agent.gemini`.
+- **One record's placement advice was above the line that would have overridden it.** Of the
+  two VMware records, one told the reader to add `QT_QUICK_BACKEND=software` immediately after
+  the bootstrap `dofile` on line 4 of `~/.config/hypr/hyprland.lua`, which is above where
+  `require("default.hypr.omarchy")` on line 14 loads Omarchy's own environment. It works for
+  this variable only because Omarchy sets no `QT_QUICK_BACKEND` of its own, confirmed on
+  4.0.2-1. The merged record says to put it below the `require` and says why.
+- **The shipped stale-lock check is narrower than both migration records implied.** It tests
+  `SingletonLock` and `SingletonSocket` only, read at line 129 of the migration on 4.0.2-1, so
+  deleting `SingletonCookie` as both records advised is harmless but is not what unsticks it.
 
 Local confirmations that went into the merged records, all on omarchy 4.0.2-1: line 531 of
 `omarchy-agent-usage-codex` reads `-a on-request`, the `cleanup()` at line 82 of
@@ -115,14 +145,16 @@ in `|| true`, and `shell.qml` lines 348 to 354 still destroy every plugin servic
 
 ### 3. What the audit still owns
 
-None of this is an audit. The reconciled file carries six open questions, Q1 to Q6, one per
+None of this is an audit. The reconciled file carries nine open questions, Q1 to Q9, one per
 group, naming what a merge may not assume: whether `omarchy-iso#111` is the accepted fix and
 why hand-creating an EFI partition helps, whether the RDNA4 quantizer-matrix mechanism
 explains the RDNA3 integrated-GPU reports, the codex release note that retired `untrusted`,
 the date Google cut individual accounts off, whether the migration reporters were on dev or
-edge, and `PR #7169`.
+edge, `PR #7169`, the three competing gates proposed for the NVIDIA environment and the Pascal
+case none of them fixes, whether `PR #7026` has merged, and whether the VMware failure has a
+compositor-side fix in `hyprwm/Hyprland#12966`.
 
-Three `lint_corpus.py` hits survive across the 39 records and all three are legitimate: two
+Three `lint_corpus.py` hits survive across the 36 records and all three are legitimate: two
 `sudo pacman -Syu` inside a branch labelled plain Arch, and one `/boot/limine.conf` in a
 symptom describing what a reporter saw in that generated file rather than telling anyone to
 edit it. They are new hits, so `lint_corpus.py --check` will fail the first time these
@@ -166,10 +198,19 @@ no such file exists, and the thread shows the defect is one single-shot focus gr
 separate paths lose, with three pull requests open and none merged. That record needs a
 re-audit, not a tweak.
 
-### 5. Where to pick this up
+### 5. The audit, started 2026-09-11
 
-1. Audit all 39 with `reaudit-brief.md`, one agent per one or two records, and answer Q1 to
-   Q6 on the way through. This is the expensive step, so check `/usage-credits` first.
+36 records, 21 agent batches of one or two records each, grouped by category, each agent handed
+`reaudit-brief.md`, the record JSON and an output directory, exactly as the brief prescribes.
+Three facts are passed in on top of the brief because they are newer than it: today's date, that
+`v4.0.3` is the newest tag rather than `v4.0.2`, and that every cited issue and pull request
+state in these records was written between 2026-09-07 and 2026-09-11 and has to be re-checked.
+That last one is not hypothetical: it is what the `v4.0.3` correction above came from.
+
+### 6. Where to pick this up
+
+1. Finish the audit of all 36, answering Q1 to Q9 on the way through. This is the expensive
+   step, so check `/usage-credits` first.
 2. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect it to
    need a small change: its append path assigns `gapfill-unaudited` and these records will
    arrive already audited.
