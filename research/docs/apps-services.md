@@ -10,15 +10,19 @@
 
 **Cause.** Btrfs allocates disk in chunks for data and metadata separately. Once all raw space is allocated to chunks, a write can fail even though the chunks are half-empty. `df` reports file-level free space and does not account for chunk allocation or metadata, so it lies about this situation.
 
-> ⚠️ **Risk.** A full `btrfs balance` rewrites every chunk on the filesystem — it can take hours, hammers the disk, and must not be interrupted by a hard power-off. Always start with `-dusage=10`. If the filesystem is so full that balance itself cannot allocate, free space by deleting snapshots first. Deleting snapshots is irreversible.
+> **Audit corrected this record.** The core claim holds. The Arch wiki Btrfs page confirms that df cannot account for chunk allocation and that `btrfs filesystem usage` is the right diagnostic, and it confirms the staged balance and `--bg` plus `balance status` sequence. The cause needed no change. Four things were wrong or missing for Omarchy 4. First, the verify line ended with `pacman -Syu`, which `/usr/share/libalpm/hooks/00-omarchy-update-guard.hook` aborts with `AbortOnFail` via `/usr/bin/omarchy-update-pacman-guard`, confirmed on this machine. The previous auditor spotted this in the note and nobody applied it. Second, the closing advice that old snapshots are usually the real consumer is mis-specialised. Confirmed on this machine, `/etc/snapper/configs/root` is Omarchy's own file with `SUBVOLUME="/"`, `NUMBER_LIMIT="5"` and `TIMELINE_CREATE="no"`, so a current install holds at most five root snapshots and deleting them reclaims little. The genuine Omarchy sink is leaked `timeline` snapshots from earlier defaults, which `number` cleanup never reaps because man snapper documents the two algorithms separately. Upstream ships a drain migration for exactly this, which I read at `/usr/share/omarchy/migrations/1784809452.sh` and whose behaviour is pinned by `test/shell.d/snapper-timeline-leak-test.sh` in the quattro tree. Third, `findmnt -t btrfs` on this machine shows four subvolumes, `@`, `@home`, `@log` and `@pkg`, matching the archinstall layout in `tools/make-test-vm.sh`, so `/home` and `/var/cache/pacman/pkg` are outside the root snapshot and `snapper -c root delete` can never reclaim them. The fix now names `paccache -rk2` and points at the right subvolumes. Fourth, the record told a reader whose balance cannot allocate to delete snapshots, with no answer for a machine that has none. The wiki names the temporary `btrfs device add` route, which is now included. I also verified as an unprivileged user that `btrfs filesystem df /` exits 0 with no sudo, which the wiki states explicitly, so the old note's instruction to add sudo there was wrong and the fix keeps it unprivileged. Added: `omarchy update` refuses to start under 10 GiB free on `/` per `/usr/share/omarchy/bin/omarchy-update-requires-free-space`, so the automatic drain is unavailable on an already-full disk. Severity `critical` and frequency `common` are left alone as correct. Both cited URLs resolve and support the generic claims, so nothing was removed. NOT exercised: I have no sudo, so no balance, no snapshot delete, no paccache run and no `btrfs device add` was executed, and the ENOSPC condition itself was not induced. The 191 GiB free on this root means the failure state could only be reasoned about, not reproduced.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** A full `btrfs balance` rewrites every chunk on the filesystem. It can take hours, hammers the disk, and must not be interrupted by a hard power-off. Always start with `-dusage=10`. Metadata is the riskier half, so if `-dusage=10 -musage=10` fails, retry data only with `-dusage=10`. If the filesystem is so full that balance cannot allocate a chunk at all, add a temporary device rather than forcing it. Deleting snapshots is irreversible. On Omarchy 4 each snapshot is also a Limine boot entry, visible with `limine-list`, so deleting the `number` snapshots removes the pre-update recovery entries that `omarchy-snapshot restore` offers. `limine-snapper-sync.service` resyncs the entry list, so a deletion leaves no dead boot entry behind while that service is enabled and active. Never delete the snapshot you are currently booted into. `paccache -rk2` keeps two cached versions of each package and discards the rest, which costs the offline downgrade path for the older ones.
 
 **Fix.**
 
-Look at the real picture first:
+Look at the real picture first. `btrfs filesystem df` needs no root, and `btrfs filesystem usage` shows per-device detail only as root:
 
 ```bash
-sudo btrfs filesystem usage /
 btrfs filesystem df /
+sudo btrfs filesystem usage /
 ```
 
 If `Device allocated` is close to `Device size` while `Free (estimated)` is much larger, reclaim mostly-empty chunks by rebalancing only lightly-used ones (fast, low IO):
@@ -28,7 +32,7 @@ sudo btrfs balance start -dusage=10 -musage=10 /
 sudo btrfs balance status /
 ```
 
-If that is not enough, raise the threshold gradually:
+If that is not enough, raise the threshold gradually, data first:
 
 ```bash
 sudo btrfs balance start -dusage=50 /
@@ -41,17 +45,62 @@ sudo btrfs balance start --bg /
 sudo btrfs balance status /
 ```
 
-On a snapshotted system, old snapshots are usually the real space consumers — delete some before rebalancing:
+If balance itself fails with `No space left on device` because it cannot allocate a new chunk, give it temporary room instead of forcing it. Add a spare device or loop file, balance, then remove it:
+
+```bash
+sudo btrfs device add -f /dev/<usb-or-loop> /
+sudo btrfs balance start -dusage=10 /
+sudo btrfs device remove /dev/<usb-or-loop> /
+```
+
+Now find what is actually holding the space. On Omarchy 4, and on any stock four-subvolume install, `/home` and the pacman cache sit on their own subvolumes (`@home`, `@pkg`), so a root snapshot never pins them and deleting snapshots never reclaims them:
+
+```bash
+findmnt -t btrfs
+sudo btrfs filesystem du -s /var/cache/pacman/pkg /var/log
+sudo paccache -rk2
+```
+
+**Omarchy 4.** Snapper here is configured for pre-update recovery only: `/etc/snapper/configs/root` carries `SUBVOLUME="/"`, `NUMBER_LIMIT="5"` and `TIMELINE_CREATE="no"`, so at most five root snapshots exist and deleting them frees little. The exception is a machine installed under Omarchy's earlier defaults, which took hourly `timeline` snapshots. Those are never reaped, because `number` cleanup only reaps `number`-marked snapshots. Count them:
+
+```bash
+sudo snapper -c root --csvout list --columns number,cleanup | awk -F, '$2 == "timeline"' | wc -l
+```
+
+If that is more than a handful, let the update drain them. `omarchy update` runs a migration that deletes exactly the `timeline` ones:
+
+```bash
+omarchy update
+```
+
+`omarchy update` refuses to start with less than 10 GiB free on `/`, so on an already-full disk free that much first or drain by hand in batches of about 20:
+
+```bash
+sudo snapper -c root --csvout list --columns number,cleanup |
+  awk -F, '$2 == "timeline" { print $1 }' | head -20 |
+  xargs sudo snapper -c root delete --sync
+```
+
+Repeat until the count is zero, and leave the `number` snapshots alone: those are the recovery points.
+
+**Plain Arch, EndeavourOS, CachyOS, Manjaro.** Old timeline snapshots usually are the real consumer. List them and delete a range you do not need:
 
 ```bash
 sudo btrfs subvolume list /
 sudo snapper -c root list
-sudo snapper -c root delete <number>
+sudo snapper -c root delete --sync 20-140
 ```
 
-**Verify.** `sudo btrfs filesystem usage /` shows `Device allocated` meaningfully below `Device size`, and writes/`pacman -Syu` succeed again.
+**Verify.** `sudo btrfs filesystem usage /` shows `Device allocated` meaningfully below `Device size`, and writes succeed again. On Omarchy 4, confirm through the update entrypoint rather than pacman directly, because the `00-omarchy-update-guard.hook` ALPM hook aborts a direct `pacman -Syu`:
 
-Sources: <https://wiki.archlinux.org/title/Btrfs> · <https://wiki.archlinux.org/title/Snapper>
+```bash
+sudo btrfs filesystem usage /
+omarchy update
+```
+
+On plain Arch use `sudo pacman -Syu`. Btrfs frees the extents of a deleted snapshot in the background, so allow a minute before reading the numbers again, or pass `--sync` to `snapper delete`.
+
+Sources: <https://wiki.archlinux.org/title/Btrfs> · <https://wiki.archlinux.org/title/Snapper> · <https://github.com/omacom/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/omacom/omarchy/blob/quattro/test/shell.d/snapper-timeline-leak-test.sh>
 
 ---
 
@@ -92,63 +141,6 @@ Then allow individual containers explicitly (`sudo ufw-docker allow <container-n
 **Verify.** From another machine on the LAN: `nc -vz <host-ip> 8080` is refused/times out for ports you did not explicitly allow, and succeeds for the ones you did. `sudo iptables -S DOCKER-USER` shows the ufw-docker rules.
 
 Sources: <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://wiki.archlinux.org/title/Docker>
-
----
-
-## Reclaim a full root filesystem from journal logs and the pacman cache
-
-`disk-full-journal-and-pacman-cache` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pacman`, `systemd`
-
-**Symptom.** `pacman -Syu` fails with `error: Partition /var too full` or `not enough free disk space`, and `df -h` shows `/` at 100%. I have not knowingly installed anything huge.
-
-**Cause.** Two directories grow unbounded on Arch by default: `/var/cache/pacman/pkg/` keeps every downloaded package version forever, and `/var/log/journal/` grows until it hits its default cap (or whatever `SystemMaxUse` says, which is unset by default).
-
-> ⚠️ **Risk.** `paccache -rk0` (keeping zero versions) removes your ability to downgrade a package offline after a bad update — keep at least one. `pacman -Qtdq | pacman -Rns -` removes anything not required by an explicitly installed package; read the list before confirming, since it can pull out things you actually use if they were originally installed as dependencies.
-
-**Fix.**
-
-Find out where it went:
-
-```bash
-sudo du -xh --max-depth=1 /var | sort -h | tail
-journalctl --disk-usage
-du -sh /var/cache/pacman/pkg
-```
-
-Trim the journal (files must be rotated before vacuum can touch them):
-
-```bash
-sudo journalctl --rotate
-sudo journalctl --vacuum-size=200M
-```
-
-Cap it permanently with a drop-in at `/etc/systemd/journald.conf.d/00-journal-size.conf`:
-
-```
-[Journal]
-SystemMaxUse=200M
-```
-
-then `sudo systemctl restart systemd-journald.service`.
-
-Trim the pacman cache (keeps the 3 most recent versions of each package):
-
-```bash
-sudo pacman -S pacman-contrib
-sudo paccache -r
-sudo paccache -ruk0          # drop ALL cached versions of uninstalled packages
-sudo systemctl enable --now paccache.timer
-```
-
-And remove orphans:
-
-```bash
-pacman -Qtdq | sudo pacman -Rns -
-```
-
-**Verify.** `df -h /` shows free space again, `journalctl --disk-usage` is under your cap, and `pacman -Syu` completes. `systemctl is-enabled paccache.timer` reports `enabled`.
-
-Sources: <https://wiki.archlinux.org/title/Systemd/Journal> · <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.org/title/System_maintenance>
 
 ---
 
@@ -228,6 +220,103 @@ ELECTRON_OZONE_PLATFORM_HINT=wayland <app>
 **Verify.** Open https://mozilla.github.io/webrtc-landing/gum_test.html and start a screen capture — the picker lists your monitors and the preview is not black. `systemctl --user status xdg-desktop-portal-hyprland` is active.
 
 Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal>
+
+---
+
+## Reclaim a full root filesystem from journal logs and the pacman cache
+
+`disk-full-journal-and-pacman-cache` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pacman`, `systemd`
+
+**Symptom.** On plain Arch, `pacman -Syu` fails with `error: Partition /var/cache/pacman/pkg too full: <n> blocks needed, <n> blocks free` or `not enough free disk space`, and `df -h` shows `/` at 100%.
+
+On Omarchy 4, `omarchy update` refuses before it starts anything:
+
+```
+You need at least 10 GiB free to safely update Omarchy.
+```
+
+Either way I have not knowingly installed anything huge.
+
+**Cause.** Two directories grow on Arch by default. `/var/cache/pacman/pkg/` keeps every downloaded package version, and `/var/log/journal/` grows to 10% of the filesystem with a soft cap at 4 GiB, because `SystemMaxUse=` is unset in the stock `journald.conf`.
+
+On Omarchy 4 the cache half is already handled and the journal half is not. Every `omarchy update` runs `omarchy-update-pkg-prune`, which is `sudo paccache -rk2`, so the cache is trimmed to two versions per package on each update. Omarchy ships no journald drop-in, so the 4 GiB soft cap is what applies to the journal.
+
+Omarchy's installer also puts `/var/log` on the `@log` btrfs subvolume and `/var/cache/pacman/pkg` on `@pkg`. Those share the root filesystem's free space rather than holding a quota of their own, so filling either one still fills `/`. A third consumer that plain Arch does not have is the snapper snapshots of `/`, up to five of them, taken by `omarchy update`.
+
+> **Audit corrected this record.** The generic Arch advice is sound and the three cited wiki pages all support it, but the record is mis-specialised to Omarchy 4 in four places and its first diagnostic command is actively wrong on the stock Omarchy layout. Confirmed on this machine (omarchy 4.0.2-1, systemd 261.2-1, pacman-contrib 1.13.1-1, kernel 7.1.9): the installer puts /var/log on the @log subvolume and /var/cache/pacman/pkg on @pkg, and btrfs gives each subvolume its own device number, so `du -xh --max-depth=1 /var` skips both of the directories this record is about. Measured here it reported /var/cache as 8.6M and omitted /var/log entirely, while the same command without -x reported /var/cache 6.8G and /var/log 682M. The four-subvolume layout is not local drift: research/tools/make-test-vm.sh, written to match the ISO configurator's own output, declares @, @home, @log and @pkg. Those subvolumes share the root filesystem's free pool rather than holding a quota, confirmed because `df -h` prints an identical 475G size and 191G available for /, /var/log and /var/cache/pacman/pkg, so the record's mechanism claim that filling either fills / is correct and was kept. Second defect, in the cause: the pacman cache does not grow without bound on Omarchy 4, because /usr/bin/omarchy-update calls omarchy-update-pkg-prune, which is `sudo paccache -rk2`, on every update, and that script is byte-identical at upstream tag v4.0.3 published 2026-09-08. Third, the symptom: on Omarchy 4 the user does not reach libalpm's message, verified as the format string "Partition %s too full: %jd blocks needed, %ju blocks free" in /usr/lib/libalpm.so, because omarchy-update-requires-free-space aborts first with "You need at least 10 GiB free to safely update Omarchy." Fourth, the verify step's `pacman -Syu` cannot run at all: /usr/share/libalpm/hooks/00-omarchy-update-guard.hook fires AbortOnFail into omarchy-update-pacman-guard, and reading that script shows it aborts whenever both S and u are present, so `pacman -S pacman-contrib` in the fix is safe but the verify command is not. The previous auditor noted that guard as a nit and nobody changed the record body. Two smaller points folded in: pacman-contrib reports `Required By : omarchy` here, so the install line is a no-op on Omarchy, and omarchy-update already offers the orphan step through omarchy-update-orphan-pkgs, which runs the same `pacman -Qtdq` then `pacman -Rns`. What I kept because it held: rotate before vacuum (Arch Systemd/Journal line 175), the journald.conf.d drop-in with SystemMaxUse=, `paccache -r` keeping three and `paccache -ruk0` (Arch Pacman lines 269 and 283), and paccache.timer really shipping in pacman-contrib (`pacman -Ql pacman-contrib` lists /usr/lib/systemd/system/paccache.timer). Enabling that timer is not noise: `systemctl is-enabled paccache.timer` reports disabled on this stock Omarchy install, /etc/conf.d/pacman-contrib has an empty PACCACHE_ARGS so the unit runs a bare `paccache -r`, and Omarchy ships no journald drop-in at all, since /etc/systemd/journald.conf.d does not exist and `systemd-analyze cat-config systemd/journald.conf` shows only the package-stock file with #SystemMaxUse= commented out. I added a snapper pointer because /etc/snapper/configs/root here has SUBVOLUME="/" with NUMBER_LIMIT="5" and TIMELINE_CREATE="no", matching upstream default/snapper/root, so `omarchy update` leaves up to five snapshots of / and a reader who trims the journal and cache and still sees / full has nowhere else to look. Frequency dropped from very-common to common with a reason: the single largest driver the cause names, an unbounded package cache, is pruned on every update on this platform and the 10 GiB pre-check catches the rest early. Severity left at high, since a full root still stops updates. Not exercised: I have no sudo, so I ran no vacuum, no paccache and no orphan removal, did not fill a disk to see either error text emitted, and could not run `btrfs subvolume list /` or `snapper -c root list`, both of which refused with Operation not permitted. Upstream's own comment at bin/omarchy-update line 29 says the cache sits on the snapshotted subvolume, which disagrees with the @pkg subvolume I measured here, and I did not take a snapshot to settle it, so the corrected text asserts nothing either way about snapshot interaction with the cache. All three cited URLs resolved and support what the record draws from them, so nothing was removed.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `paccache -rk0` (keeping zero versions) removes your ability to downgrade a package offline after a bad update, so keep at least one. On Omarchy 4 keep at least two: `omarchy-update-pkg-prune` runs `paccache -rk2` and calls the cache the only offline downgrade path, so trimming below that weakens Omarchy's own rollback story.
+
+`pacman -Qtdq | pacman -Rns -` removes anything no longer required by an explicitly installed package. Read the list before confirming, since it can pull out things you actually use if they were originally installed as dependencies.
+
+Do not delete `/var/log/journal` itself to reclaim space. Rotate and vacuum instead, because removing that directory turns persistent logging off and you lose the logs from the next crash.
+
+**Fix.**
+
+Find out where it went. Do not pass `-x` to `du` here: Omarchy puts `/var/log` and `/var/cache/pacman/pkg` on separate btrfs subvolumes, which carry their own device numbers, so `-x` silently skips both of the directories you are looking for.
+
+```bash
+sudo du -h --max-depth=1 /var | sort -h | tail
+journalctl --disk-usage
+du -sh /var/cache/pacman/pkg
+findmnt -t btrfs
+```
+
+Trim the journal. Files must be rotated before vacuum can touch them:
+
+```bash
+sudo journalctl --rotate
+sudo journalctl --vacuum-size=200M
+```
+
+Cap it permanently with a drop-in. Omarchy 4 ships no journald drop-in of its own, so this directory does not exist yet:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo tee /etc/systemd/journald.conf.d/00-journal-size.conf >/dev/null <<'EOF'
+[Journal]
+SystemMaxUse=200M
+EOF
+sudo systemctl restart systemd-journald.service
+```
+
+Trim the pacman cache. `paccache -r` keeps the 3 most recent versions of each package:
+
+```bash
+sudo paccache -r
+sudo paccache -ruk0          # drop ALL cached versions of uninstalled packages
+```
+
+On plain Arch, install `pacman-contrib` first, then enable the weekly timer:
+
+```bash
+sudo pacman -S pacman-contrib
+sudo systemctl enable --now paccache.timer
+```
+
+On Omarchy 4, `pacman-contrib` is already a dependency of `omarchy`, so that install is a no-op. `paccache.timer` ships disabled and `omarchy update` prunes the cache itself, so the timer is only worth enabling if you go long stretches between updates.
+
+Remove orphans. `omarchy update` already offers this step through `omarchy-update-orphan-pkgs`, so on Omarchy 4 you rarely need it by hand:
+
+```bash
+pacman -Qtdq | sudo pacman -Rns -
+```
+
+If `/` is still full on Omarchy 4 after all of that, look at the snapshots `omarchy update` leaves behind:
+
+```bash
+sudo snapper -c root list
+```
+
+**Verify.** `df -h /` shows free space again and `journalctl --disk-usage` is under your cap.
+
+On Omarchy 4, `omarchy update` gets past its free-space check and completes. Do not test with `pacman -Syu`: `/usr/share/libalpm/hooks/00-omarchy-update-guard.hook` aborts it whatever the disk looks like. On plain Arch, `pacman -Syu` completes.
+
+Where you enabled the timer, `systemctl is-enabled paccache.timer` reports `enabled`.
+
+Sources: <https://wiki.archlinux.org/title/Systemd/Journal> · <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.org/title/System_maintenance> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-pkg-prune> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-requires-free-space> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-pacman-guard> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/snapper/root>
 
 ---
 
@@ -333,9 +422,19 @@ Sources: <https://wiki.archlinux.org/title/Libvirt>
 
 `no-snapshot-rollback-without-limine-btrfs` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** An update broke the desktop and every guide says "boot the snapshot from the boot menu", but there are no snapshot entries — the machine uses GRUB or systemd-boot, or the root filesystem is ext4, or this is a plain Arch/EndeavourOS install rather than Omarchy. `snapper -c root list` errors with `Unknown config` or the command is not installed at all.
+**Symptom.** An update broke the desktop and every guide says "boot the snapshot from the boot menu", but there are no snapshot entries: the machine uses GRUB or systemd-boot, or the root filesystem is ext4, or it is a plain Arch/EndeavourOS install that was never set up for snapshots. `snapper -c root list` errors with `Unknown config`, or `snapper` is not installed at all.
 
-**Cause.** Bootable snapshot rollback is not a kernel feature — it needs btrfs subvolumes, a snapshot tool (snapper), and a bootloader integration that writes menu entries for those snapshots. Omarchy gets that from Limine plus `limine-snapper-sync`. On GRUB you need `grub-btrfs`, on rEFInd `refind-btrfs`, and on a non-btrfs root none of it applies — you need file-level backups instead.
+On a stock Omarchy 4 install this should not happen. `snapper` and `limine-snapper-sync` are installed and configured out of the box and `limine-snapper-sync` writes a `Snapshots` submenu into the Limine menu, so run `limine-list` and `sudo snapper -c root list` before concluding you have no safety net.
+
+**Cause.** Bootable snapshot rollback is not one kernel feature. It needs three things together: btrfs subvolumes, a snapshot tool (snapper), and a bootloader integration that writes menu entries for those snapshots. Miss any one of them and there is nothing to boot.
+
+Omarchy 4 ships all three. `snapper` and `limine-snapper-sync` come from Omarchy's own pacman repo at `https://pkgs.omarchy.org/stable/$arch`, `/usr/share/omarchy/install/config/snapper.sh` installs `/etc/snapper/configs/root` from the `/usr/share/omarchy/default/snapper/root` template (root subvolume only, `NUMBER_LIMIT="5"`, `TIMELINE_CREATE="no"`), and it enables `snapper-cleanup.timer` and `limine-snapper-sync.service` while disabling `snapper-timeline.timer`. `omarchy update` calls `omarchy-snapshot create` before it upgrades anything, and `omarchy-snapshot restore` hands off to `limine-snapper-restore`. The read-only-snapshot problem is handled too: the `btrfs-overlayfs` hook from `limine-mkinitcpio-hook` is the last entry in `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`.
+
+Everywhere else you have to build it. On GRUB you need `grub-btrfs`, on rEFInd `refind-btrfs`, on Limine `limine-snapper-sync` from the AUR. On a non-btrfs root none of it applies and you need file-level backups instead.
+
+> **Audit corrected this record.** Checked against this Omarchy 4 workstation (omarchy 4.0.2-1, snapper 0.13.1-3, limine-snapper-sync 1.31.0-1, kernel 7.1.9) and against the cited Snapper and Timeshift wiki pages plus the Limine wiki page, all fetched as raw wikitext. The generic structure held and I kept it: recover first with `pacman -U` from `/var/cache/pacman/pkg` then build the net, the filesystem triage, `grub-btrfs` plus `grub-btrfsd.service` for GRUB, rsync-mode Timeshift for non-btrfs, `snap-pac` for automatic pre/post snapshots, and the closing point that a system rollback is not a `/home` backup. Timeshift's hard `cronie` dependency is confirmed from `pacman -Si timeshift`, matching the wiki note. The Omarchy branch was wrong. `yay -S limine-snapper-sync` does not apply here: I confirmed with `pacman -Qi` that limine-snapper-sync 1.31.0-1 is installed from the `omarchy` repo (`Server = https://pkgs.omarchy.org/stable/$arch` in /etc/pacman.conf), not the AUR, and the whole net is already configured. I read `/usr/share/omarchy/install/config/snapper.sh`, which installs `/etc/snapper/configs/root` from `/usr/share/omarchy/default/snapper/root` and enables `snapper-cleanup.timer` and `limine-snapper-sync.service` while disabling `snapper-timeline.timer`. `systemctl is-enabled` on this machine confirms enabled, enabled, disabled. `limine-list` printed a live `Snapshots` submenu with two real entries, so the symptom as written cannot occur on a stock Omarchy 4 and I rewrote it to send the reader to `limine-list` first. I read `/usr/share/omarchy/bin/omarchy-snapshot` (create and restore, the latter calling `limine-snapper-restore`) and confirmed `/usr/bin/omarchy-update` line 36 calls `omarchy-snapshot create`, so the `snap-pac` claim needed an Omarchy exception: `pacman -Q snap-pac` reports the package is not installed. The `sudo mkinitcpio -P` line is correct where it stands, in the plain-Arch GRUB branch, but it needed labelling, because `/etc/mkinitcpio.d/` is empty here and `/usr/bin/mkinitcpio` line 986 dies with `No presets found in /etc/mkinitcpio.d`. I added the wiki caveat the record omitted, that `grub-btrfs-overlayfs` is a runtime hook with no systemd unit and is incompatible with a systemd initramfs (Snapper wiki, Booting into read-only snapshots), which matters because the stock `/etc/mkinitcpio.conf` on this machine ships `systemd` in HOOKS. I also recorded that Omarchy already solves the overlay problem: `btrfs-overlayfs` from `limine-mkinitcpio-hook` is the last hook in `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, which is what the Limine wiki tells you to add after `filesystems`. The `pacman -U` recovery step is safe on Omarchy and I said so, having read `/usr/bin/omarchy-update-pacman-guard`, which aborts only when both sync and sysupgrade flags are present. NOT exercised: I have no sudo, so I ran no `snapper` command, took no snapshot, restored nothing, and did not boot a snapshot entry. The GRUB, rEFInd and Timeshift branches could not be tested on this machine at all and rest on the wiki. The `danger` field was left unchanged because both of its claims, the subvolid trap after a restore and Timeshift btrfs mode ignoring the exclude list, are confirmed in the Snapper and Timeshift wikis respectively. All three cited sources resolve and support what the record draws from them, so nothing is removed.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Converting an existing installation to a snapshot-friendly btrfs layout means moving subvolumes and reinstalling/reconfiguring the bootloader — get it wrong and the machine does not boot. In particular, if `genfstab` wrote a `subvolid=` option for `/` or `/home`, remove it or you will be unable to boot *after* restoring a snapshot. Do that work from a live ISO with a full backup already taken, never on a machine you need working in an hour. `timeshift --restore` overwrites system files in place; read the excluded/included paths in `/etc/timeshift/timeshift.json` before running it, and note that Timeshift in btrfs mode ignores the `exclude` list entirely.
 
@@ -348,9 +447,33 @@ ls /var/cache/pacman/pkg/ | grep <package>
 sudo pacman -U /var/cache/pacman/pkg/<package>-<older-version>-x86_64.pkg.tar.zst
 ```
 
-If the system will not boot at all, use the Arch ISO, mount and `arch-chroot` in, and do the same from there.
+Omarchy's ALPM guard does not block this. `/usr/bin/omarchy-update-pacman-guard` aborts a transaction only when the pacman command line carries both a sync and a sysupgrade flag, so `pacman -U` and `pacman -S --needed` run normally while `pacman -Syu` is refused in favour of `omarchy update`.
 
-**Then set up rollback properly.** Which path depends on the filesystem:
+If the system will not boot at all, boot the Arch or Omarchy ISO, mount and `arch-chroot` in, and do the same from there.
+
+**On Omarchy 4, check what you already have before installing anything:**
+
+```bash
+pacman -Q snapper limine-snapper-sync
+sudo snapper -c root list
+limine-list
+systemctl is-enabled limine-snapper-sync.service snapper-cleanup.timer
+```
+
+`limine-list` prints the boot menu tree, including a `Snapshots` submenu once entries exist. Take one and roll back with Omarchy's own wrappers:
+
+```bash
+omarchy-snapshot create
+omarchy-snapshot restore     # runs limine-snapper-restore
+```
+
+If `snapper -c root list` really does say `Unknown config` on Omarchy, the config was never written. Re-run Omarchy's setup rather than hand-rolling one, so you get its retention settings:
+
+```bash
+sudo bash -euo pipefail /usr/share/omarchy/install/config/snapper.sh
+```
+
+**Everywhere else, the path depends on the filesystem:**
 
 ```bash
 findmnt -no FSTYPE /
@@ -358,7 +481,7 @@ cat /proc/cmdline | tr ' ' '\n' | grep -E 'rootflags|subvol'
 bootctl status 2>/dev/null | head -5
 ```
 
-*btrfs root + GRUB* — snapshots in the GRUB menu:
+*btrfs root plus GRUB, not Omarchy.* Snapshots in the GRUB menu:
 
 ```bash
 sudo pacman -S --needed snapper snap-pac grub-btrfs inotify-tools
@@ -375,14 +498,18 @@ Snapper's snapshots are read-only, and many services need a writable `/var`, so 
 sudo mkinitcpio -P
 ```
 
-*btrfs root + Limine* (the Omarchy arrangement, if you built the system yourself):
+Two traps there. `grub-btrfs-overlayfs` is a runtime hook with no systemd unit, so it does nothing in a systemd-based initramfs, and Arch's stock `/etc/mkinitcpio.conf` now ships `systemd` in `HOOKS`. Use the busybox hooks (`base udev autodetect microcode modconf kms keyboard keymap consolefont block filesystems fsck`) or the overlay silently has no effect. And `sudo mkinitcpio -P` is the plain-Arch rebuild only: on Omarchy 4 `/etc/mkinitcpio.d/` is empty and `mkinitcpio -P` exits with `No presets found in /etc/mkinitcpio.d`, writing no boot image. The Omarchy rebuild is `sudo limine-mkinitcpio` followed by `sudo limine-update`.
+
+*btrfs root plus Limine, built by hand on plain Arch.* This is what Omarchy already has, so do this only on a system you assembled yourself:
 
 ```bash
 yay -S limine-snapper-sync
 sudo pacman -S --needed snapper snap-pac
 ```
 
-*Non-btrfs root (ext4, xfs)* — snapshots are not possible; use rsync-mode Timeshift, which works on any filesystem:
+Then add `limine-mkinitcpio-hook`'s overlay hook after `filesystems` in `HOOKS`: `btrfs-overlayfs` with the busybox hooks, or `sd-btrfs-overlayfs` with the systemd hooks, because `btrfs-overlayfs` is incompatible with a systemd initramfs.
+
+*Non-btrfs root (ext4, xfs).* Snapshots are not possible. Use rsync-mode Timeshift, which works on any filesystem. The `timeshift` package hard-depends on `cronie`, so enable it:
 
 ```bash
 sudo pacman -S --needed timeshift cronie
@@ -401,18 +528,18 @@ sudo timeshift --restore --snapshot "<snapshot>"
 Either way, snapshot *before* risky changes, not after:
 
 ```bash
-sudo snapper -c root create --description "before upgrade"
-# or
-sudo timeshift --create --comments "before upgrade"
+omarchy-snapshot create                                   # Omarchy 4
+sudo snapper -c root create --description "before upgrade" # plain Arch
+sudo timeshift --create --comments "before upgrade"        # non-btrfs
 ```
 
-Installing `snap-pac` makes pacman take pre/post snapshots around every transaction automatically.
+On plain Arch, installing `snap-pac` makes pacman take pre/post snapshots around every transaction automatically. Omarchy does not ship or use `snap-pac`. `/usr/bin/omarchy-update` calls `omarchy-snapshot create` itself, which runs `snapper create -c number` followed by `snapper cleanup number` for every configured snapper config.
 
-Note that neither approach protects `/home` unless you configure it separately — a system rollback leaves your data as it is, which is usually what you want but is not a backup. Pair it with restic/borg for actual data backup.
+Note that neither approach protects `/home` unless you configure it separately. A system rollback leaves your data as it is, which is usually what you want but is not a backup. Pair it with restic or borg for actual data backup.
 
-**Verify.** `sudo snapper -c root list` (or `sudo timeshift --list`) shows snapshots, and — for the btrfs paths — rebooting presents a snapshot submenu in the bootloader that actually boots.
+**Verify.** On Omarchy 4: `pacman -Q snapper limine-snapper-sync` returns both, `systemctl is-enabled limine-snapper-sync.service snapper-cleanup.timer` reports `enabled` for both, `sudo snapper -c root list` lists snapshots, and `limine-list` prints a `Snapshots` submenu under the `Omarchy` entry. Elsewhere: `sudo snapper -c root list` (or `sudo timeshift --list`) shows snapshots, and for the btrfs paths a reboot presents a snapshot submenu in the bootloader that actually boots.
 
-Sources: <https://wiki.archlinux.org/title/Snapper> · <https://wiki.archlinux.org/title/Timeshift> · <https://wiki.archlinux.org/title/Restic>
+Sources: <https://wiki.archlinux.org/title/Snapper> · <https://wiki.archlinux.org/title/Timeshift> · <https://wiki.archlinux.org/title/Restic> · <https://wiki.archlinux.org/title/Limine>
 
 ---
 
@@ -593,149 +720,63 @@ Sources: <https://wiki.archlinux.org/title/Podman> · <https://wiki.archlinux.or
 
 ---
 
-## Fix a scheduled restic/borg backup that skips runs and then fails on a stale lock
-
-`scheduled-backup-skipped-and-repo-locked` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `systemd`
-
-**Symptom.** A nightly backup timer set for 03:00 has not run in days on a laptop — `systemctl list-timers` shows a `NEXT` time but `LAST` is `n/a` or weeks old. When it does eventually run it fails with restic's
-
-```
-Fatal: unable to create lock in backend: repository is already locked exclusively by PID 1234 on host by user (UID 0, GID 0)
-```
-
-or borg's `Failed to create/acquire the lock`, and every subsequent run fails the same way.
-
-**Cause.** Two compounding problems. A realtime `OnCalendar=` timer without `Persistent=true` simply skips any occurrence when the machine was off or suspended — a laptop that is closed at 03:00 never backs up. And when a run is cut short (suspend, shutdown, OOM kill, unplugged drive) the repository lock it created is never released, so every later run is refused by a lock whose owning process is long gone.
-
-> ⚠️ **Risk.** `restic unlock --remove-all` and `borg break-lock` remove locks belonging to processes that may still be running — doing that while a backup or prune is genuinely in progress can corrupt the repository. Confirm nothing is running on any host that touches the repo first. `restic forget --prune` permanently deletes snapshots: test your retention flags with `restic forget --dry-run` before putting them in a timer. And note that an automated backup necessarily has the repository password available to root in plain text (the `--password-command` script) — protect it with `chmod 700` and remember that anyone with root can read your backups.
-
-**Fix.**
-
-Make the schedule catch up after downtime:
-
-```ini
-# /etc/systemd/system/restic-backup.timer
-[Unit]
-Description=Timer for full system backups
-
-[Timer]
-OnCalendar=*-*-* 03:00:00
-Persistent=true
-RandomizedDelaySec=15m
-Unit=restic-backup.service
-
-[Install]
-WantedBy=timers.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now restic-backup.timer
-systemctl list-timers restic-backup.timer
-systemd-analyze calendar "*-*-* 03:00:00"
-```
-
-`Persistent=true` triggers the job immediately after boot/resume if the last scheduled time was missed.
-
-Stop the run being cut short in the middle, and clear a stale lock before starting — this is what the recommended wrapper script does:
-
-```ini
-# /etc/systemd/system/restic-backup.service
-[Unit]
-Description=Backup system
-
-[Service]
-Type=oneshot
-ExecStart=systemd-inhibit --what=sleep:shutdown --why="restic backup" /usr/local/bin/restic-backup
-```
-
-```bash
-#!/bin/bash
-# /usr/local/bin/restic-backup
-if pgrep -f 'restic backup' > /dev/null; then
-  echo 'restic is already running...' 1>&2
-  exit 0
-fi
-
-set -e
-export RESTIC_REPOSITORY='/mnt/restic'
-export RESTIC_PASSWORD_COMMAND='/usr/local/bin/get-restic-password'
-export RESTIC_CACHE_DIR=/root/.cache/restic
-mkdir -p "$RESTIC_CACHE_DIR"
-
-restic unlock
-restic backup / --exclude-file=/etc/restic/excludes.txt --tag scheduled
-restic check --with-cache --read-data-subset=5G
-restic forget --prune --keep-daily 30 --keep-weekly 4 --keep-monthly 6 --keep-yearly 3
-```
-
-```bash
-sudo chmod 744 /usr/local/bin/restic-backup
-sudo chmod 700 /usr/local/bin/get-restic-password
-```
-
-To clear a stuck lock by hand:
-
-```bash
-# restic
-restic -r /mnt/restic unlock
-restic -r /mnt/restic unlock --remove-all      # only if you are certain nothing is running
-
-# borg
-borg break-lock /mnt/borgrepo
-```
-
-Check for a run in progress on any machine that shares the repository before breaking a lock:
-
-```bash
-pgrep -a -f 'restic|borg'
-systemctl is-active restic-backup.service
-```
-
-If the destination is an external drive that is not always attached, gate the service on the mount rather than letting it fail:
-
-```ini
-[Unit]
-RequiresMountsFor=/mnt/restic
-
-[Service]
-ExecCondition=/usr/bin/mountpoint -q /mnt/restic
-```
-
-Use a **system** timer (under `/etc/systemd/system/`) for a whole-system backup — a user timer only exists while your user instance does, unless you `loginctl enable-linger`.
-
-**Verify.** `systemctl list-timers restic-backup.timer` shows a `LAST` timestamp that advances daily even across suspends, `restic -r /mnt/restic snapshots` lists a new snapshot per day, and `journalctl -u restic-backup.service -n 50` shows clean runs with no lock errors.
-
-Sources: <https://wiki.archlinux.org/title/Restic> · <https://wiki.archlinux.org/title/Systemd/Timers> · <https://borgbackup.readthedocs.io/en/stable/faq.html> · <https://wiki.archlinux.org/title/Borg_backup> · <https://wiki.archlinux.org/title/Systemd/User>
-
----
-
 ## Stop automatic snapshots from filling the disk
 
 `snapper-snapshots-eating-the-disk` · severity: **high** · frequency: **common** · applies to: `arch`, `btrfs`, `cachyos`, `endeavouros`, `manjaro`, `omarchy`, `snapper`, `systemd`
 
 **Symptom.** My root filesystem keeps filling up over weeks even though I have not added files. `sudo btrfs filesystem usage /` shows most of the disk in use and `snapper -c root list` shows dozens or hundreds of snapshots going back months.
 
-**Cause.** Snapper's default timeline keeps 10 hourly, 10 daily, 10 monthly and 10 yearly snapshots per config, and the cleanup timer is not enabled automatically. Every package update also adds a pre/post pair. On a busy root subvolume this accumulates fast, and each snapshot pins the blocks of every file that has since changed.
+**Cause.** On plain Arch, snapper's default timeline keeps 10 hourly, 10 daily, 10 monthly and 10 yearly snapshots per config, and the package enables neither `snapper-timeline.timer` nor `snapper-cleanup.timer`, so nothing reaps what accumulates. Each snapshot pins the blocks of every file that has since changed. If `snap-pac` is installed, every package update adds a pre/post pair on top.
 
-> ⚠️ **Risk.** Deleting snapshots is permanent — you lose the ability to roll back to those points. Do not delete the snapshot you are currently booted into. If you also run a cron daemon alongside the systemd timers you will get duplicate snapshots; enable one mechanism, not both.
+On Omarchy 4 the defaults differ and the mechanism is narrower. Omarchy installs `/etc/snapper/configs/root` from `/usr/share/omarchy/default/snapper/root` with `TIMELINE_CREATE="no"`, `NUMBER_CLEANUP="yes"` and `NUMBER_LIMIT="5"`, disables `snapper-timeline.timer`, and enables `snapper-cleanup.timer` and `limine-snapper-sync.service`. `snap-pac` is not installed, and one `number` snapshot is taken per `omarchy update` by `omarchy-snapshot create`. A current install is therefore capped at five root snapshots. The accumulation happens on machines installed under Omarchy's earlier defaults, which did take hourly timeline snapshots. The newer config stopped creating them, but the existing ones carry cleanup algorithm `timeline`, and `number` cleanup does not touch those because the two algorithms are separate. They pile up untouched, pinning extents that nothing on the machine will ever release.
+
+> **Audit corrected this record.** The generic half checks out and the Omarchy half is wrong in a way that makes the fix harmful. Confirmed against the cited Arch wiki Snapper page: the default timeline really is 10 hourly, 10 daily, 10 monthly and 10 yearly, the package really enables neither timer, the retention keys and `TIMELINE_CREATE="no"` are correct, and man snapper confirms `delete number1-number2` range syntax. On Omarchy 4 none of the premise survives. Confirmed on this machine: `/etc/snapper/configs/root` is owned by no package and is Omarchy's template from `/usr/share/omarchy/default/snapper/root`, carrying `TIMELINE_CREATE="no"`, `NUMBER_CLEANUP="yes"` and `NUMBER_LIMIT="5"`. `systemctl is-enabled` reports `snapper-timeline.timer` disabled and `snapper-cleanup.timer` enabled, running hourly, so the cause's claim that the cleanup timer is not enabled automatically is false here. `pacman -Q snap-pac` reports the package absent, so there is no pre/post pair either. One `number` snapshot is taken per update by `/usr/share/omarchy/bin/omarchy-snapshot`, called from `omarchy-update`. The worst defect is the fix instructing `systemctl enable --now snapper-timeline.timer`. Upstream's `install/config/snapper.sh` on quattro explicitly runs `systemctl disable --now snapper-timeline.timer`, so that step restarts the exact mechanism that caused the reported problem and is reverted on the next repair. The retention-key edit is also futile there, because the same script does `install -m 0644 "$template" "$SNAPPER_CONFIG_PATH"` and `/usr/share/omarchy/migrations/1781984677.sh` re-runs it whenever the config is missing or the units drift. The real Omarchy cause and fix were absent: leaked `timeline`-marked snapshots that `number` cleanup cannot reap, drained by `/usr/share/omarchy/migrations/1784809452.sh` in batches of 20 to survive a D-Bus timeout, whose contract is pinned by `test/shell.d/snapper-timeline-leak-test.sh` in the quattro tree. That migration's own comment puts the cost at hundreds of snapshots pinning over 100 GB. The danger also missed the bootloader entirely: `limine-list` on this machine lists each snapshot as a boot entry, and `/usr/lib/systemd/system/snapper-cleanup.service.d/limine-snapper-override.conf` runs `limine-snapper-sync --no-force-save` afterwards, so deletions do resync and leave no dead entry while `limine-snapper-sync.service` is active, which it is here. Both cited URLs resolve and support the generic branch, so nothing was removed. Severity `high` and frequency `common` are left unchanged: on Omarchy the migration now makes this self-healing, but the record also applies to four distros that still ship the generic default, and upstream shipped a migration precisely because real users hit it. NOT exercised: no sudo, so `snapper list`, any delete, any cleanup run and the migration itself were all read rather than run, and I could not enumerate this machine's actual snapshots beyond the two boot entries `limine-list` shows.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Deleting snapshots is permanent and you lose the ability to roll back to those points. Never delete the snapshot you are currently booted into. On Omarchy 4 every snapshot is also a Limine boot entry, listed by `limine-list`, so deleting the `number` snapshots removes the pre-update recovery entries that `omarchy-snapshot restore` offers. `limine-snapper-sync.service` resyncs the entry list after `snapper-cleanup.service`, so a deletion leaves no dead boot entry behind while that service is enabled and active. Delete in batches of about 20, because one large delete can fail on a D-Bus timeout partway through and leave the rest untouched. Do not enable `snapper-timeline.timer` on Omarchy 4 to fix this: it restarts the mechanism that created the problem, and Omarchy disables it again on the next repair. On plain Arch, running a cron daemon alongside the systemd timers produces duplicate snapshots, so enable one mechanism, not both.
 
 **Fix.**
 
-See what you have and how much it costs:
+See what you have, and which cleanup algorithm each snapshot carries, because that is what decides whether anything will ever reap it:
 
 ```bash
 sudo snapper -c root list
+sudo snapper -c root --csvout list --columns number,cleanup
 sudo btrfs filesystem usage /
 ```
 
-Delete a range you do not need (irreversible):
+**Omarchy 4.** Do not enable `snapper-timeline.timer`, and do not edit the retention keys. Omarchy sets `TIMELINE_CREATE="no"` and `NUMBER_LIMIT="5"` deliberately, `install/config/snapper.sh` reinstalls that file from its template, and a migration re-runs that script whenever the config or the units drift. Confirm the config and the units first:
 
 ```bash
-sudo snapper -c root delete 20-140
+cat /etc/snapper/configs/root
+systemctl is-enabled snapper-cleanup.timer limine-snapper-sync.service
+systemctl is-enabled snapper-timeline.timer     # should report disabled
 ```
 
-Tighten the retention policy in `/etc/snapper/configs/root`:
+If the list is long, those are leaked `timeline` snapshots from an earlier default. `omarchy update` drains them through a migration that deletes only the `timeline` ones:
+
+```bash
+omarchy update
+```
+
+`omarchy update` refuses to start with less than 10 GiB free on `/`, so if the disk is already that full, drain by hand in batches of about 20. One large delete can die on a D-Bus timeout partway:
+
+```bash
+sudo snapper -c root --csvout list --columns number,cleanup |
+  awk -F, '$2 == "timeline" { print $1 }' | head -20 |
+  xargs sudo snapper -c root delete --sync
+```
+
+Repeat until no `timeline` rows remain. Leave the `number` snapshots alone: those are the pre-update recovery points, and `snapper-cleanup.timer` already holds them at five.
+
+**Plain Arch, EndeavourOS, CachyOS, Manjaro.** Delete a range you do not need:
+
+```bash
+sudo snapper -c root delete --sync 20-140
+```
+
+Then tighten retention in `/etc/snapper/configs/root`:
 
 ```
 TIMELINE_MIN_AGE="1800"
@@ -746,22 +787,25 @@ TIMELINE_LIMIT_MONTHLY="0"
 TIMELINE_LIMIT_YEARLY="0"
 ```
 
-Make sure the timers that actually create and reap snapshots are running:
+The package enables neither timer, so enable the ones that create and reap snapshots:
 
 ```bash
 sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
 systemctl list-timers 'snapper*'
 ```
 
-If you do not want timeline snapshots at all (only pre/post around package updates), set in the same config:
+If you do not want timeline snapshots at all, set `TIMELINE_CREATE="no"` in the same file and enable only `snapper-cleanup.timer`.
 
+**Verify.** On Omarchy 4, `sudo snapper -c root --csvout list --columns number,cleanup` shows no `timeline` rows and at most five `number` ones. On plain Arch it shows only the number your policy allows once `snapper-cleanup.timer` has run. In both cases `sudo btrfs filesystem usage /` shows `Used` fallen:
+
+```bash
+sudo snapper -c root --csvout list --columns number,cleanup
+sudo btrfs filesystem usage /
 ```
-TIMELINE_CREATE="no"
-```
 
-**Verify.** `sudo snapper -c root list` shows only the number of snapshots your policy allows after the cleanup timer runs, and `sudo btrfs filesystem usage /` shows free space recovered.
+Btrfs frees the extents of a deleted snapshot in the background, so the space appears a little after the delete returns unless you passed `--sync`.
 
-Sources: <https://wiki.archlinux.org/title/Snapper> · <https://wiki.archlinux.org/title/Btrfs>
+Sources: <https://wiki.archlinux.org/title/Snapper> · <https://wiki.archlinux.org/title/Btrfs> · <https://github.com/omacom/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/omacom/omarchy/blob/quattro/test/shell.d/snapper-timeline-leak-test.sh>
 
 ---
 
@@ -882,6 +926,159 @@ Sources: <https://wiki.archlinux.org/title/Docker> · <https://wiki.archlinux.or
 
 ---
 
+## Fix a scheduled restic/borg backup that skips runs and then fails on a stale lock
+
+`scheduled-backup-skipped-and-repo-locked` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `systemd`
+
+**Symptom.** A nightly backup timer set for 03:00 has not run in days on a laptop — `systemctl list-timers` shows a `NEXT` time but `LAST` is `n/a` or weeks old. When it does eventually run it fails with restic's
+
+```
+Fatal: unable to create lock in backend: repository is already locked exclusively by PID 1234 on host by user (UID 0, GID 0)
+```
+
+or borg's `Failed to create/acquire the lock`, and every subsequent run fails the same way.
+
+**Cause.** Two compounding problems. The schedule: a realtime `OnCalendar=` timer without `Persistent=true` does not record its last trigger time, so any occurrence that fell while the machine was powered off is dropped instead of caught up. Suspend behaves differently. A realtime timer that elapses during suspend does fire shortly after resume, because systemd arms `CLOCK_REALTIME` for it unless `WakeSystem=true` is set, so a laptop suspended at 03:00 gets a late backup on the next resume while a laptop shut down at 03:00 gets none at all. The lock: when a run is cut short by suspend, shutdown, an OOM kill or an unplugged drive, the repository lock it created is never released, and every later run is refused by a lock whose owning process is long gone. restic counts a lock stale once its creating process is dead on the same host, or once any lock is more than 30 minutes old without a refresh, which is why `restic unlock` clears the usual case and `--remove-all` is needed only for a live process or a recent lock from another host.
+
+> **Audit corrected this record.** Checked on this workstation (omarchy 4.0.2-1, systemd 261.2-1, kernel 7.1.9) and against primary sources. Three findings. First, the cause was wrong about suspend: `man systemd.timer` says `Persistent=` is "useful to catch up on missed runs of the service when the system was powered down", and systemd's own `src/core/timer.c` arms `t->wake_system ? CLOCK_REALTIME_ALARM : CLOCK_REALTIME`, so a realtime timer that elapses during suspend fires shortly after resume without `Persistent=` at all. Only power-off needs the catch-up. Second, the fix omitted `WakeSystem=true`, which is the only setting that makes the timer actually run at 03:00 on the suspended laptop the symptom describes, so the record did not fully answer its own scenario. I added it with the Arch wiki Systemd/Timers caveat that it can fail with "Failed to enter waiting state: Operation not supported". Third, confirmed on this machine that neither tool ships with Omarchy: `pacman -Q restic borg` reports both not found, and `grep -rniE 'restic|borg' /usr/share/omarchy/` matches nothing, while `/usr/share/omarchy/install/omarchy-other.packages` carries `snapper` and `limine-snapper-sync` instead (both installed here, snapper 0.13.1-3 and limine-snapper-sync 1.31.0-1). Both tools are in Arch `extra` (restic 0.19.1-1, borg 1.4.5-1), so the record stays correct for an Omarchy user who installs one, and `applies_to` keeps `omarchy`, but I added the install step and the snapper note and dropped `frequency` from `common` to `occasional`, because the problem needs a third-party tool Omarchy does not ship plus a hand-written system timer. `severity: high` stays: a backup that silently has not run for weeks is exactly that bad. What held, and where: the `pgrep` concurrency guard, `restic unlock` before the backup, `restic check --with-cache --read-data-subset=5G`, `chmod 744` and `chmod 700` are all verbatim from the Arch wiki Restic page, and `--read-data-subset` accepting a size is confirmed in restic's own "Working with repositories" page. `restic unlock` removing only stale locks and `--remove-all` removing all is confirmed in `cmd/restic/cmd_unlock.go` ("remove all locks, even non-stale ones"), and the staleness rule is `internal/repository/lock_file.go` lines 246 to 248: "stale if the timestamp is older than 30 minutes or if it was created on the current machine and the process isn't alive any more". That makes plain `unlock` sufficient for the symptom, which I folded into the fix and the danger to sharpen the gate on `--remove-all`. The symptom's quoted restic error is current: `lock_file.go` line 378 formats exactly "PID %d on %s by %s (UID %d, GID %d)". The danger held and is now backed by borg's own break-lock page, "Please use with care and only when no borg process (on any machine) is trying to access the cache or the repository", and by restic's troubleshooting page confirming an interrupted backup does not damage the repository but may need a manual `unlock`. `ExecCondition=` exiting 1 through 254 not marking the unit failed, and `RequiresMountsFor=` adding `Requires=` and `After=`, are both confirmed in `man systemd.service` and `man systemd.unit` here. Bare `systemd-inhibit` in `ExecStart=` resolves, confirmed in `man systemd.service`: a first argument without slashes is searched in a fixed path including `/usr/bin/`, and `/usr/bin/systemd-inhibit` exists here. Two corrections to the previous audit note rather than to the record: it credited the Arch wiki Restic page with the `Persistent=true` and `RandomizedDelaySec` pattern, but that page's timer is monotonic (`OnBootSec=5min`, `OnUnitActiveSec=15min`), and the pattern comes from Systemd/Timers and `man systemd.timer`. The cited `wiki.archlinux.org/title/Borg_backup` page resolves but contains no mention of locks at all, so it did not support the borg claim it was cited for. I kept it rather than removing it, because it does support the borg install step I added, and added borg's own break-lock page for the lock claim. Not exercised: I have no sudo, so I could not install restic, create a repository, run a backup, break a lock, start a timer, or test `WakeSystem=true` on real firmware. The claim that a root system service can take a block inhibitor is from source reading only: `/usr/share/polkit-1/actions/org.freedesktop.login1.policy` rates `inhibit-block-sleep` and `inhibit-block-shutdown` as `auth_admin_keep`, but systemd's `src/shared/bus-polkit.c` skips the polkit query for a privileged caller ("Don't query PK if client is privileged"), and a root service holds CAP_SYS_ADMIN, so the Arch wiki's note that `systemd-inhibit` "is only available when running in a user session" is misleading for a root system unit. I could not confirm that by running it.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `restic unlock --remove-all` and `borg break-lock` remove locks belonging to processes that may still be running. Borg's own documentation says to use `break-lock` with care and only when no borg process, on any machine, is trying to access the cache or the repository. Doing either while a backup or a prune is genuinely in progress can corrupt the repository. Plain `restic unlock` is the safe form and clears the usual stale lock, so treat `--remove-all` as a last resort and confirm nothing is running on any host that touches the repo first. `restic forget --prune` permanently deletes snapshots: test your retention flags with `restic forget --dry-run` before putting them in a timer. `restic backup /` with a missing or empty exclude file walks `/proc`, `/sys` and `/dev`, so write the exclude list before the first scheduled run. And note that an automated backup necessarily has the repository password available to root in plain text (the `--password-command` script), so protect it with `chmod 700` and remember that anyone with root can read your backups.
+
+**Fix.**
+
+Neither restic nor borg is part of Omarchy. Install the one you want first, after an update so the package databases are current:
+
+```bash
+omarchy update
+sudo pacman -S --needed restic     # or: sudo pacman -S --needed borg
+```
+
+`pacman -S <pkg>` on its own is not blocked by Omarchy's ALPM guard, which aborts only when the pacman command line carries both a sync and a sysupgrade flag. Do not reach for `pacman -Sy restic`, which is a partial upgrade. Omarchy's own packaged snapshot tooling is `snapper` with `limine-snapper-sync`, which takes btrfs snapshots on the same disk and is not a replacement for a backup repository on separate storage.
+
+Make the schedule catch up after downtime:
+
+```ini
+# /etc/systemd/system/restic-backup.timer
+[Unit]
+Description=Timer for full system backups
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=restic-backup.service
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now restic-backup.timer
+systemctl list-timers restic-backup.timer
+systemd-analyze calendar "*-*-* 03:00:00"
+```
+
+`Persistent=true` stores the last trigger time on disk and runs the job immediately after boot if the scheduled time passed while the machine was powered down. It does not cover suspend and does not need to: a realtime timer that elapses while the machine is suspended fires shortly after resume on its own.
+
+If you want the backup to run at 03:00 on a laptop that is suspended at 03:00, rather than whenever you next open the lid, add `WakeSystem=true` to the `[Timer]` section:
+
+```ini
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=15m
+WakeSystem=true
+Unit=restic-backup.service
+```
+
+That switches the timer to `CLOCK_REALTIME_ALARM` and resumes the machine. It needs hardware and firmware support, and a timer that cannot get it fails to start with `Failed to enter waiting state: Operation not supported`. It also does not suspend the machine again once the backup finishes.
+
+Stop the run being cut short in the middle, and clear a stale lock before starting. This is what the recommended wrapper script does:
+
+```ini
+# /etc/systemd/system/restic-backup.service
+[Unit]
+Description=Backup system
+
+[Service]
+Type=oneshot
+ExecStart=systemd-inhibit --what=sleep:shutdown --why="restic backup" /usr/local/bin/restic-backup
+```
+
+```bash
+#!/bin/bash
+# /usr/local/bin/restic-backup
+if pgrep -f 'restic backup' > /dev/null; then
+  echo 'restic is already running...' 1>&2
+  exit 0
+fi
+
+set -e
+export RESTIC_REPOSITORY='/mnt/restic'
+export RESTIC_PASSWORD_COMMAND='/usr/local/bin/get-restic-password'
+export RESTIC_CACHE_DIR=/root/.cache/restic
+mkdir -p "$RESTIC_CACHE_DIR"
+
+restic unlock
+restic backup / --exclude-file=/etc/restic/excludes.txt --tag scheduled
+restic check --with-cache --read-data-subset=5G
+restic forget --prune --keep-daily 30 --keep-weekly 4 --keep-monthly 6 --keep-yearly 3
+```
+
+```bash
+sudo chmod 744 /usr/local/bin/restic-backup
+sudo chmod 700 /usr/local/bin/get-restic-password
+```
+
+`/etc/restic/excludes.txt` has to exist and has to exclude the pseudo filesystems before the first run, or `restic backup /` walks `/proc`, `/sys`, `/dev` and everything mounted under `/mnt`. The Arch wiki's Restic page carries a working list. Adding `--one-file-system` to the `restic backup` line is the alternative, and it keeps the mount point directories themselves in the snapshot.
+
+To clear a stuck lock by hand:
+
+```bash
+# restic: clears locks whose process is dead on this host, and any lock over 30 minutes old
+restic -r /mnt/restic unlock
+
+# restic: clears live locks too. Only if you are certain nothing is running
+restic -r /mnt/restic unlock --remove-all
+
+# borg
+borg break-lock /mnt/borgrepo
+```
+
+Plain `restic unlock` is enough for the case in the symptom, because a lock left behind by a killed backup on the same machine already counts as stale. Reach for `--remove-all` only when the lock belongs to a process that is still alive, or came from another host less than 30 minutes ago. Check for a run in progress on any machine that shares the repository before breaking a lock:
+
+```bash
+pgrep -a -f 'restic|borg'
+systemctl is-active restic-backup.service
+```
+
+If the destination is an external drive that is not always attached, gate the service on the mount rather than letting it fail. Put it in a drop-in so the unit file above stays intact:
+
+```bash
+sudo systemctl edit restic-backup.service
+```
+
+```ini
+[Unit]
+RequiresMountsFor=/mnt/restic
+
+[Service]
+ExecCondition=/usr/bin/mountpoint -q /mnt/restic
+```
+
+An `ExecCondition=` that exits 1 through 254 skips the remaining commands without marking the unit failed, so a detached drive produces a clean no-op instead of a failed service and an alert.
+
+Use a **system** timer (under `/etc/systemd/system/`) for a whole-system backup. A user timer only exists while your user instance does, unless you run `loginctl enable-linger`.
+
+**Verify.** `systemctl list-timers restic-backup.timer` shows a `LAST` timestamp that advances daily, including after the machine has been powered off across 03:00, and `ls -l /var/lib/systemd/timers/stamp-restic-backup.timer` shows the stamp file that `Persistent=true` maintains, which is the mechanism that makes the catch-up happen. `restic -r /mnt/restic snapshots` lists a new snapshot per day, and `journalctl -u restic-backup.service -n 50` shows clean runs with no `unable to create lock` errors.
+
+Sources: <https://wiki.archlinux.org/title/Restic> · <https://wiki.archlinux.org/title/Systemd/Timers> · <https://borgbackup.readthedocs.io/en/stable/faq.html> · <https://wiki.archlinux.org/title/Borg_backup> · <https://wiki.archlinux.org/title/Systemd/User> · <https://man.archlinux.org/man/systemd.timer.5.en> · <https://raw.githubusercontent.com/systemd/systemd/main/src/core/timer.c> · <https://raw.githubusercontent.com/systemd/systemd/main/src/shared/bus-polkit.c> · <https://raw.githubusercontent.com/restic/restic/master/cmd/restic/cmd_unlock.go> · <https://raw.githubusercontent.com/restic/restic/master/internal/repository/lock_file.go> · <https://restic.readthedocs.io/en/stable/045_working_with_repos.html> · <https://restic.readthedocs.io/en/stable/077_troubleshooting.html> · <https://borgbackup.readthedocs.io/en/stable/usage/lock.html> · <https://archlinux.org/packages/extra/x86_64/restic/> · <https://archlinux.org/packages/extra/x86_64/borg/>
+
+---
+
 ## Fix VFIO GPU passthrough failing with "group is not viable"
 
 `vfio-gpu-passthrough-group-not-viable` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `kvm`, `libvirt`, `manjaro`, `nvidia`, `omarchy`
@@ -896,7 +1093,15 @@ Or `/sys/kernel/iommu_groups/` is empty, or `lspci -nnk` still shows `Kernel dri
 
 **Cause.** An IOMMU group is the smallest unit that can be handed to a VM. Every device in the group must be bound to `vfio-pci` — if the GPU's HDMI audio function, a USB controller, or a PCIe root port shares the group and is still on its normal driver, the group is "not viable". An empty `iommu_groups` directory means IOMMU (Intel VT-d / AMD-Vi) is not enabled at all.
 
-> ⚠️ **Risk.** This is the record most likely to leave you staring at a black screen. Once `vfio-pci` claims a GPU it is unusable by the host — if you bind the only GPU, or the one your monitor is plugged into, the desktop will not come up after reboot. Set your motherboard to display from the *host* GPU first, and keep a way in (SSH from another machine, or a known-good Limine/GRUB fallback entry with the modprobe file renamed). Since kernel 6.0 the framebuffer freezes once VFIO loads and before GPU drivers do, which hides the LUKS passphrase prompt on encrypted systems — if you use disk encryption, add your host GPU driver to the initramfs too or use the modprobe.d method rather than initramfs. The ACS override patch deliberately breaks PCIe isolation and has real security implications.
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, mkinitcpio 41.1-1, limine-mkinitcpio-hook 1.37.1-1, kernel 7.1.9, RTX 3090) and against the cited Arch wiki page fetched as raw wikitext. The generic VFIO content held: the group-listing script is byte-for-byte the wiki's, the `10de:13c2` / `10de:0fbb` pair is the wiki's own example group 13, `intel_iommu=on` for Intel with nothing needed for AMD-Vi is still what the wiki says, `vfio_pci vfio vfio_iommu_type1` with `vfio_virqfd` absent since 6.2 is current, and the root-port and ACS-override warnings match the wiki notes. I confirmed the exact error string in QEMU source at hw/vfio/container-legacy.c line 796, which the wiki does not carry. Three Omarchy 4 claims were wrong. First, `sudo mkinitcpio -P` cannot work here: `/etc/mkinitcpio.d/` is empty (`ls` on this machine, and `pacman -Ql linux` ships no preset), and `/usr/bin/mkinitcpio` line 986 does `[[ -e "${_optpreset[0]}" ]] || die 'No presets found in %s'`, so the command dies and writes no boot image. The rebuild is `limine-mkinitcpio`, which runs `/usr/share/libalpm/scripts/limine-mkinitcpio-install`. Second, the instruction to put `intel_iommu=on` on the `cmdline:` line of `/boot/limine.conf` is wrong on Omarchy: `/usr/lib/limine/limine-common-functions` sets `LIMINE_CONFIG_PATH="${ESP_PATH}/limine.conf"` and the tool regenerates it, and `ENABLE_UKI=yes` in `/etc/limine-entry-tool.d/omarchy-uki.conf` means the command line is embedded in the UKI, so a drop-in under `/etc/limine-entry-tool.d/` with `+=` is the only place it persists. This agrees with the existing corpus record `limine-kernel-parameters-not-applying-omarchy` rather than contradicting it. Third, "make sure modconf is in your HOOKS" points at the wrong file: `/etc/mkinitcpio.conf` is package-stock here and `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` sets `HOOKS=` wholesale, so editing the former has no effect. I also found a new Omarchy-specific trap the record could not have known: mkinitcpio line 1121 concatenates `/etc/mkinitcpio.conf.d/*.conf` in `sort -V` order, and I verified with `sort -zVu` that `vfio.conf` sorts after `nvidia.conf`, so the wiki's requirement that VFIO modules precede an early-KMS driver is violated unless the drop-in is named to sort first, hence `00-vfio.conf`. The danger field's "known-good Limine/GRUB fallback entry" does not exist on Omarchy: `MKINITCPIO_FALLBACK` is commented out in `/etc/limine-entry-tool.conf` and `limine-list` prints only `linux` under `Omarchy` plus `EFI fallback`, which is the Limine binary on the removable-media path, not a separate initramfs. I could NOT exercise any of the binding: `ls /sys/kernel/iommu_groups/ | wc -l` is 0 on this workstation, so IOMMU is off in firmware here, and I have no sudo and ran nothing that touches modules, initramfs or the bootloader. The wiki's own note that nvidia modesetting forces the ids into the initramfs is confirmed as applying here, because `/etc/modprobe.d/nvidia.conf` contains `options nvidia_drm modeset=1` and `/etc/mkinitcpio.conf.d/nvidia.conf` early-loads `nvidia_drm`. The KVM and Libvirt wiki pages were fetched and support none of the record's claims (grep for vfio or iommu returns nothing in Libvirt and only an incidental lsmod paste in KVM), so they are removed in favour of the Limine wiki and the QEMU source.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** This is the record most likely to leave you staring at a black screen. Once `vfio-pci` claims a GPU it is unusable by the host, so binding the only GPU, or the one your monitor is plugged into, means the desktop does not come up after reboot. Set the motherboard to display from the *host* GPU first, and keep a way in.
+
+On Omarchy 4 there is no fallback kernel entry to fall back to. `MKINITCPIO_FALLBACK` is left commented out in `/etc/limine-entry-tool.conf`, so `limine-list` shows one entry per kernel plus `EFI fallback`, which is the Limine binary on the removable-media path and boots the same image with the same command line. The recovery routes that do exist are the `Snapshots` submenu `limine-snapper-sync` writes into the Limine menu, and booting the Arch or Omarchy ISO to `arch-chroot` in, rename `/etc/modprobe.d/vfio.conf` and `/etc/mkinitcpio.conf.d/00-vfio.conf`, then rerun `limine-mkinitcpio` and `limine-update`. Have ssh from another machine as well.
+
+Since kernel 6.0 the framebuffer freezes once VFIO loads and before GPU drivers do, which hides the LUKS passphrase prompt on encrypted systems. If your root is encrypted, add your host GPU driver to the initramfs too, or use the modprobe.d method rather than the initramfs one. The ACS override patch deliberately breaks PCIe isolation and has real security implications.
 
 **Fix.**
 
@@ -907,10 +1112,25 @@ sudo dmesg | grep -i -e DMAR -e IOMMU | head
 ls /sys/kernel/iommu_groups/ | wc -l
 ```
 
-If empty: enable VT-d / AMD-Vi in firmware, and for Intel add the kernel parameter `intel_iommu=on` (AMD needs no parameter — the kernel enables AMD-Vi automatically when the firmware advertises it). Apply it where your bootloader keeps kernel parameters:
-- Limine: the `cmdline:` line in `/boot/limine.conf`
-- systemd-boot: the `options` line in `/boot/loader/entries/*.conf`
-- GRUB: `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then `sudo grub-mkconfig -o /boot/grub/grub.cfg`
+`kernel.dmesg_restrict = 1` on Omarchy 4, so `dmesg` needs `sudo`.
+
+If the count is 0, enable VT-d or AMD-Vi in firmware, and for Intel add the kernel parameter `intel_iommu=on`. AMD needs no parameter, the kernel enables AMD-Vi automatically when the firmware advertises it. Where that parameter goes depends on the bootloader.
+
+**Omarchy 4 (Limine plus a UKI).** Do not edit `/boot/limine.conf`. `limine-entry-tool` regenerates it on every kernel or limine transaction, and Omarchy boots a Unified Kernel Image (`ENABLE_UKI=yes` in `/etc/limine-entry-tool.d/omarchy-uki.conf`) whose command line is baked into the `.efi` file, so a `limine.conf` edit could not change it even if it survived. Add your own drop-in that sorts after Omarchy's `omarchy-defaults.conf`, and always append with `+=`:
+
+```bash
+sudo tee /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" intel_iommu=on"
+EOF
+sudo limine-mkinitcpio
+sudo limine-update
+```
+
+A bare `=` there replaces Omarchy's own defaults instead of adding to them.
+
+**Plain Arch with systemd-boot:** the `options` line in `/boot/loader/entries/*.conf`.
+
+**Plain Arch with GRUB:** `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then `sudo grub-mkconfig -o /boot/grub/grub.cfg`. Omarchy 4 has no `/etc/default/grub`.
 
 Reboot, then list the groups:
 
@@ -925,7 +1145,7 @@ for g in $(find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V); do
 done
 ```
 
-Every non-bridge device in the target group must go to `vfio-pci`. Take the `[vendor:device]` IDs from that output (e.g. `10de:13c2` for the GPU and `10de:0fbb` for its audio function) and bind them early:
+Every non-bridge device in the target group must go to `vfio-pci`. Take the `[vendor:device]` IDs from that output (the wiki's example group 13 is `10de:13c2` for the GPU and `10de:0fbb` for its audio function) and bind them early:
 
 ```bash
 sudo tee /etc/modprobe.d/vfio.conf >/dev/null <<'EOF'
@@ -934,29 +1154,46 @@ softdep drm pre: vfio-pci
 EOF
 ```
 
-If the proprietary NVIDIA driver is installed, use `softdep nvidia pre: vfio-pci` instead of `softdep drm pre: vfio-pci`. Do **not** bind a PCIe root port or bridge that happens to be in the group — it must stay on the host.
+If the proprietary NVIDIA driver is installed, use `softdep nvidia pre: vfio-pci` instead of `softdep drm pre: vfio-pci`. Do **not** bind a PCIe root port or bridge that happens to share the group, it has to stay on the host.
 
-For a stronger guarantee, put the modules in the initramfs as well:
+Then put the modules in the initramfs. On plain Arch that is the stronger of the two methods. On an Omarchy machine with the NVIDIA driver it is **required**, because Omarchy early-loads `nvidia_drm` with `modeset=1` (`MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` in `/etc/mkinitcpio.conf.d/nvidia.conf`, plus `options nvidia_drm modeset=1` in `/etc/modprobe.d/nvidia.conf`), and the wiki notes that with nvidia modesetting the `vfio-pci` ids must be embedded in the initramfs image rather than passed on the kernel command line.
+
+**Omarchy 4.** The drop-in filename matters. mkinitcpio concatenates `/etc/mkinitcpio.conf.d/*.conf` in `sort -V` order before sourcing them, so a file called `vfio.conf` is read *after* `nvidia.conf` and the VFIO modules would land behind `nvidia_drm` in `MODULES`. The wiki requires every VFIO module to precede an early-modesetting driver, so name the file so it sorts first:
 
 ```bash
-sudo tee /etc/mkinitcpio.conf.d/vfio.conf >/dev/null <<'EOF'
+sudo tee /etc/mkinitcpio.conf.d/00-vfio.conf >/dev/null <<'EOF'
 MODULES+=(vfio_pci vfio vfio_iommu_type1)
 EOF
+sudo limine-mkinitcpio
+sudo limine-update
+```
+
+`sudo mkinitcpio -P` does **not** work on Omarchy 4. `/etc/mkinitcpio.d/` is empty, so mkinitcpio exits with `No presets found in /etc/mkinitcpio.d` and writes no boot image, leaving you rebooting into the old one. `limine-mkinitcpio` is the rebuild.
+
+`modconf` is already in Omarchy's `HOOKS`, and `modconf` is what copies `/etc/modprobe.d/` into the image. Check it in the drop-in that actually sets `HOOKS`, not in `/etc/mkinitcpio.conf`, whose `HOOKS=` line that drop-in overwrites wholesale:
+
+```bash
+grep -o 'modconf' /etc/mkinitcpio.conf.d/omarchy_hooks.conf
+```
+
+**Plain Arch.** Add the modules to `MODULES` in `/etc/mkinitcpio.conf` (or a drop-in sorting before any early-KMS drop-in), make sure `modconf` is in `HOOKS`, then rebuild:
+
+```bash
 sudo mkinitcpio -P
 ```
 
-Make sure `modconf` is in your `HOOKS`. Reboot and verify the binding:
+Reboot and verify the binding:
 
 ```bash
 lspci -nnk -d 10de:13c2
 # want: Kernel driver in use: vfio-pci
 ```
 
-If the group still contains devices you cannot pass (a shared root port), move the card to a different PCIe slot before considering the ACS override patch (`linux-zen` + `pcie_acs_override=downstream,multifunction`), which weakens device isolation.
+If the group still holds devices you cannot pass (a shared root port), move the card to a different PCIe slot before considering the ACS override patch (`linux-zen` plus `pcie_acs_override=downstream,multifunction`), which weakens device isolation.
 
-**Verify.** `lspci -nnk` shows `Kernel driver in use: vfio-pci` for every device in the target IOMMU group, and the VM starts with the GPU attached.
+**Verify.** `cat /proc/cmdline` shows `intel_iommu=on` (Intel only), `ls /sys/kernel/iommu_groups/ | wc -l` is non-zero, `lspci -nnk` shows `Kernel driver in use: vfio-pci` for every non-bridge device in the target IOMMU group, and the VM starts with the GPU attached.
 
-Sources: <https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF> · <https://wiki.archlinux.org/title/KVM> · <https://wiki.archlinux.org/title/Libvirt>
+Sources: <https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF> · <https://wiki.archlinux.org/title/Limine> · <https://github.com/qemu/qemu/blob/master/hw/vfio/container-legacy.c>
 
 ---
 
@@ -968,23 +1205,45 @@ Sources: <https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF> · <https:/
 
 **Cause.** Both systems read the same hardware (RTC) clock but interpret it differently: Linux treats it as UTC, Windows treats it as local time. Each one "corrects" it on boot and they fight. Since systemd 216, if the RTC is set to local time, systemd will never write back to it, which makes the drift worse.
 
+> **Audit corrected this record.** Checked both cited wiki pages as raw wikitext and `man timedatectl` from systemd 261.2-1 on this workstation. The direction and the command are current and exact: the System_time page says configuring Windows for UTC is recommended rather than switching Linux to localtime, and the record's `reg add "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /d 1 /t REG_DWORD /f` is byte-identical to the wiki's line. The cause's systemd 216 claim is supported word for word: since version 216, when the RTC is configured to local time systemd will never synchronize back to it. The danger holds on both halves, from the source and locally. The wiki gives DST over-correction across multiple operating systems and system time going backwards during the boot sequence for a localtime RTC, and `man timedatectl` here says maintaining the RTC in the local timezone is not fully supported, will create problems with time zone changes and daylight saving adjustments, and to keep the RTC in UTC if at all possible. The danger stays unchanged, as do severity `medium`, frequency `very-common`, the symptom and the verify. The timesyncd drop-in path `/etc/systemd/timesyncd.conf.d/local.conf`, the `[Time]` key, the four `*.arch.pool.ntp.org` hostnames and `timedatectl show-timesync --all` all match the Systemd-timesyncd page, and the three lines the verify field asks for appear verbatim in this machine's live `timedatectl status` output. One Omarchy 4 fact changes the fix. Confirmed on this machine: `/etc/adjtime` does not exist and is owned by no package, and it is absent from upstream's own fresh-install manifest in `omacom/omarchy-iso`. The wiki states that when `/etc/adjtime` is absent systemd already assumes the hardware clock is UTC, so `sudo rm /etc/adjtime` fails with 'No such file or directory' for most readers. Also confirmed here: `timedatectl status` already reports `RTC in local TZ: no` and `NTP service: active`, and the fresh-install manifest carries the `sysinit.target.wants/systemd-timesyncd.service` symlink, so timesyncd is enabled out of the box. The Linux half of the record therefore verifies state rather than fixing it, and a reader who runs it and sees nothing change may wrongly conclude the fix failed. The rewrite says that plainly, switches to `rm -f`, and moves `set-ntp true` ahead of any RTC write so `set-local-rtc 0`, which the man page notes also synchronises the RTC from the system clock, cannot push a still-wrong time into the RTC. Overlap checked against the corpus: `pgp-signature-invalid-wrong-system-clock` reaches the same registry key from the pacman signature symptom and `windows-update-takes-over-uefi-boot-order` is a different problem, firmware boot order rather than time, so this record stays the general clock one and the boundary holds. Not exercised: I have no sudo, so I ran no `timedatectl set-*`, no `hwclock` and no timesyncd restart, and I have no Windows install to test the registry value against.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** `timedatectl set-local-rtc 1` is the wrong direction and is explicitly discouraged — it causes over-correction across DST changes and can make the system clock go backwards during boot. Only remove `/etc/adjtime` if you then immediately reset the hardware clock, or the next boot may come up with a wildly wrong time (which breaks TLS and pacman signature checks).
 
 **Fix.**
 
-The recommended direction is to make Windows use UTC. In an Administrator Command Prompt on Windows:
+The remedy is on the Windows side. Omarchy 4 already keeps the RTC in UTC with NTP on, so the Linux commands below mostly confirm that state rather than change it.
+
+Check what Linux currently believes:
+
+```bash
+timedatectl status
+cat /etc/adjtime 2>/dev/null || echo 'no /etc/adjtime, so systemd assumes the RTC is UTC'
+```
+
+On a stock Omarchy 4 install this already reports `RTC in local TZ: no` and `NTP service: active`, and `/etc/adjtime` does not exist. Linux is not the side that is wrong. The clock keeps moving because Windows writes local time into the same RTC.
+
+Make Windows use UTC. In an Administrator Command Prompt on Windows:
 
 ```
 reg add "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /d 1 /t REG_DWORD /f
 ```
 
-On the Linux side, make sure the RTC is treated as UTC and NTP is on:
+Should Windows later offer to update the clock for a DST change, let it. It leaves the RTC in UTC and only corrects the displayed time.
+
+Back on Linux, set the time zone and get NTP synchronised **before** anything writes the RTC, so a correct system clock is what gets pushed out:
+
+```bash
+sudo timedatectl set-timezone Europe/London   # your zone
+sudo timedatectl set-ntp true
+timedatectl status                            # wait for 'System clock synchronized: yes'
+```
+
+Only if `timedatectl status` still reports `RTC in local TZ: yes` does the RTC standard need changing:
 
 ```bash
 sudo timedatectl set-local-rtc 0
-sudo timedatectl set-ntp true
-sudo timedatectl set-timezone Europe/London   # your zone
-timedatectl status
 ```
 
 If `systemd-timesyncd` is not syncing, point it at the Arch pool via `/etc/systemd/timesyncd.conf.d/local.conf`:
@@ -1002,16 +1261,18 @@ sudo systemctl restart systemd-timesyncd.service
 timedatectl show-timesync --all
 ```
 
-If the hardware clock keeps drifting in large jumps, clear a bad drift value:
+If a stale drift value in `/etc/adjtime` is making the hardware clock jump, clear it and write the corrected time straight back. Use `rm -f`, because on Omarchy 4 the file is normally absent and a bare `rm` just errors:
 
 ```bash
-sudo rm /etc/adjtime
+sudo rm -f /etc/adjtime
 sudo hwclock --systohc --utc
 ```
 
+If both machines run a time client, disable synchronisation in Windows so the two do not each estimate RTC drift without knowing about the other.
+
 **Verify.** `timedatectl status` shows `RTC in local TZ: no`, `System clock synchronized: yes`, `NTP service: active`. Reboot into Windows and back — the time is still correct.
 
-Sources: <https://wiki.archlinux.org/title/System_time> · <https://wiki.archlinux.org/title/Systemd-timesyncd>
+Sources: <https://wiki.archlinux.org/title/System_time> · <https://wiki.archlinux.org/title/Systemd-timesyncd> · <https://github.com/omacom/omarchy-iso/blob/quattro/manifests/fresh-4-semantic.json>
 
 ---
 
@@ -1146,47 +1407,88 @@ failed to initialize kvm: No such file or directory
 
 `ls -l /dev/kvm` says `No such file or directory` and `lsmod | grep kvm` prints nothing (or only `kvm`, never `kvm_intel`/`kvm_amd`).
 
-**Cause.** Either the CPU virtualization extensions are switched off in firmware (very common on laptops and on prebuilt desktops), or the `kvm_intel`/`kvm_amd` module never got loaded. Arch kernels build both as modules and udev normally loads them on boot — if the firmware bit is clear, the module refuses to load and logs why.
+**Cause.** Either the CPU virtualization extensions are switched off in firmware (very common on prebuilt desktops and on laptops), or the `kvm_intel` / `kvm_amd` module never loaded. Arch kernels build both as modules and udev loads the matching one on boot. The trap is that when firmware has the switch off the kernel CLEARS the CPU feature flag, so the flag is missing in both cases. On Intel, `arch/x86/kernel/cpu/feat_ctl.c` prints `VMX (outside TXT) disabled by BIOS` and then calls `clear_cpu_cap(c, X86_FEATURE_VMX)`. On AMD, `arch/x86/kernel/cpu/amd.c` prints `SVM disabled (by BIOS) in MSR_VM_CR` and then calls `clear_cpu_cap(c, X86_FEATURE_SVM)`. An empty `grep -Eo 'vmx|svm' /proc/cpuinfo` therefore does not tell a CPU with no support apart from one whose firmware switch is off, and only the kernel log separates them. Permission on `/dev/kvm` is NOT the cause on Arch or Omarchy: systemd's udev rules create the node mode 0666, so every user can already open it. The group that gates anything is `libvirt`, and only for the libvirt daemon socket, not for `/dev/kvm`.
 
-> ⚠️ **Risk.** On some firmware, enabling virtualization also toggles related security settings and can reset the boot order — note your current boot entry before you save, so you can find Limine/GRUB again if the firmware reorders devices.
+> **Audit corrected this record.** Confirmed on this machine (omarchy 4.0.2-1, kernel 7.1.9, systemd 261.2-1, libvirt 1:12.6.0-1, qemu-desktop 11.1.0-1, virt-manager 5.1.0-4) that the record's central access claim is false. `ls -l /dev/kvm` returns `crw-rw-rw- 1 root kvm 10, 232`, mode 0666, and `/usr/lib/udev/rules.d/50-udev-default.rules:116` from systemd sets `KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"`. Upstream systemd has `MODE="{{DEV_KVM_MODE}}"` on the same line, so 0666 is Arch's build value and I verified it locally rather than assuming it. The record's `Membership in kvm is what grants access to /dev/kvm` and its previous audit note's `/dev/kvm is root:kvm 0660 on Arch` are both wrong, and they send a reader to edit groups for a problem groups do not cause. The group that matters is `libvirt` for the libvirt read-write socket, per the Arch Libvirt wiki's `Using libvirt group` section, and that page also records that Arch's `/usr/share/polkit-1/rules.d/50-default.rules` already treats `wheel` members as administrators, so a stock Omarchy user gets a password prompt and needs no group change. Second defect, from the kernel sources: the quoted AMD message `kvm: no hardware support` does not exist. I searched `arch/x86/kvm/svm/svm.c`, `arch/x86/kvm/vmx/vmx.c`, `arch/x86/kvm/x86.c` and `virt/kvm/kvm_main.c` at master and found no such string. The real AMD firmware message is `SVM disabled (by BIOS) in MSR_VM_CR` at `arch/x86/kernel/cpu/amd.c:1116`, and `svm.c:500` prints `SVM not supported by CPU %d`. Third, the Intel string the record leads with is real (`vmx.c:2949`) but it sits behind `if (!this_cpu_has(X86_FEATURE_MSR_IA32_FEAT_CTL))`, and `feat_ctl.c` sets that capability for every CPU that has the MSR, so a modern laptop with VT-x off falls through to `vmx.c:2955`, `VMX not fully enabled on CPU %d.  Check kernel logs and/or BIOS`. Fourth and worst for a reader's time, the diagnostic order is misleading: `feat_ctl.c:189` calls `clear_cpu_cap(c, X86_FEATURE_VMX)` and `amd.c:1117` calls `clear_cpu_cap(c, X86_FEATURE_SVM)` when firmware disabled the feature, so an empty `grep -Eo 'vmx|svm' /proc/cpuinfo` is exactly what a firmware-disabled machine looks like, and the record's framing of that step as `establish whether the CPU claims support at all` plus its closing nested-virtualization paragraph tell the reader the opposite. On Omarchy specifically I confirmed that none of this stack is shipped: `omarchy-base.packages` and `omarchy-other.packages` carry only `qemu-user-static-binfmt`, and `grep -rn 'usermod|gpasswd|-aG' /usr/share/omarchy/` returns only an unrelated `input` group removal in `migrations/1787865477.sh`, so Omarchy adds the user to no kvm or libvirt group. What held: the symptom text, the module names, the firmware setting names, the log-out-not-newgrp point, and `libvirtd.service` still working (its unit describes itself as `libvirt legacy monolithic daemon` and carries `Also=virtlogd.socket` and `Also=virtlockd.socket`, confirmed with `systemctl cat`). I rewrote `danger` because the original firmware caution is unsourced and I could not exercise it, while the real hazard in the record's own commands is `-aG` versus `-G`, which `man usermod` on this machine states directly. I kept the firmware caution as a caution. Not exercised: I have no sudo, so I did not run `modprobe`, read `dmesg`, change any group, or touch libvirt, which hosts other work on this machine. I did not test an AMD host or a machine with virtualization disabled in firmware, so the message-to-cause mapping above is read from the kernel sources rather than observed. Severity and frequency left alone: firmware-disabled virtualization is genuinely very common on prebuilt hardware and nothing here is lost data.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Keep the `-a` in `sudo usermod -aG libvirt $USER`. `usermod -G libvirt $USER` REPLACES your supplementary groups instead of adding to them, which drops `wheel` and with it sudo, and recovering needs a root shell or a single-user boot. `man usermod` states it plainly: `-a, --append   Add the user to the supplementary group(s). Use only with the -G option.` On the firmware side, changing a virtualization setting can flip related security options and reorder boot devices on some vendors' setup screens, so note your current boot entry before you save so you can find Limine again.
 
 **Fix.**
 
-Establish whether the CPU claims support at all:
+Read the kernel's verdict, do not guess from the CPU flags. Both vendors clear the flag when firmware has virtualization switched off, so an empty result below is ambiguous rather than a diagnosis:
 
 ```bash
-LC_ALL=C.UTF-8 lscpu | grep Virtualization
-grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u
+LC_ALL=C.UTF-8 lscpu | grep -i Virtualization   # the line is ABSENT, not "none", once the flag is cleared
+grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u      # empty means no support OR firmware off
 ```
 
-Try to load the module and read the reason it failed:
+Load the module and read why it refused. `dmesg` needs root on Arch because `kernel.dmesg_restrict = 1`:
 
 ```bash
-sudo modprobe kvm_intel      # or kvm_amd
-sudo dmesg | grep -i -E 'kvm|vmx|svm' | tail -20
+sudo modprobe kvm_intel      # or kvm_amd on AMD
+sudo dmesg | grep -i -E 'kvm|vmx|svm|VM_CR|FEAT_CTL'
 ```
 
-A line like `kvm: VMX not enabled (by BIOS) in MSR_IA32_FEAT_CTL on CPU 0` (Intel) or `kvm: SVM not supported by CPU` / `kvm: no hardware support` (AMD) means the firmware switch is off. Reboot into UEFI setup and enable it — it is called *Intel VT-x* / *Intel Virtualization Technology* / *SVM Mode* / *AMD-V*, usually under CPU or Advanced settings. On many machines it lives next to overclocking options, and on some Lenovo/HP laptops there is a separate *VT-d* entry too.
+Match the message against the kernel sources:
 
-Once `lsmod | grep kvm` shows `kvm_intel` or `kvm_amd`, make sure you may use the device. Membership in `kvm` is what grants access to `/dev/kvm`:
+Intel
+
+- `VMX (outside TXT) disabled by BIOS` at boot, plus `VMX not fully enabled on CPU 0.  Check kernel logs and/or BIOS` from the modprobe. The firmware switch is off. This is the usual case on a laptop, and it is the message to expect on any CPU new enough to have `MSR_IA32_FEAT_CTL`.
+- `VMX not enabled (by BIOS) in MSR_IA32_FEAT_CTL on CPU 0`. Same conclusion, but this branch is only reached on CPUs old enough to lack that MSR.
+- `VMX not supported by CPU 0` with no `disabled by BIOS` line anywhere in the log. The CPU genuinely has no VT-x.
+
+AMD
+
+- `SVM disabled (by BIOS) in MSR_VM_CR` at boot. The firmware switch is off.
+- `SVM not supported by CPU 0` from the modprobe together with that `MSR_VM_CR` boot line. Same cause, reported twice, because the boot path already cleared the flag.
+- `SVM not supported by CPU 0` with no `MSR_VM_CR` line. The CPU genuinely has no AMD-V.
+
+If the log says firmware, reboot into UEFI setup and enable it. It is called *Intel VT-x* / *Intel Virtualization Technology* / *SVM Mode* / *AMD-V*, usually under CPU or Advanced settings. On many boards it sits next to the overclocking options, and on some Lenovo and HP laptops there is a separate *VT-d* entry for IOMMU.
+
+Access to the device needs nothing on Arch or Omarchy. `/dev/kvm` is world read-write:
 
 ```bash
 ls -l /dev/kvm
-sudo usermod -aG kvm,libvirt $USER
+# crw-rw-rw- 1 root kvm 10, 232 /dev/kvm
 ```
 
-Log out of Hyprland and back in (group membership is picked up at session start, not by `newgrp` alone), then:
+That mode comes from systemd's own rule, not from anything Omarchy sets:
+
+```
+# /usr/lib/udev/rules.d/50-udev-default.rules
+KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"
+```
+
+So plain `qemu-system-x86_64 -enable-kvm` works with no group change. What group membership buys you is libvirt: members of `libvirt` get password-less access to the libvirt read-write socket, and on Arch anyone in `wheel` already gets a polkit password prompt for the same socket instead. On a stock Omarchy 4 install the user is in `wheel`, so virt-manager works with a prompt and no group edit at all. Add yourself to `libvirt` only if you want the prompt gone:
 
 ```bash
-id -nG | tr ' ' '\n' | grep -E 'kvm|libvirt'
+sudo usermod -aG libvirt "$USER"     # keep the -a, see the danger note
+id -nG | tr ' ' '\n' | grep -E 'kvm|libvirt|wheel'
+```
+
+Log out of Hyprland and back in. Group membership is fixed when the session is created, so `newgrp` alone is not enough for the already-running session.
+
+Start the daemon. Socket activation is the lighter path and needs no always-running daemon:
+
+```bash
+sudo systemctl enable --now libvirtd.socket virtlogd.socket
+```
+
+The monolithic daemon still works and its own unit calls itself `libvirt legacy monolithic daemon`. Enabling it pulls in `virtlogd.socket` and `virtlockd.socket` through `Also=`, so there is no need to enable those separately:
+
+```bash
 sudo systemctl enable --now libvirtd.service
 ```
 
-If `lscpu` shows no `vmx`/`svm` at all even after the firmware change, and the machine is itself a virtual machine, you need nested virtualization enabled on the *outer* host instead.
+Omarchy 4 installs none of this stack. `/usr/share/omarchy/install/omarchy-base.packages` carries only `qemu-user-static-binfmt`, and `qemu-desktop`, `libvirt` and `virt-manager` are yours to install. No Omarchy install script adds you to `kvm` or `libvirt` either, so all of the group work above is the user's.
 
-**Verify.** `ls -l /dev/kvm` shows a character device owned by `root:kvm`, `lsmod | grep kvm` lists `kvm_intel` or `kvm_amd`, and virt-manager no longer warns about KVM.
+If the boot log carries no `disabled by BIOS` and no `MSR_VM_CR` line, and the only message is `VMX not supported` or `SVM not supported`, then the CPU or the hypervisor above you is the limit. Check whether this machine is itself a guest, and if it is, enable nested virtualization on the outer host.
 
-Sources: <https://wiki.archlinux.org/title/KVM> · <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/QEMU> · <https://raw.githubusercontent.com/torvalds/linux/master/arch/x86/kvm/vmx/vmx.c>
+**Verify.** `ls -l /dev/kvm` shows `crw-rw-rw- 1 root kvm`, `lsmod | grep kvm` lists `kvm_intel` or `kvm_amd` alongside `kvm`, `sudo dmesg | grep -i -E 'vmx|svm'` shows no `disabled by BIOS` and no `MSR_VM_CR` line, and virt-manager opens a `qemu:///system` connection without warning that the host does not support KVM.
+
+Sources: <https://wiki.archlinux.org/title/KVM> · <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/QEMU> · <https://raw.githubusercontent.com/torvalds/linux/master/arch/x86/kvm/vmx/vmx.c> · <https://raw.githubusercontent.com/torvalds/linux/master/arch/x86/kvm/svm/svm.c> · <https://raw.githubusercontent.com/torvalds/linux/master/arch/x86/kernel/cpu/feat_ctl.c> · <https://raw.githubusercontent.com/torvalds/linux/master/arch/x86/kernel/cpu/amd.c> · <https://raw.githubusercontent.com/systemd/systemd/main/rules.d/50-udev-default.rules.in>
 
 ---
 
@@ -1202,41 +1504,76 @@ docker: Error response from daemon: could not select device driver "" with capab
 
 `nvidia-smi` on the host works fine. Sometimes the container starts but then prints `Failed to initialize NVML: Unknown Error`.
 
-**Cause.** Docker itself has no idea how to expose an NVIDIA GPU — that comes from `nvidia-container-toolkit`, which has to be installed and registered as a runtime in `/etc/docker/daemon.json` before dockerd will accept `--gpus`. On Arch the toolkit is a separate package that nothing pulls in, and the daemon must be restarted after registration.
+**Cause.** Docker has no built-in NVIDIA support. `dockerd` registers its `nvidia` device driver only when one of the NVIDIA Container Toolkit hook binaries is on its PATH: moby's `daemon/devices_nvidia_linux.go` runs `exec.LookPath` for `nvidia-cdi-hook` and for `nvidia-container-runtime-hook`, and when it finds neither it returns no device driver at all, which is the `could not select device driver` message. On Arch those binaries come from `nvidia-container-toolkit`, a separate package that nothing pulls in. Omarchy 4 installs `docker`, `docker-buildx`, `docker-compose` and the NVIDIA driver, but never `nvidia-container-toolkit`, so an Omarchy machine with a working `nvidia-smi` still fails every GPU container. Registering an `nvidia` entry under `runtimes` in `/etc/docker/daemon.json` is a different feature: it is what `--runtime=nvidia` selects, and `--gpus` does not need it.
 
-> ⚠️ **Risk.** `/etc/docker/daemon.json` must stay valid JSON — a stray trailing comma makes `docker.service` fail to start with every container down. If you edited it by hand, validate with `python -m json.tool /etc/docker/daemon.json` before restarting. Note also that dockerd refuses to start if the same option is set both in `daemon.json` and as a flag in the unit.
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, kernel 7.1.9-arch1-2, docker 1:29.7.2-1, nvidia-open-dkms 610.57.04-1, RTX 3090) and against four primary sources. Confirmed on this machine: the problem is reproducible by construction, because `/usr/share/omarchy/install/omarchy-base.packages` lists docker, docker-buildx and docker-compose, `/usr/share/omarchy/install/hardware/nvidia.sh` installs nvidia-open-dkms and nvidia-utils when `lspci` sees an NVIDIA card, no Omarchy package list mentions nvidia-container-toolkit, `pacman -Q nvidia-container-toolkit` reports it is not installed, `/etc/cdi` does not exist, no hook binary is on PATH, and `nvidia-smi` works and reports the card. Two defects. First, the cause is wrong: `--gpus` does not require a `runtimes` entry in `/etc/docker/daemon.json`. moby's `daemon/devices_nvidia_linux.go` (read from the moby repo) registers its nvidia device driver purely from an `exec.LookPath` for `nvidia-cdi-hook` or `nvidia-container-runtime-hook` and returns nil when neither exists, and the Arch wiki says the same, that after installing the package you can use `--gpus` OR register the runtime. Second and worse on Omarchy 4: `/etc/docker/daemon.json` already exists and is owned by omarchy-settings 4.0.2-1 (confirmed with `pacman -Qo`), carrying `"dns": ["172.17.0.1"]` and `"bip": "172.17.0.1/16"`, so pasting the record's whole-file runtimes-only JSON deletes exactly the two keys that the corpus record docker-container-dns-blocked-by-ufw and `/usr/share/omarchy/install/config/firewall.sh` depend on, and breaks container DNS everywhere. That is correct generic Arch advice mis-applied to Omarchy 4, because on plain Arch the file does not exist. The `nvidia-ctk` path is safe: the toolkit's `pkg/config/engine/docker/option.go` loadConfig reads and json-decodes the existing daemon.json before AddRuntime merges the key, confirmed from source. Third, the verify is broken on stock Omarchy: `docker info` here prints `Server: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` and `docker info | grep -i runtime` matches nothing, because `/usr/share/omarchy/install/config/docker.sh` deliberately leaves the user out of the docker group, so every docker command in the fix needs sudo. What held: all package paths are right, confirmed against the Arch package file list, which ships /usr/bin/nvidia-ctk, /usr/bin/nvidia-container-runtime, /usr/bin/nvidia-container-runtime-hook and /etc/nvidia-container-runtime/config.toml. The wiki supports the NVML `--device` workaround verbatim, and all three device nodes exist here. The Arch PKGBUILD and its nvidia-ctk-cdi.hook confirm the CDI file is generated automatically on install and refreshed on nvidia-utils upgrades, which is new information worth having in the fix. All four cited URLs return 200 and support their claims, so nothing is removed, but the BBS thread is a single post with no replies, so the Docker Desktop branch rests on one unanswered report and is now scoped as such. Severity and frequency left alone: the consequence is still a failed container, not a damaged machine, and the new destructive path belongs in `danger`. NOT exercised: I have no sudo, so I could not install the toolkit, restart dockerd, run `nvidia-ctk runtime configure`, or start any container. The merge behaviour of nvidia-ctk is read from its source rather than observed, and the NVML workaround is untested here.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On Omarchy 4 `/etc/docker/daemon.json` is owned by `omarchy-settings` and already sets `dns` and `bip`. Overwriting it with a runtimes-only file removes both and breaks DNS in every container, because Omarchy's ufw rules permit port 53 only to `172.17.0.1`. Use `sudo nvidia-ctk runtime configure --runtime=docker`, which merges into the existing file, or add the key by hand and keep everything else. Being a packaged file it can also arrive as a `.pacnew` during `omarchy update`, so a hand-edited copy has to be merged rather than ignored. Whatever you edit, the file must stay valid JSON. A stray trailing comma makes `docker.service` fail to start with every container down, so validate with `python3 -m json.tool /etc/docker/daemon.json` before restarting. dockerd also refuses to start if the same option is set both in `daemon.json` and as a flag in the unit.
 
 **Fix.**
 
-Install the toolkit and register it with the daemon:
+Install the toolkit and restart the daemon:
 
 ```bash
 sudo pacman -S --needed nvidia-container-toolkit
+sudo systemctl restart docker.service
+```
+
+That is the whole fix for `--gpus`. The package ships `/usr/bin/nvidia-container-runtime-hook` and `/usr/bin/nvidia-cdi-hook`, and its ALPM hook `/usr/share/libalpm/hooks/nvidia-ctk-cdi.hook` regenerates `/etc/cdi/nvidia.yaml` on install and on every `nvidia-utils` upgrade.
+
+Omarchy does not put your user in the `docker` group, so run the client under `sudo` unless you opted in through Setup > Security > Sudoless Docker:
+
+```bash
+sudo docker run --rm --gpus all nvidia/cuda:12.1.1-runtime-ubuntu22.04 nvidia-smi
+```
+
+If you also want `--runtime=nvidia`, register the runtime with `nvidia-ctk` rather than by hand:
+
+```bash
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker.service
 ```
 
-That writes the runtime into `/etc/docker/daemon.json`; if you prefer to do it by hand:
+`nvidia-ctk` reads the existing `/etc/docker/daemon.json`, decodes it, and adds only the `runtimes` key, so the rest of the file survives.
+
+**Do not paste a whole-file `daemon.json` over the top on Omarchy 4.** The file is shipped by `omarchy-settings` and already carries the daemon's DNS and bridge settings:
+
+```bash
+pacman -Qo /etc/docker/daemon.json     # omarchy-settings
+cat /etc/docker/daemon.json
+```
 
 ```json
 {
-  "runtimes": {
-    "nvidia": {
-      "path": "/usr/bin/nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  }
+    "log-driver": "json-file",
+    "log-opts": { "max-size": "10m", "max-file": "5" },
+    "dns": ["172.17.0.1"],
+    "bip": "172.17.0.1/16"
 }
 ```
 
-Check the daemon actually loaded it, then test:
+Dropping `dns` and `bip` breaks name resolution in every container, because Omarchy's ufw rules allow port 53 only to `172.17.0.1`. Add the key and keep the rest:
 
-```bash
-docker info | grep -i runtimes
-sudo docker run --rm --gpus all nvidia/cuda:12.1.1-runtime-ubuntu22.04 nvidia-smi
+```json
+{
+    "log-driver": "json-file",
+    "log-opts": { "max-size": "10m", "max-file": "5" },
+    "dns": ["172.17.0.1"],
+    "bip": "172.17.0.1/16",
+    "runtimes": {
+        "nvidia": {
+            "path": "/usr/bin/nvidia-container-runtime",
+            "runtimeArgs": []
+        }
+    }
+}
 ```
 
-If you get `Failed to initialize NVML: Unknown Error` instead, pass the device nodes explicitly — a known toolkit quirk:
+On plain Arch, EndeavourOS or CachyOS the file usually does not exist at all, and the Arch wiki's whole-file form is safe there.
+
+If you get `Failed to initialize NVML: Unknown Error` instead, pass the device nodes explicitly:
 
 ```bash
 sudo docker run --rm --gpus all \
@@ -1246,16 +1583,16 @@ sudo docker run --rm --gpus all \
   nvidia/cuda:12.1.1-runtime-ubuntu22.04 nvidia-smi
 ```
 
-If you have Docker Desktop installed alongside the system daemon, the error can also mean you are talking to the wrong daemon — Desktop's VM has no host GPU:
+If you installed Docker Desktop yourself, which Omarchy does not ship, the same error can mean you are talking to Desktop's VM, and that VM has no host GPU:
 
 ```bash
 docker context ls
 docker context use default
 ```
 
-**Verify.** `docker info | grep -i runtimes` lists `nvidia`, and `docker run --rm --gpus all nvidia/cuda:12.1.1-runtime-ubuntu22.04 nvidia-smi` prints your GPU.
+**Verify.** `sudo docker run --rm --gpus all nvidia/cuda:12.1.1-runtime-ubuntu22.04 nvidia-smi` prints your GPU. Do not use `docker info | grep -i runtimes` as the test. It reports the `--runtime=nvidia` registration rather than `--gpus` support, and on a stock Omarchy 4 install `docker info` cannot read the Server section at all, printing `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`, because your user is not in the `docker` group. Under sudo, `sudo docker info | grep -i runtimes` lists `nvidia` only if you ran `nvidia-ctk runtime configure`.
 
-Sources: <https://wiki.archlinux.org/title/Docker> · <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html> · <https://bbs.archlinux.org/viewtopic.php?id=300693> · <https://archlinux.org/packages/extra/x86_64/nvidia-container-toolkit/files/>
+Sources: <https://wiki.archlinux.org/title/Docker> · <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html> · <https://bbs.archlinux.org/viewtopic.php?id=300693> · <https://archlinux.org/packages/extra/x86_64/nvidia-container-toolkit/files/> · <https://archlinux.org/packages/extra/x86_64/nvidia-container-toolkit/json/> · <https://github.com/moby/moby/blob/master/daemon/devices_nvidia_linux.go> · <https://github.com/NVIDIA/nvidia-container-toolkit/blob/main/pkg/config/engine/docker/option.go> · <https://github.com/NVIDIA/nvidia-container-toolkit/blob/main/pkg/config/engine/docker/docker.go> · <https://gitlab.archlinux.org/archlinux/packaging/packages/nvidia-container-toolkit/-/raw/main/PKGBUILD> · <https://gitlab.archlinux.org/archlinux/packaging/packages/nvidia-container-toolkit/-/raw/main/nvidia-ctk-cdi.hook>
 
 ---
 
@@ -1267,7 +1604,17 @@ Sources: <https://wiki.archlinux.org/title/Docker> · <https://docs.nvidia.com/d
 
 **Cause.** The Flatpak sandbox only exposes the paths listed in the app's manifest plus any user overrides. Anything else simply is not visible inside the sandbox, so the app reports the file as missing rather than as a permission error.
 
-> ⚠️ **Risk.** Granting `--filesystem=home` to Flatpak Firefox makes it find and load your host `~/.mozilla` profile instead of the sandboxed one at `~/.var/app/org.mozilla.firefox/`, so your tabs and history appear to vanish. Either scope the permission narrowly or copy the sandboxed profile to `~/.mozilla` first. Broad home access also defeats the point of the sandbox.
+> **Audit corrected this record.** Every command and identifier in this record checks out against current upstream documentation, so only the danger needed work. Confirmed from https://github.com/flatpak/flatpak/blob/main/doc/flatpak-override.xml that FILESYSTEM accepts `home`, `xdg-download`, an absolute path such as `/mnt/data` and a homedir-relative path like `~/dir`, that `:ro` is a valid suffix, and that `--reset` and `--show` are real options, so the fix and the verify line are correct current syntax. Confirmed `--show-permissions` from https://github.com/flatpak/flatpak/blob/main/doc/flatpak-info.xml. The Flathub app id `com.github.tchx84.Flatseal` still resolves to Flatseal today, and `flatpak install flathub ...` works without adding a remote first because Arch's flatpak 1.18.2-1 ships `usr/share/flatpak/remotes.d/flathub.flatpakrepo` and the Arch wiki says installation adds the Flathub repository system-wide. The cited Arch wiki Flatpak page supports the symptom and the cause almost word for word: it states that Flatpak Firefox shows a File not found error page for a local HTML file, and it describes the `~/.mozilla` profile trap. The danger was directionally right but vague where a specific consequence exists, so it is rewritten to name what `--filesystem=home` actually exposes. I read https://github.com/flatpak/flatpak/blob/main/common/flatpak-exports.c and the only never-export list is `dont_export_in[]` (`/.flatpak-info`, `/app`, `/dev`, `/etc`, `/proc`, `/run/flatpak`, `/run/host`, `/usr`), none of which is under `$HOME`, and the only home path Flatpak hides under a home grant is `~/.var/app`, which it tmpfs masks deliberately. So `~/.ssh` and `~/.gnupg` are exposed read-write and that is worth saying. Omarchy 4 note, confirmed on this workstation: flatpak is NOT installed and appears in no file under /usr/share/omarchy/install/*.packages. It is pulled in on demand by `omarchy-pkg-add flatpak` inside /usr/share/omarchy/bin/omarchy-install-gaming-geforce-now, and /usr/share/omarchy/default/omarchy/omarchy-menu.jsonc gates two menu entries on `flatpak info com.nvidia.geforcenow`. So Omarchy anticipates flatpak without shipping it, and keeping `omarchy` in applies_to is right: a user who hits this symptom on Omarchy necessarily installed flatpak already, so no install step is needed in the fix. What I could NOT exercise: with flatpak absent I ran no `flatpak` command at all, so the override, the Firefox profile behaviour and the Flatseal install rest on documentation and source reading, not on this machine. I deliberately left one documented option out of the record. The Arch wiki's first remedy is to exclude the host profile, which would be `flatpak override --user --filesystem=home --nofilesystem=~/.mozilla org.mozilla.firefox`, and flatpak-override.xml's own wording about `--nofilesystem` undoing a previous identical `--filesystem` and not preventing access to a more narrowly-scoped one is ambiguous about whether a narrow exclusion masks a broad grant in the same layer. Rather than ship a command I cannot run, the rewritten danger states the approach and recommends the narrow grant, which is unambiguous.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Granting `--filesystem=home` to Flatpak Firefox makes it find and load your host `~/.mozilla` profile instead of the sandboxed one, so your tabs and history appear to vanish. The Arch wiki gives the sandboxed profile as `~/.var/app/org.mozilla.firefox/cache/mozilla/` and two ways out: change the permission so the host profile is excluded, or copy the sandboxed profile to `~/.mozilla` first.
+
+`--filesystem=home` is also a real security loosening and not only a Firefox annoyance. It is read-write access to the whole of `$HOME`, including `~/.ssh`, `~/.gnupg`, `~/.bashrc` and `~/.config`, so an app that is compromised or malicious can read private keys and gain persistence by writing to a shell startup file. Flatpak masks only `~/.var/app` (other apps' data) and `/.flatpak-info` under a home grant, nothing else. Grant the narrowest path that works, and add the `:ro` suffix when the app only needs to read:
+
+```bash
+flatpak override --user --filesystem=~/Documents:ro org.mozilla.firefox
+```
 
 **Fix.**
 
@@ -1292,7 +1639,7 @@ flatpak install flathub com.github.tchx84.Flatseal
 
 **Verify.** `flatpak override --user --show org.mozilla.firefox` lists the new filesystem entry, and the app can now open/save in that directory.
 
-Sources: <https://wiki.archlinux.org/title/Flatpak>
+Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://docs.flatpak.org/en/latest/sandbox-permissions.html> · <https://github.com/flatpak/flatpak/blob/main/doc/flatpak-override.xml> · <https://github.com/flatpak/flatpak/blob/main/doc/flatpak-info.xml> · <https://github.com/flatpak/flatpak/blob/main/common/flatpak-exports.c> · <https://flathub.org/api/v2/appstream/com.github.tchx84.Flatseal> · <https://archlinux.org/packages/extra/x86_64/flatpak/>
 
 ---
 
@@ -1474,95 +1821,23 @@ Sources: <https://wiki.archlinux.org/title/CUPS> · <https://wiki.archlinux.org/
 
 ---
 
-## Run docker-compose against Podman via the Docker-compatible socket
-
-`docker-compose-against-podman-socket` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `docker`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `podman`
-
-**Symptom.** Podman itself works, but `docker compose up` or `docker-compose up` fails with:
-
-```
-Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
-```
-
-Or `podman compose` runs but builds fail with buildkit errors, or an image reference fails with `short-name "nginx" did not resolve to an alias and no unqualified-search registries are defined in "/etc/containers/registries.conf"`.
-
-**Cause.** Podman is daemonless, so nothing listens on the Docker socket until you enable Podman's REST API socket. `docker-compose` speaks only to `$DOCKER_HOST`, and `podman compose` is just a thin wrapper that shells out to whichever compose provider is installed. Separately, Arch's `podman` ships with no search registries configured, so unqualified image names never resolve.
-
-> ⚠️ **Risk.** `podman-compose` has known compatibility gaps with real compose files; do not assume a working `docker-compose.yml` behaves identically. Also note that networks created by a compose project are often not removed by `podman compose down` — check `podman network ls` and clean up with `podman network rm` rather than assuming the environment is gone.
-
-**Fix.**
-
-Enable Podman's Docker-compatible socket as a user unit and point the client at it:
-
-```bash
-systemctl --user enable --now podman.socket
-systemctl --user status podman.socket
-export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
-docker compose version
-```
-
-Make it permanent for shells, user units and GUI apps. On Omarchy add it to the uwsm environment (it is sourced for the whole graphical session):
-
-```bash
-# ~/.config/uwsm/env
-export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
-```
-
-And for systemd user units:
-
-```bash
-mkdir -p ~/.config/environment.d
-printf 'DOCKER_HOST=unix://%%t/podman/podman.sock\n' > ~/.config/environment.d/podman-docker.conf
-```
-
-BuildKit is not supported through this socket — turn it off:
-
-```bash
-export DOCKER_BUILDKIT=0
-```
-
-Configure search registries so plain `nginx` / `archlinux` resolve like they do with Docker:
-
-```bash
-sudo mkdir -p /etc/containers/registries.conf.d
-sudo tee /etc/containers/registries.conf.d/10-unqualified-search-registries.conf >/dev/null <<'EOF'
-unqualified-search-registries = ["docker.io"]
-EOF
-```
-
-If you want the `docker` command itself to be Podman, install the shim:
-
-```bash
-sudo pacman -S podman-docker
-```
-
-To pick which compose implementation `podman compose` uses when both are installed (`docker-compose` wins by default):
-
-```bash
-export PODMAN_COMPOSE_PROVIDER=podman-compose
-```
-
-For containers to survive logout, enable lingering:
-
-```bash
-loginctl enable-linger
-```
-
-**Verify.** `docker compose version` and `docker ps` both work with no Docker daemon installed, and `podman ps` shows the same containers `docker ps` does.
-
-Sources: <https://wiki.archlinux.org/title/Podman> · <https://wiki.archlinux.org/title/Systemd/User> · <https://raw.githubusercontent.com/basecamp/omarchy/master/config/uwsm/env>
-
----
-
 ## Make printers appear in a Flatpak app's print dialog
 
 `flatpak-app-cannot-see-cups-printers` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `flatpak`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
 **Symptom.** The print dialog inside Flatpak LibreOffice / GIMP / Chrome / Inkscape shows "No printers found", or only offers "Print to File", while `lpstat -p -d` on the host lists the printer as idle and printing from a native app works fine.
 
-**Cause.** CUPS is reached over the Unix socket `/run/cups/cups.sock`, which is not mounted inside the Flatpak sandbox unless the app holds the `cups` socket permission. Apps that do not go through the Print portal see no CUPS server at all and report zero printers. Manifests vary wildly in whether they request it.
+**Cause.** CUPS is reached over the Unix socket `/run/cups/cups.sock`, which is not mounted inside the Flatpak sandbox unless the app holds the `cups` socket permission. With that permission Flatpak bind-mounts the host socket into the sandbox at `/var/run/cups/cups.sock`, the same file on Arch because `/var/run` is a symlink to `/run`. Apps that do not go through the Print portal see no CUPS server at all and report zero printers, and manifests vary in whether they request the permission. The permission only ever forwards a LOCAL socket. Flatpak looks at `$CUPS_SERVER`, then `~/.cups/client.conf`, then `/etc/cups/client.conf` on the host, but it accepts the value only when it is a filesystem path with no colon in it, so a network `ServerName host:631` is ignored and it falls back to the local socket.
 
-> ⚠️ **Risk.** `--socket=cups` gives the app unfiltered access to the CUPS control socket, which can enqueue jobs and read printer configuration. Prefer granting it per app rather than globally.
+> **Audit corrected this record.** The fix contains a command that cannot work, so this is corrected. `flatpak override --user --filesystem=/etc/cups:ro` is dead: `dont_export_in[]` in https://github.com/flatpak/flatpak/blob/main/common/flatpak-exports.c lists `/etc` among the paths Flatpak refuses to export, and any path with that prefix fails with `Path "/etc" is reserved by Flatpak`. https://github.com/flatpak/flatpak/blob/main/common/flatpak-context.c then routes that failure through `log_cannot_export_error`, which logs `Not sharing "..." with sandbox: ...` at message level and clears the error, so the app still launches and the reader believes a permission was granted that never existed. That is the worst shape of wrong advice and it is why this record could not stay `ok`. https://github.com/flatpak/flatpak/blob/main/common/flatpak-run-cups.c shows the second half of the same defect: `--socket=cups` resolves the server from `$CUPS_SERVER`, then `~/.cups/client.conf`, then `/etc/cups/client.conf` on the HOST, outside the sandbox, so in-sandbox visibility of the file was never the mechanism, and `flatpak_run_cups_check_server_is_socket` accepts the value only if it starts with `/` and contains no colon. A carried TODO comment says network CUPS servers are not supported and it falls back to `/var/run/cups/cups.sock`. So the record's remote-CUPS paragraph was wrong about the mechanism and wrong about the outcome, and it is replaced with the `lpadmin` route, whose flags and the `ipp://hostname:631/printers/queue_name` URI form both come from https://wiki.archlinux.org/title/CUPS. What held, and what I confirmed on this workstation (omarchy 4.0.2-1, kernel 7.1.9): `cups 2:2.4.19-1` is installed and listed in /usr/share/omarchy/install/omarchy-base.packages alongside cups-filters, cups-pk-helper and system-config-printer. `cups.service` and `cups.socket` are both enabled and active, and `cups.socket` listens on `/run/cups/cups.sock`, which exists with mode `srw-rw-rw-`, so the cause's socket path is right. `/var/run` is a symlink to `../run`, so Flatpak's sandbox target `/var/run/cups/cups.sock` is the same file. The portal claim holds and I confirmed it two ways. On this machine gtk.portal lists `org.freedesktop.impl.portal.Print` in its Interfaces and hyprland.portal does not, and https://wiki.archlinux.org/title/XDG_Desktop_Portal's backend table gives Print as yes for xdg-desktop-portal-gtk and no for both xdg-desktop-portal-hyprland and xdg-desktop-portal-wlr, the latter being the half I could not check locally because wlr is not installed. `cups` is a real socket name and both `--share` and `--env` are real override options per https://github.com/flatpak/flatpak/blob/main/doc/flatpak-override.xml, and `flatpak info --show-permissions` in the verify line is valid, so verify is left alone. The Omarchy 4 branch of the fix is new and is a real correction rather than a restyle: xdg-desktop-portal-gtk 1.15.3-1 is in omarchy-base.packages line 142, so it is always installed and the old `sudo pacman -S` step was a no-op that sent the reader down a dead end, and `hyprland-portals.conf` already names gtk as the fallback with `default=hyprland;gtk`, which is the mechanism documented on the Arch wiki portal page. All three portal user units are active here and both unit names in the record are correct, with xdg-desktop-portal-gtk.service being `static` and D-Bus activated. The danger is rewritten because it was pointed at the wrong thing. `--socket=cups` is listed under Standard permissions on https://docs.flatpak.org/en/latest/sandbox-permissions.html, which says those can be freely used, and the socket is world writable anyway, so calling it unfiltered access overstates it. The genuine hazard is the app-less global form the fix offers as a convenience, and the danger now leads with that. I did not assert what cupsd's default policy permits, because `/etc/cups/cupsd.conf` is mode `-rw-r-----` root:cups and I have no sudo, so I could not read it. On the cited issue: I read https://github.com/flatpak/xdg-desktop-portal/issues/341 in full, body and all three comments. It is still open, dated 2019 against flatpak 1.4.1 on Linux Mint 18.3, and it supports the SYMPTOM (LibreOffice, Scribus and GIMP seeing no CUPS printers) and the cause's point that non-portal apps enumerate printers their own way, which is exactly what hadess says in the thread. It never mentions `--socket=cups` and supports no part of the fix, so it is weak but not false and I left it in place rather than removing it. One comment there notes the reporter's remote printers had to be added locally, which happens to support the replacement advice. Omarchy 4 framing, confirmed here: flatpak is NOT installed and is in none of /usr/share/omarchy/install/*.packages. It is pulled in only by `omarchy-pkg-add flatpak` inside omarchy-install-gaming-geforce-now. Keeping `omarchy` in applies_to is still right, since anyone hitting this symptom installed flatpak themselves, but `frequency: common` is generous for the Omarchy slice of the audience, which needs flatpak plus a configured printer plus a non-portal app. I left it alone because applies_to also covers Arch, EndeavourOS, CachyOS and Manjaro, where it is fair. What I could NOT exercise: with no flatpak binary present I ran no flatpak command, so every override claim rests on the man page source and the C source rather than on this machine, and I could not reproduce the printing failure because `lpstat -p -d` reports no destinations here. I also left `--env=CUPS_SERVER=host:631` plus `--share=network` out of the fix, even though both options are documented and the Arch wiki documents CUPS_SERVER, because I could not test whether in-sandbox libcups picks it up and I was not going to replace one untested command with another.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Keep the override scoped to one app. `flatpak override --user --socket=cups` with no app id applies to every Flatpak app on the system, including ones you install months later, and there is nothing in the app's own listing to show where the permission came from.
+
+`--socket=cups` itself is a modest grant rather than a hole. The local socket is already world writable on a stock install (`srw-rw-rw- /run/cups/cups.sock`), so the sandbox gets the same reach any ordinary host process already has, which is enumerating queues and submitting jobs, and upstream lists `cups` among the standard freely-usable permissions. The real exposure is that a sandboxed app can now send documents to a printer and read queue and job metadata. Administrative changes to cupsd are still subject to the authentication rules in `/etc/cups/cupsd.conf`.
+
+Do not reach for `--filesystem=host-etc` or `--filesystem=home` to work around a printing problem. Both hand over far more than printing needs, and neither fixes this.
 
 **Fix.**
 
@@ -1572,19 +1847,22 @@ Grant CUPS access to the specific app:
 flatpak override --user --socket=cups org.libreoffice.LibreOffice
 ```
 
-Or for every Flatpak app at once (omit the app id):
+Omitting the app id applies the override to every Flatpak app you have now and every one you install later, so prefer the per-app form above:
 
 ```bash
 flatpak override --user --socket=cups
 ```
 
-If your printers are served by a remote CUPS server declared in `/etc/cups/client.conf`, the sandbox also needs to read that file:
+Check that a portal backend implementing the Print portal is present and running. `xdg-desktop-portal-gtk` implements it, `xdg-desktop-portal-hyprland` and `xdg-desktop-portal-wlr` do not.
+
+On Omarchy 4 it is already installed. `xdg-desktop-portal-gtk` is listed in `/usr/share/omarchy/install/omarchy-base.packages`, and `/usr/share/xdg-desktop-portal/hyprland-portals.conf` already names it as the fallback backend with `default=hyprland;gtk`, so check it is running rather than installing it:
 
 ```bash
-flatpak override --user --filesystem=/etc/cups:ro org.libreoffice.LibreOffice
+systemctl --user is-active xdg-desktop-portal.service xdg-desktop-portal-gtk.service
+systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service
 ```
 
-Make sure a portal backend that implements the Print portal is installed — `xdg-desktop-portal-hyprland` and `xdg-desktop-portal-wlr` do not, `xdg-desktop-portal-gtk` does:
+On plain Arch with Hyprland or another wlroots compositor it may be missing, so install it first:
 
 ```bash
 sudo pacman -S --needed xdg-desktop-portal-gtk
@@ -1598,11 +1876,18 @@ systemctl status cups.service
 lpstat -p -d
 ```
 
-Then fully quit and relaunch the Flatpak app — overrides are only read at startup.
+If your printers live on a remote CUPS server, `--socket=cups` will not reach them, because it forwards a local socket only and ignores a network `ServerName` in `/etc/cups/client.conf`. Do not try to bind that file in. `flatpak override --user --filesystem=/etc/cups:ro <app>` is accepted by the override command but can never take effect, because every path under `/etc` is on Flatpak's reserved list. At launch Flatpak prints `Not sharing "/etc/cups" with sandbox: Path "/etc" is reserved by Flatpak` on stderr and carries on without it, which a user launching from a desktop icon never sees. Add the remote queue to the local `cupsd` instead, then grant `--socket=cups`:
+
+```bash
+sudo lpadmin -p office -E -v "ipp://printserver.example:631/printers/office" -m everywhere
+lpstat -p -d
+```
+
+Then fully quit and relaunch the Flatpak app, because overrides are only read at startup.
 
 **Verify.** `flatpak info --show-permissions org.libreoffice.LibreOffice` lists `cups` under `[Context] sockets`, and the printer now appears in the app's own print dialog.
 
-Sources: <https://docs.flatpak.org/en/latest/sandbox-permissions.html> · <https://github.com/flatpak/xdg-desktop-portal/issues/341> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.archlinux.org/title/CUPS> · <https://wiki.archlinux.org/title/Flatpak>
+Sources: <https://docs.flatpak.org/en/latest/sandbox-permissions.html> · <https://github.com/flatpak/xdg-desktop-portal/issues/341> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.archlinux.org/title/CUPS> · <https://wiki.archlinux.org/title/Flatpak> · <https://github.com/flatpak/flatpak/blob/main/common/flatpak-run-cups.c> · <https://github.com/flatpak/flatpak/blob/main/common/flatpak-exports.c> · <https://github.com/flatpak/flatpak/blob/main/common/flatpak-context.c> · <https://github.com/flatpak/flatpak/blob/main/doc/flatpak-override.xml>
 
 ---
 
@@ -1691,7 +1976,18 @@ and shows the current boot instead. `journalctl --list-boots` lists exactly one 
 
 **Cause.** journald is only writing to the in-memory runtime journal, which is discarded on every boot. On Arch the default is `Storage=persistent` and `/var/log/journal/` ships with the `systemd` package — so this state almost always means the directory was deleted (often while reclaiming disk space, or by `rm -rf /var/log/journal`), or `Storage=` was set to `volatile`/`auto` in a config drop-in, or `/var/log` is on a tmpfs.
 
-> ⚠️ **Risk.** Persistent journals grow: the default cap is 10% of the filesystem, soft-capped at 4 GiB, which is exactly how a small root partition fills up and breaks `pacman -Syu`. Set `SystemMaxUse=` at the same time as you enable persistence. Do not "fix" a full disk by deleting `/var/log/journal` itself — use `journalctl --rotate && journalctl --vacuum-size=200M`, which trims the files and leaves the directory in place.
+> **Audit corrected this record.** Everything of substance in this record held, on Omarchy 4 and on plain Arch, and the only defect is one command in the danger field that cannot run on Omarchy. Confirmed on this machine (omarchy 4.0.2-1, systemd 261.2-1): `systemd-analyze cat-config systemd/journald.conf` shows the package-stock file only, with `#Storage=persistent` as the compile-time default, and /etc/systemd/journald.conf.d does not exist, so Omarchy overrides nothing about journald and the record's drop-in advice neither duplicates nor fights it. `pacman -Qo /var/log/journal` returns "owned by systemd 261.2-1", and `pacman -Ql systemd` lists `/var/log/journal/`, confirming the cause's claim that the directory ships with the package and that its absence means somebody removed it. The journal is persistent here, which is the premise the record depends on: `journalctl --header` reports a file under /var/log/journal/2e5dbe305d304555aa01d578380cb2e8/, `journalctl --list-boots` lists three boots, `journalctl --disk-usage` reports 679.8M in the file system, and /run/log/journal is empty. The quoted error text is exact rather than paraphrased: "Specifying boot ID or boot offset has no effect, no persistent journal was found." appears at line 82 of the cited journalctl-util.c and byte-identically in `strings /usr/bin/journalctl` on systemd 261.2-1, so it has not drifted. The recovery sequence is right, and its choice of `systemd-tmpfiles --create --prefix /var/log/journal` over a hand-written chmod is better than the record claims, because on this btrfs root that prefix picks up both /usr/lib/tmpfiles.d/systemd.conf line 28 (`z /var/log/journal 2755 root systemd-journal`) and /usr/lib/tmpfiles.d/journal-nocow.conf line 25 (`h /var/log/journal - - - - +C`), restoring the NOCOW attribute as well as the mode. `--create`, `--prefix`, `--flush`, `--list-boots` and `--disk-usage` all exist on the installed versions, checked against `systemd-tmpfiles --help` and `journalctl --help`. `findmnt /var/log` is the right tmpfs check and on Omarchy 4 it usefully shows the `@log` subvolume the installer creates. All four cited URLs resolved: journald.conf(5) and journalctl(1) both returned real Arch manual pages, the raw journalctl-util.c returned HTTP 200, and Arch's Systemd/Journal page line 141 supports the Storage=persistent default while line 145 supports the 10% and 4 GiB soft cap quoted in the danger. The local `man 5 journald.conf` confirms the auto-is-the-trap explanation. Nothing was removed from sources. The one correction: the danger says an oversized journal "breaks `pacman -Syu`", and on Omarchy 4 that command never gets as far as a disk check, because /usr/share/libalpm/hooks/00-omarchy-update-guard.hook runs omarchy-update-pacman-guard with AbortOnFail and that script aborts whenever both S and u are present, identical at upstream tag v4.0.3. The real Omarchy symptom is omarchy-update-requires-free-space printing "You need at least 10 GiB free to safely update Omarchy." I rewrote the danger only and left symptom, cause, fix and verify untouched, since a rewrite of correct text would itself be a defect. Severity and frequency left alone. Not exercised: I have no sudo, so I did not delete /var/log/journal, did not run the recovery sequence, did not restart journald, and did not reboot to prove `journalctl -b -1` comes back. I also never observed the volatile failure state itself, only the healthy state it contrasts with.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Persistent journals grow. The default cap is 10% of the filesystem with a soft cap at 4 GiB, which is exactly how a small root partition fills up and starts blocking updates. On plain Arch that shows up as `pacman -Syu` failing on disk space. On Omarchy 4 you see `omarchy update` refuse with `You need at least 10 GiB free to safely update Omarchy.` instead, and `pacman -Syu` is no test either way, because Omarchy's update guard hook aborts it whatever the disk looks like. Set `SystemMaxUse=` at the same time as you enable persistence.
+
+Do not reclaim space by deleting `/var/log/journal` itself, which is what turns persistence off in the first place. Trim the files and leave the directory in place:
+
+```bash
+sudo journalctl --rotate
+sudo journalctl --vacuum-size=200M
+```
 
 **Fix.**
 
@@ -1747,107 +2043,7 @@ coredumpctl list
 
 **Verify.** `ls /var/log/journal/` contains a machine-id directory with `.journal` files, `journalctl --disk-usage` reports usage under `/var/log/journal`, and after a reboot `journalctl --list-boots` lists at least two boots and `journalctl -b -1` shows real log lines.
 
-Sources: <https://man.archlinux.org/man/journald.conf.5.en> · <https://man.archlinux.org/man/journalctl.1.en> · <https://wiki.archlinux.org/title/Systemd/Journal> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journalctl-util.c>
-
----
-
-## Fix hostname.local names not resolving (mDNS off in resolved, or Avahi fighting it)
-
-`mdns-local-hostname-not-resolving` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
-
-**Symptom.** `ping raspberrypi.local` fails with `Name or service not known`, a network printer or Home Assistant box that other devices reach by `.local` name is unreachable, and `resolvectl query nas.local` returns `nas.local: Name 'nas.local' not found`. The device answers fine by IP address. Sometimes the machine's own hostname also keeps gaining a number (`myhost-2.local`).
-
-**Cause.** mDNS has to be enabled in two places: systemd-resolved's global `MulticastDNS=` (on by default) *and* per-connection in NetworkManager, whose `connection.mdns` default is effectively off. So `.local` never gets resolved even though resolved supports it. The renaming-with-numbers symptom is the opposite problem — Avahi and resolved are both answering mDNS on the same interface and fighting over the hostname.
-
-> ⚠️ **Risk.** Running Avahi and systemd-resolved as mDNS *responders* at the same time causes the hostname-conflict renaming loop, so pick one and disable the other's responder — do not enable both. Editing the `hosts:` line in `/etc/nsswitch.conf` incorrectly breaks all name resolution system-wide, including for pacman: copy the file aside first (`sudo cp /etc/nsswitch.conf /etc/nsswitch.conf.bak`) and test with `getent hosts archlinux.org` before rebooting. Using the full `mdns` module rather than `mdns_minimal` makes reverse lookups in `mtr`/`traceroute` time out.
-
-**Fix.**
-
-See what is actually enabled:
-
-```bash
-resolvectl status
-resolvectl mdns
-nmcli -f connection.mdns connection show "$(nmcli -t -f NAME connection show --active | head -1)"
-systemctl is-active avahi-daemon.service systemd-resolved.service
-```
-
-**Path A — use systemd-resolved for mDNS** (simplest if you do not need service discovery). Turn it on for the connection:
-
-```bash
-nmcli connection modify "<connection-name>" connection.mdns yes
-nmcli connection up "<connection-name>"
-```
-
-Or set it as the default for all connections:
-
-```bash
-sudo mkdir -p /etc/NetworkManager/conf.d
-sudo tee /etc/NetworkManager/conf.d/10-mdns.conf >/dev/null <<'EOF'
-[connection]
-connection.mdns=2
-EOF
-sudo systemctl restart NetworkManager
-```
-
-(`2` = yes/resolve-and-respond, `1` = resolve only, `0` = no.) Then make sure Avahi is not competing:
-
-```bash
-sudo systemctl disable --now avahi-daemon.service avahi-daemon.socket
-resolvectl query raspberrypi.local
-```
-
-**Path B — use Avahi** (needed for DNS-SD service discovery, e.g. CUPS printer browsing). Install the NSS module and let Avahi own mDNS:
-
-```bash
-sudo pacman -S --needed avahi nss-mdns
-sudo systemctl enable --now avahi-daemon.service
-```
-
-```
-# /etc/nsswitch.conf — mdns_minimal must come BEFORE resolve and dns
-hosts: mymachines mdns_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
-```
-
-And have resolved cache but not respond, so the two do not collide:
-
-```bash
-sudo mkdir -p /etc/systemd/resolved.conf.d
-sudo tee /etc/systemd/resolved.conf.d/10-mdns.conf >/dev/null <<'EOF'
-[Resolve]
-MulticastDNS=resolve
-EOF
-sudo systemctl restart systemd-resolved.service
-```
-
-`nss-mdns` only works if your upstream DNS returns `NXDOMAIN` for the `local` domain — check:
-
-```bash
-host -t SOA local
-```
-
-If it does not return NXDOMAIN, use the full `mdns` module scoped to `.local` only:
-
-```
-# /etc/nsswitch.conf
-hosts: mymachines mdns [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
-```
-
-```
-# /etc/mdns.allow
-.local.
-.local
-```
-
-Either way, mDNS needs UDP 5353 open:
-
-```bash
-sudo ufw allow 5353/udp comment 'mDNS'
-```
-
-**Verify.** `resolvectl query nas.local` returns an address (Path A) or `avahi-resolve -n nas.local` does (Path B), `ping nas.local` works, and `avahi-browse -at` lists services on the LAN if you took Path B.
-
-Sources: <https://wiki.archlinux.org/title/Systemd-resolved> · <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/CUPS>
+Sources: <https://man.archlinux.org/man/journald.conf.5.en> · <https://man.archlinux.org/man/journalctl.1.en> · <https://wiki.archlinux.org/title/Systemd/Journal> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journalctl-util.c> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-pacman-guard> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-requires-free-space>
 
 ---
 
@@ -1911,22 +2107,34 @@ or, after wiring something up by hand, `docker ps` still shows the root daemon's
 
 **Cause.** Arch's `docker` package does not ship upstream's `dockerd-rootless.sh` / `dockerd-rootless-setuptool.sh` wrappers. The rootless pieces live in the AUR package `docker-rootless-extras`, which instead provides `docker.service` and `docker.socket` as **user** units. And rootless mode needs a subordinate UID/GID range allocated to your user, which older accounts do not have.
 
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, kernel 7.1.9-arch1-2, docker 1:29.7.2-1, shadow 4.20.0.arch1-1, systemd 261) and against all four cited sources, every one of which returns 200 and supports the claim it is cited for, so nothing is removed. Confirmed on this machine: `pacman -Ql docker` lists only `/usr/lib/systemd/system/docker.service` and `docker.socket`, with no `dockerd-rootless.sh` and no `dockerd-rootless-setuptool.sh`, so the `command not found` framing and the whole cause are right. The Arch wiki Docker page states the same in its Rootless Docker daemon note, gives the `/etc/subuid` and `/etc/subgid` 65536 form, the `docker context create` line with `unix:///run/user/$(id -u)/docker.sock`, and the lingering tip. Podman page lines 68 to 78 are the source of the `usermod --add-subuids 100000-165535` command and of the warning that this is the default range for the first account. Systemd/User is the source of `loginctl enable-linger` and of the warning about faking autologin that the record's `danger` reproduces. `cause` and `danger` are correct and are left untouched. Three defects in `fix`, all of them generic advice that misfires on Omarchy 4. First, `printf 'DOCKER_HOST=unix://%t/docker.sock'` into `~/.config/environment.d/` does not work. `man 5 environment.d` on systemd 261 says the right hand side may reference variables using `${OTHER_KEY}` and `$OTHER_KEY` and that no other elements of shell syntax are supported, and `%t` is a unit-file specifier that `environment.d` never sees, so DOCKER_HOST would be set to the literal string `unix://%t/docker.sock`. The wiki's own wording is `unix://$XDG_RUNTIME_DIR/docker.sock`. Second, `zgrep CONFIG_USER_NS_UNPRIVILEGED /proc/config.gz` returns nothing on this stock Arch kernel: `zgrep -E 'CONFIG_USER_NS(_UNPRIVILEGED)?=' /proc/config.gz` prints only `CONFIG_USER_NS=y`, because that symbol is a linux-hardened addition and is absent from mainline, so the check reads as a positive for a problem that is not there. The record's linux-hardened scoping is itself correct, confirmed from Arch's `linux-hardened` config.x86_64 line 270, `# CONFIG_USER_NS_UNPRIVILEGED is not set`, and the sibling check holds: `/proc/sys/kernel/unprivileged_userns_clone` does exist here and reads `1`. Third, the subuid step is already done on Omarchy 4. `/etc/subuid` and `/etc/subgid` here both hold `techluddite:100000:65536`, and `/etc/login.defs` sets `SUB_UID_COUNT 65536`, so the record's exact suggested range is the one already taken, and `man 8 usermod` states that `--add-subuids` performs no checks against SUB_UID_MIN, SUB_UID_MAX or SUB_UID_COUNT, which means running it anyway silently appends a duplicate line. Added the Omarchy-specific point that Omarchy enables the system `docker.socket` and deliberately keeps the user out of the `docker` group, so the root daemon is always up and the context check is the load-bearing step rather than a nicety, which is also why `verify` now leads with `docker context show`. Boundary against the two neighbouring ufw records: `docker-container-dns-blocked-by-ufw` and `docker-published-ports-bypass-ufw` are both about the system daemon's bridge and its nftables chains, and neither applies to this record, because a rootless daemon reads `~/.config/docker/daemon.json` rather than Omarchy's `/etc/docker/daemon.json` and publishes ports through rootlesskit in the user's own namespace. I did not add a claim about how ufw treats rootless published ports, because I could not verify it. Package facts rechecked: AUR `docker-rootless-extras` is at 29.8.0-1 with depends `docker>=1:29.5.0` and `rootlesskit>=3.0.0`, which the installed docker satisfies, and `rootlesskit` is 3.1.0-1 in `extra`, so the record's older audit note figure of 29.7.2-1 is stale but the record body never quoted a version. NOT exercised: I have no sudo and am not in the `docker` group, so I could not install the AUR package, enable a user unit, create a context, or start any container. The `%t` failure and the merge behaviour are read from the systemd and shadow manual pages rather than observed, and the linux-hardened behaviour is read from Arch's packaged config rather than run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
 > ⚠️ **Risk.** Rootless Docker is a separate, empty daemon: existing images, volumes and containers under `/var/lib/docker` are invisible to it and are NOT migrated. It also cannot bind ports below 1024 by default and has no access to host devices. Do not run both daemons and then wonder which one `docker compose down -v` just wiped — check `docker context show` first. Enabling lingering keeps a daemon running after logout; do not use lingering to fake autologin, it breaks session permissions.
 
 **Fix.**
 
-Install the rootless extras (they pull in `rootlesskit`):
+Install the rootless extras. They depend on `rootlesskit`, which now lives in `extra` rather than the AUR, so this is one AUR build:
 
 ```bash
 yay -S docker-rootless-extras
 ```
 
-Allocate a subordinate ID range of at least 65536 (check `/etc/subuid` first so you do not collide):
+Check whether you already have a subordinate ID range before allocating one. On Omarchy 4, and on any account created by a current `archinstall`, `useradd` has already done it, because `/etc/login.defs` sets `SUB_UID_COUNT 65536`:
 
 ```bash
 cat /etc/subuid /etc/subgid
+grep -E 'SUB_(UID|GID)_(MIN|COUNT)' /etc/login.defs
+```
+
+One line per file of the form `yourname:100000:65536` is everything rootless mode needs, and there is nothing more to do. Only if your user has no line, add one. `usermod` does no overlap checking at all, so running it when the range is already present just gives you a second duplicate line:
+
+```bash
 sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER
 ```
+
+Pick a free range out of `/etc/subuid` if `100000-165535` is taken. It is the default range for the first account on the machine, which on Omarchy is you.
 
 Start the daemon as a user unit:
 
@@ -1935,39 +2143,52 @@ systemctl --user enable --now docker.socket
 systemctl --user status docker.socket
 ```
 
-Point the client at it with a persistent context:
+Point the client at it with a persistent context. This matters more on Omarchy than on plain Arch, because Omarchy enables the system `docker.socket` at install time, so the root daemon is always running and is what an unconfigured client reaches:
 
 ```bash
 docker context create rootless --description "Rootless mode" \
   --docker "host=unix:///run/user/$(id -u)/docker.sock"
 docker context use rootless
+docker context show
 docker info | grep -E 'rootless|Docker Root Dir'
 ```
 
-Or set the environment variable instead — put it where user units and GUI apps see it, not only in `.bashrc`:
+Or set the environment variable instead, somewhere user units and GUI apps can see it rather than only in `.bashrc`. Write `${XDG_RUNTIME_DIR}` and not `%t`: `%t` is a systemd unit-file specifier, and `environment.d` expands only `$VAR` and `${VAR}` references, so `%t` would be stored as those two literal characters:
 
 ```bash
 mkdir -p ~/.config/environment.d
-printf 'DOCKER_HOST=unix://%%t/docker.sock\n' > ~/.config/environment.d/docker-rootless.conf
+printf 'DOCKER_HOST=unix://${XDG_RUNTIME_DIR}/docker.sock\n' > ~/.config/environment.d/60-docker-rootless.conf
 ```
 
-To have it running without an open session (so containers come back after a reboot):
+That file is read when your systemd user instance starts, so it takes effect at your next login. For the shell you are in now:
+
+```bash
+export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
+```
+
+To have it running without an open session, so containers come back after a reboot:
 
 ```bash
 loginctl enable-linger
 loginctl list-users        # LINGER should say yes
 ```
 
-If `rootlesskit` still fails, unprivileged user namespaces are blocked (this is the default on `linux-hardened`):
+If `rootlesskit` still fails, check whether unprivileged user namespaces are blocked:
 
 ```bash
 sysctl kernel.unprivileged_userns_clone
-zgrep CONFIG_USER_NS_UNPRIVILEGED /proc/config.gz
 ```
 
-**Verify.** `docker info` shows `rootless` in the security options and `Docker Root Dir: /home/<you>/.local/share/docker`, and `docker run --rm hello-world` succeeds without sudo and without you being in the `docker` group.
+On Omarchy 4's stock `linux` kernel that reads `1` and user namespaces are available. Do not use `zgrep CONFIG_USER_NS_UNPRIVILEGED /proc/config.gz` as the test. That symbol does not exist in the mainline Arch `linux` config, so the grep prints nothing on a machine where rootless mode works perfectly well. It is a `linux-hardened` symbol, and Arch's `linux-hardened` config carries `# CONFIG_USER_NS_UNPRIVILEGED is not set`, which is the kernel where rootless mode actually fails:
 
-Sources: <https://wiki.archlinux.org/title/Docker> · <https://aur.archlinux.org/packages/docker-rootless-extras> · <https://wiki.archlinux.org/title/Systemd/User> · <https://wiki.archlinux.org/title/Podman>
+```bash
+uname -r
+zgrep '^CONFIG_USER_NS' /proc/config.gz
+```
+
+**Verify.** `docker context show` says `rootless`, then `docker info` shows `rootless` in the security options and `Docker Root Dir: /home/<you>/.local/share/docker`, and `docker run --rm hello-world` succeeds without sudo. Check the context first: Omarchy keeps the system `docker.socket` enabled and leaves your user out of the `docker` group, so a client still pointed at the default context prints `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` rather than anything about rootless mode.
+
+Sources: <https://wiki.archlinux.org/title/Docker> · <https://aur.archlinux.org/packages/docker-rootless-extras> · <https://wiki.archlinux.org/title/Systemd/User> · <https://wiki.archlinux.org/title/Podman> · <https://archlinux.org/packages/extra/x86_64/rootlesskit/json/> · <https://gitlab.archlinux.org/archlinux/packaging/packages/linux-hardened/-/raw/main/config.x86_64>
 
 ---
 
@@ -1987,7 +2208,22 @@ Failed to start foo.service.
 
 **Cause.** With `Restart=always`/`on-failure`, a service that fails instantly gets restarted instantly, and systemd's start rate limiter cuts in: more than `StartLimitBurst` starts inside `StartLimitIntervalSec` (5 in 10s by default on Arch) and the unit is refused any further start until the interval passes. The rate limit is the *symptom*; the real failure is whatever made the service exit in the first place, and once the limiter trips, `systemctl restart` no longer tells you anything about it.
 
-> ⚠️ **Risk.** `systemctl reset-failed` usually unloads the unit, which makes `systemctl status` stop reporting the previous failure and its logs — capture the journal output *before* resetting if you still need to diagnose it. Raising `StartLimitBurst` or setting `StartLimitIntervalSec=0` on a service that crashes on startup turns it into an unbounded restart loop that can spin a CPU core and flood the journal.
+> **Audit corrected this record.** Checked against man systemd.unit(5) and man systemctl(1) on this machine (systemd 261.2-1), systemd v261's own parser table, and live units here. What held: both quoted messages are real in v261 (`log_unit_warning(u, "Start request repeated too quickly.")` at src/core/unit.c:1882, and `[SERVICE_FAILURE_START_LIMIT_HIT] = "start-limit-hit"` at src/core/service.c:6296). The 5-starts-in-10s default is confirmed twice, from the commented `#DefaultStartLimitIntervalSec=10s` / `#DefaultStartLimitBurst=5` at /etc/systemd/system.conf:56-57 and from live `StartLimitIntervalUSec=10s StartLimitBurst=5` on sshd.service. Reset-failed flushing the start rate limit counter, StartLimit* being documented `[Unit]` keys, `0` disabling rate limiting, and drop-ins being preferred over editing packaged units are all confirmed in the man pages. The framing that the rate limit is the symptom and not the fault is right and is kept verbatim. Three defects, all confirmed on this machine. (1) `systemctl show -p StartLimitIntervalSec` and `-p RestartSec` return NOTHING: the D-Bus properties are `StartLimitIntervalUSec` and `RestartUSec`, and `systemctl show -p` silently skips a name it does not know, so the record's diagnostic line lost two of five properties and its `verify` step could not show the interval the reader had just set. That is the worst of the three because it sat in `verify`. (2) The claim that systemd warns about StartLimit* in `[Service]` is true for exactly one key. systemd v261's src/core/load-fragment-gperf.gperf.in still carries `Service.StartLimitBurst`, `Service.StartLimitInterval` and `Service.StartLimitAction` as compat entries writing into the same Unit fields, and has no `Service.StartLimitIntervalSec`. `systemd-analyze verify` on a throwaway file in /tmp confirmed it: only `StartLimitIntervalSec=` in `[Service]` warns, while `StartLimitBurst=`, `StartLimitInterval=` and `StartLimitAction=` there produce no message and are applied. So the record promised feedback that does not arrive for the key most likely to be misplaced, and the real trap is a burst applied over the default 10s window. (3) `man systemctl` says `systemctl edit` reloads configuration when the editor exits, so the record's extra `daemon-reload` was redundant. The `danger` was half wrong and contradicted the record's own `fix`: reset-failed clears the recorded exit status but does not touch the journal, so "capture the journal output before resetting" was unnecessary alarm, while the fix itself correctly ran journalctl after resetting. The unbounded-restart-loop half of the danger is sound and is kept. Added an Omarchy branch because the record claims `applies_to: omarchy` and had no Omarchy content: six user units under /usr/share/omarchy/default/systemd/user/ set `Restart=` with `RestartSec=2` or `5` and set no `StartLimit*`, and five of them are loaded here showing `StartLimitIntervalUSec=10s StartLimitBurst=5`. NOT exercised: I did not trip a real start limit, edit, reset or restart any unit on this machine, so the reset-failed-then-start recovery sequence is confirmed from the man page and the parser source rather than by running it. severity `medium` and frequency `common` left alone, both look right for a generic systemd shape.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** `systemctl reset-failed` clears the recorded exit code and status that
+`systemctl status` was reporting, and resets the start rate limit counter and the
+service restart counter, so the previous failure stops being shown once the unit
+is started again. It does not touch the journal: `journalctl -u foo.service -b`
+still holds every line from the failed attempts, which is why reading the journal
+after resetting is safe and is the order given above.
+
+Raising `StartLimitBurst` or setting `StartLimitIntervalSec=0` on a service that
+crashes on startup turns it into an unbounded restart loop that can spin a CPU
+core and flood the journal. The start limiter is the one thing stopping that, so
+widen the interval instead of removing it, and only after the underlying failure
+is understood.
 
 **Fix.**
 
@@ -2007,14 +2243,24 @@ systemctl --user start foo.service
 journalctl --user -u foo.service -b --no-pager -n 100
 ```
 
-Find out what it actually runs and with what environment before guessing:
+Find out what it actually runs and with what limits before guessing. Mind the
+property names: `systemctl show` reports the interval and the restart delay as
+`StartLimitIntervalUSec` and `RestartUSec`, not with the `...Sec` spellings you
+write in a unit file. `systemctl show -p` ignores a property name it does not
+recognise and prints nothing for it instead of erroring, so asking for
+`-p StartLimitIntervalSec` returns an empty result and looks like the unit has no
+limit:
 
 ```bash
 systemctl cat foo.service
-systemctl show foo.service -p ExecStart -p Restart -p RestartSec -p StartLimitBurst -p StartLimitIntervalSec
+systemctl show foo.service -p ExecStart -p Restart -p RestartUSec \
+  -p StartLimitBurst -p StartLimitIntervalUSec -p StartLimitAction
 ```
 
-Fix the underlying failure. If the service is legitimately expected to flap (a network-dependent daemon, a tunnel), slow the restarts down so it backs off instead of burning through the limit — with a drop-in, not by editing the packaged unit:
+Fix the underlying failure. If the service is legitimately expected to flap (a
+network-dependent daemon, a tunnel), widen the window and slow the restarts down
+so it backs off instead of burning through the limit, with a drop-in rather than
+by editing the packaged unit:
 
 ```bash
 sudo systemctl edit foo.service
@@ -2030,18 +2276,68 @@ Restart=on-failure
 RestartSec=15
 ```
 
+`systemctl edit` reloads the manager itself once the editor exits, equivalent to
+`systemctl daemon-reload`, so no separate reload is needed:
+
 ```bash
-sudo systemctl daemon-reload
 sudo systemctl restart foo.service
 ```
 
-That allows 5 restarts per 5 minutes with 15 seconds between attempts. To disable rate limiting entirely (rarely a good idea) set `StartLimitIntervalSec=0`.
+That allows 5 starts per 5 minutes with 15 seconds between attempts. To disable
+rate limiting entirely (rarely a good idea) set `StartLimitIntervalSec=0`.
 
-Note `StartLimit*` belong in `[Unit]`, not `[Service]` — putting them in `[Service]` is a common mistake and systemd will warn about the unknown key in the journal. The system-wide defaults live in `/etc/systemd/system.conf` as `DefaultStartLimitIntervalSec=` / `DefaultStartLimitBurst=`.
+`StartLimit*` belong in `[Unit]`, and putting them in `[Service]` fails with
+almost no feedback. Measured with `systemd-analyze verify` on systemd 261:
 
-**Verify.** `systemctl status foo.service` shows `active (running)` and the journal no longer contains `start-limit-hit`. `systemctl show foo.service -p StartLimitBurst -p StartLimitIntervalSec` reflects your drop-in.
+```
+$ systemd-analyze verify ./t.service        # StartLimitIntervalSec in [Service]
+./t.service:7: Unknown key 'StartLimitIntervalSec' in section [Service], ignoring.
 
-Sources: <https://man.archlinux.org/man/systemd.unit.5.en> · <https://wiki.archlinux.org/title/Systemd> · <https://wiki.archlinux.org/title/Systemd/User>
+$ systemd-analyze verify ./t.service        # StartLimitBurst in [Service]
+                                            # no output at all
+```
+
+`StartLimitBurst=`, `StartLimitInterval=` (the old spelling, no `Sec`) and
+`StartLimitAction=` are still accepted inside `[Service]` as backward-compatible
+aliases and are applied silently, while `StartLimitIntervalSec=` is not a
+`[Service]` key at all and is dropped with a warning. So the whole block pasted
+into `[Service]` leaves you with the burst you asked for over the default 10
+second window, and only one line in the journal hints at it. Put them in `[Unit]`
+and confirm with the `systemctl show` line above.
+
+The defaults live in `/etc/systemd/system.conf` as `DefaultStartLimitIntervalSec=`
+and `DefaultStartLimitBurst=`, and in `/etc/systemd/user.conf` for user units.
+Both ship commented out at their stock values of `10s` and `5`.
+
+On Omarchy this is a live shape rather than a hypothetical. Six of the user units
+Omarchy ships under `/usr/share/omarchy/default/systemd/user/` set `Restart=`
+with a short `RestartSec=` and none of them set `StartLimit*`, so they all
+inherit 5 starts per 10 seconds:
+
+```bash
+systemctl --user show omarchy-fcitx5.service omarchy-sleep-lock.service \
+  omarchy-crash-watch.service omarchy-tailscale-receive.service bt-agent.service \
+  -p Restart -p RestartUSec -p StartLimitBurst -p StartLimitIntervalUSec
+```
+
+With `RestartSec=2` against a 10 second window, a binary that fails immediately
+exhausts the burst in roughly ten seconds, which is why one of these units going
+bad shows up as `start-limit-hit` rather than as a visible crash loop.
+
+**Verify.** `systemctl status foo.service` shows `active (running)` and the journal no longer
+contains `start-limit-hit`. Confirm the drop-in took effect with the property
+names `systemctl show` actually uses, because the `...Sec` spellings return
+nothing:
+
+```bash
+systemctl show foo.service -p StartLimitBurst -p StartLimitIntervalUSec -p RestartUSec
+```
+
+On a system unit with a 300 second window and a 15 second restart delay that
+prints `StartLimitBurst=5`, `StartLimitIntervalUSec=5min` and `RestartUSec=15s`.
+`systemctl cat foo.service` should also list your drop-in file under the unit.
+
+Sources: <https://man.archlinux.org/man/systemd.unit.5.en> · <https://wiki.archlinux.org/title/Systemd> · <https://wiki.archlinux.org/title/Systemd/User> · <https://man.archlinux.org/man/systemd.service.5.en> · <https://raw.githubusercontent.com/systemd/systemd/v261/src/core/load-fragment-gperf.gperf.in> · <https://raw.githubusercontent.com/systemd/systemd/v261/src/core/unit.c>
 
 ---
 
@@ -2304,6 +2600,286 @@ The sysctl tuning and the hibernation warning (`omarchy-hibernation-setup` gives
 **Verify.** `zramctl` shows `/dev/zram0` with your chosen size and `zstd` algorithm, `swapon --show` lists it, and `free -h` shows a non-zero Swap total. Under load the desktop stays responsive.
 
 Sources: <https://wiki.archlinux.org/title/Zram> · <https://wiki.archlinux.org/title/Swap>
+
+---
+
+## Run docker-compose against Podman via the Docker-compatible socket
+
+`docker-compose-against-podman-socket` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `docker`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `podman`
+
+**Symptom.** `docker compose up` or `docker-compose up` cannot reach a daemon. Two failures look alike and have different causes, so read the exact wording first.
+
+Podman installed and no Docker daemon running:
+
+```
+Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
+```
+
+Stock Omarchy 4, where Docker IS installed and `docker.socket` IS enabled, but the user is deliberately not in the `docker` group:
+
+```
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+Or `podman compose` runs but builds fail with buildkit errors, or an image reference fails with `short-name "nginx" did not resolve to an alias and no unqualified-search-registries are defined in "/etc/containers/registries.conf"`.
+
+**Cause.** Two separate causes behind similar text. On stock Omarchy 4 the daemon is there and the user is not allowed to talk to it: `/usr/share/omarchy/install/config/docker.sh` deliberately leaves the install user out of the `docker` group because that group is root-equivalent, and `/var/run/docker.sock` is `srw-rw---- root docker`, so the client gets a permission error rather than a missing daemon. Omarchy does not ship Podman at all, so a Podman setup on Omarchy is something the user installed. When Podman is the runtime, the cause is that Podman is daemonless, so nothing listens on a Docker socket until Podman's REST API socket is enabled. `docker-compose` speaks only to `$DOCKER_HOST`, and `podman compose` is a thin wrapper that shells out to whichever compose provider is installed. Separately, Arch's `podman` ships with no search registries configured, so unqualified image names never resolve.
+
+> **Audit corrected this record.** Every Podman mechanic in this record holds, and I confirmed each against the Arch Podman wiki fetched as raw wikitext: the `podman.socket` user unit plus the `DOCKER_HOST` export (lines 222 to 224, and `usr/lib/systemd/user/podman.socket` is in podman 6.1.1-1's file list), `podman compose` as a thin wrapper with `docker-compose` taking precedence and `PODMAN_COMPOSE_PROVIDER` as the override (line 220), `DOCKER_BUILDKIT=0` (line 229), the `unqualified-search-registries` drop-in under `/etc/containers/registries.conf.d/` (lines 33 to 36 and 459 to 464, including the exact `short-name` error), `podman-docker` as the docker shim (line 21), lingering (line 418), and the record's `danger` about compose networks surviving `podman compose down` (line 555). I also checked that the BuildKit advice is not stale: `docker-compose` here is the Go plugin, not the old Python tool (Arch package `docker-compose` 5.5.0-1 with url `https://www.docker.com/`, shipping both `/usr/bin/docker-compose` and `/usr/lib/docker/cli-plugins/docker-compose`, and `docker-compose version` prints `Docker Compose version 5.5.0`), and that Go Compose still reads the variable: `DOCKER_BUILDKIT` appears 7 times in the binary's string table, `pkg/api/context.go` documents `BuildKitEnabled()` as checking it, and `pkg/compose/build_classic.go` still exists upstream. So I did not correct that. Three real defects, all Omarchy-specific. First, `~/.config/uwsm/env` is the Omarchy 3 path. Omarchy 4 retires it: `/usr/bin/omarchy-upgrade-to-quattro` copies it to a backup, migrates custom lines into `~/.config/uwsm/env.d/99-omarchy-upgrade-env`, then deletes the live file with the comment `never keep the active file` at line 1957, and `/usr/share/omarchy/default/uwsm/env.d/10-omarchy` tells users to override in `~/.config/uwsm/default` or `preferably, ~/.config/uwsm/env.d/*`. The quattro tree confirms it: `gh api repos/omacom/omarchy/git/trees/quattro?recursive=1` lists only `default/uwsm/default` and `default/uwsm/env.d/10-omarchy` and no `config/uwsm/env`. uwsm 0.26.7's own README (lines 639 to 643) does still source `uwsm/env`, so the old path works today, which is why this is a correction rather than a reject. Second, Omarchy 4 does not ship Podman at all: `pacman -Q podman` fails on this workstation and podman appears in neither `/usr/share/omarchy/install/omarchy-base.packages` nor `omarchy-other.packages`, which carry `docker`, `docker-buildx`, `docker-compose`, `lazydocker` and `ufw-docker` instead. Third and most costly for a reader, the record's headline error string sends an Omarchy user to the wrong cause. `/usr/share/omarchy/install/config/docker.sh` deliberately leaves the install user out of the `docker` group as root-equivalent, `install/config/enable-services.sh` enables `docker.socket`, and I confirmed locally that `getent group docker` is empty, `/var/run/docker.sock` is `srw-rw---- 1 root docker`, and `docker ps` as the unprivileged user returns `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` (docker 1:29.7.2-1). I split the symptom so both strings are matchable and added the Omarchy branch with `omarchy-setup-security-sudoless-docker`, whose own script text supplied the root-equivalence warning I put in `danger`. I also fixed `verify`, which claimed `with no Docker daemon installed`, a false premise on stock Omarchy 4, and changed the two bare `sudo pacman -S` lines to `-Syu` per the partial-upgrade rule. `sources_remove` drops `https://raw.githubusercontent.com/basecamp/omarchy/master/config/uwsm/env`. It still returns HTTP 200, so it resolves, but `master` is the Omarchy 3 tree and it does not support the Omarchy 4 claim the record now makes. Frequency lowered from `common` to `occasional` because Podman ships by default on none of the distros in `applies_to`, so this is a problem only for users who chose Podman. Severity left at `medium`: it blocks work and loses nothing. Not exercised: I have no sudo, so I did not enable `podman.socket`, install podman, write any registries drop-in, join the docker group, or start a container. The Branch B commands are read from the Arch wiki and the package contents, not observed running.
+
+Corrected by hand on 2026-09-11 after the merge: this verdict's own fix wrote `sudo pacman -Syu podman` and `sudo pacman -Syu podman-docker`, which carry both a sync and a sysupgrade flag and are therefore exactly what `omarchy-update-pacman-guard` aborts, in the same fix that explains the guard. Both are now `pacman -S --needed`. Found by lint_corpus.py on the audit's output, which is what that lint is for.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `omarchy-setup-security-sudoless-docker` adds you to the `docker` group, and that group is equivalent to passwordless root: anything running as your user can then run `docker run -v /:/host alpine` and rewrite the whole host as root with no prompt. Omarchy leaves you out of it by default for exactly that reason, and the script prints the same warning before it acts. On the Podman side, `podman-compose` has known compatibility gaps with real compose files, so do not assume a working `docker-compose.yml` behaves identically. Networks created by a compose project are often not removed by `podman compose down`, so check `podman network ls` and clean up with `podman network rm` rather than assuming the environment is gone. `podman-docker` installs its own `/usr/bin/docker`, so it conflicts with the `docker` package Omarchy ships and pacman will ask you to remove one.
+
+**Fix.**
+
+First decide which problem you have, because the answers do not overlap.
+
+Branch A, stock Omarchy 4 with Docker. Omarchy installs `docker`, `docker-buildx` and `docker-compose` and enables `docker.socket`, but leaves you out of the `docker` group on purpose, so Docker access goes through a prompt. Either elevate per command:
+
+```bash
+sudo docker compose up
+```
+
+or opt in to the group, behind Omarchy's own warning, and reboot:
+
+```bash
+omarchy-setup-security-sudoless-docker     # Setup > Security > Sudoless Docker
+```
+
+Read the danger note before you do that. To undo it:
+
+```bash
+omarchy-remove-security-sudoless-docker
+```
+
+Branch B, Podman instead of Docker. Podman is not part of Omarchy, so install it yourself first:
+
+```bash
+sudo pacman -S --needed podman
+```
+
+Enable Podman's Docker-compatible socket as a user unit and point the client at it:
+
+```bash
+systemctl --user enable --now podman.socket
+systemctl --user status podman.socket
+export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
+docker compose version
+```
+
+Make it permanent for shells, user units and GUI apps. On Omarchy 4 the graphical session environment is loaded by uwsm from `env.d` drop-ins, and the user's file goes in `~/.config/uwsm/env.d/`:
+
+```bash
+mkdir -p ~/.config/uwsm/env.d
+cat > ~/.config/uwsm/env.d/50-podman-docker-host <<'EOF'
+export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
+EOF
+```
+
+Do not use `~/.config/uwsm/env`. That was the Omarchy 3 path. uwsm still sources it, but Omarchy 4's upgrade tool retires it: `omarchy-upgrade-to-quattro` migrates custom lines into `~/.config/uwsm/env.d/99-omarchy-upgrade-env` and then deletes the file. Log out and back in for the change to take effect.
+
+And for systemd user units:
+
+```bash
+mkdir -p ~/.config/environment.d
+printf 'DOCKER_HOST=unix://%%t/podman/podman.sock\n' > ~/.config/environment.d/podman-docker.conf
+```
+
+BuildKit is not supported through the Podman socket, so turn it off:
+
+```bash
+export DOCKER_BUILDKIT=0
+```
+
+Configure search registries so plain `nginx` and `archlinux` resolve like they do with Docker:
+
+```bash
+sudo mkdir -p /etc/containers/registries.conf.d
+sudo tee /etc/containers/registries.conf.d/10-unqualified-search-registries.conf >/dev/null <<'EOF'
+unqualified-search-registries = ["docker.io"]
+EOF
+```
+
+If you want the `docker` command itself to be Podman, install the shim. Note it conflicts with a real Docker install, so remove `docker` first if Omarchy put it there:
+
+```bash
+sudo pacman -S --needed podman-docker
+```
+
+To pick which compose implementation `podman compose` uses when both are installed (`docker-compose` wins by default):
+
+```bash
+export PODMAN_COMPOSE_PROVIDER=podman-compose
+```
+
+For containers to survive logout, enable lingering:
+
+```bash
+loginctl enable-linger
+```
+
+**Verify.** Branch A: `sudo docker compose version` and `sudo docker ps` work, or after `omarchy-setup-security-sudoless-docker` and a reboot the same two work with no `sudo` and `id -nG | tr ' ' '\n' | grep -w docker` matches. Branch B: with Docker's daemon absent or stopped, `docker compose version` and `docker ps` both work against `$DOCKER_HOST`, `podman ps` shows the same containers `docker ps` does, and `systemctl --user is-active podman.socket` reports `active`.
+
+Sources: <https://wiki.archlinux.org/title/Podman> · <https://wiki.archlinux.org/title/Systemd/User> · <https://archlinux.org/packages/extra/x86_64/podman/> · <https://archlinux.org/packages/extra/x86_64/podman-docker/> · <https://archlinux.org/packages/extra/any/podman-compose/> · <https://archlinux.org/packages/extra/x86_64/docker-compose/> · <https://raw.githubusercontent.com/docker/compose/main/pkg/api/context.go> · <https://raw.githubusercontent.com/docker/compose/main/pkg/compose/build_classic.go> · <https://github.com/omacom/omarchy/tree/quattro/default/uwsm/env.d>
+
+---
+
+## Fix hostname.local names not resolving (mDNS off in resolved, or Avahi fighting it)
+
+`mdns-local-hostname-not-resolving` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** `ping nas.local` or `ping raspberrypi.local` fails with `Name or service not known`, `getent hosts nas.local` returns nothing, and a network printer or Home Assistant box that other devices reach by `.local` name is unreachable. The device answers fine by IP address. A related symptom in the same area is the machine's own hostname gaining a number (`myhost-2.local`, then `myhost-3.local`), which means two mDNS responders are fighting over it. One thing that looks like this symptom but is not: on Omarchy 4, `resolvectl query nas.local` returning `No appropriate name servers or networks for name found` is the expected reply even when `.local` resolution is working perfectly, because Omarchy disables systemd-resolved's mDNS and lets Avahi own it.
+
+**Cause.** Two different mDNS stacks can serve `.local` names, and which one is in play decides everything. The record this replaces assumed systemd-resolved, which is wrong for Omarchy.
+
+**Omarchy 4 gives mDNS to Avahi and preconfigures all of it.** `avahi` and `nss-mdns` ship in `/usr/share/omarchy/install/omarchy-base.packages`, `/usr/share/omarchy/install/config/enable-services.sh` runs `systemctl enable avahi-daemon.service`, and Omarchy replaces `/etc/nsswitch.conf` with its own copy whose `hosts:` line already carries `mdns_minimal [NOTFOUND=return]` ahead of `resolve`. Omarchy also ships `/etc/systemd/resolved.conf.d/10-disable-multicast.conf` setting `MulticastDNS=no` and `LLMNR=no`, so systemd-resolved is deliberately neither an mDNS resolver nor a responder. The visible consequence is that on a healthy Omarchy 4 box `getent hosts nas.local` succeeds while `resolvectl query nas.local` fails, and that is correct rather than broken. When `.local` genuinely fails on Omarchy the cause is normally `avahi-daemon` being down or its socket stuck, a firewall gap on unicast port 5353, or systemd-resolved answering the `SOA` query for the `local` domain, which makes `nss-mdns` stand down.
+
+**On plain Arch and the other derivatives nothing is preconfigured, and two separate switches are off.** systemd-resolved's global `MulticastDNS=` does default to yes, but mDNS activates for a connection only when the network manager enables it per connection as well, and NetworkManager's `connection.mdns` default of `-1` leaves it off. Independently of that, glibc will not consult Avahi at all until `nss-mdns` is installed and named in the `hosts:` line.
+
+The hostname-gaining-a-number symptom is the opposite fault, two responders on one interface, with Avahi and systemd-resolved both answering mDNS and fighting over the name. That is reachable on plain Arch and not on a stock Omarchy 4 install, where resolved's responder is already off. Avahi additionally has a long-standing hostname race of its own that can produce the same renaming even with a single responder.
+
+> **Audit corrected this record.** The record's central framing is inverted for Omarchy 4, and I confirmed that on this workstation (omarchy 4.0.2-1, kernel 7.1.9, avahi 1:0.9rc5-1, nss-mdns 0.15.1-2). Omarchy ships `/etc/systemd/resolved.conf.d/10-disable-multicast.conf` with `MulticastDNS=no` and `LLMNR=no`, owned by `omarchy-settings 4.0.2-1` and shown as applied by `systemd-analyze cat-config systemd/resolved.conf`, so the claim that resolved's global `MulticastDNS=` is on by default and that per-connection NetworkManager enablement is the missing half is true on plain Arch and false here. Omarchy hands mDNS to Avahi and preconfigures every part: `avahi` and `nss-mdns` are in `install/omarchy-base.packages`, `install/config/enable-services.sh` enables `avahi-daemon.service`, and `/etc/nsswitch.conf` already reads `hosts: mymachines mdns_minimal [NOTFOUND=return] resolve files myhostname dns` against the Arch stock line in `/usr/share/factory/etc/nsswitch.conf`, which has no `mdns_minimal`. Measured end to end against a real LAN device rather than reasoned about: `getent hosts truenas.local` and `avahi-resolve -n truenas.local` both return addresses while `resolvectl query truenas.local` fails with `No appropriate name servers or networks for name found`, so the record's Path A verify command reports a fault on a fully working machine, and a user acting on that reading would run Path A, disable `avahi-daemon`, and actually break both `.local` resolution and CUPS printer discovery, since the Arch CUPS wiki states DNS-SD is supported only through Avahi and never through resolved. `resolvectl query <own-hostname>.local` is a false pass on top of that, returning addresses tagged `Data from: synthetic` even with mDNS off. The most serious unflagged hazard is the nsswitch clobber: upstream `docs/file-layout.md` on `quattro` and the scriptlet at `/var/lib/pacman/local/omarchy-settings-4.0.2-1/install` both show `omarchy-settings` doing `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from `post_install` and `post_upgrade`, with an upstream comment saying customizations will be reset on every upgrade, so a hand edit vanishes with no `.pacnew`, no backup and nothing `pacdiff` can show. The `host -t SOA local` step cannot run as written, confirmed: `bind` is not installed and `command -v host` finds nothing. Everything generic in the record is source-backed and I kept it, checking each cited page in full: the Arch Avahi wiki gives the identical `hosts:` line including `[!UNAVAIL=return]`, the `NXDOMAIN` SOA precondition, the `mdns` plus `/etc/mdns.allow` fallback, the `mtr` and `traceroute` reverse-lookup breakage and a troubleshooting section for the incrementing hostname, the Systemd-resolved wiki gives the two-places activation rule and `MulticastDNS=resolve` for Avahi coexistence, and the nss-mdns README says plainly to test with `getent hosts` and not with `host` or `nslookup` because those bypass NSS. All three cited URLs resolve and support what the record draws from them, so nothing needs removing. I also checked tag v4.0.3 (`0534987`, 2026-09-08) and `etc/nsswitch.conf`, the resolved drop-in and `enable-services.sh` are unchanged there, so this holds on the newest release. Corrected symptom, cause, fix, verify and danger, and lowered frequency to `occasional` because on Omarchy the stack ships working so the condition is not commonly hit, while it stays genuine on the six other targets. On the boundary question, this record and `mdns-local-hostnames-fail-ufw-blocks-5353` are the same problem and the sibling is the better of the two, so I narrowed this one to the stack-ownership and responder-conflict question and cross-referenced the sibling for the firewall and nsswitch half rather than duplicating it. My recommendation is that a later pass merge them into one `network` record. Flagging separately that the sibling now needs its own re-audit, because stock ufw already accepts multicast mDNS: `/etc/ufw/before.rules` line 68 carries `-A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT` and `before6.rules` line 136 the `ff02::fb` equivalent, both clean under `pacman -Qkk ufw`, and on this box `/etc/ufw/user.rules` opens only 53317 yet `avahi-browse` lists the whole LAN, which contradicts the sibling's claim that ufw drops mDNS replies until a rule is added. The sibling also tells users to reconcile a nsswitch `.pacnew` that will never appear. Not exercised, because I have no sudo: I did not disable `avahi-daemon`, did not switch to the resolved stack, did not add a ufw rule, did not read live `ufw status` output, and could not reproduce either the hostname-renaming loop or a unicast-5353 block.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not hand-edit `/etc/nsswitch.conf` on Omarchy 4 and expect the edit to last. The file belongs to the Arch `filesystem` package, so Omarchy cannot ship it through pacman without a conflict, and `omarchy-settings` instead runs `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from both its `post_install` and its `post_upgrade` scriptlet. Upstream's own comment on those lines states that users who customize the file will have their changes reset to Omarchy defaults on every upgrade. There is no `.pacnew`, no backup and nothing for `pacdiff` to offer, so the edit disappears silently at the next `omarchy update` that bumps `omarchy-settings`. You almost never need to touch it, because the shipped line already carries `mdns_minimal`.
+
+Getting the `hosts:` line wrong breaks all name resolution system-wide, pacman included. Copy the file aside first with `sudo cp /etc/nsswitch.conf /etc/nsswitch.conf.bak` and test with `getent hosts archlinux.org` before you log out or reboot.
+
+Disabling `avahi-daemon.service` on Omarchy 4 is not a neutral cleanup. CUPS supports DNS-SD only through Avahi and never through systemd-resolved, so it removes network printer discovery on a distro that enables `cups.service` by default, and it strands the `mdns_minimal` entry that Omarchy's own `hosts:` line depends on. The mirror-image error is running Avahi and systemd-resolved as mDNS responders at the same time, which causes the hostname-conflict renaming loop. Run exactly one responder.
+
+Using the full `mdns` module instead of `mdns_minimal` makes reverse lookups in `mtr` and `traceroute` time out rather than falling back to other DNS services.
+
+**Fix.**
+
+First find out which mDNS stack is actually in play. All of these are read-only:
+
+```bash
+grep '^hosts:' /etc/nsswitch.conf
+systemctl is-active avahi-daemon.service
+resolvectl mdns
+systemd-analyze cat-config systemd/resolved.conf | grep -iE 'MulticastDNS|LLMNR'
+```
+
+**On Omarchy 4, Avahi already owns mDNS and it is already wired up.** A stock install carries `avahi` and `nss-mdns` from `/usr/share/omarchy/install/omarchy-base.packages`, has `avahi-daemon.service` enabled by `/usr/share/omarchy/install/config/enable-services.sh`, ships a `hosts:` line that already reads:
+
+```
+hosts: mymachines mdns_minimal [NOTFOUND=return] resolve files myhostname dns
+```
+
+and ships `/etc/systemd/resolved.conf.d/10-disable-multicast.conf`:
+
+```ini
+[Resolve]
+LLMNR=no
+MulticastDNS=no
+```
+
+So there is nothing to install and nothing to edit. Test with `getent hosts`, never with `resolvectl`:
+
+```bash
+getent hosts nas.local
+avahi-browse --all --ignore-local --resolve --terminate
+```
+
+If `getent hosts` returns an address you are done. `resolvectl query nas.local` failing with `No appropriate name servers or networks for name found` is the expected reply on Omarchy 4 and is not a fault.
+
+If `getent hosts` fails, work through it in this order:
+
+```bash
+systemctl status avahi-daemon.service
+sudo systemctl restart avahi-daemon.service avahi-daemon.socket
+getent hosts nas.local
+```
+
+A stuck `/run/avahi-daemon/socket` stops NSS forwarding lookups to mDNS, and restarting both units clears it. If service discovery is the part that fails rather than name lookup, the firewall and the `SOA` precondition are covered by the record `mdns-local-hostnames-fail-ufw-blocks-5353`. Use that one instead of repeating the work here.
+
+**Checking the `SOA` precondition needs a tool Omarchy does not ship.** `nss-mdns` stands down for `.local` if the DNS server in `/etc/resolv.conf` answers `SOA` for the `local` domain, and on Omarchy that server is systemd-resolved's stub at `127.0.0.53`. The `host` command comes from `bind`, which is not installed:
+
+```bash
+sudo pacman -S --needed bind
+host -t SOA local
+```
+
+`NXDOMAIN` is the answer you want. Plain `pacman -S` is safe here, because Omarchy's ALPM guard aborts only when both `-S` and `-u` are present.
+
+**Switching Omarchy to systemd-resolved instead of Avahi costs you printing.** CUPS supports DNS-SD only through Avahi, so stopping `avahi-daemon.service` removes network printer discovery, and Omarchy enables `cups.service` alongside it. It also strands the shipped `mdns_minimal` entry in the `hosts:` line, which talks to Avahi over D-Bus. If you still want resolved to own mDNS, all three steps are required:
+
+```bash
+sudo tee /etc/systemd/resolved.conf.d/50-mdns.conf >/dev/null <<'EOF'
+[Resolve]
+MulticastDNS=yes
+EOF
+sudo systemctl restart systemd-resolved.service
+
+nmcli connection modify "<connection-name>" connection.mdns yes
+nmcli connection up "<connection-name>"
+
+sudo systemctl disable --now avahi-daemon.service avahi-daemon.socket
+resolvectl query nas.local
+```
+
+The `50-` prefix matters. Omarchy's own drop-in is `10-disable-multicast.conf`, systemd applies drop-ins in filename order and the last one wins, so a file sorting before that one is silently overridden. Do not edit `10-disable-multicast.conf` itself. It belongs to `omarchy-settings`, so an edit there becomes a `.pacnew` to reconcile on the next upgrade.
+
+**On plain Arch, EndeavourOS, CachyOS or Manjaro nothing is preconfigured.** Two things are separately off. systemd-resolved's `MulticastDNS=` defaults to yes, but mDNS activates for a connection only when the network manager enables it too, and NetworkManager's `connection.mdns` default of `-1` leaves it off. Separately, glibc will not consult Avahi until `nss-mdns` is installed and named in the `hosts:` line. Pick one stack.
+
+Avahi, which is what you want if you print:
+
+```bash
+sudo pacman -S --needed avahi nss-mdns
+sudo systemctl enable --now avahi-daemon.service
+```
+
+```
+# /etc/nsswitch.conf, mdns_minimal must come BEFORE resolve and dns
+hosts: mymachines mdns_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
+```
+
+```bash
+sudo mkdir -p /etc/systemd/resolved.conf.d
+sudo tee /etc/systemd/resolved.conf.d/50-mdns.conf >/dev/null <<'EOF'
+[Resolve]
+MulticastDNS=resolve
+EOF
+sudo systemctl restart systemd-resolved.service
+```
+
+`MulticastDNS=resolve` lets systemd-resolved cache mDNS answers without responding, so Avahi stays the only responder.
+
+Or systemd-resolved, if you do not need service discovery:
+
+```bash
+sudo tee /etc/systemd/resolved.conf.d/50-mdns.conf >/dev/null <<'EOF'
+[Resolve]
+MulticastDNS=yes
+EOF
+sudo systemctl restart systemd-resolved.service
+
+nmcli connection modify "<connection-name>" connection.mdns yes
+nmcli connection up "<connection-name>"
+sudo systemctl disable --now avahi-daemon.service avahi-daemon.socket
+```
+
+**If the hostname keeps gaining a number** (`myhost-2.local`, then `myhost-3.local`), two responders are claiming it. Check which are live and turn one off:
+
+```bash
+resolvectl mdns
+systemctl is-active avahi-daemon.service
+```
+
+Set `MulticastDNS=resolve` or `MulticastDNS=no` for resolved, or disable `avahi-daemon`, but never leave both responding. This cannot happen on a stock Omarchy 4 install, because resolved's responder is already off. Upstream also tracks a hostname race inside Avahi that survives having only one responder, and the workaround there is to limit Avahi to a single interface in `/etc/avahi/avahi-daemon.conf`:
+
+```ini
+[server]
+allow-interfaces=eno1
+```
+
+**Verify.** `getent hosts nas.local` returns an address. That is the test that matters, because it is the path applications use and the only one that exercises the `hosts:` line in `/etc/nsswitch.conf`. Then `avahi-browse --all --ignore-local --resolve --terminate` lists services from other machines, and `ping nas.local` works. Do not verify with `resolvectl query` or with `host`. The `host` command bypasses NSS entirely and so bypasses `nss-mdns`, and `resolvectl` reports only systemd-resolved, so on a correctly working Omarchy 4 box it fails with `No appropriate name servers or networks for name found` while `getent hosts` succeeds. `resolvectl query <own-hostname>.local` is worse than useless as a check, because resolved synthesizes an answer for the local hostname and tags it `Data from: synthetic`, which passes even with mDNS switched off completely. Use `resolvectl query nas.local` as the check only if you deliberately switched to the systemd-resolved stack.
+
+Sources: <https://wiki.archlinux.org/title/Systemd-resolved> · <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/CUPS> · <https://github.com/avahi/nss-mdns/blob/master/README.md> · <https://github.com/omacom/omarchy/blob/quattro/docs/file-layout.md> · <https://github.com/omacom/omarchy/blob/v4.0.3/etc/nsswitch.conf> · <https://github.com/omacom/omarchy/blob/v4.0.3/etc/systemd/resolved.conf.d/10-disable-multicast.conf> · <https://github.com/omacom/omarchy/blob/v4.0.3/install/config/enable-services.sh>
 
 ---
 
@@ -2698,111 +3274,57 @@ Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://wiki.archlinux.o
 
 ---
 
-## Fix "cannot change locale" warnings from bash, perl and ssh
-
-`locale-cannot-change-locale-warnings` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `containers`, `endeavouros`, `locale`, `manjaro`, `omarchy`, `ssh`
-
-**Symptom.** Almost every command prints warnings like:
-
-```
-bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
-perl: warning: Setting locale failed.
-perl: warning: Please check that your locale settings:
-	LANGUAGE = (unset),
-	LC_ALL = (unset),
-	LANG = "en_US.UTF-8"
-    are supported and installed on your system.
-```
-
-This often starts after SSHing in from another machine, or inside a container/chroot.
-
-**Cause.** The locale named in `LANG`/`LC_*` has not been generated. Locales must be uncommented in `/etc/locale.gen` and built with `locale-gen` before they exist. When SSH forwards the client's `LC_*` variables, a locale that exists on the client but not on the server triggers this on every command.
-
-> ⚠️ **Risk.** Never set `LC_ALL` in `/etc/locale.conf` — it is the one LC_* variable that cannot be set there and it overrides every other category, silently breaking per-category settings. It is meant only for temporary testing.
-
-**Fix.**
-
-Generate the locale you actually want. Uncomment the line in `/etc/locale.gen`:
-
-```bash
-sudo sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-sudo locale-gen
-```
-
-Set it system-wide in `/etc/locale.conf`:
-
-```
-LANG=en_US.UTF-8
-```
-
-or equivalently:
-
-```bash
-sudo localectl set-locale LANG=en_US.UTF-8
-```
-
-Apply it in the current shell without logging out (LANG must be unset first or locale.sh will not update):
-
-```bash
-unset LANG
-source /etc/profile.d/locale.sh
-locale
-```
-
-To override just for your user, create `~/.config/locale.conf` with the same syntax.
-
-If you are using a custom/unofficial locale (e.g. `en_XX.UTF-8`) and dead keys or compose stop working, pin `LC_CTYPE` to a supported locale in `/etc/locale.conf`:
-
-```
-LANG=en_XX.UTF-8
-LC_CTYPE=en_US.UTF-8
-```
-
-**Verify.** `locale` prints your locale with no warnings, `locale -a | grep -i en_US` lists `en_US.utf8`, and opening a new terminal produces no setlocale messages.
-
-Sources: <https://wiki.archlinux.org/title/Locale>
-
----
-
 ## Make the SSH agent visible to GUI apps in a Wayland session
 
 `ssh-agent-not-seen-by-gui-apps` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `flatpak`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
 **Symptom.** `git push` works in the terminal but the same repo in VS Code, a JetBrains IDE, or a Flatpak Git client asks for the key passphrase every time or fails with `Permission denied (publickey)`. `ssh-add -l` in a terminal lists the key, but a shell spawned from the GUI app says `Could not open a connection to your authentication agent`. Every new terminal also starts its own `ssh-agent` process (`pgrep -c ssh-agent` climbs).
 
-**Cause.** Units and applications launched by the compositor / systemd user instance do not inherit anything from `~/.bashrc` or `~/.profile`, so an agent started there — and the `SSH_AUTH_SOCK` it prints — is invisible to them. The fix is to run one agent as a user unit and export `SSH_AUTH_SOCK` where the *session* can see it, not only where interactive shells can.
+**Cause.** Applications and units started by the systemd user manager do not read `~/.bashrc`, so an agent started there, and the `SSH_AUTH_SOCK` it prints, is invisible to them. On Omarchy 4 the session itself is a user unit: Hyprland runs as `wayland-wm@hyprland.desktop.service` under uwsm, so every GUI app it launches inherits the user manager's environment rather than an interactive shell's. Omarchy's `default/hypr/autostart.lua` then runs `systemctl --user import-environment` and `dbus-update-activation-environment --systemd --all` exactly once, at `hyprland.start`, so a variable exported after that moment never reaches anything launched through a systemd user scope and apps already running keep the old value. The fix is to run one agent as a user unit and put `SSH_AUTH_SOCK` where the user manager sees it before the session starts, then log out and back in, rather than only where interactive shells see it.
 
-> ⚠️ **Risk.** Do not set `SSH_AUTH_SOCK` unconditionally if you use agent forwarding — on a machine you SSH *into*, a locally set value overrides the forwarded socket and `ssh-add -l` on the remote reports `The agent has no identities`. Guard it with `if [[ -z "$SSH_CONNECTION" ]]` in shell rc files. Running both `ssh-agent.service` and `gcr-ssh-agent.socket` leaves you guessing which agent holds which key.
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, openssh 10.5p1-1, systemd 261.2-1, uwsm 0.26.7-1) and found one hard defect that makes the fix not work as written. Confirmed on this machine: `~/.config/environment.d/*.conf` does NOT expand `%t`. Running the real generator against a throwaway config under /tmp, `/usr/lib/systemd/user-environment-generators/30-systemd-environment-d-generator` emitted `A_PCT_T=%t/ssh-agent.socket` verbatim while `B_XDG=${XDG_RUNTIME_DIR}/ssh-agent.socket` expanded to `/run/user/1000/ssh-agent.socket`. `man 5 environment.d` (systemd 261.2-1) documents only `$VAR`, `${VAR}`, `${FOO:-D}`, `${FOO:+A}` and `$$`, and says 'No other elements of shell syntax are supported'. `%t` is a unit-file specifier, correct in `ssh-agent.socket`'s `ListenStream=%t/ssh-agent.socket` and wrong in environment.d, so the record's `printf 'SSH_AUTH_SOCK=%%t/ssh-agent.socket\n'` writes a path nothing can connect to, and its parenthetical '(`%t` expands to `$XDG_RUNTIME_DIR`.)' is false for that file. The previous audit note praised the escaping and missed the specifier. Also confirmed on this machine: the record is not noise, because Omarchy 4 sets up no agent at all. `grep -rniI 'ssh-agent|SSH_AUTH_SOCK|askpass' /usr/share/omarchy` returns nothing, `systemctl --user show-environment` has no `SSH_AUTH_SOCK`, `pgrep -c ssh-agent` is 0, and `gcr-ssh-agent.socket` is `disabled` and `inactive` even though `gnome-keyring 1:50.0-1` is in `/usr/share/omarchy/install/omarchy-base.packages` and `pam_gnome_keyring.so auto_start` is in `/etc/pam.d/sddm`. `gnome-keyring-daemon` runs here with `--components=pkcs11,secrets` and no ssh component, matching https://wiki.archlinux.org/title/GNOME/Keyring which records the move into gcr-4. Second correction, to the Omarchy branch: the record's `~/.config/uwsm/env` claim is sourced to `raw.githubusercontent.com/basecamp/omarchy/master/config/uwsm/env`, which still returns 200 but is the Omarchy 3 tree (it exports `OMARCHY_PATH=$HOME/.local/share/omarchy`), and `config/uwsm/env` is a 404 in `omacom/omarchy` at `ref=quattro`. On Omarchy 4 the shipped file is `/usr/share/uwsm/env.d/10-omarchy` (owned by omarchy-settings 4.0.2-1) and its own comment names `~/.config/uwsm/env.d/*` as the preferred user override. `~/.config/uwsm/` does not exist on this machine, so the audit note's 'Omarchy's ~/.config/uwsm/env is confirmed to exist' is wrong for Omarchy 4. The path still works, because the uwsm README sources `uwsm/env` and `uwsm/env.d/*` from `${XDG_CONFIG_HOME}`, so I kept it as an alternative under the name Omarchy documents. That README also disproves the record's reason for needing two files: uwsm adds the difference those files make to 'activation environment of systemd user manager and D-Bus', so `uwsm/env` does reach user units in a uwsm session. The environment.d file alone is sufficient, which I proved end to end: `~/.config/environment.d/omarchy-firefox-wayland.conf` contains `MOZ_ENABLE_WAYLAND=1`, that appears in `systemctl --user show-environment`, and a shell inside an app in this session sees `MOZ_ENABLE_WAYLAND=1`. Third correction, to the askpass step: `/usr/lib/gcr4-ssh-askpass` and `/usr/lib/gcr-ssh-askpass` are already installed here (gcr-4 4.4.0.1-1, gcr 3.41.2-2) but are internal helpers, not general askpass programs. `strings /usr/lib/gcr4-ssh-askpass` contains `GCR_SSH_ASKPASS_SOCKET` and `gcr4-ssh-askpass: this program is not meant to be run directly`, so the fix now warns against them instead of recommending them. The record's seahorse path survives: `seahorse 1:47.0.1-6` ships `usr/lib/seahorse/ssh-askpass` per the Arch package file list, though seahorse is not installed here so I did not exercise the dialog. Everything else held. `openssh 10.5p1-1` ships `/usr/lib/systemd/user/ssh-agent.service` and `ssh-agent.socket`, the socket listens on `%t/ssh-agent.socket`, the service has `Also=ssh-agent.socket` so `enable --now ssh-agent.service` covers both, and `man ssh-agent` on this machine documents the socket-activation mode used when `-D` is given with no `-a`. https://wiki.archlinux.org/title/SSH_keys supports the 9.4p1-3 floor, `$XDG_RUNTIME_DIR/ssh-agent.socket`, `AddKeysToAgent yes` (also confirmed in `man ssh_config` here) and the whole forwarding hazard including the literal `The agent has no identities` and the `if [[ -z "${SSH_CONNECTION}" ]]` guard, so the danger's substance is sourced. I sharpened the danger to scope the rc-file hazard correctly, since environment.d does not leak into an ssh session, and to name the verified `ExecStartPost=-/usr/bin/systemctl --user set-environment SSH_AUTH_SOCK=%t/gcr/ssh` in `gcr-ssh-agent.socket` as the concrete way two agents fight. https://wiki.archlinux.org/title/Systemd/User supports environment.d as the per-user mechanism. `--socket=ssh-auth` appears in the flatpak sandbox-permissions documentation I retrieved, but flatpak is not installed here so the override was not exercised. NOT exercised at all: enabling or starting any unit, adding a key to an agent, a log out and back in, a Flatpak client, and the seahorse dialog. I left severity `low` and frequency `very-common` alone, since the consequence is repeated passphrase prompts rather than data loss, and this is a common first-week complaint.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not set `SSH_AUTH_SOCK` in a shell rc file if you use agent forwarding. On a machine you SSH *into*, a locally set value overrides the forwarded socket and `ssh-add -l` on the remote reports `The agent has no identities`. Guard it with `if [[ -z "$SSH_CONNECTION" ]]` if you must use a shell rc file. `~/.config/environment.d/` does not have this problem, because an sshd session's environment comes from sshd and PAM and not from the systemd user manager. Running both `ssh-agent.service` and `gcr-ssh-agent.socket` leaves you guessing which agent holds which key, and they actively fight: `gcr-ssh-agent.socket` runs `systemctl --user set-environment SSH_AUTH_SOCK=%t/gcr/ssh` in its `ExecStartPost`, so it wins for everything started after it while your own value still applies to everything started before.
 
 **Fix.**
 
-Use the `ssh-agent.service` user unit shipped with `openssh` (since 9.4p1-3):
+Use the `ssh-agent.service` user unit shipped with `openssh` (in Arch's package since 9.4p1-3). It is socket activated, and `ssh-agent.socket` fixes the path at `$XDG_RUNTIME_DIR/ssh-agent.socket`:
 
 ```bash
-systemctl --user enable --now ssh-agent.service
+systemctl --user enable --now ssh-agent.service   # Also= pulls in ssh-agent.socket
 systemctl --user status ssh-agent.service
 ```
 
-Export its socket into the graphical session. On Omarchy, `~/.config/uwsm/env` is sourced for the whole uwsm session:
-
-```bash
-# ~/.config/uwsm/env
-export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"
-```
-
-Also set it for systemd user units (which do not read that file):
+Set `SSH_AUTH_SOCK` in `~/.config/environment.d/`, which the systemd user manager reads through its environment generator before it starts anything, including the compositor:
 
 ```bash
 mkdir -p ~/.config/environment.d
-printf 'SSH_AUTH_SOCK=%%t/ssh-agent.socket\n' > ~/.config/environment.d/ssh-agent.conf
+cat > ~/.config/environment.d/50-ssh-agent.conf <<'EOF'
+SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/ssh-agent.socket
+EOF
 ```
 
-(`%t` expands to `$XDG_RUNTIME_DIR`.) Log out and back in, then confirm the session knows:
+Write `${XDG_RUNTIME_DIR}`, never `%t`. `%t` is a unit-file specifier. `environment.d` expands only `$VAR` and `${VAR}` and supports no other shell syntax, so `SSH_AUTH_SOCK=%t/ssh-agent.socket` is stored verbatim as the string `%t/ssh-agent.socket` and nothing can connect to it. `%t` is correct inside a unit file, which is why `ssh-agent.socket` itself uses `ListenStream=%t/ssh-agent.socket`.
+
+On Omarchy 4 that one file is enough for the whole graphical session, because Hyprland runs as the user unit `wayland-wm@hyprland.desktop.service` and inherits the user manager's environment. Omarchy uses the same mechanism itself for `/usr/lib/environment.d/10-omarchy-fcitx.conf`.
+
+If you would rather use uwsm's own hook, Omarchy 4's `/usr/share/uwsm/env.d/10-omarchy` names `~/.config/uwsm/env.d/*` as the user override point, and uwsm adds the difference those files make to the activation environment of the systemd user manager and of D-Bus:
+
+```bash
+mkdir -p ~/.config/uwsm/env.d
+echo 'export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"' > ~/.config/uwsm/env.d/50-ssh-agent
+```
+
+Pick one of the two files. Then log out and back in, because Omarchy's `/usr/share/omarchy/default/hypr/autostart.lua` runs `systemctl --user import-environment` and `dbus-update-activation-environment --systemd --all` once at `hyprland.start`, so a value exported after that point reaches nothing and apps already running keep the old one. Confirm:
 
 ```bash
 systemctl --user show-environment | grep SSH_AUTH_SOCK
 ssh-add -l
 ```
+
+The value must be an absolute path such as `/run/user/1000/ssh-agent.socket`. A literal `%t/...` there is the mistake above.
 
 Have keys added on first use instead of by hand:
 
@@ -2811,30 +3333,34 @@ Have keys added on first use instead of by hand:
 AddKeysToAgent yes
 ```
 
-A passphrase prompt still needs a GUI askpass in a Wayland session:
+A passphrase prompt still needs a GUI askpass in a Wayland session, and `seahorse` provides one at `/usr/lib/seahorse/ssh-askpass`:
 
 ```bash
 sudo pacman -S --needed seahorse
-printf 'SSH_ASKPASS=/usr/lib/seahorse/ssh-askpass\nSSH_ASKPASS_REQUIRE=prefer\n' >> ~/.config/environment.d/ssh-agent.conf
+printf 'SSH_ASKPASS=/usr/lib/seahorse/ssh-askpass\nSSH_ASKPASS_REQUIRE=prefer\n' >> ~/.config/environment.d/50-ssh-agent.conf
 ```
 
-Remove any `eval $(ssh-agent)` from `~/.bashrc` / `~/.zshrc` — that is what was spawning an agent per terminal.
+Do not point `SSH_ASKPASS` at `/usr/lib/gcr-ssh-askpass` or `/usr/lib/gcr4-ssh-askpass` even though Omarchy 4 already installs `gcr` and `gcr-4`. Those are internal helpers of `gcr-ssh-agent`: they require `GCR_SSH_ASKPASS_SOCKET` and refuse to run with `this program is not meant to be run directly`. On plain Arch, `x11-ssh-askpass` is the other option, at `/usr/lib/ssh/x11-ssh-askpass`.
 
-If you would rather have gnome-keyring hold the keys, use its agent instead of openssh's and do not set `SSH_AUTH_SOCK` yourself:
+Remove any `eval $(ssh-agent)` from `~/.bashrc` or `~/.zshrc`. That is what was spawning an agent per terminal.
+
+If you would rather have gnome-keyring hold the keys, use its agent instead of openssh's and do not set `SSH_AUTH_SOCK` yourself. The ssh component moved out of `gnome-keyring-daemon` into `gcr-ssh-agent`, and Omarchy 4 installs `gnome-keyring` but leaves `gcr-ssh-agent.socket` disabled, so nothing sets the variable until you enable it:
 
 ```bash
 systemctl --user enable --now gcr-ssh-agent.socket
 ```
 
-Run only one of the two. For a Flatpak app to reach the agent at all it needs the socket forwarded:
+The socket's own `ExecStartPost` runs `systemctl --user set-environment SSH_AUTH_SOCK=%t/gcr/ssh`, which is why you must not set the variable yourself. Run only one of the two agents.
+
+For a Flatpak app to reach the agent at all it needs the socket forwarded:
 
 ```bash
 flatpak override --user --socket=ssh-auth com.visualstudio.code
 ```
 
-**Verify.** `systemctl --user show-environment | grep SSH_AUTH_SOCK` points at `$XDG_RUNTIME_DIR/ssh-agent.socket`, `pgrep -c ssh-agent` is 1, and `ssh-add -l` from a shell opened *inside* the GUI app lists your key.
+**Verify.** `systemctl --user show-environment | grep SSH_AUTH_SOCK` prints an absolute path such as `/run/user/1000/ssh-agent.socket` and not a literal `%t/...`, `systemctl --user is-active ssh-agent.service` reports `active`, `pgrep -c ssh-agent` is 1, and `ssh-add -l` from a shell opened *inside* the GUI app lists your key.
 
-Sources: <https://wiki.archlinux.org/title/SSH_keys> · <https://wiki.archlinux.org/title/GNOME/Keyring> · <https://wiki.archlinux.org/title/Systemd/User> · <https://raw.githubusercontent.com/basecamp/omarchy/master/config/uwsm/env>
+Sources: <https://wiki.archlinux.org/title/SSH_keys> · <https://wiki.archlinux.org/title/GNOME/Keyring> · <https://wiki.archlinux.org/title/Systemd/User> · <https://github.com/Vladimir-csp/uwsm> · <https://archlinux.org/packages/extra/x86_64/seahorse/files/> · <https://gitlab.archlinux.org/archlinux/packaging/packages/openssh/-/raw/main/PKGBUILD> · <https://docs.flatpak.org/en/latest/sandbox-permissions.html>
 
 ---
 
@@ -2954,17 +3480,21 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 `journald-rate-limit-suppressed-messages` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `systemd`
 
-**Symptom.** Logs from one service have holes in them — the interesting lines are simply missing — and the journal contains entries from journald itself like:
+**Symptom.** Logs from one service have holes in them. The interesting lines are simply missing, and the journal contains entries from journald itself like:
 
 ```
-systemd-journald[318]: Suppressed 4079 messages from /system.slice/nginx.service
+systemd-journald[318]: Suppressed 4079 messages from nginx.service
 ```
 
-Debugging a crash is impossible because the burst right before the failure is exactly the part that was dropped.
+Debugging a crash is impossible because the burst right before the failure is exactly the part that was dropped. Advice written for systemd older than version 240 quotes the control group path instead of the unit name (`Suppressed 4079 messages from /system.slice/nginx.service`) and is describing the same thing.
 
-**Cause.** journald rate-limits per service: more than `RateLimitBurst` messages inside `RateLimitIntervalSec` (10000 in 30s by default) and everything else in that window is discarded, with only a summary line kept. The effective burst is additionally scaled down by how little free disk space the journal has, so a nearly-full disk drops far more than the nominal limit suggests.
+**Cause.** journald rate-limits per service: more than `RateLimitBurst` messages inside `RateLimitIntervalSec` (10000 in 30s by default) and everything else in that window is discarded, with only a summary line kept. The count is held in five separate buckets per service, grouped by priority, so a flood of `info` lines does not on its own suppress that service's `err` lines. The effective burst is additionally scaled by how much free disk space the journal has, using the base 2 logarithm of the space available, so a nearly-full disk gets roughly the nominal limit while a disk with tens of GB free gets five times it. That is why a nearly-full disk drops far more than the nominal figure suggests.
 
-> ⚠️ **Risk.** Turning rate limiting off system-wide is how a single looping service fills the root filesystem in minutes and takes down `pacman`, Docker and anything else that needs to write. Prefer the per-unit `LogRateLimit*` override, keep `SystemMaxUse=` set, and revert the change once you have the logs you needed.
+> **Audit corrected this record.** Checked on this workstation (omarchy 4.0.2-1, systemd 261.2-1, kernel 7.1.9) and against systemd's own source and man pages. Confirmed on this machine that Omarchy 4 sets nothing for journald: `/etc/systemd/journald.conf.d/` and `/usr/lib/systemd/journald.conf.d/` do not exist, `systemctl cat systemd-journald` shows no drop-in, `/etc/systemd/journald.conf` is owned by systemd 261.2-1 with `#RateLimitIntervalSec=30s` and `#RateLimitBurst=10000` both commented, and `grep -rniE 'journal' /usr/share/omarchy/` matches only an unrelated skill document and a reserved-usernames list. So the record does not tell the reader to change something Omarchy already sets, and it needs no Omarchy-versus-Arch branch. The core mechanics all held at systemd 261: `man journald.conf` here still says rate limiting is per-service, "Defaults to 10000 messages in 30s", "To turn off any kind of rate limiting, set either value to 0", and that the effective limit is multiplied by a base 2 logarithm factor with the table topping the excerpt out at 1 TB, and that `LogRateLimitIntervalSec=`/`LogRateLimitBurst=` in `systemd.exec(5)` override it. Source agrees: `src/journal/journald-rate-limit.c` has `if (rl_interval == 0 || rl_burst == 0) return 1;` and `burst_modulate()` computing `burst * (log2u64(available) - 16) / 4`, and `src/journal/journald-context.c` lines 187 to 190 seed the per-client limits from the global config and flag when a unit overrides them. Four corrections. First, the symptom quoted a message format that systemd has not produced since version 240: `src/journal/journald-manager.c` line 1294 logs "Suppressed %i messages from %s" with `c->unit`, which `journald-context.c` line 315 fills from `cg_path_get_unit()`, and that helper skips the slices and returns the bare unit name (`src/basic/cgroup-util.c`, `cg_path_get_unit_full`). So the line reads "from nginx.service", not "from /system.slice/nginx.service". I kept the old form as a labelled aside so a reader who found it in older advice recognises it. Second, the fix said "bypass the journal entirely and watch the process directly" and then gave a `journalctl -f` command, which is still the journal and still rate-limited, so it did not do what its own sentence promised. I kept the command with an honest label and added the real bypass: `man systemd.exec` states outright that "if you connect a service's stderr directly to a file via StandardOutput=file:... or a similar setting, the rate limiting will not be applied to messages written that way (but it will be enforced for messages generated via syslog(3) and similar functions)", so I gave the `append:` drop-in plus that caveat. `StandardError=` accepting the same values as `StandardOutput=` is confirmed in the same man page. Third, the fix claimed "the multiplier only reaches its maximum with tens of GB available". There is no maximum: `burst_modulate()` grows with `log2` of the free space without a ceiling, giving 4x at 4 GB, 5x at 64 GB and 6x at 1 TB, so tens of GB is only 5x and not a plateau. I replaced the clause with the actual figures. Fourth, the danger said nothing about `journalctl --vacuum-size=1G` permanently deleting archived journal files, which is a real data loss in a record whose whole subject is missing log lines. I added it. Two things I verified rather than corrected: `journalctl --rotate` before `--vacuum-size` is necessary and the record already had the order right, because `man journalctl` says vacuum "removes the oldest archived journal files" and the Arch wiki Systemd/Journal page says files "must have been rotated out and made inactive before they can be trimmed". The second is that `systemctl edit` already reloads configuration, so the record's extra `daemon-reload` was harmless, and I dropped it only because I was rewriting the block. One source-scope note without a removal: `wiki.archlinux.org/title/Systemd/Journal` resolves (HTTP 200) but says nothing about rate limiting anywhere, so it supports the drop-in directory pattern, the rotate-then-vacuum ordering and `SystemMaxUse=` but not the rate-limit claims it sat next to. `man.archlinux.org/man/journald.conf.5.en` resolves and carries the text quoted above. I left `severity: low` and `frequency: common` alone rather than manufacture a change. Not exercised: I have no sudo, so I could not write a drop-in, run `systemctl edit`, restart journald, or trigger a burst. `journalctl -b | grep -c 'Suppressed'` returns 0 on this boot, so I never saw a real suppression line on this machine and the message format finding rests on source reading, not observation.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Turning rate limiting off system-wide is how a single looping service fills the root filesystem in minutes and takes down `pacman`, Docker and anything else that needs to write. Prefer the per-unit `LogRateLimit*` override, keep `SystemMaxUse=` set, and revert the change once you have the logs you needed. `journalctl --rotate` followed by `journalctl --vacuum-size=1G` permanently deletes archived journal files, which can include the record of an earlier incident you have not read yet, so check `journalctl --disk-usage` and export anything you still need before vacuuming rather than after.
 
 **Fix.**
 
@@ -2975,6 +3505,12 @@ journalctl -b | grep -i 'Suppressed .* messages from'
 journalctl -b -u systemd-journald --no-pager
 journalctl --disk-usage
 df -h /var
+```
+
+Omarchy 4 ships no journald configuration of its own. There is no drop-in under `/etc/systemd/journald.conf.d/` or `/usr/lib/systemd/journald.conf.d/`, and `/etc/systemd/journald.conf` is systemd's stock file with every setting commented out, so what is in force are the compile time defaults. Confirm that before changing anything:
+
+```bash
+systemd-analyze cat-config systemd/journald.conf
 ```
 
 Raise (or disable) the limit for the whole system with a drop-in:
@@ -3002,90 +3538,138 @@ LogRateLimitBurst=0
 ```
 
 ```bash
-sudo systemctl daemon-reload
 sudo systemctl restart nginx.service
 ```
 
-`LogRateLimit*` in the unit override the global `RateLimit*` for that service; `0` for either value turns rate limiting off for it.
+`LogRateLimit*` in the unit override the global `RateLimit*` for that service, and `0` for either value turns rate limiting off for it. `systemctl edit` reloads the configuration itself, so no separate `daemon-reload` is needed.
 
-Because the effective burst is multiplied by a factor derived from free space for the journal, free space up as well — the multiplier only reaches its maximum with tens of GB available:
+Because the effective burst is multiplied by a factor derived from the free space for the journal, free space up as well. The factor is the base 2 logarithm of the space available, so it keeps climbing rather than topping out: roughly 4 times the nominal burst at 4 GB free, 5 times at 64 GB, 6 times at 1 TB. Vacuuming only touches journal files that have already been rotated out, so rotate first:
 
 ```bash
 sudo journalctl --rotate
 sudo journalctl --vacuum-size=1G
 ```
 
-For a short debugging session it is often cleaner to bypass the journal entirely and watch the process directly:
+To follow a unit live while you reproduce the problem:
 
 ```bash
 sudo journalctl -u nginx.service -f -o short-precise
 ```
 
-Remember to remove the override when you are done.
+That is still the journal, so it is still subject to the rate limit. It shows the suppression line as it happens, which confirms the diagnosis, but it does not recover the dropped messages.
+
+To take one unit out of the journal for a debugging session, send its output straight to a file. Rate limiting is not applied to what is written that way:
+
+```bash
+sudo systemctl edit nginx.service
+```
+
+```ini
+[Service]
+StandardOutput=append:/var/log/nginx-debug.log
+StandardError=append:/var/log/nginx-debug.log
+```
+
+```bash
+sudo systemctl restart nginx.service
+tail -f /var/log/nginx-debug.log
+```
+
+That covers only what the process writes to stdout and stderr. A service that logs through `syslog(3)` or `sd_journal_send()` still goes through journald and is still rate-limited, so for those the per-unit `LogRateLimit*` override above is the only route. Remove whichever override you added once you have the logs you needed.
 
 **Verify.** Reproduce the burst: `journalctl -b | grep -c 'Suppressed .* messages'` stays at its previous value (no new suppression lines) and the previously missing lines now appear in `journalctl -u <unit>`.
 
-Sources: <https://man.archlinux.org/man/journald.conf.5.en> · <https://wiki.archlinux.org/title/Systemd/Journal> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journald-manager.c>
+Sources: <https://man.archlinux.org/man/journald.conf.5.en> · <https://wiki.archlinux.org/title/Systemd/Journal> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journald-manager.c> · <https://man.archlinux.org/man/systemd.exec.5.en> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journald-rate-limit.c> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journald-context.c> · <https://raw.githubusercontent.com/systemd/systemd/main/src/basic/cgroup-util.c>
 
 ---
 
-## Enable nested virtualization so a VM can run its own VMs
+## Fix "cannot change locale" warnings from bash, perl and ssh
 
-`nested-virtualization-not-available-in-guest` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `kvm`, `laptop`, `libvirt`, `manjaro`, `omarchy`
+`locale-cannot-change-locale-warnings` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `containers`, `endeavouros`, `locale`, `manjaro`, `omarchy`, `ssh`
 
-**Symptom.** Inside a KVM guest, `grep -Eo 'vmx|svm' /proc/cpuinfo` returns nothing, `ls /dev/kvm` fails, and anything needing hardware virtualization in the guest refuses to run — WSL2 or Hyper-V in a Windows guest, the Android Studio emulator, Docker Desktop, or another nested VM. The outer host has KVM working perfectly.
+**Symptom.** Almost every command prints warnings like:
 
-**Cause.** KVM does not expose the CPU's virtualization extensions to guests unless nesting is explicitly turned on with the `nested` module parameter, and the guest's virtual CPU model must actually pass the host feature flags through (the default `qemu64`/host-model CPU hides them).
+```
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+```
 
-> ⚠️ **Risk.** `modprobe -r kvm_intel` fails while any VM is running, and force-killing VMs to unload it loses unsaved guest state — shut guests down cleanly first. `host-passthrough` exposes your exact CPU to the guest, which means a saved/migrated VM may refuse to resume on different hardware.
+This shows up wherever the locale named in the environment was never generated: inside a container or chroot, after `/etc/locale.conf` is pointed at a locale missing from `/etc/locale.gen`, or over SSH on a server configured with an `AcceptEnv LANG LC_*` line when the client sends a locale the server does not have.
+
+**Cause.** The locale named in `LANG`/`LC_*` has not been generated. Locales must be uncommented in `/etc/locale.gen` and built with `locale-gen` before they exist. Omarchy 4's installer already does this for `en_US.UTF-8`, so a stock Omarchy machine raises this only after the locale is changed by hand, inside a container or chroot that never ran `locale-gen`, or when a locale arrives from outside the machine. SSH is one such route but it is not a default anywhere on Arch or Omarchy: `sshd` copies no client environment variables into the session unless `AcceptEnv` names them, and openssh ships no `AcceptEnv` line, so a client's forwarded `LC_*` reaches the shell only on a server that was deliberately configured to accept it.
+
+> **Audit corrected this record.** Checked every claim against the cited Arch wiki Locale page, fetched as raw wikitext, and against this Omarchy 4.0.2-1 workstation. Confirmed on this machine: `/etc/locale.gen` line 172 already reads `en_US.UTF-8 UTF-8` uncommented, `locale -a` lists `en_US.utf8`, `/etc/locale.conf` holds `LANG=en_US.UTF-8` and is owned by no package, and `/etc/profile.d/locale.sh` from `filesystem 2025.10.12-1` does check `$XDG_CONFIG_HOME/locale.conf` then `~/.config/locale.conf` before `/etc/locale.conf`. From the source: the wiki supports the `locale-gen` step, `localectl set-locale`, the per-user override, the `unset LANG` plus `source /etc/profile.d/locale.sh` quirk including the exact note that LANG must be unset first, the `LC_CTYPE` pin for unofficial locales, and the danger almost verbatim, since LC_ALL is the only LC_* variable that cannot be set in locale.conf and is meant only for testing. The danger is right and is the mistake people actually make, so it stays unchanged. Severity `low` also stays. Two claims did not survive. The frequency is wrong: upstream `omacom/omarchy-iso` hardcodes `"sys_lang": "en_US.UTF-8"` in `configs/airootfs/root/configurator`, and its own fresh-install manifest records `/etc/locale.conf` as `LANG=en_US.UTF-8`, so a stock Omarchy 4 install cannot raise this warning for the default locale and `very-common` overstates it. `common` is the honest rating, because changing to a non-US locale by hand and working in containers both remain frequent. The SSH mechanism in the cause is also not a default: `grep -niE 'sendenv|acceptenv'` across `/etc/ssh/ssh_config`, `/etc/ssh/sshd_config`, `/etc/ssh/ssh_config.d/` and `/etc/ssh/sshd_config.d/` returns nothing on openssh 10.5p1-1, `sshd_config(5)` documents the AcceptEnv default as accepting no environment variables, `ssh_config(5)` documents the SendEnv default as sending none, and `ssh -G localhost` prints no sendenv line, so a forwarded LC_* lands only on a server explicitly configured for it. The cited wiki page never mentions ssh at all, so that sentence was never sourced. The fix's `sed -i` is a no-op on Omarchy 4 because the line is already uncommented, so the rewrite makes the reader look first and labels the Omarchy 4 and plain Arch branches. It also adds one verified Omarchy 4 detail: `/usr/share/omarchy/default/bash/envs`, from `omarchy-settings 4.0.2-1` and reached through `default/bash/rc`, mirrors locale.sh for interactive non-login shells but sources `/etc/locale.conf` only, so a per-user `~/.config/locale.conf` is ignored over a plain `ssh host`. Not exercised: I have no sudo, so I ran no `locale-gen`, no `localectl set-locale` and edited neither file, and I tested neither a real SSH session with AcceptEnv set nor a container.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Never set `LC_ALL` in `/etc/locale.conf` — it is the one LC_* variable that cannot be set there and it overrides every other category, silently breaking per-category settings. It is meant only for temporary testing.
 
 **Fix.**
 
-On the **host**, enable nesting. Live (all VMs must be shut down, the module cannot unload otherwise):
+First check whether the locale already exists, because on Omarchy 4 it usually does:
 
 ```bash
-sudo modprobe -r kvm_intel
-sudo modprobe kvm_intel nested=1
-cat /sys/module/kvm_intel/parameters/nested     # want Y
+locale
+locale -a
+grep -n '^[^#]' /etc/locale.gen
+cat /etc/locale.conf
 ```
 
-For AMD, substitute `kvm_amd` everywhere. Make it permanent:
+**Omarchy 4:** the ISO configurator hardcodes `"sys_lang": "en_US.UTF-8"` into the archinstall config, so a fresh install already carries `en_US.UTF-8 UTF-8` uncommented in `/etc/locale.gen`, `en_US.utf8` in `locale -a`, and `LANG=en_US.UTF-8` in `/etc/locale.conf`. The `sed` below is therefore a no-op on a stock machine. Nothing in the `omarchy` or `omarchy-settings` packages rewrites either file and `/etc/locale.conf` is owned by no package, so a hand edit survives `omarchy update`. If the warning names `en_US.UTF-8` on such a machine, the locale is missing from a container or chroot, not from the host.
+
+**Plain Arch, or any locale Omarchy did not generate:** uncomment the line in `/etc/locale.gen` and build it. Confirm the exact line first, because it may already be uncommented:
 
 ```bash
-# Intel
-printf 'options kvm_intel nested=1\n' | sudo tee /etc/modprobe.d/kvm_intel.conf
-# AMD
-printf 'options kvm_amd nested=1\n' | sudo tee /etc/modprobe.d/kvm_amd.conf
+grep -n 'en_US.UTF-8' /etc/locale.gen
+sudo sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+sudo locale-gen
 ```
 
-Then pass the CPU features through to the guest. With libvirt:
+`locale-gen` also reruns on every `glibc` update, so a locale left uncommented in `/etc/locale.gen` stays generated.
+
+Set it system-wide in `/etc/locale.conf`:
+
+```
+LANG=en_US.UTF-8
+```
+
+or equivalently:
 
 ```bash
-sudo virsh edit <vm-name>
+sudo localectl set-locale LANG=en_US.UTF-8
 ```
 
-```xml
-<cpu mode='host-passthrough' check='partial'/>
-```
-
-Or non-interactively:
+Apply it in the current shell without logging out (LANG must be unset first or locale.sh will not update):
 
 ```bash
-sudo virt-xml <vm-name> --edit --cpu host-passthrough
+unset LANG
+source /etc/profile.d/locale.sh
+locale
 ```
 
-In virt-manager the same setting is *CPUs > Model > host-passthrough*. With bare QEMU, add `-cpu host` (and `-enable-kvm`).
+To override just for your user, create `~/.config/locale.conf` with the same syntax. `/etc/profile.d/locale.sh` reads it ahead of `/etc/locale.conf`, but only for login shells. On Omarchy 4 an interactive non-login shell, which is what a plain `ssh host` gets, is handled instead by `/usr/share/omarchy/default/bash/envs`, and that file sources `/etc/locale.conf` only. A per-user `~/.config/locale.conf` is ignored there, so set the system file when you need the locale over SSH. A non-interactive `ssh host command` runs neither, so `LANG` is unset and the command lands in the C locale.
 
-Boot the guest and check inside it:
+If you are using a custom or unofficial locale (for example `en_XX.UTF-8`) and dead keys or compose stop working, pin `LC_CTYPE` to a supported locale in `/etc/locale.conf`:
+
+```
+LANG=en_XX.UTF-8
+LC_CTYPE=en_US.UTF-8
+```
+
+If the warnings only appear over SSH, the server was configured with an `AcceptEnv` line, because openssh accepts nothing by default. Either generate the locale the client sends, or narrow `SendEnv` in the client's `~/.ssh/config`. Check both ends:
 
 ```bash
-grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u
-ls -l /dev/kvm
+grep -rniE 'sendenv|acceptenv' /etc/ssh/ssh_config /etc/ssh/sshd_config /etc/ssh/ssh_config.d/ /etc/ssh/sshd_config.d/
 ```
 
-**Verify.** `cat /sys/module/kvm_intel/parameters/nested` prints `Y` on the host, and inside the guest `grep -Eo 'vmx|svm' /proc/cpuinfo` returns the flag and `/dev/kvm` exists.
+**Verify.** `locale` prints your locale with no warnings, `locale -a | grep -i en_US` lists `en_US.utf8`, and opening a new terminal produces no setlocale messages.
 
-Sources: <https://wiki.archlinux.org/title/KVM> · <https://wiki.archlinux.org/title/Libvirt>
+Sources: <https://wiki.archlinux.org/title/Locale> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/manifests/fresh-4-semantic.json>
 
 ---
 
@@ -3095,9 +3679,13 @@ Sources: <https://wiki.archlinux.org/title/KVM> · <https://wiki.archlinux.org/t
 
 **Symptom.** A timer is "enabled" but the job never runs. `systemctl --user list-timers` shows `NEXT` as `n/a` or `-`, or `LAST` never advances. Sometimes `systemctl --user enable foo.timer` was run and nothing happened at all until the next login, or the `OnCalendar=` expression turns out to mean something completely different from what was intended.
 
-**Cause.** Three separate traps. (1) `systemctl enable` only creates the symlink — it does not start the timer, so nothing arms until the next boot/login; `--now` does both. (2) A timer with no `WantedBy=timers.target` in `[Install]` cannot be enabled into anything. (3) `OnCalendar=` syntax is easy to get subtly wrong, and a malformed expression leaves the timer loaded but never elapsing.
+**Cause.** Four traps, and the first three are about how the timer is installed. (1) `systemctl enable` only creates the symlink. It does not start the timer, so nothing arms until the next boot or login, and `--now` does both. (2) A timer with no `WantedBy=timers.target` in `[Install]` cannot be enabled into anything. (3) `OnCalendar=` syntax is easy to get subtly wrong, and a malformed expression is logged and ignored, leaving the timer loaded with no trigger at all. (4) A timer built only from monotonic directives (`OnBootSec=`, `OnActiveSec=`, `OnStartupSec=`, `OnUnitActiveSec=`, `OnUnitInactiveSec=`) can end up with no next elapse and show `NEXT` as `-` indefinitely, and `Persistent=true` does not rescue it, because `Persistent=` only has an effect on timers configured with `OnCalendar=`.
 
-> ⚠️ **Risk.** `WakeSystem=true` needs hardware support and will otherwise stop the timer outright with `Failed to enter waiting state: Operation not supported` and `Failed with result 'resources'` — do not add it speculatively. Enabling lingering keeps your user instance and its services running after logout; it is not a substitute for autologin and using it that way breaks session permissions.
+> **Audit corrected this record.** Checked against `man systemd.timer`, `man systemd.time`, `man systemctl` and `man environment.d` on this workstation (systemd 261.2-1, omarchy 4.0.2-1), the systemd v261 source, and https://wiki.archlinux.org/title/Systemd/Timers. Nearly all of the record held, and I exercised every command in the fix on this machine. Confirmed here: `systemd-analyze calendar "*-*-* 04:00:00"` prints `Normalized form` and `Next elapse`, `--iterations=5 "Mon..Fri 22:30"` prints five iterations, `calendar weekly` normalizes to `Mon *-*-* 00:00:00`, `*-*-* 4:00:00` normalizes to `*-*-* 04:00:00`, and `Mon,Tue *-*-01..04 12:00:00` returns Mon 2026-11-02, Tue 2026-11-03, Tue 2026-12-01 and Mon 2027-01-04, which is exactly the "1st to 4th, but only if Mon or Tue" reading the record gives. A malformed expression errors with `Failed to parse calendar specification '*-*-* 25:00:00': Invalid argument` and exit 1. The stamp-file location is right and more precise than the Arch wiki, which says `~/.local/share/systemd/`: this machine has `~/.local/share/systemd/timers/stamp-omarchy-sync-stignore.timer`, zero bytes, mtime matching `LastTriggerUSec`. `WantedBy=timers.target`, `list-timers --all` and `enable --now` are all confirmed by the wiki and by `man systemd.timer`. Three corrections. First, the `danger` is wrong about why `WakeSystem=true` fails, and this record is about user timers. `man systemd.timer` (261.2-1) says of `WakeSystem=`: "Note that this functionality requires privileges and is thus generally only available in the system service manager." Hardware support is the secondary condition, not the primary one. The quoted error string `Failed to enter waiting state: Operation not supported` is also not what systemd 261 emits: `src/core/timer.c` at tag v261 logs `Failed to add monotonic event source: %m` or `Failed to add realtime event source: %m` and then falls through to `timer_enter_dead(t, TIMER_FAILURE_RESOURCES)`, and `TIMER_FAILURE_RESOURCES` maps to the string `resources`, so `Failed with result 'resources'` is real and the first half of the quote is not. I replaced the invented string rather than guess an errno, and I did not exercise this, because creating or starting a unit was out of scope. Second, the stamp-file step gives an undocumented `rm` as the method and follows it with `restart`. `man systemd.timer` says "Use `systemctl clean --what=state ...` on the timer unit to remove the timestamp file maintained by this option from disk", and `man systemctl` adds that "the specified units must be stopped to invoke this operation", which `restart` does not satisfy in the right order. The fix now gives stop, clean, start, and keeps the hand deletion as the equivalent with the path. Third, the record frames the cause as exactly three traps and the symptom explicitly includes `NEXT` as `-`, but this machine has a live counter-example none of the three explain: `omarchy-sync-stignore.timer` in `~/.config/systemd/user/` is `enabled` and `active` with `LastTriggerUSec=Sun 2026-09-06 01:50:36 PDT`, which predates the current boot at 2026-09-06 02:27:48, and it reports `NextElapseUSecMonotonic=infinity` with an empty `NextElapseUSecRealtime` after 5 days of uptime. It uses only `OnBootSec=3min` and `OnUnitActiveSec=1h` plus `Persistent=true` with no `OnCalendar=`, the service it triggers reports an empty `ActiveEnterTimestamp`, and `man systemd.timer` states that `Persistent=` "only has an effect on timers configured with `OnCalendar=`" and that the immediate-elapse-if-in-the-past rule applies to `OnBootSec=` and `OnStartupSec=` but "is not the case for timers defined in the other directives". I added that as a fourth trap and as a `show`-based diagnostic, and I deliberately did not assert a mechanism for why this particular timer lost its anchor, because I could not pin it down without creating units. I also made the `graphical-session.target` line concrete, since it was the one unsourced assertion in the record and it is the part that is Omarchy-specific. Confirmed on this machine: Hyprland runs as the user unit `wayland-wm@hyprland.desktop.service`, `/usr/share/omarchy/default/hypr/autostart.lua` imports the session environment once at `hyprland.start`, `systemctl --user show-environment` contains `WAYLAND_DISPLAY=wayland-1` and `OMARCHY_PATH=/usr/share/omarchy` during a graphical session, and Omarchy's own shipped units use exactly the `After=graphical-session.target` plus `PartOf=` plus `ConditionEnvironment=WAYLAND_DISPLAY` pattern with absolute `/usr/bin/omarchy-*` paths (`/usr/share/omarchy/default/systemd/user/omarchy-crash-watch.service`, `omarchy-fcitx5.service`, `omarchy-sleep-lock.service`). One nuance worth recording against the standing assumption that `OMARCHY_PATH` is only in `~/.bashrc`: it also comes from `/usr/share/uwsm/env.d/10-omarchy`, which sources `/usr/share/omarchy/default/bash/env-bootstrap`, so a user unit in a live graphical session does see it. It is absent in a lingering or SSH-started user manager, which is the case the fix now covers. NOT exercised: creating, enabling, starting or reloading any unit, `systemctl clean`, `loginctl enable-linger`, `WakeSystem=true`, and any system-scope timer. Left `symptom` as written, since every shape it describes is reproducible, and left severity `low` and frequency `common` alone: the failure is a job that silently does not run, with no data loss, and it is a common self-inflicted mistake rather than a distro defect.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `WakeSystem=true` requires privileges and is generally only available in the system service manager, so a `systemctl --user` timer cannot use it at all. Even in the system manager it needs hardware that supports a timed wake, because it switches the timer to `CLOCK_BOOTTIME_ALARM` or `CLOCK_REALTIME_ALARM`. When it fails, the timer does not merely skip a run, it goes dead: the journal shows a `Failed to add monotonic event source` or `Failed to add realtime event source` warning and then `Failed with result 'resources'`. Do not add it speculatively. Enabling lingering keeps your user instance and its services running after logout. It is not a substitute for autologin, and using it that way breaks anything that needs the session: a lingering user manager has no graphical session, so `WAYLAND_DISPLAY` and `OMARCHY_PATH` are unset and a unit that needs either starts and then fails instead of waiting.
 
 **Fix.**
 
@@ -3109,7 +3697,15 @@ systemctl list-timers --all          # system timers
 systemctl --user cat foo.timer
 ```
 
-Make sure the timer has an install target:
+A `NEXT` of `-` means the timer has no next elapse. Read the raw value to be sure, since the table abbreviates:
+
+```bash
+systemctl --user show foo.timer -p NextElapseUSecRealtime -p NextElapseUSecMonotonic -p LastTriggerUSec
+```
+
+`NextElapseUSecMonotonic=infinity` with an empty `NextElapseUSecRealtime` is the "never fires again" state.
+
+Make sure the timer has an install target, and give it a calendar trigger rather than only monotonic ones if it must survive a restart of your user manager:
 
 ```ini
 # ~/.config/systemd/user/foo.timer
@@ -3127,6 +3723,8 @@ Unit=foo.service
 WantedBy=timers.target
 ```
 
+`Persistent=true` catches up a run missed while the machine was off, but only for `OnCalendar=` timers. On a timer built from `OnBootSec=` and `OnUnitActiveSec=` alone it does nothing.
+
 Then enable *and* start:
 
 ```bash
@@ -3135,7 +3733,7 @@ systemctl --user enable --now foo.timer
 systemctl --user list-timers foo.timer
 ```
 
-Test the calendar expression before trusting it — this is the single most useful command here:
+Test the calendar expression before trusting it. This is the single most useful command here:
 
 ```bash
 systemd-analyze calendar "*-*-* 04:00:00"
@@ -3143,7 +3741,14 @@ systemd-analyze calendar --iterations=5 "Mon..Fri 22:30"
 systemd-analyze calendar weekly
 ```
 
-It prints `Normalized form` and the next elapse times; a syntax error is reported instead. Watch out for the rule that when you use the day-of-week field you must name at least one weekday, so `*-*-* 4:00:00` is "every day at 4am" while `Mon,Tue *-*-01..04 12:00:00` is "the 1st-4th of the month, but only if Mon or Tue".
+It prints `Normalized form` and the next elapse times. A syntax error is reported instead, and the command exits non-zero:
+
+```
+$ systemd-analyze calendar "*-*-* 25:00:00"
+Failed to parse calendar specification '*-*-* 25:00:00': Invalid argument
+```
+
+The weekday field is optional, and if you use it you must name at least one weekday, so `*-*-* 4:00:00` normalizes to `*-*-* 04:00:00` and means every day at 4am, while `Mon,Tue *-*-01..04 12:00:00` means the 1st to the 4th of the month but only if that day is a Monday or a Tuesday.
 
 Run the service by hand to prove the job itself works, independently of scheduling:
 
@@ -3152,28 +3757,57 @@ systemctl --user start foo.service
 journalctl --user -u foo.service -n 50 --no-pager
 ```
 
-If the timer has drifted or thinks it already ran, delete its stamp file:
+If the timer has drifted or thinks it already ran, clear its stamp file. `systemctl clean` is the documented way, and it requires the unit to be stopped first:
 
 ```bash
-ls ~/.local/share/systemd/timers/
+systemctl --user stop foo.timer
+systemctl --user clean --what=state foo.timer
+systemctl --user start foo.timer
+```
+
+The stamp is a zero-length file whose mtime is the last trigger, so you can look at it and delete it by hand if you prefer:
+
+```bash
+ls -l ~/.local/share/systemd/timers/
 rm ~/.local/share/systemd/timers/stamp-foo.timer
-systemctl --user restart foo.timer
 ```
 
 (System timers keep stamps in `/var/lib/systemd/timers/`.)
 
-Remember that a **user** timer only exists while your user instance does — it stops at logout unless you enable lingering:
+Remember that a **user** timer only exists while your user instance does. It stops at logout unless you enable lingering:
 
 ```bash
 loginctl enable-linger
 loginctl list-users
 ```
 
-If the job needs the graphical session (a notification, a screenshot), it belongs on `graphical-session.target` rather than `timers.target`.
+If the job needs the graphical session (a notification, a screenshot, a `hyprctl` call), the service needs the session's environment, not just a trigger. On Omarchy 4 that environment arrives late: `/usr/share/omarchy/default/hypr/autostart.lua` runs `systemctl --user import-environment` and `dbus-update-activation-environment --systemd --all` at `hyprland.start`, so `WAYLAND_DISPLAY` is absent from the user manager until the session is up and absent for good in a lingering or SSH-started user manager. Copy the shape Omarchy uses for its own units, which is to order the service after the target, tie its lifetime to it, and refuse to start without the variable:
+
+```ini
+# ~/.config/systemd/user/foo.service
+[Unit]
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+```
+
+Keep the timer itself on `timers.target`, or move it to `WantedBy=graphical-session.target` if it should exist only while you are logged in.
+
+Calling an `omarchy` command from a user unit needs one more check. During a graphical session `OMARCHY_PATH` is in the user manager environment, because `/usr/share/uwsm/env.d/10-omarchy` sources `/usr/share/omarchy/default/bash/env-bootstrap`, and `systemctl --user show-environment | grep OMARCHY_PATH` shows it. In a lingering or SSH-started user manager it is not there, and a unit sources no profile of its own. Use the absolute path, as Omarchy's own units do:
+
+```ini
+ExecStart=/usr/bin/omarchy-something
+```
+
+If the script genuinely needs the variable, use a login shell instead:
+
+```ini
+ExecStart=/bin/bash -lc 'omarchy-something'
+```
 
 **Verify.** `systemctl --user list-timers foo.timer` shows a concrete `NEXT` timestamp and, after it passes, a `LAST` timestamp; `journalctl --user -u foo.service` shows the run.
 
-Sources: <https://wiki.archlinux.org/title/Systemd/Timers> · <https://wiki.archlinux.org/title/Systemd/User> · <https://wiki.archlinux.org/title/Systemd>
+Sources: <https://wiki.archlinux.org/title/Systemd/Timers> · <https://wiki.archlinux.org/title/Systemd/User> · <https://wiki.archlinux.org/title/Systemd> · <https://github.com/systemd/systemd/blob/v261/src/core/timer.c>
 
 ---
 
@@ -3183,15 +3817,25 @@ Sources: <https://wiki.archlinux.org/title/Systemd/Timers> · <https://wiki.arch
 
 **Symptom.** In virt-manager's *Virtual Machine > Redirect USB device* menu the entry is greyed out, or the dialog opens but lists no devices, so a USB stick / YubiKey / phone plugged into the host never appears in the guest.
 
-**Cause.** SPICE USB redirection needs two pieces of virtual hardware that are not part of the default VM definition: a USB controller, and at least one USB redirector channel (one per device you want to redirect simultaneously). Without a redirector, virt-manager has nothing to hand the device to.
+**Cause.** Two separate things are in play and the record's symptom covers both. The menu item's *greyed out* state depends only on the console type: in virt-manager 5.1.0, `/usr/share/virt-manager/virtManager/vmwindow.py` sets the item's sensitivity from `vmwindow_viewer_can_usb_redirect()`, and `/usr/share/virt-manager/virtManager/details/viewers.py` implements that as an unconditional `return False` for the VNC viewer and `return True` for the SPICE viewer whenever the SPICE session has a USB device manager. It is not gated on the domain's hardware at all, so a SPICE domain with no USB controller and no redirector shows a *selectable* menu item and then fails at connect time because there is no free redirection channel, which is the "lists no devices or will not connect" half of the symptom. So SPICE graphics are what make the item selectable, and a USB controller plus one `<redirdev bus='usb' type='spicevmc'/>` per simultaneous device are what make the redirection actually succeed. Neither the controller nor the redirector is part of a default domain definition.
 
-> ⚠️ **Risk.** A redirected device is taken away from the host until redirection stops — never redirect your keyboard or mouse, or you will lose the ability to reach the viewer's own menus to undo it. Redirecting a mounted USB disk without unmounting it on the host first can corrupt the filesystem.
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, virt-manager 5.1.0-4, virt-viewer 11.0-4, spice-gtk 0.42-5, usbredir 0.15.0-1, qemu-desktop 11.1.0-1, libvirt 1:12.6.0-1) and against both cited wiki pages, fetched in full as raw wikitext. Both pages resolve and both support the record as written, so this is a case of the sources being stale rather than misread, and three things are wrong against what is actually installed. First, the cause is misattributed: I read the greying-out logic in `/usr/share/virt-manager/virtManager/vmwindow.py` (`_console_refresh_can_usbredir` sets sensitivity from `vmwindow_viewer_can_usb_redirect()`) and in `/usr/share/virt-manager/virtManager/details/viewers.py`, where the VNC viewer's `_has_usb_redirection` is an unconditional `return False` and the SPICE viewer's returns True whenever `_spice_session` and `_usbdev_manager` exist. Nothing in that path consults the domain for a controller or a `<redirdev>`, so the missing hardware is what makes redirection fail at connect time, not what greys the item out. The record's fix does the right things but buries the SPICE requirement in the middle, where it belongs at the top. Second, the virt-viewer path is dead: `strings -a /usr/bin/remote-viewer` shows the embedded `virt-viewer-menus.ui` has only `action-menu` and `machine-menu` with no File menu at all, and USB selection is a `win.usb-device-select` action on a toolbar and header-bar button opening a dialog titled "Select USB devices for redirection". The old *File > USB device selection* wording comes straight from the Arch QEMU page and has not been true for several virt-viewer releases. Third, the danger overstates the keyboard risk on Arch: `libspice-client-glib-2.0.so.8` carries the default filter string `0x03,-1,-1,-1,0|-1,-1,-1,-1,1`, which denies USB class 0x03, so the client refuses HID devices unless that filter is overridden, and the `<hostdev>` fallback is where the warning really bites. Confirmed unchanged and left alone: `*Add Hardware > Controller > USB*` exists (`addhardware.py:234` plus `DeviceController.TYPE_USB`), `*Add Hardware > USB Redirection*` exists (`addhardware.py:318`), `_Redirect USB device` is still the menu label (`ui/vmwindow.ui:99`), the `qemu-xhci` model with `ports='8'` is valid, the `<hostdev>` block and its detach command are correct, and the `qemu:///system` note holds. I also added the Omarchy install step, because Omarchy ships none of this: `/usr/share/omarchy/install/omarchy-base.packages` matches only `qemu-user-static-binfmt`, and `/usr/share/omarchy/bin/omarchy-update-pacman-guard` aborts only on a combined sync plus sysupgrade, so publishing `pacman -S --needed` is safe. The packages that provide the feature today are `qemu-hw-usb-redirect` and `qemu-chardev-spice` (both hard dependencies of `qemu-desktop`, read from `pacman -Qi`) and `spice-gtk`, a hard dependency of `virt-manager` which itself hard-depends on `usbredir`, so no package has been renamed or dropped and nothing needs installing by hand. NOT exercised: I have no sudo and was told to leave libvirt alone, so I did not define or edit a domain, did not open a console, and did not redirect a device, and the greying-out behaviour is read from virt-manager 5.1.0 source on this machine rather than observed in the UI.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** A redirected device is taken away from the host until redirection stops, so unmount a USB disk on the host before redirecting it or you risk corrupting its filesystem. spice-gtk 0.42 ships a default redirection filter of `0x03,-1,-1,-1,0|-1,-1,-1,-1,1`, which denies USB class 0x03 and allows the rest, so the client refuses a keyboard or mouse rather than redirecting it. Do not override that filter: if you do redirect your keyboard or mouse you lose the input needed to reach the viewer's own menus and undo it, and the only way back is killing the viewer. The `<hostdev>` passthrough fallback has no such filter, so nothing there stops you making that mistake.
 
 **Fix.**
 
-Shut the VM down, then in virt-manager: *Add Hardware > Controller > USB* (model USB3/qemu-xhci is fine), and *Add Hardware > USB Redirection* once per concurrent device you want.
+Check the **display** first, because that alone decides whether the menu item is selectable. With `sudo virsh edit <vm-name>` the graphics must be SPICE:
 
-Equivalently, `sudo virsh edit <vm-name>` and add inside `<devices>`:
+```xml
+<graphics type='spice' autoport='yes'/>
+```
+
+VNC has no redirection channel and virt-manager greys the item out unconditionally on a VNC console.
+
+Then shut the VM down and give it the hardware redirection needs. In virt-manager: *Add Hardware > Controller > USB* (model USB3/qemu-xhci is fine), and *Add Hardware > USB Redirection* once per concurrent device you want. Equivalently, `sudo virsh edit <vm-name>` and add inside `<devices>`:
 
 ```xml
 <controller type='usb' index='0' model='qemu-xhci' ports='8'/>
@@ -3199,15 +3843,9 @@ Equivalently, `sudo virsh edit <vm-name>` and add inside `<devices>`:
 <redirdev bus='usb' type='spicevmc'/>
 ```
 
-The display must be SPICE (VNC has no redirection channel):
+Boot the VM, open its console, then *Virtual Machine > Redirect USB device* in virt-manager. The client paths differ by tool: in `remote-viewer` from virt-viewer 11.0 there is **no File menu**, the control is the USB button on the toolbar or header bar and it opens a dialog titled *Select USB devices for redirection*. In `spicy` from spice-gtk it is *Input > Select USB Devices for redirection*. Use the **system** connection (`qemu:///system`) if the device needs privileged access.
 
-```xml
-<graphics type='spice' autoport='yes'/>
-```
-
-Boot the VM, connect with `virt-viewer`/`remote-viewer` or virt-manager's console, then *File > USB device selection* (remote-viewer) or *Virtual Machine > Redirect USB device* (virt-manager). Make sure you are on the **system** session connection (`qemu:///system`) if the device needs privileged access.
-
-If redirection still will not cooperate, attach the device directly instead — this works without redirectors but requires the VM to be running and the device to be present:
+If redirection still will not cooperate, attach the device directly instead. This works without redirectors but requires the VM to be running and the device to be present:
 
 ```bash
 lsusb
@@ -3226,123 +3864,19 @@ sudo virsh attach-device <vm-name> --live --file /tmp/usb.xml
 
 Detach with `sudo virsh detach-device <vm-name> --live --file /tmp/usb.xml` when done.
 
-**Verify.** The *Redirect USB device* menu item is selectable and lists your host devices; after ticking one, `lsusb` inside the guest shows it.
+**On Omarchy 4 none of this stack is installed.** `/usr/share/omarchy/install/omarchy-base.packages` carries only `qemu-user-static-binfmt`, which runs foreign-architecture binaries and is not a VM hypervisor. Install it first. The Omarchy ALPM guard aborts only when a sync and a sysupgrade flag appear in the same transaction, so a plain install is not blocked:
+
+```bash
+sudo pacman -S --needed qemu-desktop libvirt virt-manager virt-viewer dnsmasq
+sudo systemctl enable --now libvirtd.socket virtlogd.socket
+sudo usermod -aG libvirt "$USER"
+```
+
+Nothing extra is needed for redirection after that. `qemu-desktop` depends on `qemu-hw-usb-redirect` and `qemu-chardev-spice`, which are the QEMU side, and `virt-manager` depends on `spice-gtk`, which itself depends on `usbredir`, which is the client side.
+
+**Verify.** The *Redirect USB device* menu item is selectable once the console is SPICE, and picking a device succeeds rather than erroring, which needs a USB controller and a free `<redirdev>`. After ticking one, `lsusb` inside the guest shows it. A keyboard or mouse will not be listed, because spice-gtk's default filter denies USB class 0x03.
 
 Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/QEMU>
-
----
-
-## Restore audio tweaks that stopped working after the WirePlumber 0.5 config change
-
-`wireplumber-lua-config-ignored-after-0-5` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
-
-**Symptom.** Custom audio behaviour silently reverted after an update: devices suspend again after a few seconds of silence, a disabled HDMI output is back, a renamed device shows its original name, or a headset auto-switch tweak stopped applying. There is no error — `systemctl --user status wireplumber` is active and audio otherwise works. `~/.config/wireplumber/main.lua.d/` still contains the `.lua` files that used to do it.
-
-**Cause.** WirePlumber 0.5 dropped Lua configuration entirely. Fragments in `main.lua.d/` (and `/etc/wireplumber/main.lua.d/`) are no longer read at all — they are ignored without any warning, so every tweak you had silently reverts to stock behaviour. Configuration is now SPA-JSON files in a `wireplumber.conf.d/` directory.
-
-> ⚠️ **Risk.** A syntax error in a `.conf` fragment can stop WirePlumber from starting, which means no audio at all (the journal reports it as something like `section '...' has no value`). Add one fragment at a time and restart WirePlumber after each. Shadowing a stock file by reusing its exact name silently removes the stock rules it contained, which can disable device detection you still need.
-
-**Fix.**
-
-Confirm the version and that the old files are dead weight:
-
-```bash
-wireplumber --version
-ls ~/.config/wireplumber/ /etc/wireplumber/ 2>/dev/null
-journalctl --user -u wireplumber -b --no-pager | tail -30
-```
-
-Rewrite each tweak as SPA-JSON under `wireplumber.conf.d/`. Old `51-disable-suspension.lua` becomes:
-
-```bash
-mkdir -p ~/.config/wireplumber/wireplumber.conf.d
-```
-
-```conf
-# ~/.config/wireplumber/wireplumber.conf.d/51-disable-suspension.conf
-monitor.alsa.rules = [
-  {
-    matches = [
-      { node.name = "~alsa_input.*" }
-      { node.name = "~alsa_output.*" }
-    ]
-    actions = {
-      update-props = {
-        session.suspend-timeout-seconds = 0
-      }
-    }
-  }
-]
-```
-
-Disabling a device (e.g. GPU HDMI audio) — find the stable identifier first:
-
-```bash
-wpctl status
-wpctl inspect <ID>        # use device.name or node.name, never device.id
-```
-
-```conf
-# ~/.config/wireplumber/wireplumber.conf.d/50-alsa-disable.conf
-monitor.alsa.rules = [
-  {
-    matches = [
-      { device.name = "alsa_card.pci-0000_08_00.4" }
-    ]
-    actions = {
-      update-props = {
-        device.disabled = true
-      }
-    }
-  }
-]
-```
-
-Renaming a device:
-
-```conf
-# ~/.config/wireplumber/wireplumber.conf.d/50-rename.conf
-monitor.alsa.rules = [
-  {
-    matches = [
-      { node.name = "alsa_output.pci-0000_00_1f.3.analog-stereo" }
-    ]
-    actions = {
-      update-props = {
-        node.description = "Laptop speakers"
-      }
-    }
-  }
-]
-```
-
-Things that used to be Lua *settings* are now runtime settings — set them with `wpctl` instead of a config file:
-
-```bash
-wpctl settings
-wpctl settings --save bluetooth.autoswitch-to-headset-profile false
-```
-
-Apply and check:
-
-```bash
-systemctl --user restart wireplumber.service
-journalctl --user -u wireplumber -b --no-pager | tail -20
-wpctl status
-```
-
-Then delete the dead Lua fragments so they stop confusing you later:
-
-```bash
-rm -rf ~/.config/wireplumber/main.lua.d ~/.config/wireplumber/bluetooth.lua.d
-sudo rm -rf /etc/wireplumber/main.lua.d
-```
-
-Note the file layout rules: within each `wireplumber.conf.d/` directory files load in alphanumeric order, and a user file *shadows* a system file of the same name rather than merging with it — so `~/.config/wireplumber/wireplumber.conf.d/50-alsa-config.conf` replaces `/usr/share/wireplumber/wireplumber.conf.d/50-alsa-config.conf` entirely. Give your own files distinct names.
-
-**Verify.** `journalctl --user -u wireplumber -b` shows no config parse errors, `wpctl inspect <ID>` reflects your changed property, and the behaviour you wanted (no suspend, device hidden, new name) is back after a reboot.
-
-Sources: <https://wiki.archlinux.org/title/WirePlumber> · <https://bbs.archlinux.org/viewtopic.php?id=294454> · <https://bbs.archlinux.org/viewtopic.php?id=305957> · <https://wiki.archlinux.org/title/PipeWire>
 
 ---
 
@@ -3440,6 +3974,87 @@ Sources: <https://github.com/omacom/omarchy/issues/8311> · <https://github.com/
 
 ---
 
+## Enable nested virtualization so a VM can run its own VMs
+
+`nested-virtualization-not-available-in-guest` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `kvm`, `laptop`, `libvirt`, `manjaro`, `omarchy`
+
+**Symptom.** Inside a KVM guest, `grep -Eo 'vmx|svm' /proc/cpuinfo` returns nothing, `ls /dev/kvm` fails, and anything needing hardware virtualization in the guest refuses to run — WSL2 or Hyper-V in a Windows guest, the Android Studio emulator, Docker Desktop, or another nested VM. The outer host has KVM working perfectly.
+
+**Cause.** The `nested` module parameter is already on for both vendors on any current kernel, so the usual cause is the guest's virtual CPU rather than the host module. Linux defaults it to enabled: `arch/x86/kvm/vmx/vmx.c` has `static bool __read_mostly nested = 1;` and `arch/x86/kvm/svm/svm.c` has `static int __ro_after_init nested = true;`. What blocks nesting is a guest CPU model that carries neither `vmx` nor `svm`. QEMU's default for a hand-written domain with no `<cpu>` element is `qemu64`, which has neither flag. Both `host-model` and `host-passthrough` carry the flag on a host that has it, because `host-model` is a copy of the host-model CPU definition from the host's domain capabilities XML. The module parameter is the cause only on a host where somebody turned it off or on an old kernel, and because it is mode 0444 it can be changed only by reloading the module or at boot, never through `/sys`.
+
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, kernel 7.1.9, Intel i9-9900K, libvirt 1:12.6.0-1, virt-manager 5.1.0-4, qemu-desktop 11.1.0-1) and against both cited wiki pages, which I fetched in full as raw wikitext. Two claims are wrong on Omarchy 4 and both were confirmed locally. First, the record's premise that nesting must be "explicitly turned on with the `nested` module parameter" is false: `/sys/module/kvm_intel/parameters/nested` reads `Y` on this machine with nothing in `/etc/modprobe.d/` or `/usr/lib/modprobe.d/` setting it (I grepped both), and mainline sets the default on for both vendors (`static bool __read_mostly nested = 1;` in vmx.c, `static int __ro_after_init nested = true;` in svm.c, both fetched from git.kernel.org). Second, the record says the "host-model CPU hides them", but `virsh -c qemu:///system domcapabilities` on this host reports `<feature policy='require' name='vmx'/>` plus 74 further vmx-* features inside the `host-model` block, the libvirt documentation shipped with 12.6.0 describes host-model as a copy of that same block, and the cited Arch Libvirt page itself says host-model **or** host-passthrough at its "Nested virtualization" section. So the record sends the reader through a module reload that risks their running VMs for nothing, and steers them away from the migratable CPU mode that works. Also confirmed locally: `modinfo kvm_intel` shows `parm: nested:bool` and `modinfo kvm_amd` shows `parm: nested:int`, which is why the readback differs by vendor, so the record's single "want Y" was wrong for AMD readers. `check='partial'` is valid per `/usr/share/libvirt/schemas/cputypes.rng:31`. virt-manager 5.1.0 defaults a new x86 KVM guest to `host-passthrough` via `_get_app_default_mode` in `/usr/share/virt-manager/virtinst/domain/cpu.py` gated on `supports_safe_host_passthrough`, which this host satisfies because its `host-passthrough` mode reports `hostPassthroughMigratable` values `on` and `off`. And `*CPUs > Model*` is still the right virt-manager path. Omarchy ships none of the virtualization stack, so I added the install step: `/usr/share/omarchy/install/omarchy-base.packages` matches only `qemu-user-static-binfmt`, and `/usr/share/omarchy/bin/omarchy-update-pacman-guard` aborts only when a sync and a sysupgrade flag appear together, so `pacman -S --needed` is safe to publish. Frequency dropped to `occasional` because the module parameter is on by default and virt-manager already writes host-passthrough, leaving only hand-written or imported domains. NOT exercised: I have no sudo and was told to leave libvirt alone, so I did not unload a module, did not write a modprobe file, and did not boot a guest to see `vmx` appear inside it. The AMD readback of `1` is inferred from the int parameter type rather than read off an AMD host, since this machine is Intel despite the orchestrator saying AMD.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not reload the KVM module unless the `nested` parameter actually reads off, which on a current kernel it does not. `modprobe -r kvm_intel` or `modprobe -r kvm_amd` fails while any VM is running, and killing VMs to force the unload loses unsaved guest state, so this is a real risk taken for no gain. The parameter is mode 0444, so it can be set only by reloading the module or at boot. `host-passthrough` copies your exact CPU to the guest, so a saved or migrated VM may refuse to resume on different hardware. `host-model` avoids that and still carries `vmx` or `svm` wherever the host has it.
+
+**Fix.**
+
+First **read** the host parameter, because on a current kernel nesting is already on and there is nothing to change:
+
+```bash
+cat /sys/module/kvm_intel/parameters/nested     # Intel, want Y
+cat /sys/module/kvm_amd/parameters/nested       # AMD, want 1 (the AMD parameter is an int, not a bool)
+```
+
+If it already reads `Y` or `1`, skip to the guest CPU step. The parameter is mode 0444, so it cannot be flipped through `/sys`. **Only** if it reads `N` or `0`, reload the module, with every VM shut down first because the module will not unload while one is running:
+
+```bash
+sudo modprobe -r kvm_intel && sudo modprobe kvm_intel nested=1   # Intel
+sudo modprobe -r kvm_amd   && sudo modprobe kvm_amd   nested=1   # AMD
+```
+
+Persist it only if you actually had to change it:
+
+```bash
+printf 'options kvm_intel nested=1\n' | sudo tee /etc/modprobe.d/kvm_intel.conf   # Intel
+printf 'options kvm_amd nested=1\n'   | sudo tee /etc/modprobe.d/kvm_amd.conf     # AMD
+```
+
+The usual real fix is the **guest's CPU mode**. A domain with no `<cpu>` element gets QEMU's `qemu64`, which carries neither `vmx` nor `svm`. Set `host-model`, which keeps the domain migratable, or `host-passthrough`:
+
+```bash
+sudo virt-xml <vm-name> --edit --cpu host-model
+# or
+sudo virt-xml <vm-name> --edit --cpu host-passthrough
+```
+
+The same thing through `sudo virsh edit <vm-name>`:
+
+```xml
+<cpu mode='host-model' check='partial'/>
+```
+
+In virt-manager the setting is *CPUs > Model*. virt-manager 5.1.0 already picks `host-passthrough` for a new x86 KVM guest on a host whose `host-passthrough` mode reports `hostPassthroughMigratable`, so a VM it created needs no change. With bare QEMU use `-cpu host -enable-kvm`.
+
+Confirm the host really offers the flag under the mode you picked:
+
+```bash
+virsh -c qemu:///system domcapabilities | grep "name='vmx'"   # Intel
+virsh -c qemu:///system domcapabilities | grep "name='svm'"   # AMD
+```
+
+Boot the guest and check inside it:
+
+```bash
+grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u
+ls -l /dev/kvm
+```
+
+**On Omarchy 4 none of this stack is installed.** `/usr/share/omarchy/install/omarchy-base.packages` carries only `qemu-user-static-binfmt`, which runs foreign-architecture binaries and is not a VM hypervisor. Install the host side first. The Omarchy ALPM guard aborts only when `-S` and `-u` appear in the same transaction, so a plain install is not blocked:
+
+```bash
+sudo pacman -S --needed qemu-desktop libvirt virt-manager virt-viewer dnsmasq
+sudo systemctl enable --now libvirtd.socket virtlogd.socket
+sudo usermod -aG libvirt "$USER"
+```
+
+**Verify.** On the host, `cat /sys/module/kvm_intel/parameters/nested` prints `Y` on Intel or `cat /sys/module/kvm_amd/parameters/nested` prints `1` on AMD, and `virsh -c qemu:///system domcapabilities` lists `<feature policy='require' name='vmx'/>` (or the `svm` equivalent) under the CPU mode the domain uses. Inside the guest, `grep -Eo 'vmx|svm' /proc/cpuinfo` returns the flag and `/dev/kvm` exists.
+
+Sources: <https://wiki.archlinux.org/title/KVM> · <https://wiki.archlinux.org/title/Libvirt> · <https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/arch/x86/kvm/vmx/vmx.c> · <https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/arch/x86/kvm/svm/svm.c> · <https://libvirt.org/formatdomain.html>
+
+---
+
 ## Zed install ends with '[WARN] Could not determine current Omarchy theme' from omazed
 
 `omazed-could-not-determine-current-omarchy-theme` · severity: **low** · frequency: **occasional** · applies to: `arch`, `aur`, `desktop`, `laptop`, `omarchy`, `omazed`, `zed`
@@ -3500,5 +4115,190 @@ ls ~/.local/state/omarchy/current/theme/colors.toml
 Change the Omarchy theme (Super+Ctrl+Shift+Space) and Zed's theme changes with it.
 
 Sources: <https://github.com/omacom/omarchy/issues/7325> · <https://github.com/aps6/omazed/commit/302cd396> · <https://aur.archlinux.org/packages/omazed> · <https://github.com/aps6/omazed/commit/302cd396be88cf508a05d97edcdc7d48eafdc299> · <https://github.com/aps6/omazed/blob/v2.0.1/omazed> · <https://github.com/aps6/omazed/blob/v2.1.0/omazed> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/omazed/PKGBUILD> · <https://github.com/omacom/omarchy-pkgs/commits/master/pkgbuilds/omazed/PKGBUILD> · <https://pkgs.omarchy.org/stable/x86_64/omarchy.db>
+
+---
+
+## Restore audio tweaks that stopped working after the WirePlumber 0.5 config change
+
+`wireplumber-lua-config-ignored-after-0-5` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
+
+**Symptom.** Custom audio behaviour silently reverted after an update: devices suspend again after a few seconds of silence, a disabled HDMI output is back, a renamed device shows its original name, or a headset auto-switch tweak stopped applying. Audio otherwise works and `systemctl --user status wireplumber` is active, so nothing looks broken. `~/.config/wireplumber/main.lua.d/` still contains the `.lua` files that used to do it.
+
+The journal is where it shows up. WirePlumber 0.5.1 and later log one line per stale file plus a summary, so check there first:
+
+```bash
+journalctl --user -u wireplumber -b --no-pager | grep -iE "old configuration|NOT supported"
+```
+
+```
+Old configuration file detected: /home/you/.config/wireplumber/main.lua.d/51-disable-suspension.lua
+Lua configuration files are NOT supported in WirePlumber 0.5. You need to port them to the new format if you want to use them.
+```
+
+If those lines are absent and a tweak still is not applying, the cause is something else and this record does not apply.
+
+**Cause.** WirePlumber 0.5 dropped Lua as a configuration language. Fragments in `main.lua.d/`, `policy.lua.d/` and `bluetooth.lua.d/` (under `~/.config/wireplumber/`, `/etc/wireplumber/` or `/usr/share/wireplumber/`) are no longer read, so every tweak you had reverts to stock behaviour. Configuration is now SPA-JSON files in a `wireplumber.conf.d/` directory. Lua is still WirePlumber's scripting language and 72 `.lua` scripts ship in `/usr/share/wireplumber/scripts/`, so the presence of Lua on the system is not the issue. Only Lua *configuration* is gone.
+
+The change is not silent on any currently shipping version. 0.5.0 ignored the old files with no message, and 0.5.1 added a check that walks those three directories and logs `Old configuration file detected: <path>` per file followed by `Lua configuration files are NOT supported in WirePlumber 0.5.` Anything from 0.5.1 onwards tells you, in the journal, if you look. Omarchy 4 ships `wireplumber 0.5.15-1`, so the warning is always present there.
+
+> **Audit corrected this record.** Pinned the version claim, which is the whole record. Installed here is `wireplumber 0.5.15-1` with `pipewire 1:1.6.8-1` on omarchy 4.0.2-1. Checked upstream's own docs at tag 0.5.15 rather than a forum post: docs/rst/daemon/configuration/conf_file.rst states "the Lua configuration files are no longer supported" and adds the nuance the record omitted, that Lua remains the scripting language and is only gone for configuration. That holds, and 72 `.lua` files still ship per `pacman -Ql wireplumber`. All three worked examples verify against upstream's own shipped examples in /usr/share/doc/wireplumber/examples/wireplumber.conf.d/: alsa.conf carries `session.suspend-timeout-seconds` annotated "0 disables suspend" in the node rules block, `device.disabled` in the device rules block and `node.description` in the node block, and bluetooth.conf carries `bluetooth.autoswitch-to-headset-profile` under `wireplumber.settings`. `wpctl settings` on this machine lists that key and `wpctl settings --help` documents `-s, --save`, so the settings-versus-config split is confirmed live. The shadowing claim I nearly marked wrong and did not, which is worth recording: upstream's docs/rst/daemon/locations.rst says fragments load from all locations and merge, which reads as a contradiction, but the implementation in lib/wp/base-dirs.c at 0.5.15 removes a same-named entry already collected from a lower priority directory under the comment "so that lower priority files can be shadowed". The record and the Arch wiki are right and upstream's prose is the misleading part, so that text and its danger clause are kept. Alphanumeric ordering is also confirmed, via `conffile_iterator_item_compare` on filename. Four defects. (1) The central framing was stale by fourteen point releases. NEWS.rst for 0.5.1 records "Added a check that prints a verbose warning when old-style 0.4.x Lua configuration files are found in the system. (#611)", and src/main.c at 0.5.15 has `warn_about_deprecated_config()` emitting `wp_notice("Old configuration file detected: %s")` per file then `wp_warning("Lua configuration files are NOT supported in WirePlumber 0.5...")`. Both strings are in the installed binaries, confirmed here with `strings /usr/bin/wireplumber` and `strings /usr/lib/libwireplumber-0.5.so.0.515.0`. So "ignored without any warning" and "There is no error" are false on every version anyone runs today, and the record was withholding the one journal line that identifies the problem. Rewrote cause and symptom around it. (2) The cleanup step removed `main.lua.d` and `bluetooth.lua.d` but not `policy.lua.d`, which `warn_about_deprecated_config` also scans, so the warning would have persisted. (3) The danger's first sentence was wrong and contradicted the record's own cited source. lib/wp/conf.c catches a fragment that fails to load with `wp_warning_object` then `continue`, so the daemon starts and only that fragment is skipped. bbs 305957, cited on the record, shows exactly that: the user's fragment failed to load and they still had a working graph. The quoted string `section '...' has no value` is genuine, confirmed in lib/wp/conf.c, so it is kept. Only a broken main wireplumber.conf is fatal. (4) Omarchy content was missing and it matters here, because Omarchy already ships a fragment into the exact directory the record tells the reader to create. `~/.config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf` exists on this machine, is byte identical to `/usr/share/omarchy/config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf` per `diff`, and `pacman -Qo` reports no package owns it. On ASUS hardware `/usr/share/omarchy/install/user/hardware/asus/fix-audio-mixer.sh` copies `alsa-soft-mixer.conf` there too. Given the shadowing rule the record correctly documents, those two names must not be reused and must not be deleted, and nothing would restore them. Also confirmed `/etc/wireplumber/` does not exist here, so the old `sudo rm -rf /etc/wireplumber/main.lua.d` was a blind recursive root delete of a normally absent path, which the first auditor flagged in audit_note and nobody acted on. Replaced with a guarded listing. Set `corrected_frequency` to `occasional`. `common` dated from the April 2024 transition, but Omarchy 4 has shipped 0.5.x from the start, so no fresh Omarchy install can reach this state and only someone carrying an old dotfiles or /etc audio config onto the machine hits it. severity `low` left alone, the consequence is reverted tweaks rather than lost audio. Sources all four resolve with HTTP 200 and each supports what it is cited for, so nothing removed. bbs 294454 is the verbatim origin of the suspend-timeout example and, being dated 2024-04-01 against 0.5.0, is also where the stale no-warning claim came from. NOT exercised: I did not create any fragment, did not restart wireplumber, did not run `wpctl settings --save`, and could not make the deprecation warning appear because there are no `*.lua.d` directories on this machine. The warning's existence and wording come from the installed binaries and the 0.5.15 source, not from observing it fire.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** A `.conf` fragment that fails to parse is not fatal. WirePlumber logs
+`failed to open '<path>': section '...' has no value` and skips that one file, so
+the daemon still starts and you still have audio. The failure mode is that your
+tweak silently does not apply, which looks exactly like the problem you were
+fixing, so read the journal after every change rather than trusting that audio
+still works. Only a broken main `wireplumber.conf` stops WirePlumber from
+starting, and following this record you write fragments, not that file.
+
+Add one fragment at a time and restart WirePlumber after each. Reusing the exact
+filename of a fragment that already exists in a lower priority directory drops
+that file rather than merging with it, which silently removes the stock rules it
+contained and can disable device handling you still need. On Omarchy the two
+names to avoid are `bluetooth-a2dp-autoconnect.conf` and `alsa-soft-mixer.conf`
+in `~/.config/wireplumber/wireplumber.conf.d/`, which Omarchy installs itself and
+which no package owns, so nothing will put them back.
+
+**Fix.**
+
+Confirm the version and find the stale files:
+
+```bash
+wireplumber --version
+ls -d ~/.config/wireplumber/*.lua.d /etc/wireplumber/*.lua.d 2>/dev/null
+journalctl --user -u wireplumber -b --no-pager | grep -iE "old configuration|NOT supported"
+```
+
+Rewrite each tweak as SPA-JSON under `wireplumber.conf.d/`. On Omarchy that
+directory already exists and already holds a file Omarchy put there, so list it
+before you add anything:
+
+```bash
+ls -l ~/.config/wireplumber/wireplumber.conf.d/
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+```
+
+Old `51-disable-suspension.lua` becomes:
+
+```conf
+# ~/.config/wireplumber/wireplumber.conf.d/51-disable-suspension.conf
+monitor.alsa.rules = [
+  {
+    matches = [
+      { node.name = "~alsa_input.*" }
+      { node.name = "~alsa_output.*" }
+    ]
+    actions = {
+      update-props = {
+        session.suspend-timeout-seconds = 0
+      }
+    }
+  }
+]
+```
+
+Disabling a device (for example GPU HDMI audio). Find the stable identifier first:
+
+```bash
+wpctl status
+wpctl inspect <ID>        # use device.name or node.name, never device.id
+```
+
+```conf
+# ~/.config/wireplumber/wireplumber.conf.d/50-alsa-disable.conf
+monitor.alsa.rules = [
+  {
+    matches = [
+      { device.name = "alsa_card.pci-0000_08_00.4" }
+    ]
+    actions = {
+      update-props = {
+        device.disabled = true
+      }
+    }
+  }
+]
+```
+
+Match a device property and you set `device.disabled`. Match a node property and
+you set `node.disabled` instead.
+
+Renaming a device:
+
+```conf
+# ~/.config/wireplumber/wireplumber.conf.d/50-rename.conf
+monitor.alsa.rules = [
+  {
+    matches = [
+      { node.name = "alsa_output.pci-0000_00_1f.3.analog-stereo" }
+    ]
+    actions = {
+      update-props = {
+        node.description = "Laptop speakers"
+      }
+    }
+  }
+]
+```
+
+Things that used to be Lua *settings* are now runtime settings. Set them with
+`wpctl` rather than a config file. `wpctl settings` with no argument lists every
+settable key with its description:
+
+```bash
+wpctl settings
+wpctl settings --save bluetooth.autoswitch-to-headset-profile false
+```
+
+Apply and check:
+
+```bash
+systemctl --user restart wireplumber.service
+journalctl --user -u wireplumber -b --no-pager | tail -20
+wpctl status
+```
+
+Then remove the dead Lua fragments so the warning stops and they stop confusing
+you later. There are three directories, not two, and `policy.lua.d` is the one
+usually forgotten:
+
+```bash
+rm -rf ~/.config/wireplumber/main.lua.d \
+       ~/.config/wireplumber/policy.lua.d \
+       ~/.config/wireplumber/bluetooth.lua.d
+```
+
+`/etc/wireplumber/` does not exist on a stock Omarchy 4 install, so there is
+normally nothing to clean up system-wide. Check before reaching for `rm -rf` as
+root, and look at what is in there rather than deleting the directory blind:
+
+```bash
+ls -R /etc/wireplumber/ 2>/dev/null || echo "no /etc/wireplumber, nothing to do"
+```
+
+Two file layout rules matter. Within each `wireplumber.conf.d/` directory files
+load in alphanumeric order, and across directories the fragments are collected
+lowest priority first (`/usr/share/wireplumber`, then `/etc/wireplumber`, then
+`~/.config/wireplumber`). A fragment whose *filename* already exists in a
+higher priority directory is dropped in favour of the higher priority one rather
+than merged with it, so
+`~/.config/wireplumber/wireplumber.conf.d/50-alsa-config.conf` replaces
+`/usr/share/wireplumber/wireplumber.conf.d/50-alsa-config.conf` entirely. Give
+your own files distinct names.
+
+On Omarchy that rule has two live names to avoid. Omarchy copies
+`bluetooth-a2dp-autoconnect.conf` from
+`/usr/share/omarchy/config/wireplumber/wireplumber.conf.d/` into
+`~/.config/wireplumber/wireplumber.conf.d/`, and on ASUS hardware
+`/usr/share/omarchy/install/user/hardware/asus/fix-audio-mixer.sh` copies
+`alsa-soft-mixer.conf` there too. Neither is owned by a package. Do not reuse
+either name and do not delete them while cleaning up, or you drop Omarchy's A2DP
+auto-connect rule or its ALSA soft-mixer rule.
+
+**Verify.** `journalctl --user -u wireplumber -b` shows no config parse errors, `wpctl inspect <ID>` reflects your changed property, and the behaviour you wanted (no suspend, device hidden, new name) is back after a reboot.
+
+Sources: <https://wiki.archlinux.org/title/WirePlumber> · <https://bbs.archlinux.org/viewtopic.php?id=294454> · <https://bbs.archlinux.org/viewtopic.php?id=305957> · <https://wiki.archlinux.org/title/PipeWire> · <https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/conf_file.html> · <https://pipewire.pages.freedesktop.org/wireplumber/daemon/locations.html> · <https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/migration.html> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.15/lib/wp/base-dirs.c> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.15/lib/wp/conf.c> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.15/src/main.c>
 
 ---

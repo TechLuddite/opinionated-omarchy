@@ -46,6 +46,108 @@ Last updated: 2026-09-11
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
+## Session of 2026-09-11 (third): O3 clears `apps-services`, 23 more, and all 23 were wrong
+
+The largest O3 category, and the one most likely to pass, because `apps-services` is mostly general
+Linux rather than Omarchy internals. 23 records, 12 agent batches. **23 of 23 came back `corrected`,
+all at high confidence.** The corpus is 492 records, `ok` 170 / `corrected` 322, from 1,281 distinct
+sources, with 107 `cause_reconciled` stamps. 83 records remain in the O3 backlog.
+
+### The calibration mattered, and it worked
+
+After 50 consecutive corrections a reviewer starts finding faults to look useful, so every prompt in
+this run said plainly that `ok` is a legitimate and expected verdict here, that an unnecessary
+rewrite is itself a defect, and that a record can be correct precisely because it is generic. The
+spread of what came back says it landed: two records lost only their `danger`, one only its `fix`,
+and three auditors reported claims they had expected to correct and did not after checking.
+
+One of those is worth keeping as the model. The WirePlumber auditor was about to mark a
+configuration-shadowing claim wrong, because upstream's own documentation says fragments from all
+locations merge, then read `lib/wp/base-dirs.c` at the installed tag, found a same-named
+lower-priority file is dropped under a comment saying exactly that, and left the record's text
+alone. The record and the Arch wiki are right and upstream's prose is the misleading part.
+
+### Following two of these records broke a working machine
+
+- **`mdns-local-hostname-not-resolving` was inverted for this distribution.** Omarchy ships
+  `/etc/systemd/resolved.conf.d/10-disable-multicast.conf`, hands mDNS to Avahi, and preconfigures
+  the packages, the unit and the `hosts:` line. So the record's first diagnostic reports a fault on
+  a healthy machine, and its remedy disables the daemon doing the work, taking out `.local`
+  resolution and CUPS discovery with it. Measured against a real device: `getent hosts` resolves and
+  `resolvectl query` does not, which is the shipped design rather than a defect.
+- **`snapper-snapshots-eating-the-disk` told the reader to enable the timer Omarchy disables.**
+  `install/config/snapper.sh` runs `systemctl disable --now snapper-timeline.timer`, and migration
+  `1781984677.sh` reverts a re-enable, so the fix restarts the mechanism that filled the disk. Its
+  retention edit was futile too, because that script reinstalls the config from a template.
+
+### Commands that cannot do what the record says
+
+- **A sandbox permission that is silently refused.** `--filesystem=/etc/cups:ro` is on flatpak's
+  reserved list, so it logs `Path "/etc" is reserved by Flatpak` and continues. The app launches and
+  the reader believes a permission exists that was never granted.
+- **A diagnostic that skips what it is looking for.** `du -xh --max-depth=1 /var` stays on one
+  filesystem, and `/var/log` and `/var/cache/pacman/pkg` are separate subvolumes here, so it
+  reported 8.6M where the real figure is 6.8G.
+- **A specifier that only works in unit files.** `%t` in `environment.d` is emitted verbatim, proven
+  by running the generator, so `DOCKER_HOST` was set to a literal `%t/...`.
+- **A kernel-config check that reads as a pass when it finds nothing**, because the symbol it greps
+  is hardened-kernel-only.
+- **systemd property names that no longer exist**, and `systemctl show -p` silently skips unknown
+  names, so the verify step could never display the value the reader had just set.
+
+### Causes that were backwards
+
+- **`dev-kvm-missing-virtualization-disabled`** told readers that a missing CPU flag means unsupported
+  hardware. The kernel clears that capability when firmware disabled the feature, so an empty grep is
+  exactly what a firmware-disabled machine looks like. Its group advice was moot as well, since
+  `/dev/kvm` is 0666 by systemd's own udev rule.
+- **`docker-gpu-could-not-select-device-driver`** blamed a missing runtime entry. The daemon registers
+  that driver from a hook binary on `PATH`, read in moby's source. Worse, its fix pastes a whole
+  `daemon.json` over the one `omarchy-settings` owns, deleting the `dns` and `bip` keys that
+  `install/config/firewall.sh` and another corpus record both depend on. One record's fix broke
+  another record's fix.
+- **`nested-virtualization-not-available-in-guest`** has a false premise: nested is on by default for
+  both vendors, confirmed in `vmx.c` and `svm.c` and by `/sys/module/kvm_intel/parameters/nested`
+  reading `Y` here with nothing configuring it, so the record walked readers through a module reload
+  that risks their running VMs for no gain.
+
+### Two hazards nobody had flagged
+
+`omarchy-settings`'s `post_install` and `post_upgrade` copy its own `nsswitch.conf` over `/etc`, with
+an upstream comment saying customizations will be reset, and there is no `.pacnew` and nothing for
+`pacdiff` to catch. Any record editing that file has to say so. And `snapper -c root delete` can
+never reclaim space in `@home` or `@pkg`, which is where the space actually is on this layout, so a
+reader with no snapshots was being told to delete snapshots.
+
+### The lint caught a defect the audit introduced
+
+`docker-compose-against-podman-socket` came back with `sudo pacman -Syu podman`, which carries both a
+sync and a sysupgrade flag and is therefore exactly what `omarchy-update-pacman-guard` aborts, in the
+same fix that explains the guard. Corrected by hand to `pacman -S --needed` and recorded in the
+record's own `audit_note`. This is the lint working on audit output rather than on harvest output,
+which is a use it had not had before. Two other new hits were read and kept: a plain-Arch branch and
+a warning telling the reader not to run the matched command.
+
+### A domain fact in `CLAUDE.md` was incomplete
+
+An auditor pushed back on the claim that `OMARCHY_PATH` comes only from `~/.bashrc`. It is also set
+by `/usr/share/uwsm/env.d/10-omarchy`, which sources `default/bash/env-bootstrap`, so
+`systemctl --user show-environment` does carry it in a graphical session and user units started there
+see it. Verified here and corrected in the domain facts. The ssh conclusion is unchanged, and that
+is the third of this session's own premises an auditor has corrected.
+
+### Where to pick this up
+
+1. O3 continues, 83 records left: `power-suspend` 16, `omarchy-theming` 15, `network` 15,
+   `hyprland-config` 12, `wayland-compat` 9, `audio-input` 9, `display-monitors` 5, `omarchy-core` 2.
+2. `network` should go next despite not being the largest, because this run found its
+   `mdns-local-hostnames-fail-ufw-blocks-5353` record has a cause that contradicts the stock
+   configuration: `/etc/ufw/before.rules:68` already accepts multicast mDNS. Its sibling here
+   recommends merging the two once that is settled.
+3. Still owed from the O4 audit: a new record for the Intel video-acceleration installer matching
+   graphics by marketing name, where Haswell matches nothing and the machine ends up with no VA-API
+   driver.
+
 ## Session of 2026-09-11 (second): O3 clears `gpu-drivers`, and all 14 were wrong
 
 O4 merged, so the next option is O3: the `ok` records that carry a `danger` and apply to Omarchy,
