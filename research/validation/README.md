@@ -33,7 +33,8 @@ this hardware, or pass while its stated *cause* is wrong. So:
   append-only log has to live outside it.
 - **`repair:` is an operator's reading, not the record.** Record fixes are prose with
   branches: triage, a primary path, a conditional fallback, an Omarchy-specific
-  variant. Only 6 of 456 records have a fenced `verify` block; the rest describe
+  variant. Only 39 of 492 records have a fenced `verify` block, and 33 of those arrived with the
+  2026-09-11 issue harvest. The rest describe
   verification in sentences. Nothing here executes "the fix"; it executes one
   interpretation of it, and the scenario says so at the top.
 

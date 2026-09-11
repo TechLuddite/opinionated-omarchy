@@ -1,6 +1,6 @@
 # Omarchy core
 
-35 problems. Sorted by severity, then by how often users hit it.
+50 problems. Sorted by severity, then by how often users hit it.
 
 ## Break out of an SDDM login loop after an NVIDIA DKMS update
 
@@ -173,6 +173,97 @@ find ~/.config -maxdepth 3 -name '*.omarchy-upgrade-to-quattro.*.bak'
 **Verify.** `omarchy-version` reports 4.x; `pacman -Q omarchy` returns a version; `ls /usr/share/omarchy/bin | head`; `readlink ~/.local/share/omarchy` prints `/usr/share/omarchy`; `omarchy update` runs to completion.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-upgrade-to-quattro> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-menu> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots>
+
+---
+
+## Fix the screensaver closing itself after a second and leaving the session unlocked
+
+`screensaver-self-dismisses-and-session-never-locks` · severity: **critical** · frequency: **common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`, `wayland`
+
+**Symptom.** The screensaver appears as a small floating terminal window in the middle of the screen instead of filling it, animates briefly, and closes on its own after about one second with no input. The session then does not lock on that idle cycle, and the journal records the screensaver as dismissed:
+
+```
+omarchy idle ... idle-cycle-cancel: screensaver-dismissed
+```
+
+It is deterministic with any bar widget panel open when the idle timer fires, and it also happens with no panel open.
+
+One reporter measured the consequence over two days on omarchy 4.0.2-1 with `lock: 300` configured: 239 dismissals, 233 of them between 1.396 and 1.560 seconds after the screensaver started, mean 1.420 seconds with a 0.03 second spread. One overnight stretch ran 225 idle cycles, every one of them dismissed, and the session stayed unlocked from 21:47 until 07:28. In cycles where no screensaver window existed, the lock fired at the deadline every time.
+
+Reported on Omarchy 4.0.0-1 and 4.0.2-1, Hyprland 0.56.2, Quickshell 0.3.0 and 0.3.1, with `foot` and with Ghostty as the terminal, on Intel and on AMD graphics, single monitor and multi monitor.
+
+**Cause.** `/usr/share/omarchy/bin/omarchy-screensaver` runs a poll loop whose exit test is line 44:
+
+```bash
+if read -n1 -t 1 || ! screensaver_in_focus; then
+```
+
+`screensaver_in_focus`, line 6, asks the compositor for the class of the focused window:
+
+```bash
+hyprctl activewindow -j | jq -e '.class == "org.omarchy.screensaver"'
+```
+
+The trigger is any layer surface holding exclusive keyboard focus, which is wider than the bar widget panel in the issue title. While one does, `hyprctl activewindow` keeps reporting the window that was focused before the screensaver mapped, so the class never matches and the first tick exits. Upstream reproduced it with a bar panel, with the Omarchy menu, and with the agents panel, and named the clipboard picker, emoji picker and polkit prompt as the same shape. One reporter hit it with only `omarchy-background` and `omarchy-bar` present and could not identify the surface. A collaborator instrumented the script on a disposable worker and measured five identical runs: exactly one tick at +1.09 seconds, with `read` returning 142, which is a timeout with no byte read, and the focus check returning false. No keypress is involved, and the one second is the `read` timeout.
+
+Two details of the appearance follow from the same cause. `/usr/share/omarchy/default/hypr/apps/system.lua` lines 35 to 37 register `fullscreen`, `float` and an animation for `org.omarchy.screensaver` and no size, and `/usr/share/omarchy/default/foot/screensaver.ini` sets no size either, so the 700x500 box is `foot`'s own default for `initial-window-size-pixels` as documented in `man 5 foot.ini`, and a different terminal gives a different box. The compositor declines the fullscreen rule specifically while a layer surface holds keyboard focus, while the float rule from the same block still applies.
+
+The idle service is what turns a cosmetic problem into an unlocked machine. `/usr/share/omarchy/shell/plugins/services/idle/Service.qml` lines 129 to 139 treat any screensaver window closing as a user dismissal and call `cancelIdleCycle("screensaver-dismissed")`, and that function stops `lockTimer` at line 103. It also clears `idledThisCycle` at line 108, so the compositor's next idle edge starts a fresh cycle and the whole thing repeats at the screensaver timeout plus about a second, which is why the lock deadline is never reached on a machine nobody touches. Upstream corrected one detail of that loop: `omarchy-system-wake` is not what re-arms it and generates no input of its own. Nothing in the journal reads as an error, because the cancel is logged at debug level like every other idle event.
+
+`omacom/omarchy#7102`, which only treats lost focus as a dismissal once the screensaver has actually held focus, is open and unmerged against `quattro` on 2026-09-11. Nothing in this path changed at v4.0.3: `bin/omarchy-screensaver`, `bin/omarchy-launch-screensaver`, `bin/omarchy-toggle-screensaver` and `default/hypr/apps/system.lua` at that tag are byte-identical to the files installed by omarchy 4.0.2-1, and the only change to the idle service there is an unrelated fallback for reading `idleConfig`.
+
+> **Audit corrected this record.** Confirmed on this machine, omarchy 4.0.2-1 with Hyprland 0.56.2 and quickshell 0.3.1, by reading the shipped code rather than the thread. Claim 1 holds exactly: `/usr/share/omarchy/bin/omarchy-screensaver` line 44 is `if read -n1 -t 1 || ! screensaver_in_focus; then exit_screensaver`, and `screensaver_in_focus` at lines 5 to 7 is `hyprctl activewindow -j | jq -e '.class == "org.omarchy.screensaver"'`. Claim 2 holds: `handleScreensaverWindowClosed` at `/usr/share/omarchy/shell/plugins/services/idle/Service.qml` lines 129 to 139 calls `cancelIdleCycle("screensaver-dismissed")` for any screensaver window closing, and `cancelIdleCycle` at lines 100 to 111 stops `lockTimer` on line 103 and clears `idledThisCycle` on line 108, which is also the re-arm the record's 225-cycle overnight measurement needs and which the record never explained. Claim 5 holds: `default/hypr/apps/system.lua` lines 35 to 37 set `fullscreen`, `float` and an animation for `org.omarchy.screensaver` and no size, `/usr/share/omarchy/default/foot/screensaver.ini` sets no size, and `man 5 foot.ini` on foot 1.27.0-2 gives `initial-window-size-pixels` a default of 700x500. Claim 3, the one that matters, also holds in the shipped code: `omarchy-launch-screensaver` lines 13 to 15 exit before mapping a window when `screensaver-off` is set, so no `closewindow` arrives, and the 3 second grace timer at `Service.qml` lines 272 to 281 cancels only when `!idleMonitor.isIdle`, so an untouched machine keeps `lockTimer` and locks at `idle.lock`. Upstream state rechecked today: issue 6917 is open with 7 comments and pull request 7102 is open and unmerged against `quattro`, and the thread does support every claim, including the instrumented five runs and the `read` return of 142. I also checked v4.0.3, published 2026-09-08, because it is newer than this workstation: `bin/omarchy-screensaver`, `bin/omarchy-launch-screensaver`, `bin/omarchy-toggle-screensaver` and `default/hypr/apps/system.lua` at that tag diff clean against the installed 4.0.2-1 files, and the only idle service change is an unrelated `idleConfig` fallback, so nothing in this area moved at v4.0.3. Corrected for three things. First, the fix named `omarchy-toggle-screensaver`, which is `omarchy-toggle screensaver-off` with no explicit action and therefore a flip: on a machine where the screensaver is already off it turns the screensaver back on and silently restores an unlocked session, which is unacceptable in the one record whose failure mode is a machine that does not lock, so the fix now sets the flag with `omarchy-toggle screensaver-off on` and confirms it with `omarchy-toggle-enabled screensaver-off`. Second, the fix presented closing a bar panel as one of "two things that work now" while the record's own symptom says the defect also happens with no panel open, and the last reporter in the thread saw it with only `omarchy-background` and `omarchy-bar` present, so that workaround is now labelled as not reliable. Third, `jq '.idle' ~/.config/omarchy/shell.json` reports only what is written in the file and says nothing about whether idle is enabled, so it is replaced by `omarchy-shell idle status`, which I ran here and which returned `"enabled": false` because this workstation has stay-awake set. Verify now leads with `omarchy-debug-idle`, which I read in full and ran read-only: its Screensaver detector prints `disabled` exactly when the flag is set, and the journal grep now matches `lock-system` because the lock event is logged as `lock-system: lock-timeout`. On claim 4, the empty `danger` was wrong and is now filled, which follows the corpus precedent in `walker-gtk4-vulkan-renderer-amdgpu-hard-freeze` of using `danger` for the residual risk of the unfixed state as well as for the cost of the fix, and there is a genuine fix-side risk here in the toggle flipping back. Severity `high` is too low for a deterministic, silent loss of session locking measured over nine hours: `critical` already covers comparable security exposure with no data loss in `docker-published-ports-bypass-ufw`, and I recommend `critical`, but the verdict schema carries no `corrected_severity` and `merge_gapfill.py` applies only fix, cause, symptom, danger, verify and sources, so severity has to be changed in the record by hand before ingest or it will silently stay `high`. What I could not exercise: nothing was reproduced here. This workstation has `stay-awake` set, so `omarchy-shell idle status` reports `"enabled": false` and the idle service never runs a cycle, and I was instructed not to launch the screensaver, not to toggle it and not to lock the session. So the compositor declining the fullscreen rule while a layer surface holds keyboard focus, the `activewindow` false negative itself, the 1.42 second dismissal clustering and the self-sustaining wake loop are all from the thread and from reading the source, not from a local reproduction. The `#7193` caveat in the thread, that a native screensaver binary would be `exec`ed ahead of the `screensaver-off` check and would make the toggle depend on that binary honouring the flag, does not apply yet: no native screensaver package is installed here and `/usr/bin/omarchy-launch-screensaver` carries no such `exec`.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `omarchy-toggle-screensaver` is a toggle, so running it twice, or running it on a machine where the screensaver is already off, re-enables the screensaver and silently puts the session back to not locking. Use `omarchy-toggle screensaver-off on` and confirm with `omarchy-toggle-enabled screensaver-off`. Until one of those is in place, treat the session as not locking: nothing in the journal reads as an error, and the only visible sign is the display blanking and flashing back every screensaver timeout. Do not treat closing a bar panel as the fix on a machine you leave unattended.
+
+**Fix.**
+
+There is no upstream fix yet, and only one of the two workarounds in circulation actually restores locking.
+
+**Turn the screensaver off. This is the one to use if you care about the machine locking.** Set the flag explicitly rather than flipping it, so the result does not depend on what it was before:
+
+```bash
+omarchy-toggle screensaver-off on
+omarchy-toggle-enabled screensaver-off && echo "screensaver off, lock path clear"
+```
+
+`omarchy-launch-screensaver` reads that flag at lines 13 to 15 and exits before mapping anything, so no window ever opens and no `closewindow` event can be misread as a dismissal. The 3 second grace timer at `Service.qml` lines 272 to 281 cancels the cycle only when the idle monitor has gone **active**, so on a machine nobody touches the lock timer survives and fires at `idle.lock`. The reporter's control measurement is exactly this: every idle cycle with no screensaver window locked on time, with the same configuration and the same idle service.
+
+To put the screensaver back later:
+
+```bash
+omarchy-toggle screensaver-off off
+```
+
+The menu command `omarchy-toggle-screensaver` sets the same flag and sends a notification saying which way it went, but it is a toggle rather than an off switch, so running it on a machine where the screensaver is already off turns it back on and silently restores the defect.
+
+**Closing a bar panel is not a reliable fix.** With no surface holding keyboard focus the screensaver does take focus, fill the output and stay up until you touch the machine, which is why it looks like one. It depends on you remembering before you walk away, and at least one reporter hits this with no panel open and an unidentified surface, so do not rely on it to lock a machine.
+
+Check what the idle service is actually doing, because the screensaver and the lock are separate deadlines and the stay-awake toggle disables both:
+
+```bash
+omarchy-shell idle status | jq .
+```
+
+`"enabled": false` there means idle is off entirely and nothing will lock, whatever the timeouts say.
+
+**Verify.** ```bash
+omarchy-debug-idle 200
+```
+
+That is the shipped diagnostic. Its **Screensaver detector** section prints `disabled` once the flag is set, and its **Idle IPC status** section reports the effective `screensaver` and `lock` timeouts and whether idle is enabled at all.
+
+For the defect itself, read the cycle in the shell journal:
+
+```bash
+journalctl --user -t omarchy-shell -b --no-pager | grep -E 'process-start: screensaver|idle-cycle-cancel|lock-system'
+```
+
+A broken cycle shows `idle-cycle-cancel: screensaver-dismissed` about a second after the screensaver started and never reaches `lock-system: lock-timeout`. A healthy cycle reaches it. After turning the screensaver off, wait out the lock timeout once without touching the machine and confirm the session locks.
+
+Sources: <https://github.com/omacom/omarchy/issues/6917> · <https://github.com/omacom/omarchy/pull/7102> · <https://github.com/omacom/omarchy/releases> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-screensaver> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-launch-screensaver> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-toggle-screensaver> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/plugins/services/idle/Service.qml> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/hypr/apps/system.lua>
 
 ---
 
@@ -700,6 +791,74 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <h
 
 ---
 
+## Fix an ISO install that fails with "failed retrieving file ... from disk" for a package in the offline mirror
+
+`iso-install-failed-retrieving-file-offline-mirror` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `laptop`, `omarchy`, `usb`
+
+**Symptom.** Installing from the Omarchy 4.0.x ISO fails part way through. During the "Installing Arch + Omarchy" (pacstrap) stage:
+
+```
+failed retrieving file 'gst-plugin-gtk-1.28.6-1-x86_64.pkg.tar.zst' from disk : Could not open file
+ERROR: Failed to install packages to new root
+```
+
+or, on the first attempt in a boot, during "Configuring system":
+
+```
+:: File /var/cache/pacman/pkg/nvidia-utils-610.57.04-1-x86_64.pkg.tar.zst is corrupted
+Do you want to delete it? [Y/n]  error: failed to commit transaction (invalid or corrupted package)
+Failed: /usr/share/omarchy/install/hardware/nvidia.sh
+```
+
+Looking in `/var/cache/omarchy/mirror/offline/` from the installer shell, the named package really is absent, and `/etc/pacman.conf` points at `Server = file:///var/cache/omarchy/mirror/offline/`. Retrying in the same boot fails the same way every time, and a later retry can add `failed retrieving 'offline.db' from disk`. The network is up and unrelated. Reported on the 4.0.0 (`IMAGE_VERSION=2026.08.14`), 4.0.1 and 4.0.2 ISOs, naming `gst-plugin-gtk` (three reporters) and `nvidia-utils` (one).
+
+**Cause.** The ISO is not missing the package. A collaborator checked the published 4.0.0 and 4.0.1 images against their own signatures and manifests and found every package in the offline mirror present with a matching sha256 (1247 and 1249 packages respectively). The failure happens between that file and pacman reading it: a bad download, a bad write to the stick, or a bad read off it.
+
+During the pacstrap stage the offline mirror directory is bind-mounted onto pacman's package cache, so the repository pacman fetches from and the cache it validates are the same directory. `_mount_offline_package_cache` in the ISO installer runs `mount --bind /var/cache/omarchy/mirror/offline <target>/var/cache/pacman/pkg`, which is done to avoid copying several GiB twice. When one package fails its checksum, pacman's "File ... is corrupted. Do you want to delete it?" is answered yes by `--noconfirm` and the file is unlinked out of the mirror. The collaborator reproduced that on a clean VM with pacman 7.1.0: intact, the package installs. With 64 bytes altered, pacman reports `invalid or corrupted package (checksum)` and deletes it, and the next attempt reports the `Could not open file` error this issue was filed about. The deletion lands in the live session's RAM overlay, not on the stick, because archiso mounts the root image read-only and layers a tmpfs over it, and no Omarchy boot entry asks for a persistent overlay. That is why every retry in the same boot fails on the missing file and a reboot brings it back.
+
+That bind is released before the "Configuring system" stage, so the two symptoms above do not share one mechanism. The installer unmounts the mirror from the target cache in the `finally` that closes the base-install block, then bind-mounts the mirror at its own path inside the target instead, leaving the target's `/var/cache/pacman/pkg` as its own btrfs `@pkg` subvolume. A package pacman deletes during `omarchy-apply-system` is therefore a copy in that subvolume, and from source it should not remove anything from the mirror. The `nvidia-utils` reporter on the 4.0.2 ISO nevertheless found the mirror missing the package on the retry, followed by `failed retrieving 'offline.db' from disk`, and the collaborator's reading of that second error is that the reads themselves had started failing rather than one package having been deleted. Treat a mirror-path error after a "Configuring system" failure as a sign of a failing medium, not as the deletion cascade. What the `nvidia-utils` report does settle is that nothing here is specific to `gst-plugin-gtk`.
+
+Two reporters confirmed the media side. One was booting from a microSD card in a USB reader on a USB-C dongle: `sha512sum -c airootfs.sha512` reported a mismatch, and the install succeeded after writing the same ISO to a real USB drive. The reporter who opened the issue was on the same microSD-plus-adapter setup.
+
+One reporter also found that when the abort lands in "Configuring system", the target is left half configured: the login step and the post-install step that replaces the offline `pacman.conf` never run, and the first boot reached an SDDM greeter that rejected the password because the theme submitted an empty username. Treat a failed install as one to redo, not one to boot.
+
+> **Audit corrected this record.** Checked the installer source in omacom/omarchy-iso on `quattro` and the archiso runtime source, and read issue 7704 in full with all eleven comments. Nothing here could be exercised on this machine: this is an installed Omarchy 4.0.2-1 system, not a live ISO, so there is no `/run/archiso`, no offline mirror and no pacstrap to run, and every claim below is from source or from the thread rather than observed. The bind-mount claim is confirmed from source. `_mount_offline_package_cache` at `configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py:642` runs `mount --bind /var/cache/omarchy/mirror/offline <target>/var/cache/pacman/pkg`, called at line 250, and `configs/pacman-offline.conf` carries `Server = file:///var/cache/omarchy/mirror/offline/`, so during pacstrap the repository and the validated cache are one directory and a `--noconfirm` delete unlinks out of the mirror. The installer's own `omarchy-install-diagnose-media` says the same in its header comment. The recovery path is confirmed right for archiso. I pulled `mkinitcpio-archiso` 73-1 from a pacman mirror and read `usr/lib/initcpio/hooks/archiso`: line 370 is `_mnt_fs "${fs_img}" "/run/archiso/airootfs"`, `_mnt_fs` attaches the image with `losetup --find --show --read-only` and mounts it `-r`, and line 374 overlays it with `upperdir=/run/archiso/cowspace/${cow_directory}/upperdir`, where `/run/archiso/cowspace` is a tmpfs unless a `cow_device` is passed. Omarchy's `configs/grub/grub.cfg` cmdline at lines 57 and 63 passes only `archisobasedir`, `archisosearchuuid` and display options, so there is no `copytoram` and no persistent overlay, which makes the record's "reboot brings it back" correct. The checksum command is right too: `configs/profiledef.sh` sets `install_dir="arch"`, `arch="x86_64"` and `airootfs_image_type="squashfs"`, and `mkarchiso` in archiso 90-1 calls `_mkchecksum` unconditionally, writing `sha512sum airootfs.sfs >airootfs.sha512`, so the path and the expected `airootfs.sfs: OK` both hold. One thing was wrong. The cause presented the bind mount as covering the whole install and used it to explain both quoted symptoms, and it does not. `_unmount_offline_package_cache` runs in the `finally` that closes the base-install block, before `_prepare_target_setup`, which bind-mounts the mirror at its own path inside the target rather than onto the cache, leaving the target's `/var/cache/pacman/pkg` as the btrfs `@pkg` subvolume written into fstab at line 848. The `nvidia-utils` failure happened in "Configuring system" under `omarchy-apply-system`, which is after that unmount, so from source the deletion should not have reached the mirror. I rewrote that paragraph to confirm the mechanism for the pacstrap window, to say it is not established for the later window, and to keep the reporter's observation with the collaborator's reading of the follow-on `failed retrieving 'offline.db' from disk` as failing reads. Two smaller corrections to the fix: every 4.0.x release note publishes an ISO sha256, not only v4.0.1 (v4.0.0 `9224fab3`, v4.0.1 `69cbb4e1`, v4.0.2 `2ef8e624`, v4.0.3 `03d60bc7`), and the fix omitted that the failure screen now diagnoses the medium by itself. `omarchy-install-diagnose-media` landed 2026-08-23 in omarchy-iso PR #120, is installed 0755 per `configs/profiledef.sh:42`, and `omarchy-install-dashboard` calls it unconditionally at line 844, so it is on the 4.0.1, 4.0.2 and 4.0.3 ISOs but not 4.0.0. I added it as the first step along with the one case where it stays silent, which follows from its own `sed` pattern matching only `/mnt/var/cache/pacman/pkg` while the `nvidia-utils` reporter's log line was the in-chroot path. Issue 7704 supports every other claim in the record, including the 1247 and 1249 package counts, the microSD-versus-USB switch, and the SDDM empty-username consequence, and it is still open.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Read the failure screen first. On the 4.0.1 and later ISOs the installer runs `omarchy-install-diagnose-media` itself when a step fails and prints a verdict that names the medium, so the answer is often already on screen. It is silent in one case worth knowing: it only matches a corrupt-package line under `/mnt/var/cache/pacman/pkg`, so a failure logged from inside the chroot during "Configuring system" prints nothing. The 4.0.0 ISO predates the tool.
+
+Then check the medium, from a shell in the live session on a fresh boot, before starting the installer. This re-reads the whole root image off the stick and takes a few minutes:
+
+```bash
+cd /run/archiso/bootmnt/arch/x86_64 && sha512sum -c airootfs.sha512
+```
+
+A mismatch means the copy on the stick is wrong. Re-download the ISO, check it against the sha256 published in that version's release notes (every 4.0.x release publishes one beside the download link), and write it to a different medium. A plain USB drive worked where a microSD card in a USB reader did not (confirmed by the reporter who switched, and it is the setup the original reporter was on too).
+
+`OK` means the stick is sound. Reboot between attempts, because a package deleted during pacstrap stays deleted for the rest of that boot, and quote the first error after a fresh boot, since `failed retrieving file ... Could not open file` is only ever the wake of an earlier failure. `/var/log/omarchy-install.log` in the live session holds the full text.
+
+To retry without rebooting, put the deleted package back from the read-only image, which archiso keeps mounted at `/run/archiso/airootfs` for the whole session. The collaborator tested this arrangement on a VM, no reporter has confirmed it on real media:
+
+```bash
+sudo cp /run/archiso/airootfs/var/cache/omarchy/mirror/offline/gst-plugin-gtk-*.pkg.tar.zst \
+        /var/cache/omarchy/mirror/offline/
+```
+
+Substitute whichever package the error named, then start the installer again. That `cp` is also a test, because it re-reads the same bytes off the same stick. It succeeds and the install gets past the package: a one-off misread. The install rejects the same package again with `invalid or corrupted package (checksum)`: the bytes on the stick are wrong, re-download and re-flash. The `cp` fails with an input/output error: the medium itself is failing, use another port or another stick.
+
+Which package is named after a fresh reboot is a useful signal. The same package again means a stable fault in your copy (bad download or bad write). A different package each time means the bytes are fine and the reads are not (port, cable, card reader, or memory).
+
+Note that the 4.0.0 ISO carries `gst-plugin-gtk-1.28.6-1` and 4.0.1 carries `-2`, so the version in the error tells you which image you booted.
+
+**Verify.** `sha512sum -c airootfs.sha512` prints `airootfs.sfs: OK`, and the installer runs through "Installing Arch + Omarchy" and "Configuring system" without naming a package. On a stick that failed the check, the same ISO written to a different USB drive installed cleanly.
+
+Sources: <https://github.com/omacom/omarchy/issues/7704> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/pacman-offline.conf> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/profiledef.sh> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/grub/grub.cfg> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/local/bin/omarchy-install-diagnose-media> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/local/bin/omarchy-install-dashboard> · <https://archlinux.org/packages/extra/any/mkinitcpio-archiso/> · <https://archlinux.org/packages/extra/any/archiso/> · <https://github.com/omacom/omarchy/releases/tag/v4.0.0> · <https://github.com/omacom/omarchy/releases/tag/v4.0.1> · <https://github.com/omacom/omarchy/releases/tag/v4.0.2> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3>
+
+---
+
 ## Roll back to a Limine snapshot after an update broke the desktop
 
 `limine-snapshot-rollback` · severity: **high** · frequency: **common** · applies to: `desktop`, `laptop`, `omarchy`, `systemd-boot`
@@ -811,6 +970,71 @@ hl.config({
 **Verify.** `faillock --user yourusername` reports no failures and the normal password works at the login screen.
 
 Sources: <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting> · <https://learn.omacom.io/2/the-omarchy-manual/67/faq>
+
+---
+
+## Finish an Omarchy 4.0 install that stops at `Module psmouse not found`
+
+`omarchy-install-fails-psmouse-module-not-found` · severity: **high** · frequency: **common** · applies to: `intel`, `laptop`, `lenovo`, `omarchy`, `thinkpad`
+
+**Symptom.** A clean Omarchy 4.0.0 (Quattro) install halts during the `Configuring system` phase with:
+
+```
+modprobe: FATAL: Module psmouse not found in directory /lib/modules/7.1.8-arch1-Watanare-T2-2-t2
+[Failed]: /usr/share/omarchy/install/hardware/fix-synaptic-touchpad.sh (exit code: 1)
+```
+
+It does not matter whether you picked full-disk or free-space install. Reported on a ThinkPad (free-space dual boot), a Lenovo IdeaPad L340 (full disk) and a Lenovo IdeaPad 330-15IKB, plus one further full-disk report and one user who gave up and installed Omarchy 3.6 first. If you patch around it and resume by hand, the next hardware scripts fail with `error: failed retrieving file '...' from disk : Could not open file /var/cache/omarchy/mirror/offline/...` even with working internet.
+
+**Cause.** Established by the maintainers' triage and fixed in `#7236`. `install/hardware/fix-synaptic-touchpad.sh` fires on any machine with an input device merely named `synaptics` and runs `modprobe psmouse synaptics_intertouch=1`. During an install it runs inside `arch-chroot`, where `uname -r` still names the live ISO's `linux-t2` kernel while `/lib/modules` holds the target's stock `linux`, so modprobe cannot find the module, and because the hardware phase runs under `set -euo pipefail` the whole install stops. The follow-on `Could not open file /var/cache/omarchy/mirror/offline/...` errors are a consequence of resuming by hand: the installer bind-mounts the ISO's offline mirror into the target and unmounts it when it exits, leaving an empty directory that the target's `pacman.conf` still names as its only repository. That part is the triage's reading of the source, not something a reporter measured.
+
+> **Audit corrected this record.** Checked the mechanism, the merge and the shipped script, and reproduced the failure with a stub `modprobe`. Confirmed from the GitHub API that `#7236` is merged into `quattro` with `merged_at` 2026-08-24T13:33:04Z, and that the script at tag v4.0.1 (published 2026-08-25) carries the `modprobe -qn psmouse` guard. Confirmed on this machine that `/usr/share/omarchy/install/hardware/fix-synaptic-touchpad.sh` on omarchy 4.0.2-1 has that guard at line 22, and that `/usr/bin/omarchy-apply-system` exists. Confirmed on this machine that `install/hardware/all.sh` runs `fix-synaptic-touchpad.sh` at line 9, `nvidia.sh` at 11, `vulkan.sh` at 12 and the `intel/` scripts from 14, so the offline-mirror errors cannot occur in an untouched run, which is the evidence for the record's own statement that they are a consequence of resuming by hand. Fetched the v4.0.0 script and ran it under `bash -euo pipefail` against a stub `modprobe` that fails: exit 1, and the patched and the upstream-corrected versions both exit 0, so the cause and the workaround both hold. Two things were wrong. The `sed` command in the fix does not work: with `|` as the `s` delimiter the literal `||` was written `\||`, so the unescaped pipe ends the replacement and sed exits 1 with `unknown option to 's'` and leaves the file unpatched. I reproduced that verbatim against the v4.0.0 script and replaced it with a `#`-delimited command I tested, which produces `modprobe psmouse synaptics_intertouch=1 2>/dev/null || true` and passes `bash -n`. The second was provenance: issue 6985 has one further explicit full-disk report (`kridaydave`) and one user who installed 3.6 instead (`rez1-dev`) rather than two full-disk reports, and nobody in the thread reported installing from the v4.0.1 ISO. `gtech-pedrol` only pointed at the release page and `kridaydave` acknowledged it, so I replaced the "two reporters confirmed" claim with the tag reading I did myself. Issue 6985 otherwise supports the record: the maintainer triage states the chroot kernel mismatch, that the gate is evaluated in the ISO environment so the install mode cannot matter, and that the unmounted bind mount explains the `Could not open file` errors. Not exercised: no install was run from any ISO, and the bind-mount resume step was not tested. The v4.0.1 release carries no release assets and `omacom/omarchy-iso` has no tags or releases, so the ISO image itself could not be inspected and the version claim rests on the tagged script content.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Resuming a half-finished install by hand skips whatever the installer had not yet reached. If anything after the hardware phase also fails, reinstall from the v4.0.1 ISO rather than patching further, or the target may not boot cleanly.
+
+**Fix.**
+
+Install from the v4.0.1 ISO or later, and prefer the newest: v4.0.3 was published on 2026-09-08. `#7236` merged into `quattro` on 2026-08-24 and the v4.0.1 tag (2026-08-25) carries the corrected script, which asks `modprobe -qn psmouse` before loading and warns instead of failing. That was checked by reading the script at both tags and at the installed 4.0.2-1 copy, not by running an install from the ISO. Installing Omarchy 3.6 and upgrading also avoids it, because the script only runs from the ISO, and one reporter did exactly that.
+
+If you are stuck mid-install with the 4.0.0 ISO, patch the script in the target from the live environment. Two reporters confirmed that appending `2>/dev/null || true` to the `modprobe` line gets past the touchpad step:
+
+```bash
+sed -i 's#^\(\s*modprobe psmouse synaptics_intertouch=1\).*#\1 2>/dev/null || true#' \
+  /mnt/usr/share/omarchy/install/hardware/fix-synaptic-touchpad.sh
+grep -n modprobe /mnt/usr/share/omarchy/install/hardware/fix-synaptic-touchpad.sh
+```
+
+The `#` delimiter is not cosmetic. With `s|...|...|` the literal `||` has to be written `\|\|`, and one escape short of that makes sed exit 1 with `sed: -e expression #1, char 72: unknown option to 's'` and leave the file untouched, which looks like the patch worked until the install fails again. The `grep` must print exactly:
+
+```
+  modprobe psmouse synaptics_intertouch=1 2>/dev/null || true
+```
+
+Before resuming, put the offline mirror back so the remaining hardware scripts can find their packages. This step is the triage's proposed resume and was not confirmed by a reporter, but the reporters who skipped it hit the `Could not open file` errors on every following script:
+
+```bash
+mount --bind /var/cache/omarchy/mirror/offline /mnt/var/cache/omarchy/mirror/offline
+findmnt /mnt/var/cache/omarchy/mirror/offline
+ls /mnt/var/cache/omarchy/mirror/offline | head
+```
+
+Then resume the way the original reporter did, with your install username:
+
+```bash
+arch-chroot /mnt /usr/bin/omarchy-apply-system --install-user <user> --first-install
+```
+
+**Verify.** On a v4.0.1 or later ISO the corrected script is in place:
+
+```bash
+grep -n 'modprobe -qn psmouse' /usr/share/omarchy/install/hardware/fix-synaptic-touchpad.sh
+```
+
+After a resumed 4.0.0 install, the `[Failed]` line does not recur and the hardware scripts complete. One reporter confirmed the rest of the install finished after patching the touchpad script and restoring package access.
+
+Sources: <https://github.com/omacom/omarchy/issues/6985> · <https://github.com/omacom/omarchy/pull/7236> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/fix-synaptic-touchpad.sh> · <https://github.com/omacom/omarchy/releases/tag/v4.0.1> · <https://github.com/omacom/omarchy/blob/v4.0.0/install/hardware/fix-synaptic-touchpad.sh> · <https://github.com/omacom/omarchy/blob/v4.0.1/install/hardware/fix-synaptic-touchpad.sh> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3>
 
 ---
 
@@ -956,6 +1180,77 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
+## Recover the Omarchy shell after 'undefined symbol: _ZN23QUntypedPropertyBindingC1EP23QPropertyBindingPrivate'
+
+`omarchy-shell-quickshell-undefined-symbol-qt-private-api` · severity: **high** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** After an `omarchy update` on 2026-08-20 or 2026-08-21 the bar, menu and notifications vanish. Hyprland itself still runs. The update ends with `Omarchy shell did not become ready after restart.`, and `omarchy restart shell` fails the same way. The error carries one of two symbol version suffixes, and which one you get depends on which side of the skew your channel landed on:
+
+```
+quickshell: symbol lookup error: quickshell: undefined symbol: _ZN23QUntypedPropertyBindingC1EP23QPropertyBindingPrivate, version Qt_6
+```
+
+```
+quickshell: symbol lookup error: quickshell: undefined symbol: _ZN23QUntypedPropertyBindingC1EP23QPropertyBindingPrivate, version Qt_6_PRIVATE_API
+```
+
+```
+Giving up on the Omarchy shell after 6 relaunches in under a minute.
+Omarchy shell did not become ready after restart.
+```
+
+A reboot gives a black screen or a bare Hyprland session with no shell. `yay -S quickshell-git --rebuild` changes nothing, and neither does `yay -S --aur --rebuild --redownload quickshell-git`: in August 2026 the shell came prebuilt as `quickshell-git` from the `omarchy` package repository rather than compiled from the AUR, and yay reinstalled the same binary. Hit on the edge, rc and stable channels on Omarchy 4.0.0-1. Omarchy 4.0.2 and later install `quickshell` from Arch `extra` instead, so the two publication systems that disagreed here are no longer both in play.
+
+**Cause.** Confirmed by dhh and by the omarchybot triage on omacom/omarchy#7634, closed as the same failure as #7596. Quickshell links Qt's private ABI, so a build loads only against the Qt release it was compiled against. Omarchy's own package repository and Omarchy's Arch mirrors are separate systems on independent sync cadences, and nothing sequenced a publish against a mirror sync, so a single rebuild broke channels in **opposite directions**.
+
+On edge the mirrors moved to `qt6-base 6.11.2` while the shell was still the 10 August `quickshell-git 0.3.0.r20.g28771c7-1` build. That build resolves the constructor at `Qt_6_PRIVATE_API`, which 6.11.2 no longer exports under that version tag, so it fails with the `Qt_6_PRIVATE_API` suffix.
+
+On rc and stable the repository published `quickshell-git 0.3.0.r20.g28771c7-2`, rebuilt against `qt6-base 6.11.2` and `qt6-declarative 6.11.2-1` as its `.BUILDINFO` records, while those Arch mirrors still served `qt6-base 6.11.1-1`. The `-2` build resolves the constructor at `Qt_6` and 6.11.1's `libQt6Core` exports it only at `Qt_6_PRIVATE_API`, so it fails with the `Qt_6` suffix.
+
+Nothing stopped either pairing. The `quickshell-git` PKGBUILD declared `depends=('qt6-declarative' 'qt6-base' ...)` with no version constraints, and the published package carried none, so pacman installed a build made against one Qt beside the other without complaint. `quickshell-check.hook` lists only `Target = qt6-base` and `Target = qt6-wayland`, so a transaction that upgraded `quickshell-git` alone fired no check and warned nobody. Stable made it worse by not rebuilding at all: the edge artifact is rsynced into stable, so stable shipped a binary linked against edge's Qt.
+
+The mirrors were brought back into agreement on 2026-08-21. Omarchy then switched back to the Arch `extra` package `quickshell` on 2026-08-22 in commit `2c593dbbaad67698e7b9b0809d082d86540a7a1c`, so a current install carries `quickshell 0.3.1-1` signed by an Arch packager instead of a `quickshell-git` build from `pkgs.omarchy.org`, and keeping it in step with a Qt release is Arch's job rather than Omarchy's.
+
+> **Audit corrected this record.** Read omacom/omarchy#7596 and #7634 in full with all comments. Both support the record. #7596 carries the symbol level analysis (the `-2` build links the constructor as `Qt_6` while 6.11.1's libQt6Core exports it only as `Qt_6_PRIVATE_API`, and both builds share the same 1572 Qt_6 versioned symbols), dhh's confirmation that `omarchy update` is the fix, and the stable and rc reports. #7634 carries the omarchybot triage the record cites, closed as completed. Confirmed from source today that the packaging mechanism is exactly as stated: omacom-io/omarchy-pkgs `pkgbuilds/quickshell-git/PKGBUILD` has `depends=('qt6-declarative' 'qt6-base' ...)` with no version constraints, and `pkgbuilds/quickshell-git/quickshell-check.hook` lists only `Target = qt6-base` and `Target = qt6-wayland`, so a transaction upgrading quickshell-git alone fired nothing. Confirmed on this machine at omarchy 4.0.2-1 that the record's closing claim about packaging is right and that the rest of the record is now written against a package Omarchy no longer uses: `pacman -Sl` reports `extra quickshell 0.3.1-1 [installed]`, `pacman -Qi quickshell` names an Arch packager and `Validated By: Signature`, `quickshell --version` prints `Quickshell 0.3.1 (revision , distributed by Arch Linux)`, `/usr/bin/quickshell` is owned by `quickshell 0.3.1-1`, and `/usr/share/omarchy/install/omarchy-base.packages:111` reads `quickshell`. The switch landed upstream on 2026-08-22 in commit 2c593dbbaad67698e7b9b0809d082d86540a7a1c, "Switch back to the packaged quickshell now that 0.3.1 kills synchronously", against `quickshell-git` at v4.0.0. So the record is right that this is not an AUR rebuild problem and right that Omarchy has moved to the packaged quickshell. Three defects. First, the symptom shows only the `version Qt_6` suffix while claiming the edge channel was hit, and the edge channel failed in the opposite direction: the opening report on #7596 and one commenter show edge's mirrors moving to Qt 6.11.2 under the old `-1` build, which fails with `version Qt_6_PRIVATE_API`. A reader on that error would not match this record. Second, the cause explains only the new-quickshell-against-old-Qt direction, so it does not cover edge at all. Third, the fix's sentence that the repository serves the matching `quickshell-git -2` is stale: `omarchy update` on 4.0.2 or v4.0.3 installs `quickshell` from Arch extra, so that sentence describes a package the current system does not carry. The advice itself, `omarchy update`, is unchanged and still correct. The danger named `quickshell-git` and is rewritten to name `quickshell`. Also verified: qt6-base in extra is now 6.11.2-3 and installed here is 6.11.2-2, and the omarchy-pkgs `.omarchy/package.json` now carries the `rebuild_on` and `rebuilt_against` hardening omarchybot described, pinned at qt6-base 6.11.2-3. Both verify commands ran here and passed: `quickshell --version` printed a version and `omarchy-shell shell ping` printed `ok`. NOT exercised: I could not reproduce the mismatch, since that needs a Qt downgrade and I have no sudo, and I could not query the upstream Quickshell issue tracker, which is Gitea at git.outfoxxed.me rather than GitHub, though its tag list confirms v0.3.1 is the newest release.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not pin or hold `quickshell` or `qt6-base` to get past this. Quickshell links Qt's private ABI, so a partial upgrade of the Qt stack reproduces the same mismatch in the other direction. Go through `omarchy update`, never `pacman -Sy quickshell` or `pacman -Sy qt6-base`.
+
+**Fix.**
+
+Get a terminal without the shell. `Super + Return` is a Hyprland binding and still works, and so does a tty. Then update again, as dhh confirmed:
+
+```bash
+omarchy update
+```
+
+That resolved it on every channel once the mirrors agreed on 2026-08-21, and it is still the right move on a current install, where `omarchy update` installs `quickshell` from Arch `extra` rather than `quickshell-git` from `pkgs.omarchy.org`. If the update does not restart the shell itself:
+
+```bash
+omarchy restart shell
+```
+
+Do not keep the interim workaround. Many reporters downgraded to the cached `-1` build to get a shell back:
+
+```bash
+sudo pacman -U /var/cache/pacman/pkg/quickshell-git-0.3.0.r20.g28771c7-1-x86_64.pkg.tar.zst
+omarchy restart shell
+```
+
+`-1` loads only against Qt 6.11.1, so once the mirrors carried 6.11.2 it became the broken half, and `quickshell-git` is no longer the package Omarchy installs. Anyone still holding it should run `omarchy update` to come forward to `quickshell` from `extra`.
+
+**Verify.** ```bash
+quickshell --version
+omarchy-shell shell ping
+```
+
+The first prints a version instead of the symbol lookup error, and the second prints `ok`. The bar and `Super + Space` menu are back.
+
+Sources: <https://github.com/omacom/omarchy/issues/7596> · <https://github.com/omacom/omarchy/issues/7634> · <https://github.com/omacom/omarchy/commit/2c593dbbaad67698e7b9b0809d082d86540a7a1c> · <https://github.com/omacom/omarchy/blob/quattro/install/omarchy-base.packages> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/quickshell-git/PKGBUILD> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/quickshell-git/quickshell-check.hook> · <https://archlinux.org/packages/extra/x86_64/quickshell/> · <https://archlinux.org/packages/extra/x86_64/qt6-base/>
+
+---
+
 ## Update aborts with 'exists in filesystem' file conflicts in /usr/share/omarchy
 
 `pacman-file-exists-in-filesystem-omarchy` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `manjaro`, `omarchy-4`
@@ -1008,6 +1303,101 @@ sudo env OMARCHY_UPDATE_PACMAN=1 pacman -S --overwrite '/usr/share/omarchy/*' om
 **Verify.** `pacman -Qkk omarchy omarchy-settings` reports no missing or altered files; `omarchy update` completes; `sudo find /var/lib/omarchy/replaced -type f` shows only files you expect to have been taken over.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-system-pkgs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-system-pkgs-when-conflicted> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://wiki.archlinux.org/title/Pacman>
+
+---
+
+## A plugin file change while the session is locked strands the lock screen or aborts omarchy-shell
+
+`plugin-file-write-while-locked-strands-session` · severity: **high** · frequency: **common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** The session is locked, by idle timeout or `omarchy system lock`. A file under `~/.config/omarchy/plugins/<plugin>/` then changes: `chezmoi apply` or Syncthing from another machine, a `git pull` in a plugin checkout, a background agent writing files, an editor still saving after you walked away, or a test suite dropping `__pycache__/` into the plugin directory. `journalctl --user -t omarchy-shell` shows:
+
+```
+Local plugin changed, reloading: <plugin id>
+omarchy lock ... lock-stranded: recovering
+omarchy lock ... lock-requested
+omarchy lock ... lock-pending: screen-stabilizing
+```
+
+It then goes one of two ways. Either it never progresses, and Hyprland's "lockscreen app died" failsafe stays on screen with no password prompt, or omarchy-shell aborts:
+
+```
+FATAL: Tried to show lockscreen surfaces without active lock
+```
+
+That is a `SIGABRT` from `quickshell -n -p /usr/share/omarchy/shell`, one core in `coredumpctl`, after which a replacement shell starts within a second or two and usually re-locks properly so your password works. The abort can be delayed by hours and land on a later screen wake with no plugin write near it.
+
+In the stranded case, `omarchy-shell lock status` reports `{"locked":true,"requested":true,"pending":true,"sessionLocked":false,"secure":true,...}` and `omarchy-restart-shell` answers `Refusing to restart Omarchy shell while the session is locked.`
+
+The compositor usually keeps holding the lock, so the failsafe wall stays up and the desktop is not exposed. Do not rely on that. One reporter on issue 6888 saw the opposite after a stall: `omarchy-hyprland-session-locked` exited 1, `solitaryBlockedBy` carried no `LOCK`, and the only layers left were `omarchy-bar` and `omarchy-background`, with the shell still reporting `secure:true`. Check a wedged machine with `omarchy-hyprland-session-locked` before you walk away from it.
+
+Reported on 4.0.0-1, 4.0.1-1 and 4.0.2-1, with quickshell-git 0.3.0 and quickshell 0.3.1-1 on Qt 6.11.1 and 6.11.2, on NVIDIA desktops, Intel i915 laptops, AMD amdgpu machines, one AMD plus NVIDIA dual-GPU machine and Apple Silicon (Asahi). One reporter hit it with no lock involved at all, from a plugin rewritten every 10 to 40 seconds.
+
+**Cause.** Established in the threads by collaborator triage against `quattro` and the quickshell sources, and by core dumps from three reporters.
+
+A plugin change triggers `reloadPlugins()`, which calls `unloadPluginServices()` in `shell/shell.qml`. Before the fix that function destroyed every plugin service unconditionally, including `omarchy.lock`, which owns the live `WlSessionLock`. The lock manifest's `keepLoaded: true` was honoured for panel Loaders only. Confirmed on an omarchy 4.0.2-1 install: `/usr/share/omarchy/shell/shell.qml` lines 348 to 354 destroy every service, and `keepLoaded` is consulted only around the panel Loader at line 625.
+
+Destroying the lock client leaves the compositor's `ext-session-lock` standing with no locker, which is what Hyprland's failsafe is showing. It also leaves quickshell's process-global `QSWaylandSessionLockManager::active` pointer dangling, because only `unlock()` clears it, so no lock attempt in that process can succeed again. The rebuilt lock service then reads `sessionLock.secure` through that dangling pointer. If it reads true the service returns early forever, which is the silent `lock-pending` stall. If it reads false it sets `locked = true`, and in quickshell 0.3.1 `WlSessionLock::realizeLockTarget` calls `qFatal` when `manager->lock()` fails, which is the abort. Reading a field of a freed object is why the abort can arrive hours later, once that memory is reused.
+
+`omarchy-restart-shell` refuses in the stranded case because it asks the same wedged service: lines 28 to 36 on 4.0.2-1 test `.secure or .requested` and bail out when either is true. The same teardown is reachable without any file write, through `omarchy plugin disable omarchy.lock` or `omarchy plugin remove` while locked, which also go through `_syncServices()`.
+
+> **Audit corrected this record.** Checked every mechanical claim on this workstation (omarchy 4.0.2-1, quickshell 0.3.1-1, Hyprland 0.56.2) and every source claim against the threads read in full today. Confirmed here: `unloadPluginServices()` at /usr/share/omarchy/shell/shell.qml lines 348 to 354 destroys every service with no `keepLoaded` test, `keepLoaded` is read only around the panel Loader at line 625, /usr/share/omarchy/shell/plugins/lock/manifest.json sets `keepLoaded: true`, and /usr/share/omarchy/bin/omarchy-restart-shell lines 29 to 37 run `jq -r '.secure or .requested'` and print `Refusing to restart Omarchy shell while the session is locked.` at line 33, then set `relock=1` and re-lock through `relock_session()` when neither is true, so claim 1 holds exactly as written. Confirmed here for claim 2: `hl.clear_crashed_lockscreen` is a function in the live `hl` table (`hyprctl repl 'return type(hl.clear_crashed_lockscreen)'` answers `function`), so is `hl.dsp.exec_cmd`, `hyprctl --instance 0` and `hyprctl eval` both exist, hyprlock is not installed, and /usr/share/hypr/lockdead.png is the failsafe wall and prints the record's command verbatim plus the `killall -9 hyprlock` line that does nothing on Omarchy 4. Hyprland v0.56.2 source shows `hlClearCrashedLockscreen` refusing with `session is locked with a client, refusing to unlock` when `clientLocked() || clientDenied()` and otherwise calling `forceUnlock()`, which is the refuse-then-unlock behaviour the record claims. /usr/share/omarchy/bin/omarchy-launch-shell is the supervisor: it waits on quickshell, logs `Omarchy shell exited with status $status; relaunching.` at line 89, and gives up at line 85 with `Giving up on the Omarchy shell after 6 relaunches in under a minute.`, so the SIGKILL route and both quoted journal lines are right. From sources: the fix claim is current. PR 9485 merged to `quattro` on 2026-09-02 as `d3d23fdd`, and shell.qml at tag v4.0.3 has `serviceKeepLoaded()` and an `unloadPluginServices()` that keeps those services, so the `grep -n serviceKeepLoaded` test is valid. `omarchy 4.0.3-1` is in the [omarchy] stable repo today (fetched pkgs.omarchy.org/stable/x86_64/omarchy.db), so `omarchy update` really does deliver it. The still-open list also holds: v4.0.3's `_syncServices` still destroys unconditionally and never consults `keepLoaded`, and PR 7169 is still open. Issues 7106, 9441 and 6888 support the symptom, the status JSON, the refusal text, the delayed abort, the `__pycache__` trigger and the `pkill -9` recovery (cyppe on 7106 records status 137, then `secure=true` six seconds later, and the `hl.clear_crashed_lockscreen()` note the record's last-resort block is built from). Two things were wrong. First, no reporter in 7106, 9441 or 6888 has an Intel plus NVIDIA machine. What is attested is NVIDIA-only desktops, Intel i915 laptops, AMD amdgpu, one AMD plus NVIDIA dual-GPU machine and Apple Silicon. Second, `The compositor lock holds throughout, so nothing on screen is exposed` is contradicted by parnoldx on 6888, whose stalled machine had `omarchy-hyprland-session-locked` exiting 1, no `LOCK` in `solitaryBlockedBy` and no lock layer while the shell still reported `secure:true`. That is a security claim, so it is now qualified rather than stated flat. The danger field was rewritten to say what `hl.clear_crashed_lockscreen()` actually does (`forceUnlock()`), to name the re-lock step, and to record that killing quickshell is not free once the supervisor's five-relaunch budget is gone. Not exercised: nothing on the recovery path was run. This session cannot lock the screen, kill quickshell or call `hl.clear_crashed_lockscreen()` without stranding itself, so the kill-and-relaunch sequence and the failsafe clear rest on the scripts, the Hyprland source and the reporters, not on a local run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** The last resort unlocks the machine. `hl.clear_crashed_lockscreen()` calls Hyprland's `forceUnlock()`, so the desktop is live and unattended from the moment it returns until something locks it again, and the usual way into this recovery is a TTY or an ssh session from somewhere else. Only run it when you are physically at the machine, and lock again with `omarchy-shell lock lock` as soon as the shell is back. Killing quickshell is safer, because the compositor keeps holding the lock while the supervisor restarts the shell. It is not free either: `omarchy-launch-shell` allows five relaunches in sixty seconds, then logs `Giving up on the Omarchy shell after 6 relaunches in under a minute.` and stops, which leaves the failsafe up with no shell at all.
+
+**Fix.**
+
+**The fix shipped in 4.0.3.** PR #9485, "Honor keepLoaded for services during plugin hot-reload", merged to `quattro` on 2026-09-02 as commit `d3d23fdd`, makes `unloadPluginServices()` keep any service whose manifest sets `keepLoaded: true`, which `omarchy.lock` does. The v4.0.3 tag, published 2026-09-08, contains it, and 4.0.2-1 and earlier do not:
+
+```bash
+omarchy update
+grep -n serviceKeepLoaded /usr/share/omarchy/shell/shell.qml   # present once the fix has arrived
+```
+
+Still open after that merge: `omarchy plugin disable` or `remove` while locked, and recovery of a process that has already taken the damage, which is PR #7169.
+
+**Prevention on 4.0.2 and earlier.** Do not write under `~/.config/omarchy/plugins/` while the screen is locked. Edit a plugin in a scratch directory and copy it in when you are at the keyboard, and gate sync and dotfile tools on `omarchy-hyprland-session-locked`, which exits 0 while the compositor holds a session lock. One reporter runs this as a chezmoi pre-apply hook:
+
+```bash
+if omarchy-hyprland-session-locked; then
+  echo "session is locked, not touching plugins" >&2
+  exit 1
+fi
+```
+
+**If the abort already happened** and a replacement shell is up, type your password. Nothing else is needed.
+
+**If the session is stranded** with no password prompt, work from a TTY (`Ctrl+Alt+F2`) or over ssh as the session user, inside a login shell (`bash -lc`, otherwise `OMARCHY_PATH` is unset and every `omarchy` command fails). Kill the wedged shell. `SIGKILL` cannot be caught by quickshell's crash handler, so the supervisor `omarchy-launch-shell` logs `Omarchy shell exited with status 137; relaunching.` and the fresh process re-secures the lock on its own within a few seconds, after which the password prompt works. One reporter confirmed this on 4.0.2-1, and it matches the source analysis that only a new process clears the dangling pointer:
+
+```bash
+pkill -9 -x quickshell
+sleep 6
+omarchy-shell lock status        # expect "sessionLocked":true,"secure":true
+```
+
+`omarchy-restart-shell` is the shorter route only once no locker is reporting: it refuses while the wedged service still says `.secure` or `.requested`, and re-locks a fresh shell when neither is true.
+
+If the supervisor has given up (`Giving up on the Omarchy shell after 6 relaunches in under a minute.` in the journal) or you killed `omarchy-launch-shell` too, no client holds the lock any more. Clear Hyprland's failsafe and start the shell again. The session comes back **unlocked**:
+
+```bash
+hyprctl --instance 0 eval 'hl.clear_crashed_lockscreen()'
+hyprctl --instance 0 dispatch 'hl.dsp.exec_cmd("omarchy-launch-shell")'
+```
+
+`hl.clear_crashed_lockscreen()` exists in Hyprland 0.56.2 and refuses while a client still holds the lock, which is why the kill comes first. The failsafe text's `killall -9 hyprlock` does nothing on Omarchy 4, which does not install hyprlock.
+
+**Verify.** ```bash
+grep -n serviceKeepLoaded /usr/share/omarchy/shell/shell.qml    # the fix is installed
+journalctl --user -t omarchy-shell -n 30 --no-pager             # lock-requested, then secure=true
+omarchy-shell lock status | jq '.sessionLocked, .secure'        # true, true
+coredumpctl list quickshell                                     # no new entry after a plugin write
+```
+
+Then type the password at the lock screen. One reporter's journal after the kill: `lock-stranded: recovering` at 12:45:59, `secure=true` at 12:46:05, password accepted. The upstream test plan for #9485 checks that after `omarchy-shell shell rescanPlugins` the lock service's `lastEventAt` is unchanged and its status is not `lock-stranded`.
+
+Sources: <https://github.com/omacom/omarchy/issues/7106> · <https://github.com/omacom/omarchy/issues/9441> · <https://github.com/omacom/omarchy/issues/6888> · <https://github.com/omacom/omarchy/pull/9485> · <https://github.com/omacom/omarchy/pull/7169> · <https://github.com/omacom/omarchy/blob/d3d23fdddef846ebb98b52122a6ece66211c0daf/shell/shell.qml> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/shell.qml> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/render/Renderer.cpp>
 
 ---
 
@@ -1267,6 +1657,102 @@ Sources: <https://github.com/basecamp/omarchy/issues/3543>
 
 ---
 
+## omarchy update fails at migration 1787515927 on every retry (Bash 5.3 EXIT trap returns 1)
+
+`omarchy-update-migration-1787515927-fails-bash-5-3` · severity: **high** · frequency: **occasional** · applies to: `arch`, `bash`, `chromium`, `firefox`, `omarchy`, `zen-browser`
+
+**Symptom.** `omarchy update` aborts at the same migration on every retry, with nothing between the banner and the failure:
+
+```
+Running migration (1787515927)
+Stop world-writable Chromium and Firefox policy directories
+
+Something went wrong during the update!
+
+Please review the output above carefully, correct the error, and retry the update.
+```
+
+`/tmp/omarchy-update.log` shows no error between the migration banner and the failure. Run on its own, the policy script writes the correct file and still reports failure:
+
+```console
+$ sudo -n /usr/bin/omarchy-theme-set-browser-policy 060b1e; echo "exit=$?"
+exit=1
+$ cat /etc/chromium/policies/managed/color.json
+{"BrowserThemeColor": "#060b1e", "BrowserColorScheme": "device"}
+```
+
+Both reports were filed on 2026-08-28 against omarchy-dev builds with bash `5.3.15-1`. One reporter was on the dev channel, where `$OMARCHY_PATH` points at a linked `~/omarchy` checkout. The other was on the edge channel, running the packaged `omarchy 4.0.0.r1872.g7d58bb9-1` out of `/usr/bin` with no checkout. Stable 4.0.1 never shipped this migration and stable 4.0.2 shipped it already fixed, so only dev and edge installs between 2026-08-25 and 2026-08-29 could hit it.
+
+**Cause.** The migration is fine. It calls `omarchy-theme-set-browser`, which runs `omarchy-theme-set-browser-policy`, and that script's `EXIT` trap was:
+
+```bash
+cleanup() { [[ -n $staged ]] && rm -f "$staged"; }
+```
+
+`staged` is cleared after each policy file is written, so on every successful run the test is false, the `&&` list short-circuits, and the handler's last status is 1. Bash 5.3 makes the exit status of the `EXIT` trap the script's exit status, where 5.2 did not, so `exit "$failed"` with `failed=0` became exit 1. The migration runs under `bash -euo pipefail`, aborts between its Chromium loop and its Firefox loop, and `omarchy-migrate` never writes its completion marker, which is why every retry fails identically and why the Firefox hardening never ran. Theme switching was unaffected because `omarchy-theme-set` does not run under `set -e`.
+
+Minimal reproduction, no Omarchy needed:
+
+```console
+$ bash -c 'set -euo pipefail; staged=""; cleanup(){ [[ -n $staged ]] && rm -f "$staged"; }; trap cleanup EXIT; exit 0'; echo $?
+1
+```
+
+A second reporter reproduced it on a machine where the migration had nothing to harden, which isolates it to the exit status and rules out a permissions edge case. The bad trap entered `quattro` on 2026-08-25 in commit `bafc9a1000`, which moved the colour write behind a passwordless helper. It was fixed in PR #8835, merged 2026-08-29 as commit `62eb5182`: the trap became an `if` block, and the migration now calls `omarchy-theme-set-browser || true` so a cosmetic repaint cannot block the Firefox hardening after it. Confirmed on an omarchy 4.0.2-1 install and at the v4.0.2 tag: `cleanup()` at line 82 of `/usr/bin/omarchy-theme-set-browser-policy` is an `if` block, and line 16 of the migration ends in `|| true`.
+
+> **Audit corrected this record.** The mechanism is right in every detail and I confirmed the two named anchors plus the bash behaviour directly on this machine. Confirmed locally on omarchy 4.0.2-1 with bash 5.3.15-1: `cleanup()` starts at line 82 of /usr/bin/omarchy-theme-set-browser-policy and is an `if` block, and the script even carries the comment 'Bash 5.3 makes the EXIT trap's last command decide the script's exit status, so this handler must not end on a false test.' Line 16 of /usr/share/omarchy/migrations/1787515927.sh is `  omarchy-theme-set-browser || true`, guarded by `if (( repaired ))`. I ran the minimal reproduction from the cause and it returns 1, and the `if` form of the same handler returns 0, so the Bash 5.3 claim is exercised here and not taken on trust. Also confirmed locally: /usr/bin/omarchy-theme-set-browser takes no argument, calls the policy script with the theme hex and ends on `exit "$failed"`, the helper's BROWSER_POLICY_FIREFOX_DIRS is exactly /usr/lib/firefox/distribution and /opt/zen-browser/distribution, /usr/bin/omarchy-theme-set has no `set -e` and calls omarchy-theme-set-browser at line 329, `omarchy-migrate --pending` exists, and the marker path ~/.local/state/omarchy/migrations/1787515927.sh is real and already present here. Confirmed from upstream: the v4.0.1 tree has no migrations/1787515927.sh at all, and the v4.0.2 tree already has the `if` handler at line 82 and the `|| true` call, so 'v4.0.1 never shipped it and v4.0.2 shipped it fixed' holds. Commit 62eb5182d073191e62bee137bf8e2521414445cc is the merge of PR #8835 dated 2026-08-29T01:24:32Z and touches exactly bin/omarchy-theme-set-browser-policy, migrations/1787515927.sh and test/shell.d/browser-policy-dir-test.sh. Issue #8833 carries the same diagnosis, the same minimal reproduction and the `sudo -n` reproduction the record quotes. Issue #8832 is the original report and #8835 says 'Fixes #8832. Root cause diagnosed in #8833.' The second-reporter claim holds: jasonfried on #8833 reproduced it on a machine where both loops were no-ops, which is what rules out a permissions edge case. The interactive-sourcing warning holds: avenkidur sourced the migration and saw 'command not found: as_root', and jasonfried explained why that is an artefact of the interactive shell. The edge confirmation holds: avenkidur wrote 'I was able to do nothing and let a subsequent update run' and reported Chromium and /opt/zen-browser-bin/distribution at 0755 afterwards.
+
+Two defects. First, the verify block's third line is wrong and I proved it here. `omarchy-theme-set-browser-policy; echo "exit=$?"` passes no argument, and the script starts with `if (( $# != 1 )); then usage; exit 1; fi`, so it prints its usage line and returns 1 on the fixed script too. Running it on this machine gave exit=1. The correct argument-free caller is `omarchy-theme-set-browser`, which is also the command the migration invokes. Second, open question Q5 is answerable, and both source records were half right, so the symptom's 'source-checkout builds' framing is wrong on its own. In #8832 avenkidur's System details say 'Omarchy Quattro Edge', but their own trace resolves $OMARCHY_PATH to /home/jon/omarchy and sources /home/jon/omarchy/install/helpers/browser-policy.sh, which is the dev-channel linked checkout rather than edge. In #8833 jasonfried gives omarchy 4.0.0.r1872.g7d58bb9-1, quotes /usr/bin/omarchy-theme-set-browser-policy and says the quattro copy is byte-identical to the installed one, which is the edge omarchy-dev package with no checkout. So one reporter was on dev and one was on edge. The date window is also off: the migration's epoch-derived id is 2026-08-23 20:12 UTC, but the file reached quattro on 2026-08-24 and the failing `staged` trap was only introduced on 2026-08-25T19:01:01Z by commit bafc9a1000 and fixed on 2026-08-28T23:00:03Z by commit 5925929cb6, merged 2026-08-29. Both issues were filed on 2026-08-28.
+
+Not exercised: I did not run omarchy update, omarchy-migrate, omarchy-theme-set-browser or the policy script with a colour argument, since all of those write to /etc and I have no sudo. The marker-file workaround and the post-fix update rest on #8832 and #8833, not on me. The migration has already run on this machine, so I could not observe the failure itself.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** The marker-file workaround skips the migration that hardens world-writable browser policy directories. Check those directory modes first, and delete the marker later so the migration runs for real.
+
+**Fix.**
+
+**Omarchy 4.** Update to a build that carries commit `62eb5182`. v4.0.2 and later do:
+
+```bash
+omarchy update
+```
+
+One reporter on edge did nothing else and the next `omarchy update`, after the fix had landed, ran the migration through and left `/etc/chromium/policies/managed` and `/opt/zen-browser-bin/distribution` at `0755`.
+
+**Stuck on a build before the fix.** Confirm it is this defect and not a real policy write failure:
+
+```bash
+omarchy-theme-set-browser; echo "exit=$?"         # exit=1 with a correct file below is this bug
+cat /etc/chromium/policies/managed/color.json
+bash -c 'set -euo pipefail; staged=""; cleanup(){ [[ -n $staged ]] && rm -f "$staged"; }; trap cleanup EXIT; exit 0'; echo $?
+```
+
+If the update itself is blocked and you cannot pull a fixed package, a reporter's workaround writes the migration's marker so it is skipped. Check first that the directories it hardens are already correct, because the marker stops the migration from ever running:
+
+```bash
+stat -c '%a %U:%G %n' /etc/chromium/policies/managed /opt/zen-browser/distribution /usr/lib/firefox/distribution 2>/dev/null
+touch ~/.local/state/omarchy/migrations/1787515927.sh
+omarchy-migrate --pending    # should print nothing
+omarchy update
+```
+
+Delete that marker once a fixed package is installed if you want the migration to run for real. Do not source the migration into an interactive shell to debug it: one reporter did and saw `command not found: as_root`, which was an artefact of the interactive shell rather than the cause.
+
+**Verify.** ```bash
+grep -n -A3 '^cleanup()' /usr/bin/omarchy-theme-set-browser-policy   # an if block, not && rm
+grep -n 'theme-set-browser' /usr/share/omarchy/migrations/1787515927.sh   # ends in || true
+omarchy-theme-set-browser; echo "exit=$?"                             # exit=0 on the fixed script
+omarchy-migrate --pending                                            # empty after a successful update
+stat -c '%a %U' /etc/chromium/policies/managed /opt/zen-browser/distribution 2>/dev/null
+```
+
+Use `omarchy-theme-set-browser` and not `omarchy-theme-set-browser-policy` for the exit-status check. The policy script requires a six hex digit colour argument and prints its usage line and returns 1 without one, on the fixed script as well, so a bare call proves nothing.
+
+Sources: <https://github.com/omacom/omarchy/issues/8832> · <https://github.com/omacom/omarchy/issues/8833> · <https://github.com/omacom/omarchy/pull/8835> · <https://github.com/omacom/omarchy/commit/62eb5182d073191e62bee137bf8e2521414445cc> · <https://github.com/omacom/omarchy/releases/tag/v4.0.2> · <https://github.com/omacom/omarchy/commit/bafc9a1000> · <https://github.com/omacom/omarchy/commit/5925929cb6> · <https://github.com/omacom/omarchy/blob/v4.0.2/bin/omarchy-theme-set-browser-policy> · <https://github.com/omacom/omarchy/blob/v4.0.2/migrations/1787515927.sh>
+
+---
+
 ## Stop omarchy update wiping your config edits every time
 
 `customizations-lost-editing-omarchy-defaults` · severity: **medium** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `wayland`
@@ -1480,6 +1966,59 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/68/updates> · <https://r
 
 ---
 
+## Fix the Bluetooth panel stuck on 'Turned Off' while bluetoothctl says Powered: yes
+
+`bluetooth-panel-turned-off-while-adapter-powered` · severity: **medium** · frequency: **common** · applies to: `amd`, `bluetooth`, `desktop`, `hyprland`, `intel`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** The Omarchy shell's Bluetooth panel shows `Turned Off`, its switch is unchecked, and clicking the switch does nothing. The AVAILABLE list never fills, so no new device can be paired from the panel. Underneath, Bluetooth is fully working: `bluetoothctl show` reports `Powered: yes`, `rfkill list bluetooth` shows no block, `omarchy-bluetooth-power is-on` exits 0, and `bluetoothctl scan on` finds devices. Already-paired devices can still connect and play audio. Each click on the dead switch logs another `rfkill: unblock set for type bluetooth` in the journal. Reported on Omarchy 4.0.0-1 and 4.0.1-1 with `quickshell-git 0.3.0.r20.g28771c7` and packaged `quickshell 0.3.1-1`, on Intel 8087:0a2b and 8087:0032, Realtek RTL8852BU, Qualcomm QCA9377 and Broadcom BCM20702 controllers. It appears either at boot, when the controller's firmware finishes loading after the shell has started, or after a suspend and resume with Bluetooth left on.
+
+**Cause.** Established in the thread by instrumented Quickshell logs from two reporters on different hardware and by a source read of Quickshell 0.3.1. `Panel.qml:24` is `readonly property var adapter: Bluetooth.defaultAdapter`, and `adapter.enabled` is a live binding onto BlueZ's `org.bluez.Adapter1.Powered` through Quickshell's `BluetoothAdapter`. Quickshell fills that cache from two places only: the property snapshot carried in BlueZ's `InterfacesAdded` or `GetManagedObjects` payload, and later `PropertiesChanged` signals. The `PropertiesChanged` subscription is installed in the adapter object's constructor, which runs strictly later than the moment BlueZ built the payload, and `BluetoothAdapter` is one of only two of Quickshell's D-Bus property groups that never calls `GetAll` to reconcile afterwards. A `Powered` transition landing in that gap is in neither source, so the cache keeps `false` and nothing repairs it for as long as `Powered` then stays `true`.
+
+There are two ways into that gap, and they are different events. At boot the shell can build its **first** adapter object while the controller is still loading firmware, which is the Intel 8087:0a2b case at 1.44 seconds of firmware load. On resume BlueZ re-registers `hci0` after a firmware reload, Quickshell destroys the adapter object and builds a new one, and that snapshot arrives carrying `PowerState: Enabling` with `Powered: false` while BlueZ is still powering the controller up. Both instrumented logs record that exact pair as the last write to `Powered` in the whole session, and both logs count zero `GetAll` calls for `org.bluez` in a process that made well over a hundred for NetworkManager. The resume route does not need the USB device to be re-enumerated: one reporter's controller held the same bus address across every cycle and BlueZ still tore the adapter object down and rebuilt it after the rampatch reload.
+
+Because `toggleBluetooth()` at `Panel.qml:635-637` sends a direction derived from the cached value, the switch sends `on` to an adapter that is already on, which is a no-op. The defect is in Quickshell, not in Omarchy's panel: the `v0.3.0` to `v0.3.1` diff touches no file under `src/bluetooth/` or `src/dbus/`, so `quickshell-git 0.3.0.r20.g28771c7` and packaged `quickshell 0.3.1` run identical code here. No fix had landed on either side as of 2026-09-11. Omarchy's bluetooth panel is unchanged through v4.0.3, and `v0.3.1` is still the newest Quickshell release.
+
+> **Audit corrected this record.** Read omacom/omarchy#7573 in full with all six comments. It supports the record: the triage comment establishes the missing reconciliation from a Quickshell 0.3.1 source read, and two reporters later posted instrumented QT_LOGGING_RULES logs on different hardware (Intel AX210 8087:0032 and Qualcomm QCA9377 04ca:3015) showing PowerState Enabling with Powered false as the final write to Powered in the session, and zero GetAll calls for org.bluez against 165 and 187 for NetworkManager. Confirmed on this machine at omarchy 4.0.2-1 by reading /usr/share/omarchy/shell/plugins/panels/bluetooth/Panel.qml: line 24 is the Bluetooth.defaultAdapter binding, line 79 returns "Turned Off" on !adapter.enabled, line 512 gates the discovery retry timer on adapter.enabled, and lines 635 to 637 are the toggleBluetooth that sends a direction from the cached value. /usr/share/omarchy/bin/omarchy-bluetooth-power has the is-on subcommand the symptom cites, and its header comment confirms the rfkill soft block is the state that persists. The verify command ran here and printed `b true` with rfkill unblocked, so that command and its output format are confirmed. Two defects. First, the cause said BlueZ re-registers hci0 at boot and Quickshell drops the adapter object and builds a new one, which is wrong for the boot route: the first reporter's shell built its FIRST adapter object during a 1.44 second Intel firmware load, with no prior object to drop, so the two entry routes are different and the cause is rewritten to keep both. Second, the fix claimed an omarchy-bluetooth-power off then on cycle leaves the panel reading the cached value, and the thread contradicts that: an rfkill soft block removes the adapter object entirely and the panel renders "No adapter" (the #6956 state the report itself distinguishes), and one instrumented log shows an explicit unblock's Powered transition being caught normally 38 seconds after a subscription was installed. The off and on cycle is a coin flip against the same race, not a guaranteed no-op, and its real hazard is the persisted block, so the fix paragraph is rewritten. Verified today that no fix has landed: v4.0.2...v4.0.3 touches no file under shell/plugins/panels/bluetooth/, the last commit to that Panel.qml is 3af7675a on 2026-08-26 requiring textFormat on Text elements, no merged pull request covers it, and the newest upstream Quickshell tag is v0.3.1 which is exactly what Arch extra ships and what is installed here. NOT exercised: I did not suspend or resume this workstation, did not toggle the adapter, and did not run an instrumented shell, so I confirmed the code path and the contradiction rather than reproducing the latch.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Restart the shell. A fresh process takes a fresh snapshot of the adapter:
+
+```bash
+omarchy restart shell
+```
+
+Every reporter in the thread confirmed this clears it for the session. It recurs on the next boot or resume that hits the same window. To pair a device without restarting, use the CLI, which talks to BlueZ directly:
+
+```bash
+bluetoothctl scan on
+bluetoothctl pair <MAC>
+bluetoothctl connect <MAC>
+```
+
+Do not reach for an off and on cycle instead. The panel switch cannot perform one, because in this state it believes the adapter is already off and sends `on`, so you would have to run the helper by hand:
+
+```bash
+omarchy-bluetooth-power off
+omarchy-bluetooth-power on
+```
+
+That is a coin flip rather than a cure. `off` sets an rfkill soft block, which removes the adapter object and makes the panel read `No adapter` instead, and `on` builds a new object against the same snapshot race, so it can latch `false` again. The block is also the half that systemd-rfkill persists across reboots, so an `on` that does not complete leaves Bluetooth switched off at the next boot. `omarchy restart shell` has neither failure mode.
+
+**Verify.** Before restarting, confirm the mismatch:
+
+```bash
+busctl --system get-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Powered
+```
+
+`b true` while the panel says `Turned Off` is this bug. After `omarchy restart shell` the panel shows the adapter on, the switch responds, and the AVAILABLE list fills when the panel is open.
+
+Sources: <https://github.com/omacom/omarchy/issues/7573> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/bluetooth/Panel.qml> · <https://github.com/omacom/omarchy/blob/quattro/test/shell.d/bluetooth-test.sh> · <https://github.com/omacom/omarchy/compare/v4.0.2...v4.0.3> · <https://archlinux.org/packages/extra/x86_64/quickshell/> · <https://git.outfoxxed.me/quickshell/quickshell>
+
+---
+
 ## Fix Chromium playing video as a black rectangle after an update
 
 `chromium-video-black-after-update` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `hyprland`, `intel`, `nvidia`, `omarchy`, `wayland`
@@ -1540,6 +2079,88 @@ omarchy-refresh-chromium
 **Verify.** Open `chrome://gpu` — the GL renderer no longer reports ANGLE — and a YouTube video renders instead of showing black.
 
 Sources: <https://github.com/basecamp/omarchy/issues/3891> · <https://github.com/basecamp/omarchy/issues/3899>
+
+---
+
+## The Gemini default agent will not install or sign in, and Omarchy has replaced it with Antigravity `agy`
+
+`default-agent-gemini-fails-antigravity-replacement` · severity: **medium** · frequency: **common** · applies to: `antigravity`, `arch`, `gemini-cli`, `mise`, `omarchy`
+
+**Symptom.** Choosing Gemini in the Omarchy menu under Setup, Defaults, Agent fails in one of two ways.
+
+The mise install fails outright:
+
+```
+mise ERROR no tasks defined in ~/.local/share/mise/installs/gemini/0.56.0/node_modules/.mise/node-pty@1.0.0/node_modules/node-pty. Are you in a project directory?
+mise ERROR Failed to install npm:@google/gemini-cli@latest: aube install failed: lifecycle script install failed for node-pty@1.0.0: script `install` exited with code Some(1)
+Could not install Gemini with mise
+```
+
+Or the install succeeds and the sign-in fails in a full-screen terminal with no way to cancel, every time, after the browser half completes:
+
+```
+Failed to sign in. Message: This client is no longer supported for Gemini Code
+Assist for individuals. To continue using Gemini, please migrate to the
+Antigravity suite of products: https://antigravity.google
+```
+
+The manual says `agy` installs itself when run, but on stable `agy` is `command not found` and the menu still offers Gemini. Reporters gave omarchy 4.0.0-1, 4.0.2-1 and a fresh 4.0.2 install. The v4.0.1, v4.0.2 and v4.0.3 tags all carry the same menu entry and the same `omarchy-mise-install gemini` line, so every 4.0.x stable release is affected. `Super+Ctrl+Shift+A` and `omarchy refresh applications` reach the same failure.
+
+**Cause.** Google stopped serving Gemini CLI requests for individual Google accounts on 2026-06-18 and withdrew the Login with Google path for them, which is what the sign-in error says. Google's own announcement reads: "On June 18, 2026, Gemini CLI and Gemini Code Assist IDE extensions will stop serving requests for Google AI Pro and Ultra, as well as those using it free of charge using Gemini Code Assist for individuals." Gemini CLI now needs a paid API key or an enterprise licence. Omarchy's menu entry still installs and selects it.
+
+The maintainer replaced Gemini with Antigravity CLI (`agy`) in PR #6900, merged to `quattro` on 2026-08-20 as merge commit `ed7bae4ac`. That change makes `install/user/mise.sh` install `antigravity-cli` as `agy`, renames the menu key to `setup.default.agent.agy` labelled Antigravity, keeps `gemini` and `gemini-cli` as aliases resolving to `agy` in `omarchy-default-agent`, and adds migration `1786719479.sh`, which creates the lazy `agy` stub, rewrites a stored default of exactly `gemini` to `agy`, and removes the old `~/.local/bin/gemini` wrapper. Issues #6889, #8108, #8456 and #8553 were all closed as implemented on `quattro`, which the maintainer spelled out is not the same as shipped.
+
+The stable package still has none of it. The backport is PR #8952, open against the `v4-0-2` branch as of 2026-09-11 and last updated 2026-09-08. v4.0.3 was published on 2026-09-08 without it, so the newest release is still affected. Checked at the v4.0.3 tag and on an omarchy 4.0.2-1 install: `install/user/mise.sh` still runs `omarchy-mise-install gemini`, there is no `migrations/1786719479.sh`, and `omarchy-menu.jsonc` still lists `setup.default.agent.gemini`. The v4.0.1 and v4.0.2 tags match.
+
+> **Audit corrected this record.** Checked every claim against the v4.0.3 tag, the quattro branch, all six cited threads read in full with comments, and this omarchy 4.0.2-1 workstation. The three stable claims hold at the newest tag, not just at v4.0.2. Confirmed from upstream at v4.0.3 (published 2026-09-08): install/user/mise.sh line 4 still runs `omarchy-mise-install gemini`, the recursive tree carries no migrations/1786719479.sh, and default/omarchy/omarchy-menu.jsonc line 138 still carries setup.default.agent.gemini. v4.0.1 and v4.0.2 are the same. Confirmed on this machine: the same three facts, plus /usr/share/omarchy/bin/omarchy-default-agent accepts gemini and has no agy case so `omarchy-default-agent agy` hits the usage branch and exits 1, and `mise registry` maps both agy and antigravity-cli to aqua:google-antigravity/antigravity-cli while gemini maps to npm:@google/gemini-cli. Confirmed PR 6900: merged 2026-08-20T20:28:32Z into quattro as ed7bae4ac5a570e9df307486e0202fdafcc6ee24, touching install/user/mise.sh, bin/omarchy-default-agent, bin/omarchy-agent, default/omarchy/omarchy-menu.jsonc and migrations/1786719479.sh. Read the quattro copies: the menu key became setup.default.agent.agy labelled Antigravity, omarchy-default-agent line 36 resolves agy, antigravity, antigravity-cli, gemini and gemini-cli all to agent=agy, and the migration installs the stub then rewrites a stored default of exactly gemini to agy. PR 8952 is open today against base branch v4-0-2, last updated 2026-09-08, and its body confirms it is the backport of 6900. Two defects. First, the fix block has the channels backwards. It calls dev the thread's confirmed route and calls edge untested. In issue 6889, matheusdmlopes answered treeder with 'In stable branch isnt available yet. On edge channel, yes.' and treeder replied 'got it on edge, thx.' That is edge confirmed by a reporter for exactly this problem. Dev appears only in issue 8553 as GaleasAndres's suggestion, and developercrocodiles never tried it and switched to omp instead. So edge is confirmed and dev is the unconfirmed one. Second, open question Q4 is answerable. Issue 8108's body cites https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/ and I retrieved that page today, HTTP 200, 37445 bytes. It reads 'On June 18, 2026, Gemini CLI and Gemini Code Assist IDE extensions will stop serving requests for Google AI Pro and Ultra, as well as those using it free of charge using Gemini Code Assist for individuals.' PR 8952's body cites a second URL for the same date. The date belongs in the record with that citation rather than omitted. Smaller corrections folded into the rewrites: I read /usr/share/omarchy/bin/omarchy-mise-install, confirmed the two-argument form `<package> [command-name [bin-name]]` is supported so `omarchy-mise-install antigravity-cli agy` is valid, and confirmed it only writes an executable shim at ~/.local/bin/agy and prints nothing. The record made no claim about its output, so nothing needed fixing there, but the shim runs `mise use -g --quiet antigravity-cli` on every invocation and not only the first, so 'on first use' was reworded. The symptom claimed a report on 4.0.1-1 and no reporter states that version, so the symptom now names what reporters actually gave. The verify block claimed `agy --help` signs in, which help output does not do. Not exercised: I did not run omarchy-mise-install, omarchy-channel-set or agy, so the stub's behaviour after install and the sign-in with a personal Google account rest on odcpw on issue 8108 and toni-kk on issue 8553, not on me. ~/.local/bin/agy is absent here and ~/.local/bin/gemini is present, so nothing on this machine has run the new path.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Both channel switches replace the packaged `omarchy` and `omarchy-settings` with the `omarchy-dev` and `omarchy-settings-dev` packages from the edge pacman channel, so they bring unreleased changes with them and set a reboot-required state. `omarchy-channel-set dev` goes further: it clones the Omarchy source into `~/omarchy`, links Omarchy to that checkout with `omarchy-dev-link` so `OMARCHY_PATH` stops pointing at `/usr/share/omarchy`, and its own `gum` prompt says it is exclusively intended for developers working on Omarchy itself. Prefer the mise stub on a stable machine. If you do switch, edge is the lighter of the two and the one reporters confirmed, and `omarchy-channel-set stable` unlinks any checkout and puts the packaged tree back.
+
+**Fix.**
+
+**On stable, today.** Install the same stub the migration installs, then launch it by name. One reporter confirmed this on 4.0.2-1:
+
+```bash
+omarchy-mise-install antigravity-cli agy
+agy
+```
+
+`omarchy-mise-install` takes `<package> [command-name [bin-name]]`, so that call writes an executable shim at `~/.local/bin/agy` and prints nothing. The shim exports `MISE_MINIMUM_RELEASE_AGE=0`, runs `mise use -g --quiet antigravity-cli` on every invocation, which installs the tool the first time and is a no-op after that, then runs `exec mise x antigravity-cli -- agy "$@"`. The mise registry already maps both `agy` and `antigravity-cli` to `aqua:google-antigravity/antigravity-cli`, so no extra plugin is needed. `omarchy-default-agent agy` will not work yet: the packaged `omarchy-default-agent` has no `agy` case, so it prints its usage line and exits 1 until PR #8952 lands.
+
+**On a build that carries PR #6900.** Update, and migration `1786719479` installs the stub and rewrites a `gemini` default to `agy`:
+
+```bash
+omarchy update
+omarchy-default-agent agy
+```
+
+Then Omarchy menu, Setup, Defaults, Agent, Antigravity. The thread's confirmed route to such a build is the **edge** channel, which swaps the `omarchy` and `omarchy-settings` packages for `omarchy-dev` and `omarchy-settings-dev` and leaves the packaged layout in place:
+
+```bash
+omarchy-channel-set edge
+```
+
+Two reporters on issue #6889 confirmed the Antigravity agent works on edge and is still missing on stable. The `dev` channel reaches the same code and was suggested on issue #8553, but nobody in the threads confirmed it for this, so treat dev as untested here. Both commands also sit behind Super+Space, Update, Channel. Return to the packaged tree later with:
+
+```bash
+omarchy-channel-set stable
+```
+
+Gemini's own configuration and credentials under `~/.gemini` are left in place either way. The migration does delete `~/.local/bin/gemini`, but only when that file is Omarchy's own generated wrapper, so a hand-written `gemini` launcher survives.
+
+**Verify.** ```bash
+ls -l ~/.local/bin/agy                                          # the stub omarchy-mise-install wrote
+agy --help                                                     # installs antigravity-cli on first run, then prints help
+grep -n 'antigravity' "$OMARCHY_PATH"/install/user/mise.sh     # on a build carrying PR #6900
+ls "$OMARCHY_PATH"/migrations/1786719479.sh
+cat ~/.config/omarchy/defaults/agent                           # agy once the migration has run
+```
+
+Signing in happens on a real `agy` run rather than on `--help`. One reporter on the fixed tree confirmed `agy` installs, signs in with a personal Google account and runs, and that the Agent submenu shows Antigravity checked.
+
+Sources: <https://github.com/omacom/omarchy/issues/8108> · <https://github.com/omacom/omarchy/issues/8456> · <https://github.com/omacom/omarchy/issues/8553> · <https://github.com/omacom/omarchy/issues/6889> · <https://github.com/omacom/omarchy/pull/6900> · <https://github.com/omacom/omarchy/pull/8952> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1786719479.sh> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-default-agent> · <https://github.com/omacom/omarchy/blob/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/omacom/omarchy/blob/v4.0.3/install/user/mise.sh> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/omarchy/omarchy-menu.jsonc> · <https://github.com/omacom/omarchy/blob/v4.0.1/install/user/mise.sh> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/>
 
 ---
 
@@ -2155,6 +2776,240 @@ Sources: <https://github.com/basecamp/omarchy/issues/5105>
 
 ---
 
+## Stop the lock screen re-blanking a slow-waking monitor before it shows
+
+`lock-screen-reblanks-slow-dpms-monitor` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `desktop`, `displayport`, `hyprland`, `nvidia`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** On Omarchy 4 (Quattro) a locked display does not wake reliably. One key press or mouse movement turns the monitor on but the lock screen never appears, or the password prompt shows for a moment and the monitor goes black again. Pressing keys or moving the mouse repeatedly eventually gets the lock screen up. `omarchy-shell` stays alive and there are no `FALLBACK` output or fatal Wayland errors in the journal, which separates this from the shell crash in #7380. The same hardware woke on the first press on Omarchy 3.
+
+Seen on DisplayPort monitors that take more than five seconds to complete a DPMS wake: a ViewSonic VA3456-WQHD on an AMD Radeon 890M (Omarchy 4.0.0-1) and an ASUS XG32UCWMG at 3840x2160@240 on an RTX 2070 (Omarchy 4.0.0-1, issue #7399). The shipped value is unchanged on 4.0.2-1.
+
+**Cause.** The Quickshell lock plugin blanks the display on a fixed one-shot timer. In `shell/plugins/lock/Service.qml` `idleBlankTimer` has `interval: 5000` with `repeat: false` (lines 415 to 417 on 4.0.2-1). `runWake()` (lines 167 to 170) starts `omarchy-system-wake` to turn DPMS on and, while `lockRequested` is true, immediately re-arms that timer. Nothing in the path observes whether the panel actually lit: `wakeProcess` has no completion handler (lines 405 to 407), and `omarchy-brightness-display on` returns once `hyprctl` has accepted the dispatch, not when the monitor shows a frame (`bin/omarchy-brightness-display:70`). A monitor whose DisplayPort wake handshake takes longer than five seconds is therefore blanked again before it becomes visible.
+
+The budget is five seconds of inactivity on the lock surface rather than five seconds from the wake. `LockView.qml` emits `wakeRequested()` on pointer clicks and motion (lines 118 and 119) and on every keystroke and text change in the password field (lines 163 to 166 and 177 to 178), and the service maps that to `runWake()` at line 283, which re-arms the countdown. That is why repeated input eventually wins and why typing the password blind works.
+
+A collaborator confirmed this reading against the source, and the reporter's controlled test (cloning the plugin and changing only the interval) confirmed it on hardware. A second user in #7399 fixed the same symptom the same way at 20000. The original reporter of #7399 saw no change at 30 seconds, so a second re-blank path exists on some hardware.
+
+The interval is still a hardcoded literal in the newest release. `shell/plugins/lock/Service.qml` is byte-identical on this workstation (4.0.2-1) and at the `v4.0.1`, `v4.0.2` and `v4.0.3` tags, and `interval: 5000` is still hardcoded on the unreleased `quattro` branch as well. PR #7643, which makes it configurable as `idle.blank` in `shell.json`, was still open and unmerged on 2026-09-11, so the clone below is the only way to change the number on any shipped release.
+
+> **Audit corrected this record.** Checked the record against the shipped source on this workstation (omarchy 4.0.2-1, Hyprland 0.56.2), against the `v4.0.1`, `v4.0.2`, `v4.0.3` and `quattro` copies of the file, and re-read issues #7749, #7399 and #7380 and PR #7643 in full today. The mechanism holds exactly as written. Confirmed on this machine, all read from the installed files. `idleBlankTimer` is `interval: 5000`, `repeat: false` at `/usr/share/omarchy/shell/plugins/lock/Service.qml:415-417`. `runWake()` at 167 to 170 starts `wakeProcess` and re-arms the timer when `lockRequested`. `wakeProcess` runs `omarchy-system-wake` (405 to 407) with no completion handler. `omarchy-system-wake` calls `omarchy-brightness-display on`, which dispatches `hl.dsp.dpms({ action = "enable" })` and exits without waiting for a frame (`bin/omarchy-brightness-display:70`), and skips the dispatch entirely when every active monitor already reports `dpmsStatus` true (line 69). `LockView.qml` emits `wakeRequested()` on clicks, pointer motion, keystrokes and text changes (118, 119, 163 to 166, 177 to 178), which `Service.qml:283` maps to `runWake()`. The tooling in the fix is real and works the way the record says. `omarchy-plugin-clone` builds the id as `${USER}.${source_id#omarchy.}`, copies the entry points, stamps `omarchy.clonedFrom`, enables the clone and calls `omarchy-shell shell rescanPlugins`. `resolveEnabledId` (`PluginRegistry.qml:146-157`) routes calls made with the built-in id to the enabled clone. The shell watches `~/.config/omarchy/plugins` with `inotifywait -m -r` (`PluginRegistry.qml:636-651`, and `inotify-tools 4.25.9.0-1` is installed), so a save does reload. `omarchy-plugin-remove` restores the `clonedFrom` source.
+
+The cited issues do support the claims. #7749's opening post names the ViewSonic VA3456-WQHD on a Radeon 890M at Omarchy 4.0.0-1, quotes the same timer, and reports the controlled clone test at 15000. The `omarchybot` collaborator comment confirms the source reading and says plainly that it was not reproduced on hardware. #7399's reporter is a 6K ASUS ProArt PA32QCV who saw no change at 30000, and the commenter `orienw` is the ASUS XG32UCWMG at 3840x2160@240 on an RTX 2070 who was fixed by 20000, so the record attributes both correctly. #7380 is the separate FALLBACK shell-crash defect the record points at.
+
+Two things needed changing, neither of them the mechanism. First, the date and release framing: I fetched `shell/plugins/lock/Service.qml` at every tag and the local file is byte-identical to `v4.0.2` and to `v4.0.3` (tagged 2026-09-08, the newest tag), and `interval: 5000` is still hardcoded even on `quattro` HEAD, where the only new timer is a 3000 ms `monitorDpmsTimer` that polls `hyprctl monitors` for video wallpapers and is not a readiness observer. PR #7643 reports `state: open` on 2026-09-11. The cause now says that, so the record cannot be read as describing a number that a release has already moved. Second, `danger` was empty and should not be. Enabling a clone of a non bar-widget plugin writes `omarchy.lock` into `disabledPlugins` in `~/.config/omarchy/shell.json` (`PluginRegistry.qml:523-525`, and the lock manifest's `kinds` is `["service"]`), and the `lock` IPC target lives inside the plugin (`Service.qml:510-511`), so a QML error in the clone leaves no lock service, and `omarchy-system-lock` sends `omarchy-shell lock lock` with output discarded and no exit check. The failure is a machine that silently stops locking, which is worth a danger on a fix that tells people to edit the lock screen's own source. I also added a `listPlugins` check to the fix and `--yes` to the remove command, since `omarchy-plugin-remove` refuses without a confirmation prompt outside a terminal.
+
+Not exercised: I did not clone the plugin, did not edit any interval, did not lock this session and ran no DPMS or state-changing `hyprctl` command, because the audit is read-only here and Omarchy 4's lock surface cannot be released headlessly. The 15000 and 20000 values, the slow DisplayPort wake latency and the claim that a longer interval cures the symptom come from the two reporters in the issues rather than from anything I measured. Everything about the source, the plugin tooling and the clone's effect on `shell.json` is read from the installed files and from the upstream tags.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Enabling a cloned lock plugin turns the built-in one off, so a broken clone leaves the machine unable to lock. `PluginRegistry.qml:523-525` writes `omarchy.lock` into `disabledPlugins` in `~/.config/omarchy/shell.json` whenever the enabled clone declares a kind other than `bar-widget`, and the lock plugin's `manifest.json` declares `"kinds": ["service"]`. The `lock` IPC target lives inside the plugin itself (`Service.qml:510-511`), so a QML error in your copy means there is no lock service and no target for the `omarchy-shell lock lock` that `omarchy-system-lock` sends. That call discards its output and its exit status is not checked, so locking then fails silently and the session stays unlocked.
+
+Change only the interval line, confirm the clone is loaded with `omarchy-shell shell listPlugins` before relying on it, and test with `omarchy-system-lock` while you are sitting at the machine. Do not test a lock-plugin clone over ssh on a headless or remote machine: Omarchy 4's lock surface is an `ext-session-lock` surface with no `unlock()` in its IPC, so the only ways back in are typing the password at the console or a reboot.
+
+**Fix.**
+
+Clone the built-in lock plugin into your config and raise the interval. Cloning switches the shell to your copy and routes the lock IPC calls to it (`PluginRegistry.qml` `resolveEnabledId`, line 146), so nothing else changes:
+
+```bash
+omarchy plugin clone omarchy.lock
+```
+
+That creates `~/.config/omarchy/plugins/<username>.lock/` (for user `dhh`, `dhh.lock`), enables it and switches the shell to it. Edit `Service.qml` in that directory and change the one line:
+
+```qml
+    interval: 5000
+```
+
+to
+
+```qml
+    interval: 15000
+```
+
+15000 worked for the ViewSonic reporter, 20000 for the #7399 commenter. Change nothing else: the same file holds the PAM flows and the `lock` IPC target, and a QML error in it leaves you with no lock screen at all. See the danger below.
+
+Saving a file under `~/.config/omarchy/plugins/` reloads plugin code automatically, because the shell runs `inotifywait -m -r` on that directory (`services/PluginRegistry.qml:636-651`). Check the clone came back before you trust it:
+
+```bash
+omarchy-shell shell listPlugins | jq -r '.[] | select(.id | endswith(".lock")) | "\(.id) enabled=\(.enabled)"'
+```
+
+If the reload did not happen, force it:
+
+```bash
+omarchy-shell shell rescanPlugins
+```
+
+The clone stops tracking updates to the built-in lock plugin, so remove it once a release makes the interval configurable or fixes the race:
+
+```bash
+omarchy plugin remove <username>.lock --yes
+```
+
+Removing an active clone switches the shell back to the built-in `omarchy.lock`. The `--yes` matters only outside an interactive terminal, where `omarchy-plugin-remove` refuses to continue without a confirmation it cannot prompt for.
+
+If raising the interval changes nothing, this is not your cause. The #7399 reporter saw no difference at 30 seconds, and a lock screen that never appears alongside `Got removal for monitor "FALLBACK"` in the journal is #7380 instead.
+
+**Verify.** ```bash
+omarchy-system-lock
+```
+
+Wait for the monitor to enter standby, then press Shift once. The monitor wakes and the lock screen stays visible without further input. `omarchy plugin list` shows `<username>.lock` enabled in place of `omarchy.lock`.
+
+Sources: <https://github.com/omacom/omarchy/issues/7749> · <https://github.com/omacom/omarchy/issues/7399> · <https://github.com/omacom/omarchy/pull/7643> · <https://github.com/omacom/omarchy/issues/7380> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/plugins/lock/Service.qml> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/lock/Service.qml>
+
+---
+
+## Unstick migration 1786643346 when it insists a browser window is open
+
+`migration-1786643346-browser-window-open-loop` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `brave`, `chromium`, `omarchy`, `vivaldi`
+
+**Symptom.** `omarchy update` stops at migration `1786643346`, "Repair the Copy URL shortcut for profiles that predate its pinned extension id", and asks you to close the browser:
+
+```
+Close the browser windows to repair the Copy URL shortcut, then continue
+```
+
+It asks again however many times you confirm, with every browser closed, after `pkill -f` on all of them, and after several reboots. Declining prints:
+
+```
+A running browser would undo the Copy URL shortcut repair.
+Close the browser windows, then run: omarchy-migrate
+```
+
+and exits 1. Because `omarchy-migrate` runs under `set -euo pipefail` and `omarchy-update` calls it under `set -e`, every migration sorting after it never runs and the rest of the update is skipped: the post-update hook, AUR packages, mise and the orphan cleanup. A pending-migration notification then appears at every login.
+
+Reported on Omarchy 4.0.0-1 stable and after an Omarchy 3 to Quattro upgrade, with Brave, and confirmed by a second reporter with Vivaldi and Chromium.
+
+**Cause.** Established in the threads and confirmed against the shipped migration on an omarchy 4.0.2-1 install, where `profile_open()` at line 129 reads:
+
+```bash
+profile_open() {
+  [[ -L $1/SingletonLock || -e $1/SingletonLock || -S $1/SingletonSocket ]]
+}
+```
+
+The migration never looks at processes or windows. It decides a Chromium-family profile is open purely from those filesystem markers in the profile's user-data-dir. Chromium-family browsers create `SingletonLock` as a symlink to `<hostname>-<pid>` and unlink it on a clean exit, but leave it behind after a crash, a `SIGKILL` or a hard power-off. It lives under `~/.config/`, so a reboot never clears it and `pkill` has nothing left to signal. The guard is a `while` loop, so a marker that is permanently present re-prompts forever.
+
+`affected_profile_open()` gates on two sets of profiles rather than on browsers in general: the profiles whose `Preferences` still need the repair, and any profile root holding a `Preferences.omarchy-copy-url-repair.bak` from an attempt the migration has not yet verified. So the stale marker can sit in a profile you stopped using long ago. The second reporter's was an old Brave profile.
+
+PR 7026 makes `profile_open()` read the `SingletonLock` symlink target and treat the lock as stale when `kill -0` on the PID it names fails. It is still open on 2026-09-11, and so is the competing PR 6872 against the same function. Upstream's review of 7026 is that its test is incomplete: `kill -0` returns `EPERM` for a live PID this user cannot signal, a PID reused after a reboot still reads as open, the hostname half of the target is discarded, and a lock left as a plain file or a profile with only `SingletonSocket` left behind still blocks. `profile_open()` is byte-identical on `quattro` today and at tag v4.0.3 (published 2026-09-08), so the manual removal below is still the fix on every shipped release up to and including 4.0.3.
+
+> **Audit corrected this record.** Checked all three claims against the shipped migration on this workstation, which runs omarchy 4.0.2-1, and re-read both issues and the pull request today. Confirmed on this machine that `profile_open()` at lines 129 to 133 of `/usr/share/omarchy/migrations/1786643346.sh` tests only `-L $1/SingletonLock`, `-e $1/SingletonLock` and `-S $1/SingletonSocket`, with no liveness check on the PID the symlink names, and that the same function is byte-identical on `quattro` and at tag v4.0.3. Confirmed from the GitHub API that PR 7026 is still open on 2026-09-11, so the fix section stands. Confirmed on this machine that `grep -rn SingletonCookie /usr/share/omarchy/` returns nothing, so deleting `SingletonCookie` is harmless and is not what unsticks the migration, exactly as the record says. Also confirmed on this machine: `omarchy-migrate` sets `set -euo pipefail` at line 6 and runs each migration with `bash -euo pipefail` at line 93, touching the marker only after it succeeds at lines 94 to 95, and `omarchy-update` sets `set -e` at line 8 and calls `omarchy-migrate` at line 48, so the symptom's blast radius is right. The marker path and name in the verify block are right, `~/.local/state/omarchy/migrations/1786643346.sh`, and the record's `ls` globs cover all thirteen profile roots listed at lines 80 to 94. Both issues support the claim. Issue 7019 is the mechanism thread, and issue 7453 is the version and browser evidence, reporting Omarchy 4.0.0-1 after an Omarchy 3 to Quattro upgrade with Brave, with a second reporter on Vivaldi and Chromium. Three things needed correcting. The cause said the manual removal is the fix through 4.0.2, which went stale when v4.0.3 shipped on 2026-09-08 with the same unchanged function, and it did not mention PR 6872, the competing open PR, or upstream's own finding that 7026's `kill -0` test still misreads an `EPERM` PID, a reused PID, a foreign hostname and a socket-only profile. The danger was incomplete: it named `SingletonLock` only, although the fix also deletes `SingletonSocket` and the check accepts the socket alone, and it omitted the quiet failure the migration's own comments at lines 109 to 112 and 186 to 196 describe, where removal under a live browser gets the migration marked done while the browser reverts the repair on exit. I added the profile-directory warning because a reporter in 7019 deleted `~/.config/BraveSoftware` wholesale. The fix also claimed the two `rm` commands were what reporters confirmed, and they are not verbatim: both reporters' commands included `SingletonCookie`, so I kept the commands and described their provenance accurately. Not exercised: I did not delete any Singleton file, did not run `omarchy-migrate` or `omarchy update`, and this user has no Singleton files in any of those profile roots, so the unstick itself was not reproduced here and rests on both threads. Worth knowing but not a defect: the migration never removes `Preferences.omarchy-copy-url-repair.bak`, the only references being lines 75, 117 and 148, so a repaired profile stays eligible for the same gate if the completion marker is ever lost.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Only remove these markers while no Chromium-family browser is running, and the same caution covers `SingletonSocket` as well as `SingletonLock`, because the shipped check accepts either one on its own.
+
+Removing them under a live browser does two kinds of damage. It lets a second instance open the same profile, which can corrupt that profile. It also defeats the prompt silently: the migration then repairs `Preferences` under the running browser, its own post-repair re-checks read the profile as closed too, `omarchy-migrate` writes the completion marker, and the browser writes its stale in-memory `Preferences` back when it exits. You are left with the migration recorded as done, the Copy URL shortcut still broken, and no prompt to tell you.
+
+Do not delete a whole profile directory to clear the lock. One reporter removed `~/.config/BraveSoftware` outright, which loses that profile's bookmarks, history, saved passwords and extensions.
+
+**Fix.**
+
+With every Chromium-family browser genuinely closed, find the stale markers:
+
+```bash
+ls -l ~/.config/{chromium,google-chrome*,BraveSoftware/Brave-Browser*,microsoft-edge*,vivaldi,opera,helium}/Singleton* 2>/dev/null
+```
+
+Those globs cover all thirteen profile roots the migration scans, including the beta and nightly variants. A dangling symlink to a `<hostname>-<pid>` that no longer exists is the signature. Delete `SingletonLock`, and `SingletonSocket` if one is there, in whichever profile roots turn up. The shipped check accepts the socket on its own, so leaving it behind keeps the migration stuck. For the two combinations reporters were stuck on, Brave plus Chromium and Chromium plus Vivaldi:
+
+```bash
+rm -vf ~/.config/BraveSoftware/Brave-Browser/Singleton{Lock,Socket} ~/.config/chromium/Singleton{Lock,Socket}
+rm -vf ~/.config/chromium/Singleton{Lock,Socket} ~/.config/vivaldi/Singleton{Lock,Socket}
+```
+
+Both reporters also deleted `SingletonCookie`, which sits beside them. That is harmless, and it is not what unstuck the migration: `SingletonCookie` appears nowhere in `/usr/share/omarchy`, so no shipped check looks at it.
+
+Then run the migrations again, which also finishes the rest of the interrupted update:
+
+```bash
+omarchy-migrate
+omarchy update
+```
+
+**Verify.** ```bash
+omarchy-migrate                                            # runs to the end without the prompt
+omarchy-migrate --pending                                  # prints nothing
+ls ~/.local/state/omarchy/migrations/ | grep 1786643346    # the completion marker is written
+```
+
+No migration notification appears at the next login. Both reporters confirmed the migration ran through once the stale lock files were gone.
+
+Sources: <https://github.com/omacom/omarchy/issues/7019> · <https://github.com/omacom/omarchy/issues/7453> · <https://github.com/omacom/omarchy/pull/7026> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1786643346.sh> · <https://github.com/omacom/omarchy/pull/6872> · <https://github.com/omacom/omarchy/blob/v4.0.3/migrations/1786643346.sh> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3>
+
+---
+
+## Fix `Invalid TOML in config file: ~/.config/mise/config.toml` that keeps coming back
+
+`mise-config-toml-corrupted-by-wrapper-race` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `laptop`, `mise`, `omarchy`
+
+**Symptom.** Every mise-backed tool (`gh`, `claude`, `codex`, `opencode` and the rest of the wrappers in `~/.local/bin`) fails with:
+
+```
+mise::config::parse_error
+Invalid TOML in config file: ~/.config/mise/config.toml
+key with no value, expected `=`
+```
+
+The file ends in a fragment of a previous entry:
+
+```toml
+[tools]
+gh = "latest"
+st"
+```
+
+Deleting and recreating the file does not help, the fragment returns. The quieter form of the same bug is entries silently vanishing from `[tools]`, so a tool that worked yesterday now says it is not installed, and mise shims for services break with `mise ERROR No version is set for shim: npm`. Reported on Omarchy 4.0 with mise 2026.8.3 and again on 4.0.0.alpha after the 2026-08-19 upgrade.
+
+**Cause.** Two mise bugs, both established by the maintainers' triage and by the reporter, who wrote the upstream fix. Every wrapper `omarchy-mise-install` writes into `~/.local/bin` runs `mise use -g <tool>` on every launch, which rewrites the whole global `config.toml`. Before mise 2026.8.7 that rewrite was in place rather than write-then-rename, so a shorter config written over a longer one left the tail of the old file behind: `[tools]\nclaude = "latest"\n` is 26 bytes, `[tools]\ngh = "latest"\n` is 22, and bytes 22 to 25 of the first are `st"`. Underneath that, `mise use -g` read and wrote the file with no lock, so two wrappers starting together lost each other's entries. Anything that launches a wrapper at high frequency makes it worse: an IDE polling GitHub through the `gh` wrapper produced 2,438 writes in two minutes and emptied a five-tool config within seconds.
+
+> **Audit corrected this record.** Read omacom/omarchy#6948 in full with all four comments today. It supports the symptom, the cause and the byte arithmetic: TheTrueFerret reports the `st"` fragment and the in-place rewrite, reproduces entry loss with 16 concurrent writers on mise 2026.8.3, the maintainer triage names the two mise bugs, and saiqulhaq-hh reports 2,438 config writes in two minutes through an IDE polling the `gh` wrapper plus `mise ERROR No version is set for shim: npm`. I checked the byte math myself and it is right: `[tools]\nclaude = "latest"\n` is 26 bytes, `[tools]\ngh = "latest"\n` is 22, and offsets 22 to 25 of the longer file are `st"\n`. Both mise pull requests are merged (jdx/mise#12040 on 2026-08-15, jdx/mise#12069 on 2026-08-16) and both appear in the 2026.8.7 section of the mise CHANGELOG, with v2026.8.7 published 2026-08-17, so the version floor in the fix is correct. Confirmed on this machine: `pacman -Qi mise-bin` reports 2026.9.1-1 from Omarchy's own pacman repo and provides `mise`, `mise --version` prints 2026.9.1, `omarchy update` runs `omarchy-update-system-pkgs` and `omarchy-update-mise`, the generated wrappers in `~/.local/bin` still carry a per-launch `mise use -g`, `grep -h 'mise use -g' ~/.local/bin/*` prints exactly one package name per wrapper as the fix claims, and `mise use --help` confirms `mise use [TOOL@VERSION]...` accepts several tools in one call. The per-launch write is still the shipped pattern: `/usr/share/omarchy/bin/omarchy-mise-install` on 4.0.2-1, the same file at `quattro`, and at v4.0.3 all emit `mise use -g --quiet <package>` in the wrapper, and the only v4.0.3 change there is command-name validation and quoting, so nothing on the Omarchy side has removed the writer. One claim does not hold. The verify field says nobody in the thread has yet posted a post-2026.8.7 result, but the last comment is dated 2026-08-20 on a machine upgraded 2026-08-19, which is after v2026.8.7 shipped, and it never names a mise version, so it can be read neither as a post-fix failure nor as absent. I rewrote verify to say what the thread actually supports, and rewrote the fix to keep everything that was right while adding that `mise use -g` restores only plain `tool = "latest"` entries, so per-tool options are lost unless copied back from the saved file. This workstation carries exactly that shape, a `gemini` entry with `allow_builds`, so the repair as written would have silently dropped it. Not exercised: I did not run `mise use`, did not write `~/.config/mise/config.toml`, and did not reproduce the race, so the claim that 2026.8.7 closes it rests on the two merged pull requests and not on a measurement here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+Both fixes are in mise 2026.8.7 (released 2026-08-17): `#12040` writes the config atomically and `#12069` takes a cross-process lock around the read, edit and save inside `mise use`. Omarchy ships mise as the `mise-bin` package from its own pacman repo, so update and confirm the version:
+
+```bash
+omarchy update
+mise --version        # 2026.8.7 or later
+```
+
+A workstation updated on 2026-09-11 has `mise-bin 2026.9.1-1`, so a current install is already well past that floor.
+
+Then repair the file. If it is invalid TOML, move it aside, list the packages your wrappers expect, and re-add them in one command:
+
+```bash
+mv ~/.config/mise/config.toml ~/.config/mise/config.toml.bad
+grep -h 'mise use -g' ~/.local/bin/*      # one line per wrapper, naming its package
+mise use -g gh claude codex               # the packages from that list
+```
+
+`mise use -g` writes plain `tool = "latest"` entries, so any per-tool options you had are not restored. Read `~/.config/mise/config.toml.bad` and copy them back by hand. An entry of this shape is the case to watch for:
+
+```toml
+gemini = { version = "latest", allow_builds = ["@github/keytar", "node-pty"] }
+```
+
+If the file is valid but entries went missing, skip the `mv` and run only the `mise use -g` line with the missing packages.
+
+Until the update has landed, launch wrapped tools one at a time rather than several at once. Two wrapper-side mitigations were posted in the thread (an `flock` around `mise use -g`, and skipping the write when `mise ls --current <tool>` already lists it) but each was confirmed by one person only, and `omarchy update` regenerates the wrappers over any edit.
+
+**Verify.** ```bash
+mise --version
+cat ~/.config/mise/config.toml   # valid TOML, every wrapped tool listed under [tools]
+gh --version
+```
+
+The two merged mise pull requests are the confirmation that the cause is closed: the atomic write removes the `st"` fragment and the cross-process lock stops concurrent `mise use -g` runs losing each other's entries. The Omarchy issue is still open as of 2026-09-11 and its last comment is from 2026-08-20. No comment in the thread names a mise version at or above 2026.8.7, and that last report, on a machine upgraded 2026-08-19, does not say which mise it ran, so it settles nothing either way. Treat this as an upstream fix that shipped rather than as a confirmed field result, and check `~/.config/mise/config.toml` again after a few days of normal use.
+
+Sources: <https://github.com/omacom/omarchy/issues/6948> · <https://github.com/jdx/mise/pull/12040> · <https://github.com/jdx/mise/blob/main/CHANGELOG.md> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-mise-install> · <https://github.com/jdx/mise/pull/12069> · <https://github.com/jdx/mise/discussions/12067> · <https://github.com/jdx/mise/releases/tag/v2026.8.7> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-mise-install> · <https://github.com/omacom/omarchy/blob/v4.0.3/install/user/mise.sh> · <https://github.com/omacom/omarchy/compare/v4.0.2...v4.0.3>
+
+---
+
 ## 'An Omarchy update is already running' when nothing is running (leaked update lock fd)
 
 `stale-omarchy-update-lock` · severity: **medium** · frequency: **occasional** · applies to: `omarchy-4`
@@ -2325,5 +3180,238 @@ On an older Omarchy 3 install the same two knobs live in `~/.config/hypr/monitor
 **Verify.** `hyprctl monitors | grep scale` shows the new value and newly launched GTK apps render at normal size.
 
 Sources: <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting> · <https://learn.omacom.io/2/the-omarchy-manual/86/monitors>
+
+---
+
+## Fix 'Codex limits unavailable' with the help text `initialize` in the Agents panel
+
+`codex-limits-unavailable-agents-panel` · severity: **low** · frequency: **common** · applies to: `codex`, `mise`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** The Codex tab of the omarchy-shell Agents panel stops showing subscription limits. Local token and session statistics still count, but the limits area reads `Codex limits unavailable` with the bare help text `initialize` where a plan line and meters belong. Refreshing the panel does not recover it, and `codex login status` and `codex doctor` report a healthy login.
+
+The stored record and the packaged collector both show it:
+
+```console
+$ jq '{limits, tierLabel, usageStatusText, authHelpText}' ~/.local/state/omarchy/agents/usage/codex.json
+{
+  "limits": [],
+  "tierLabel": "",
+  "usageStatusText": "Codex limits unavailable",
+  "authHelpText": "initialize"
+}
+```
+
+Launching app-server the way the collector does shows the real error:
+
+```console
+$ codex -s read-only -a untrusted app-server
+error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+  [possible values: on-request, never]
+```
+
+Reported on Omarchy 4.0.0-1 and 4.0.1-1 with codex-cli 0.149.0, 0.149.1 and 0.150.1, mostly installed through mise, by at least five reporters across six threads with more closed as duplicates.
+
+**Cause.** `/usr/share/omarchy/bin/omarchy-agent-usage-codex` starts the Codex app-server at line 531 with `-a untrusted`. codex-cli 0.149 retired that approval-policy value and accepts only `on-request` and `never`, so `clap` rejects the argument and the process exits with status 2 before speaking JSON-RPC. The retirement is upstream Codex, not Omarchy: openai/codex#39630, "Retire the untrusted approval policy", merged to `main` on 2026-08-20, removes `untrusted` from the CLI, from the configuration schema and from the MCP tool interface.
+
+The collector sends the child's stderr to `subprocess.DEVNULL` at line 534, so the rejection is invisible to it. What happens next is fast, not slow, and several comments on the issue threads get this backwards. `rpc_request()` does carry an 8 second deadline, but it is never reached. The child has already exited, so its stdout is closed: `select.select([proc.stdout], [], [], 0.25)` at line 483 reports it readable, `proc.stdout.readline()` at line 486 returns `""`, `if not line: break` at line 487 leaves the loop, and `raise TimeoutError(method)` at line 495 fires on the next statement. Collaborators measured that path at 42 to 44 ms on issue 7648 and at 7 to 8 ms on issue 7997. The handler at lines 559 to 561 then writes `str(exc)` into `authHelpText`, and `str(TimeoutError("initialize"))` is the bare method name. That is why the panel renders an RPC method name where an authentication hint belongs. Nothing about authentication is wrong.
+
+At the time of the reports Omarchy's own `openai-codex-bin` package was still on 0.148.0, the last version that accepts `untrusted`, so the people hitting this had installed Codex another way, mostly mise. PR #7649, commit 4cd8a081, changed the value to `on-request` and merged to `quattro` on 2026-08-25 at 14:07 UTC, two hours and forty-three minutes after the v4.0.1 tag was published at 11:24 UTC, which is why every 4.0.1-1 install reproduces it.
+
+Omarchy 4.0.2 and 4.0.3 both carry the fix. On an omarchy 4.0.2-1 workstation, checked on 2026-09-11, line 531 of the installed collector reads:
+
+```
+      [codex, "-s", "read-only", "-a", "on-request", "app-server"],
+```
+
+> **Audit corrected this record.** Checked every cited source again on 2026-09-11 and confirmed the mechanical claims on this workstation, which runs omarchy 4.0.2-1. Confirmed locally, four things. `grep -n '"-a"' /usr/share/omarchy/bin/omarchy-agent-usage-codex` returns exactly line 531 with `on-request`, so the record's closing quote is right. `find_command` is `shutil.which(name, path=ENV.get("PATH"))` at lines 90 to 91, so wrapping `codex` on PATH really is the mechanism the fix warns about. `omarchy-agent-usage-update` accepts `--force` and `--limits-only` as flags and treats any other word as an agent name, and it iterates `"$OMARCHY_PATH"/bin/omarchy-agent-usage-*` by absolute path, so `omarchy agent usage-update --force codex` is a valid invocation and nothing on PATH can shadow a collector. The collector's own argparse accepts `--limits-only` at line 582. codex-cli 0.153.4 is installed here through mise, and running `codex -s read-only -a untrusted app-server` printed the record's error text verbatim and exited 2, so the rejection still holds three minor versions past the reports. Confirmed from sources, three things. The blob at `v4.0.1` reads `untrusted` and the blobs at `v4.0.2` and `v4.0.3` read `on-request`. PR #7649 merged to `quattro` at 2026-08-25T14:07:17Z against the v4.0.1 tag published at 2026-08-25T11:24:30Z, which is two hours forty-three minutes rather than "about three hours", so I tightened it to the measured figure. All six issues exist and all describe this defect, five closed and #8460 still open, and the PATH-ordering trap in the fix is tony-roslund's comment on #8460 rather than an inference. Two things were wrong. First, the cause claimed `rpc_request()` raises after 8 seconds. It raises immediately, and I confirmed the path by reading lines 477 to 495 of the installed file: a closed pipe is reported readable by `select()`, `readline()` returns the empty string, `if not line: break` exits the loop, and the `raise` is the next statement, so the deadline is never consulted. Collaborator comments on #7648 and #7997 both correct this explicitly and give measurements of 42 to 44 ms and 7 to 8 ms. Second, the record's open question Q3 is answerable, so the record is not right to omit the upstream source. openai/codex#39630, "Retire the untrusted approval policy", is a pull request merged to `main` at 2026-08-20T07:04:50Z whose body states that it removes `untrusted` from the CLI, the configuration schema and the MCP tool interface. It is named in the omarchybot triage comment on #7648 and it retrieves cleanly, so I added it to the cause and to the sources. The symptom, fix and verify blocks are unchanged, because every claim in them held. Not exercised: I did not run `omarchy agent usage-update`, did not start `app-server` with an accepted policy, and did not open the Agents panel, so the restored plan line and meters are taken from reporters rather than observed here.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+**Omarchy 4.** Update to 4.0.2-1 or newer, then regenerate the usage records:
+
+```bash
+omarchy update
+omarchy agent usage-update --force codex
+jq '{tierLabel, usageStatusText, limits}' ~/.local/state/omarchy/agents/usage/codex.json
+```
+
+**Stuck on 4.0.1-1 or older with no update available.** Make the same one-line change the merged commit makes. The file belongs to the `omarchy` package, so the next `omarchy update` overwrites your edit with the released fix, which is the outcome you want:
+
+```bash
+sudo sed -i 's/"-a", "untrusted", "app-server"/"-a", "on-request", "app-server"/' /usr/share/omarchy/bin/omarchy-agent-usage-codex
+grep -n '"-a"' /usr/share/omarchy/bin/omarchy-agent-usage-codex
+omarchy agent usage-update --force codex
+```
+
+Reporters across three of the threads verified `never` works equally well here, because the collector only sends `initialize`, `initialized`, `account/read` and `account/rateLimits/read` and never starts a model turn. Use `on-request` anyway, to match what shipped.
+
+Do not try to fix it by wrapping `codex` in `~/.local/bin`. The collectors are called by absolute path under `$OMARCHY_PATH/bin`, and one reporter found omarchy-shell's `PATH` puts `~/.local/share/mise/shims` ahead of `~/.local/bin`, so the mise shim wins and the wrapper is ignored by the widget while the same test from a terminal succeeds. One reporter pinned codex-cli back to 0.148.0, the last version accepting `untrusted`, and nobody else confirmed that route.
+
+**Verify.** ```bash
+grep -n '"-a"' /usr/share/omarchy/bin/omarchy-agent-usage-codex     # expect -a on-request
+codex -s read-only -a on-request app-server </dev/null; echo "exit $?"    # must not print 'invalid value'
+omarchy-agent-usage-codex --limits-only | jq '{tierLabel, limits, usageStatusText, authHelpText}'
+```
+
+`tierLabel` shows your plan, `usageStatusText` is empty and `limits` lists the 5 hour and weekly windows. Reporters saw them return in under a second, and the Codex tab shows the plan line and meters after the next refresh.
+
+Sources: <https://github.com/omacom/omarchy/issues/7648> · <https://github.com/omacom/omarchy/issues/7842> · <https://github.com/omacom/omarchy/issues/7873> · <https://github.com/omacom/omarchy/issues/7997> · <https://github.com/omacom/omarchy/issues/8032> · <https://github.com/omacom/omarchy/issues/8460> · <https://github.com/omacom/omarchy/pull/7649> · <https://github.com/omacom/omarchy/commit/4cd8a081cb67af345be7d8677faeee6575d89bef> · <https://github.com/omacom/omarchy/releases/tag/v4.0.2> · <https://github.com/omacom/omarchy/blob/v4.0.1/bin/omarchy-agent-usage-codex> · <https://github.com/omacom/omarchy/blob/v4.0.2/bin/omarchy-agent-usage-codex> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-agent-usage-codex> · <https://github.com/openai/codex/pull/39630>
+
+---
+
+## Stop ttfx dumping core every time the screensaver is torn down by the lock
+
+`ttfx-screensaver-core-dump-on-lock` · severity: **low** · frequency: **common** · applies to: `desktop`, `laptop`, `omarchy`, `ttfx`
+
+**Symptom.** On Omarchy 4.0.0-1 with `ttfx 0.3.1-1`, idling through the screensaver into the lock (or dismissing the screensaver) leaves a `ttfx` core dump behind and a "Process crashed" notification. `coredumpctl list | grep ttfx` shows `SIGABRT` entries, one per screensaver renderer, so one per monitor when the screensaver was up on all of them. The panic recovered from the core:
+
+```
+thread 'main' (7320) panicked at library/std/src/io/stdio.rs:1166:9:
+failed printing to stderr: Input/output error (os error 5)
+```
+
+Reported on an Intel i7-4770HQ machine and a Framework 13 AMD laptop in issue 6995, with foot as the screensaver terminal, and on Ghostty 1.3.1 in the related issue 6762, all with `idle: {screensaver: 150, lock: 300}`.
+
+**Cause.** `ttfx`, the screensaver renderer, is painting into a terminal that the lock script or the screensaver dismiss has already closed. Its next write fails with `EIO`, it reports that error with `eprintln!`, stderr is the same dead pty, and the report itself panics. Release builds abort on panic, hence `SIGABRT` and a core. Three routes into the same abort are documented across the thread and its linked issues: the lock script killing an already running screensaver (#6762, #6764), the screensaver supervisor loop respawning a renderer into a terminal that is being closed, and the one this issue reports, the idle service starting a fresh cycle and launching a second screensaver into a lock that is still being requested. The collaborator triage confirmed that last one in source: `lockSystem()` spawns `omarchy-system-lock` as a subprocess and about a second passes before `lock-requested` is set, `startIdleCycle()` consults no lock state, and with `screensaver <= lock` the delay is 0, so any idle re-assertion in that second launches a screensaver immediately.
+
+> **Audit corrected this record.** Confirmed on this workstation: `pacman -Qi ttfx` reports 0.3.2-1 with build date Mon 17 Aug 2026, which is the date and version the record gives. The [omarchy] stable repo carries `ttfx 0.3.2-1` today (fetched pkgs.omarchy.org/stable/x86_64/omarchy.db), so `omarchy update` is the right instruction. The cause is verified line by line in /usr/share/omarchy/shell/plugins/services/idle/Service.qml: `lockSystem()` at line 71 clears `idledThisCycle` at 76 and spawns `omarchy-system-lock` as a subprocess at 79, `startIdleCycle()` at 82 to 98 consults no lock state at all, and `screensaverDelaySeconds` is `max(0, screensaver - min(screensaver, lock))` at lines 23 and 24, so it is 0 whenever `screensaver <= lock` and line 93 launches the screensaver immediately. The record's paraphrase of the collaborator triage is therefore more precise than the triage itself and is correct. /usr/share/omarchy/bin/omarchy-screensaver lines 9 to 14 send `pkill -x ttfx` and `pkill -f '[o]rg.omarchy.screensaver'` back to back with no wait, and lines 38 to 48 respawn a renderer as soon as the old one disappears, which are the other two routes the cause names. `coredumpctl list ttfx --since '-1h'` runs cleanly here, so the verify block is valid syntax. From sources: omacom-io/ttfx#18 "Stop dumping core when the terminal goes away" merged to master on 2026-08-17, and its diff matches the record exactly. It adds `output_closed()` treating EIO and BrokenPipe on tty output as the terminal going away and returning `RunOutcome::OutputClosed`, and it replaces `println!`/`eprintln!` with non-panicking `outln!`/`errln!` macros whose own doc comment reproduces the record's panic text and states that a release build aborts on panic. ttfx's Cargo.toml confirms `[profile.release] panic = "abort"`, so the record's SIGABRT explanation is right for this binary rather than a wrong generalisation about Rust. Issue 6995 supports the symptom, the panic location, the three routes and the isLocked window. PRs 7131 and 7132 are both still open, checked today. One thing was wrong. `Reported on Intel and AMD laptops and NVIDIA desktops` is not supported: no NVIDIA report appears in issue 6995, or in 6762, 6764 or omacom-io/ttfx#10. What is attested is an Intel i7-4770HQ machine and a Framework 13 AMD laptop. `ghostty` is attested, but in issue 6762, which the cause names by number and the record did not cite, so 6762 and 6764 are added to sources along with the two open PRs. The unmerged-PR date was also refreshed from 2026-09-07 to 2026-09-11, which is the day it was rechecked. Not exercised: no crash was reproduced here. This machine already runs the fixed ttfx 0.3.2-1, and idling it into the lock to test the old behaviour is not possible read-only, so the before state and the one-core-per-monitor shape come from the reporters rather than from a local run. `danger` is left empty, which is right: the fix is `omarchy update`, the supported upgrade path, and the failure loses nothing but a core file.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+The fix is `ttfx 0.3.2` (omacom-io/ttfx#18, "Stop dumping core when the terminal goes away", merged 2026-08-17): a failed write to the tty is dropped instead of panicking, and `EIO`/`EPIPE` on the output tty ends the run quietly with exit 0. Omarchy's `[omarchy]` package repository carries `ttfx 0.3.2-1` (built 17 August 2026, confirmed on this machine).
+
+```bash
+pacman -Q ttfx      # 0.3.1-1 is affected
+omarchy update
+pacman -Q ttfx      # 0.3.2-1
+```
+
+The Omarchy-side race, a second screensaver launched into a pending lock, is still open: PRs #7131 and #7132 are unmerged as of 2026-09-11. With `ttfx 0.3.2` the terminal is still torn down abruptly, but the renderer exits instead of dumping core.
+
+**Verify.** After the update, idle through the screensaver into the lock, unlock, then check that no new entry appeared:
+
+```bash
+coredumpctl list ttfx --since '-1h'
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/6995> · <https://github.com/omacom/ttfx/pull/18> · <https://github.com/omacom/omarchy/issues/6762> · <https://github.com/omacom/omarchy/issues/6764> · <https://github.com/omacom/omarchy/pull/7131> · <https://github.com/omacom/omarchy/pull/7132> · <https://github.com/omacom/ttfx/blob/master/Cargo.toml>
+
+---
+
+## Dismiss the "Process crashed" notification, or turn crash capture off
+
+`crash-capture-notification-dismiss-or-disable` · severity: **low** · frequency: **occasional** · applies to: `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** Omarchy 4 shows a critical "Process crashed" notification whenever a process dumps core. Clicking it launches `omarchy-agent-crash`, the AI crash diagnosis. There is no visible close control on the toast, and because the notification is critical it does not expire, so the only obvious way to make it go away is to start a diagnosis you did not want. People who crash programs on purpose (compiler and debugger work) get one after every crash. Reported on Omarchy 4.0.0-1.
+
+**Cause.** `omarchy-crash-watch`, run by the user unit `omarchy-crash-watch.service`, sends the toast with `--urgency critical` and `--exec omarchy-agent-crash`, so a left click on the card runs the diagnosis. The toast never expires on its own: `durationFor()` in `shell/plugins/notifications/Service.qml:102-105` returns 0 for `NotificationUrgency.Critical`, and the popup countdown only runs while that duration is above zero.
+
+No shipped Omarchy 4 release puts a close button on the notification card. `shell/plugins/notifications/components/NotificationCard.qml` is byte-identical on this workstation (omarchy 4.0.2-1) and at the `v4.0.1`, `v4.0.2` and `v4.0.3` tags, and the only pointer handling in it is one full-card `MouseArea` at line 77 with `acceptedButtons: Qt.LeftButton | Qt.RightButton`, which maps the right button to `closeRequested()` and every other button to `cardClicked()`. A hover-revealed `✕` was added to that file on the unreleased `quattro` branch after `v4.0.3`, and the two open pull requests argue over it rather than introduce it: #8980 keeps it on without hover, #9010 replaces it with a themed `PanelActionButton`. Both were still open on 2026-09-11. So on every release through v4.0.3 the right click is the only dismiss gesture the card offers, and there is nothing on screen to say so.
+
+> **Audit corrected this record.** Checked every claim against the shipped source on this workstation (omarchy 4.0.2-1, Hyprland 0.56.2) and against the upstream tags, and re-read issue #7711 in full today. Confirmed on this machine, all read from the installed files. `/usr/share/omarchy/bin/omarchy-crash-watch` sends `--urgency critical` with `--exec omarchy-agent-crash`. `/usr/lib/systemd/user/omarchy-crash-watch.service` carries `ConditionPathExists=!%h/.local/state/omarchy/toggles/crash-capture-off`. `omarchy-toggle-crash-capture` calls `omarchy-toggle crash-capture-off`, stops the unit and sends "Crash capture disabled". `omarchy-toggle-enabled` tests `$HOME/.local/state/omarchy/toggles/<flag>`. The menu entry is `trigger.toggle.crash-capture` with label "Crash Capture" in `/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc:87`, under `trigger` ("Trigger") and `trigger.toggle` ("Toggle"). `SUPER + SPACE` is the Omarchy menu in `/usr/share/omarchy/default/hypr/bindings/utilities.lua:1`. `core_pattern` pipes to `/usr/lib/systemd/systemd-coredump` from systemd 261.2-1, so dumps survive the watcher being off. `NotificationCard.qml:77-87` maps the right button to `closeRequested()`, which `Service.qml:1055` routes to `service.dismissPopup()`, so right-click dismiss is real. Issue #7711 does support the symptom: the reporter asks for a visible dismiss affordance on Omarchy 4.0.0-1, one commenter answers "You can still right click to dismiss it", and two more name the crash-capture toggle and place it in the menu under triggers.
+
+One claim was wrong. The cause said the close affordance "is only revealed on hover", which the record took from a commenter summarising the two pull requests. No release has any close button at all: I fetched `NotificationCard.qml` at `v4.0.1`, `v4.0.2`, `v4.0.3` and `quattro`, and the local file is byte-identical to both `v4.0.2` and `v4.0.3` while only `quattro` HEAD (unreleased, after the v4.0.3 tag of 2026-09-08) adds the hover-revealed `✕` that #8980 and #9010 then fight over. The cause is rewritten to say that, and the "neither merged as of 2026-09-07" date is refreshed: `gh api repos/omacom/omarchy/issues/8980` and `/9010` both report `state: open` on 2026-09-11. I also added the `OMARCHY_CRASH_IGNORE` drop-in to the fix, because the symptom's own audience is people who crash programs deliberately and the shipped watcher already supports skipping named binaries without giving up crash capture.
+
+Not exercised: I did not crash a process, did not toggle crash capture, and did not click a toast, because this audit is read-only on the workstation. The right-click gesture, the toast's non-expiry and the drop-in are therefore confirmed from source and from systemd's documented drop-in behaviour rather than from a live trial. `ulimit -c` is unlimited and `DefaultLimitCORE=infinity`, so the record's `sleep 100 & kill -SEGV $!` check should produce a dump here, but I did not run it.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Dismiss one toast: right-click it. The notification card handles a right button click as a close request and a left click as the card's action (`shell/plugins/notifications/components/NotificationCard.qml:77-87` on Omarchy 4.0.2-1, wired to `service.dismissPopup()` at `Service.qml:1055`). One commenter reported this and it holds in the shipped source.
+
+Stop the notifications altogether: toggle crash capture off. Two reporters confirmed the toggle exists. Either from the Omarchy menu, Super+Space, then Trigger, Toggle, Crash Capture, or from a terminal:
+
+```bash
+omarchy-toggle-crash-capture
+```
+
+That writes the flag `~/.local/state/omarchy/toggles/crash-capture-off`, stops `omarchy-crash-watch.service` for this session, and sends a "Crash capture disabled" notification. The unit carries `ConditionPathExists=!%h/.local/state/omarchy/toggles/crash-capture-off`, so it stays off on the next login until you run the same command again, which removes the flag and starts the watcher.
+
+Silence only the programs you crash on purpose, and keep the rest: `omarchy-crash-watch` reads an extended regex of process names to skip from `OMARCHY_CRASH_IGNORE`, matched against the executable's basename. Set it on the unit rather than in your shell, because the watcher is a systemd user service and does not inherit your interactive environment:
+
+```bash
+mkdir -p ~/.config/systemd/user/omarchy-crash-watch.service.d
+cat > ~/.config/systemd/user/omarchy-crash-watch.service.d/ignore.conf <<'EOF'
+[Service]
+Environment=OMARCHY_CRASH_IGNORE=^(cc1|cc1plus|lldb|my-test-binary)$
+EOF
+systemctl --user daemon-reload
+systemctl --user restart omarchy-crash-watch.service
+```
+
+The same mechanism exposes `OMARCHY_CRASH_DEDUPE_SECONDS`, which defaults to 60 and is the window in which one program is announced at most once.
+
+Core dumps are still captured by systemd-coredump with the watcher off or the pattern set. `/proc/sys/kernel/core_pattern` pipes to `/usr/lib/systemd/systemd-coredump` regardless, only the notification and the one-click diagnosis go away, and `coredumpctl list` still works.
+
+**Verify.** ```bash
+omarchy-toggle-enabled crash-capture-off && echo off
+systemctl --user is-active omarchy-crash-watch.service
+```
+
+`off` and `inactive` while disabled. Crash something (`sleep 100 & kill -SEGV $!`) and no toast appears.
+
+Sources: <https://github.com/omacom/omarchy/issues/7711> · <https://github.com/omacom/omarchy/pull/8980> · <https://github.com/omacom/omarchy/pull/9010> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/notifications/components/NotificationCard.qml> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/plugins/notifications/components/NotificationCard.qml>
+
+---
+
+## Apply a shell plugin edit that the automatic reload silently ignores
+
+`omarchy-plugin-edit-not-applied-until-shell-restart` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** You edit a plugin under `~/.config/omarchy/plugins/<id>/` (or run `omarchy plugin update <id>`). The shell logs `Local plugin changed, reloading: <id>` and re-creates the widget or service, but it keeps running the old code: a changed label never appears, a `Component.onCompleted: console.warn(...)` marker never fires, and a service's `IpcHandler` still answers with the previous behaviour. Reported by four plugin authors on Omarchy 4.0.0-1 with quickshell 0.3.0 (r20.g28771c7) and Qt 6.11.2, for bar widgets and for service plugins.
+
+**Cause.** Confirmed in source, both on a 4.0.2-1 install and at the current upstream tags. The reload path in `shell/shell.qml` guards its cache flush with
+
+```qml
+if (typeof Qt.clearComponentCache === "function") Qt.clearComponentCache()
+```
+
+but `clearComponentCache()` is a plain C++ method on `QQmlEngine` and is not exposed on the QML `Qt` object, so the branch never runs. Every plugin entry point is then loaded by a URL that does not change when a file is edited, through `Qt.createComponent` for services and bar widgets and through a `Loader` for panels and for a replacement bar, so the engine hands back the previously compiled component. `omarchy plugin update` ends in `omarchy-shell shell rescanPlugins`, which takes the same path.
+
+The guard arrived in 4.0.0-beta3 and is unchanged in 4.0.0, 4.0.1, 4.0.2, 4.0.3 and on `quattro`. Only its position moves, so find it by content:
+
+```bash
+grep -n clearComponentCache /usr/share/omarchy/shell/shell.qml
+```
+
+That is line 757 on omarchy 4.0.2-1 and line 1470 in v4.0.3, which shipped on 2026-09-08 and rewrote much of that file without touching this line.
+
+Two pull requests offer fixes and neither has landed as of 2026-09-11: `#9606` (restart the shell when the cache cannot be cleared, closed unmerged on 2026-09-06) and `#8766` (`Quickshell.reload(false)`, still open and gated on quickshell-mirror/quickshell#956, a use-after-free at engine generation teardown that is also still open).
+
+One case is stale by design rather than by this bug. From 4.0.3, `shell/README.md` states that a service marked `keepLoaded` stays mounted across a plugin hot reload so that tearing down a changed widget cannot destroy `omarchy.lock` while the session is locked. That instance is never replaced, so edits to a `keepLoaded` service take effect only on a shell restart even if the component cache is fixed.
+
+> **Audit corrected this record.** Read omacom/omarchy#6981 in full with all five comments today. It supports the record: farangkao's report names the dead guard and the URL-keyed component cache, aTotland and ryenski reproduce the stale marker on bar widgets, h3nr1-d14z reproduces it on a service whose `IpcHandler` keeps answering with the old code, and the maintainer triage confirms it in source and names the four load sites. Four plugin authors and three marker confirmations, which is what the record claims. Confirmed on this machine rather than from the thread: `grep -n clearComponentCache /usr/share/omarchy/shell/shell.qml` returns line 757 on omarchy 4.0.2-1, the shipped `finishPluginReload()` is unchanged from the quoted form, the four load sites are `Qt.createComponent(url, Component.PreferSynchronous)` for services at line 294, `Qt.createComponent(url, Component.Asynchronous)` for bar widgets at line 795, and `Loader { source: ... }` for panels at line 624 and for a replacement bar at line 250. `/usr/share/omarchy/bin/omarchy-plugin-update` ends in `omarchy-shell shell rescanPlugins`, not a restart, so `omarchy plugin update` takes the same stale path. `omarchy-refresh-shell` does run `omarchy-refresh-config omarchy/shell.json` and `omarchy-bar defaults` before restarting, and both it and `omarchy-restart-shell` are byte-identical to the `quattro` copies, so the warning about `omarchy refresh shell` is right. `omarchy-launch-shell` pipes the shell through `systemd-cat -t omarchy-shell`, and `journalctl --user -b -t omarchy-shell` on this box shows QML `WARN` lines, so the verify command works as written. What needed correcting is the version anchoring, which is why I did not mark this `ok`. v4.0.3 shipped on 2026-09-08 and rewrote much of `shell/shell.qml` (+742 / -29), so the guard is now line 1470 there and line 1459 at `quattro` HEAD (b5589faa, 2026-09-11), while the record pins only line 757 and only 4.0.2-1. The bug itself survives: I fetched `shell/shell.qml` at v4.0.0-beta3, v4.0.0, v4.0.1, v4.0.2, v4.0.3 and `quattro`, and the dead guard and the unchanged-URL loading are in every one of them, so the v4.0.3 plugin work did not fix this. v4.0.3 also adds a second, deliberate route to the same symptom that the record should carry: `shell/README.md` now states that a `keepLoaded` service survives a plugin hot reload and is not replaced, so code changes to that kind of service need a restart by design. I rewrote the cause to cover both releases, to give a grep instead of a bare line number, and to date the two pull requests, which I re-checked today: #9606 closed unmerged 2026-09-06 and #8766 still open, gated on quickshell-mirror/quickshell#956, which is also still open. The fix, symptom, verify and the empty danger all held and I left them alone. Not exercised: I did not edit a plugin, did not restart the shell and did not run any `omarchy plugin` subcommand, so the restart remedy rests on the three marker confirmations in the thread and on reading the shipped scripts, not on a test here.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Restart the shell after any plugin change. A fresh process compiles the plugin from source:
+
+```bash
+omarchy restart shell      # same as: omarchy-restart-shell
+```
+
+Do not use `omarchy refresh shell` for this. That command runs `omarchy-refresh-config omarchy/shell.json` and `omarchy-bar defaults` before restarting, so it resets your shell configuration. `omarchy-restart-shell` refuses to run while the session is locked, so unlock first.
+
+**Verify.** Add a marker to the plugin before restarting and look for it afterwards:
+
+```qml
+Component.onCompleted: console.warn("plugin reloaded")
+```
+
+```bash
+omarchy restart shell
+journalctl --user -b -t omarchy-shell -n 50 --no-pager | grep 'plugin reloaded'
+```
+
+Three reporters confirmed the marker fires only after the restart, never after the automatic reload.
+
+Sources: <https://github.com/omacom/omarchy/issues/6981> · <https://github.com/omacom/omarchy/blob/quattro/shell/shell.qml> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-restart-shell> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-refresh-shell> · <https://github.com/omacom/omarchy/pull/9606> · <https://github.com/omacom/omarchy/pull/8766> · <https://github.com/omacom/omarchy/issues/9772> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/shell.qml> · <https://github.com/omacom/omarchy/blob/v4.0.2/shell/shell.qml> · <https://github.com/omacom/omarchy/blob/v4.0.0-beta3/shell/shell.qml> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/README.md> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-plugin-update> · <https://github.com/omacom/omarchy/compare/v4.0.2...v4.0.3> · <https://github.com/quickshell-mirror/quickshell/issues/956>
 
 ---

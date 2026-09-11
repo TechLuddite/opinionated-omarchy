@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-07
+Last updated: 2026-09-11
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -12,8 +12,8 @@ Last updated: 2026-09-07
 >
 > **What "back on track" means, in the order the dependencies run:**
 >
-> 1. **Expand the corpus.** 456 records across 12 categories is the harvest of one
->    interrupted workflow plus one gap-fill pass. `CLAUDE.md` "Regenerating the corpus"
+> 1. **Expand the corpus.** 492 records across 12 categories: one interrupted harvest, one
+>    gap-fill pass, and the O4 issue-tracker harvest merged on 2026-09-11. `CLAUDE.md` "Regenerating the corpus"
 >    names the three workflow scripts, what each does, and that `harvest-workflow.js`
 >    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
 >    limit. Pass the corpus root in `args`. Every new record lands with its provenance
@@ -27,7 +27,8 @@ Last updated: 2026-09-07
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
 >    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
->    and `pacman-aur`, and O4 is paused mid-harvest with 40 records banked unmerged. The corpus prose has 1,756 dashes across 405 records, item 6
+>    and `pacman-aur`, and O4 is harvested, reconciled and audited: 36 records banked unmerged as of 2026-09-11, all 36
+>    corrected by the audit. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -44,6 +45,276 @@ Last updated: 2026-09-07
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-10 and 2026-09-11: O4 finished, 36 records merged, and all 36 were wrong
+
+Steps 2 and 1 of the O4 pick-up list, in that order: the duplicates reconciled, then batch
+01 read, then a second duplicate pass on 2026-09-11 that found three groups the first pass had
+missed, then the audit of all 36, then the merge. **Every one of the 36 came back `corrected`.**
+Nothing was clean and nothing was rejected, so the problems are all real and the detail was all
+wrong somewhere.
+
+The corpus is now **492 records, `ok` 207 / `corrected` 285 / `unaudited` 0**, drawn from 1,190
+distinct sources, with 80 `cause_reconciled` stamps across five dates. O4 is done.
+
+Every stage is banked separately, because each one is evidence about a different thing: the raw
+harvest in `raw/issue-harvest-partial.json` exactly as the workflow wrote it, the reconciled set in
+`raw/issue-harvest-reconciled.json`, batch 01 alone in `raw/harvest-01.json`, the audited set in
+`raw/issue-harvest-audited.json`, and what was actually fed to the merge in
+`raw/issue-harvest-merge-payload.json`.
+
+### 1. Nine groups, found in two passes, and the first pass was not good enough
+
+The banked payload listed six `near_duplicates_to_reconcile` pairs. Three of those pairs
+share a record, so they are five groups covering eleven records. A similarity pass over all 40,
+token-set Jaccard on title plus symptom plus cause at a 0.25 threshold, found a sixth group the
+harvest's own detector missed: the two plugin-lock records, from issues 7106 and 9441, which
+are one defect with two outcomes. Thirteen records became six.
+
+**That threshold was too high, and it cost a second pass.** On 2026-09-11, while batching the
+records for audit, two of them turned out to be the same defect by reading their titles side by
+side: `nvidia-env-forced-on-igpu-primary-hybrid-laptop` and
+`libva-driver-name-nvidia-forced-on-hybrid-laptop`, both blaming
+`/usr/share/omarchy/default/hypr/nvidia.lua`, both citing commit `33d7363c`, both fixed by the
+same `hl.env` override. They score 0.231. Re-running the sweep at 0.15, and adding two signals
+that do not depend on wording, found two more: the two migration 1786643346 records at 0.214
+and the two VMware records at 0.160.
+
+The two signals are worth keeping for any future dedup, because each one caught a pair on its
+own: **a source URL shared between two records**, and **two or more shared file paths**. Two
+harvesters writing up the same defect agree on the file they blame long before they agree on
+prose. After the second pass the only candidate left is two records that happen to cite the
+same release tag, which is not a duplicate.
+
+Nine groups over nineteen records became nine records. 40 plus batch 01's six, minus ten, is 36.
+
+| group | records in | kept |
+| --- | --- | --- |
+| installer ESP mount failure | 2 | `installer-mounting-the-esp-failed-squashfs-superblock` |
+| AMD AV1 firmware corruption | 2 | `av1-video-color-corruption-linux-firmware-amdgpu-20260810-1` |
+| Codex limits unavailable | 3 | `codex-limits-unavailable-agents-panel` |
+| Gemini default agent | 2 | `default-agent-gemini-fails-antigravity-replacement` |
+| migration 1787515927 | 2 | `omarchy-update-migration-1787515927-fails-bash-5-3` |
+| plugin write while locked | 2 | `plugin-file-write-while-locked-strands-session` |
+| NVIDIA env on a hybrid laptop | 2 | `nvidia-env-forced-on-igpu-primary-hybrid-laptop` |
+| migration 1786643346 | 2 | `migration-1786643346-browser-window-open-loop` |
+| VMware shell black desktop | 2 | `vmware-shell-black-desktop-qt-quick-dmabuf` |
+
+The records outside those groups are carried through byte-identical and in their original
+order, and the `existing` and `skipped` lists are untouched.
+
+### 2. Reconciling is not deduplicating, and six groups disagreed with themselves
+
+Every group was read in full and settled against upstream sources and this workstation
+rather than by keeping the longer record. What that turned up:
+
+- **The two ESP records disagreed about the cause.** One blamed a bare `mount` with no
+  `-t vfat` on the freshly created EFI partition, naming `omarchy-iso#111`. The other
+  blamed the free-space path for expecting an ESP that was not there. The installer source
+  settles it: that path always creates its own EFI partition and never adopts an existing
+  one, so the device in the SQUASHFS message is always the partition it just made, and the
+  `sda2` in the second thread is that partition in the lowest free GPT slot. The second
+  cause was discarded. Its workaround, hand-creating an EFI partition first, is kept and
+  labelled as reported twice with no known mechanism.
+- **A fix had shipped under us.** Both plugin-lock records said `PR #9485` was in no tagged
+  release. `v4.0.3` was published on 2026-09-08, two days before this session, and contains
+  commit `d3d23fdd`: `unloadPluginServices` at that tag consults `serviceKeepLoaded`. The
+  merged record says update to 4.0.3 rather than wait.
+- **Two records contradicted each other about `omarchy-restart-shell`.** One said it refuses
+  while locked, the other offered it as the recovery step. Lines 28 to 36 of the installed
+  script show both are half right: it refuses while the wedged lock service still reports
+  `.secure` or `.requested`, and it re-locks a fresh shell when neither is true. The merged
+  record states the condition instead of the conclusion.
+- **Three dates were wrong or uncheckable.** Arch published `linux-firmware-amdgpu
+  20260810-2` on 2026-08-14, not the 2026-08-15 both AV1 records claimed, per the Arch
+  package archive listing. Those two also disagreed on when Omarchy's stable mirror picked
+  it up, 2026-08-21 against 2026-08-24, and neither is checkable from here, so the merged
+  record states the one hard local fact: this workstation upgraded to `-2` on 2026-08-22.
+  The 2026-06-18 date both Gemini records gave for Google's cutoff is cited by nothing and
+  was dropped rather than laundered into a merged record.
+- **`#8952` is an open pull request, not an issue**, titled as the backport of `#6900`.
+  Stable still ships Gemini at the `v4.0.3` tag: `install/user/mise.sh` runs
+  `omarchy-mise-install gemini`, there is no `migrations/1786719479.sh`, and the packaged
+  menu still lists `setup.default.agent.gemini`.
+- **One record's placement advice was above the line that would have overridden it.** Of the
+  two VMware records, one told the reader to add `QT_QUICK_BACKEND=software` immediately after
+  the bootstrap `dofile` on line 4 of `~/.config/hypr/hyprland.lua`, which is above where
+  `require("default.hypr.omarchy")` on line 14 loads Omarchy's own environment. It works for
+  this variable only because Omarchy sets no `QT_QUICK_BACKEND` of its own, confirmed on
+  4.0.2-1. The merged record says to put it below the `require` and says why.
+- **The shipped stale-lock check is narrower than both migration records implied.** It tests
+  `SingletonLock` and `SingletonSocket` only, read at line 129 of the migration on 4.0.2-1, so
+  deleting `SingletonCookie` as both records advised is harmless but is not what unsticks it.
+
+Local confirmations that went into the merged records, all on omarchy 4.0.2-1: line 531 of
+`omarchy-agent-usage-codex` reads `-a on-request`, the `cleanup()` at line 82 of
+`omarchy-theme-set-browser-policy` is an `if` block and line 16 of migration 1787515927 ends
+in `|| true`, and `shell.qml` lines 348 to 354 still destroy every plugin service.
+
+### 3. What the audit still owns
+
+None of this is an audit. The reconciled file carries nine open questions, Q1 to Q9, one per
+group, naming what a merge may not assume: whether `omarchy-iso#111` is the accepted fix and
+why hand-creating an EFI partition helps, whether the RDNA4 quantizer-matrix mechanism
+explains the RDNA3 integrated-GPU reports, the codex release note that retired `untrusted`,
+the date Google cut individual accounts off, whether the migration reporters were on dev or
+edge, `PR #7169`, the three competing gates proposed for the NVIDIA environment and the Pascal
+case none of them fixes, whether `PR #7026` has merged, and whether the VMware failure has a
+compositor-side fix in `hyprwm/Hyprland#12966`.
+
+Three `lint_corpus.py` hits survive across the 36 records and all three are legitimate: two
+`sudo pacman -Syu` inside a branch labelled plain Arch, and one `/boot/limine.conf` in a
+symptom describing what a reporter saw in that generated file rather than telling anyone to
+edit it. They are new hits, so `lint_corpus.py --check` will fail the first time these
+records enter the corpus. Add them to `data/lint-baseline.json` in the merge commit rather
+than rewording correct text.
+
+### 4. Batch 01, the ten issues the 2026-09-07 run never reached
+
+Read in full on 2026-09-10 against `issue-harvest-brief.md`, with every claim about what
+Omarchy ships checked on this workstation (4.0.2-1) and against the `quattro` branch or a
+release tag. Six records, four mapped onto records that already exist, nothing skipped.
+
+| issue | outcome |
+| --- | --- |
+| 6868 | `ghostty-epoll-backend-segfault-write-queue` |
+| 6882 | `windows-vm-launch-no-rdp-window-stale-log` |
+| 6887 | `mise-stale-registry-attestation-install-failure` |
+| 6894 | `quattro-upgrade-uki-missing-root-parameter` |
+| 6909 | `internal-panel-forced-to-2x-scale-clamshell-poll` |
+| 6917 | `screensaver-self-dismisses-and-session-never-locks` |
+| 6858 | existing: `omarchy-lockscreen-no-keyboard-focus-after-resume` |
+| 6888 | existing: the pending plugin-lock record, added as a third source |
+| 6889 | existing: the pending Gemini record, already cited |
+| 6890 | existing: `quattro-upgrade-incomplete-do-not-reboot` |
+
+Two of the six are live defects on 4.0.2-1 with no merged fix, which is why they are worth
+having. Omarchy ships `async-backend = epoll` in its Ghostty config as a workaround for
+Hyprland slowness, and that setting selects a libxev backend with a null dereference in its
+write path: six reporters, four Omarchy releases, one fault offset, and every window in the
+single-instance process dies together. The removal is `omacom/omarchy#6963`, still open. And
+the screensaver closes itself about a second after it opens whenever a bar panel holds
+keyboard focus, which cancels the pending lock: one reporter measured 239 dismissals over two
+days, 233 of them within 1.40 to 1.56 seconds, and an overnight run of 225 idle cycles in
+which the session never locked at all. That is `omacom/omarchy#7102`, still open, and the
+workaround is to turn the screensaver off so the lock path runs without it.
+
+The `existing` notes are the more useful half again. The corpus record for the lock screen
+not taking keystrokes scopes the defect to lid-open resume and tells the reader to edit
+`~/.config/hypr/hypridle.conf`. Neither hypridle nor hyprlock is installed on Omarchy 4 and
+no such file exists, and the thread shows the defect is one single-shot focus grab that five
+separate paths lose, with three pull requests open and none merged. That record needs a
+re-audit, not a tweak.
+
+### 5. The audit: 36 of 36 corrected
+
+21 agent batches of one or two records each, grouped by category, each handed `reaudit-brief.md`,
+the record JSON and an output directory, exactly as the brief prescribes. Three facts were passed
+in on top of the brief because they are newer than it: today's date, that `v4.0.3` is the newest
+tag rather than `v4.0.2`, and that every cited issue and pull request state in these records was
+written between 2026-09-07 and 2026-09-11 and had to be re-checked. That last one was not
+hypothetical, since it is what the `v4.0.3` correction above came from.
+
+The result is [research/raw/issue-harvest-audited.json](research/raw/issue-harvest-audited.json),
+36 records carrying `audit_status`, `audit_confidence` and the auditor's reason verbatim as
+`audit_note`, with `cause_reconciled` stamped on the 25 whose cause was rewritten.
+
+| | |
+| --- | --- |
+| verdicts | 36 corrected, 0 ok, 0 rejected |
+| confidence | 34 high, 2 medium |
+| `fix` rewritten | 29 |
+| `cause` rewritten | 25 |
+| `danger` rewritten | 13 |
+| `symptom` rewritten | 13 |
+| `verify` rewritten | 12 |
+| records with a `danger` | 16 of 36 |
+
+**The fix field is where the defects live.** 29 of 36 fixes were rewritten, and the failures are
+not subtle once someone runs them. A `sed` command could not run at all, because the substitution
+used `|` as its delimiter while the replacement contained `||`. A `chmod g-s` promised mode 700 and
+produces 777 from what the container actually leaves. A verify command grepped six lines after a
+marker for a value printed five lines before it. Another called a script with no argument, so it
+prints usage and fails even on a fixed system. None of these survive one attempt by a person at a
+keyboard, which is the whole argument for the audit.
+
+**Three fixes were actively harmful.** The screensaver record told the reader to run
+`omarchy-toggle-screensaver` to restore locking, and that command is a flip, so on a machine where
+the screensaver is already off it re-enables it and silently restores the unlocked session the
+record exists to prevent. The fingerprint record stopped the daemon synchronously during resume,
+which blocks the thaw for the stop timeout in exactly the wedged case the hook exists for. And the
+boot record's example `root=` named a device that does not exist on an ISO-installed machine, so a
+reader following it literally stays unbootable.
+
+**Mechanisms were wrong even where the fix worked.** The installer ESP cause blamed an unsettled
+udev re-read, and the script already runs `partprobe`, `sync`, a sleep, a device wait and `wipefs`
+before formatting. The real mechanism is the untyped `mount` walking `/proc/filesystems`, where
+`squashfs` is present on the live ISO and `vfat` is not. The pull request author had already removed
+the settle and sleep from the patch after review, so our fix told readers to add two steps upstream
+had dropped. The VMware cause blamed a rejected dmabuf modifier where the established mechanism is
+a driver surface handle failing to close, disproved for modifiers by standalone tests. The Codex
+cause described an 8 second timeout that never happens, because the read returns empty on the dead
+child and raises immediately, measured upstream in single-digit milliseconds.
+
+**Staleness inside three days.** One record pinned a guard to a line number read on 4.0.2-1, and
+`v4.0.3` rewrote that file and moved it, so the auditor replaced the pin with a grep. Another had
+its version floor corrected from one release to a range. A third had a release-note claim tightened
+from "about three hours" to two hours forty-three minutes.
+
+**Four of the nine open questions were answered, three of them against my own judgement.** The
+Gemini cutoff date I dropped as uncited is citable: the issue links a Google developers blog post,
+retrieved 2026-09-11, stating that Gemini CLI stopped serving individual accounts on 2026-06-18.
+The Codex approval-policy change I declined to cite exists as `openai/codex#39630`, merged
+2026-08-20. Q2 resolved to "do not split the AV1 record", because Arch's `-2` reverted every amdgpu
+VCN blob and the Mesa fix is gated on the quantizer matrix rather than on any ASIC, so one
+regression covers RDNA3 and RDNA4. Q5 resolved to both channels, with one reporter's own
+`$OMARCHY_PATH` proving a dev checkout where they had written edge.
+
+**The audit found two gaps in its own schema.** An auditor judged a severity wrong and had nowhere
+to put it, because `reaudit-brief.md`'s verdict carries no `corrected_severity`, so the judgement
+went into prose and was applied by hand. A second found a cited GitHub issue number that is really
+a discussion and could only say in prose that the URL must be deleted, because a verdict can append
+sources and never remove one. Both are recorded in the audited file under `audit.schema_gaps`, and
+the brief needs both fields before the next run.
+
+**Every source was then fetched.** 273 distinct URLs, all resolving except `api.fast.com`, which
+answers 403 to an anonymous GET and is kept deliberately with that noted. Nine URLs were repaired by
+hand: seven `omacom-io` organisation names normalised to the canonical `omacom`, one `blob/main` path
+corrected to `blob/master`, and the discussion-as-issue URL removed.
+
+### 6. The merge, and what it needed
+
+`merge_gapfill.py` needed no change after all. Its append path only stamps `gapfill-unaudited` when
+the audit block is missing, and every record had a verdict, so the tested path applied all 36 and
+stamped `cause_reconciled` itself. The payload deliberately carries `gapfill` and `gapfillAudit` and
+**no `audit` block**: that first pass walks every record of a named category, so an `audit` block
+here would have re-audited the 456 records already in the corpus against verdicts that do not name
+them, which is the exact hazard `CLAUDE.md` warns about.
+
+The merge ran against a backup and the first 456 lines of the result diffed byte-identical, so
+nothing already in the corpus moved. The corpus diff is 36 insertions and 0 deletions.
+
+Three things the tool could not carry were re-applied by hand afterwards, from the audited file,
+and each one is listed in it:
+
+- the severity raised to `critical`, because the verdict schema has no field for it,
+- four source URLs deduplicated away where the canonical `omacom` form was already present,
+- the discussion-as-issue URL removed, because a verdict can append sources and never remove one.
+
+The 12 new lint hits went into `data/lint-baseline.json`, 140 records to 147, with nothing removed.
+Every number in prose across the repo was recomputed rather than copied: `README.md`,
+`research/README.md`, `CLAUDE.md`, `corpus.py`, the `FIELDS` test, `validation/README.md` and this
+file. One had drifted badly. `validation/README.md` said 6 of 456 records carry a fenced `verify`
+block, and it is now 39 of 492, because 33 of the merged records have one.
+
+### 7. Where to pick this up
+
+1. **O4 is finished.** The next corpus work is O3, the 120 `ok` records with a `danger` that apply
+   to Omarchy, on `gpu-drivers` or `apps-services`.
+2. Add `corrected_severity` and `corrected_frequency` to `reaudit-brief.md`, and a way for a verdict
+   to remove a source, before the next audit run. Both gaps cost hand edits here.
+3. The dash cleanup of `data/problems.jsonl` is unchanged at 1,756 across 405 records, now of 492.
+   The 36 merged records carry none.
 
 ## Session of 2026-09-07 (second): O4 harvests from the issue tracker, and stops one batch short
 
@@ -122,8 +393,11 @@ hardware problems users hit.
 ### 5. Where to pick this up
 
 1. Run batch 01: `gh issue view <n> -R omacom/omarchy --comments` for the ten numbers above,
-   with `issue-harvest-brief.md`.
-2. Reconcile the six near-duplicate pairs into one record each.
+   with `issue-harvest-brief.md`. DONE 2026-09-10: six records, four mapped onto existing
+   records, nothing skipped. See the 2026-09-10 session.
+2. Reconcile the six near-duplicate pairs into one record each. DONE 2026-09-10, and it
+   was six groups over thirteen records rather than six pairs. See the 2026-09-10 session
+   and `raw/issue-harvest-reconciled.json`.
 3. Audit all 40 with `reaudit-brief.md`, one agent per one or two records.
 4. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect
    `merge_gapfill.py` to need a small change: its append path assigns `gapfill-unaudited`
@@ -2554,9 +2828,13 @@ again.
   harvester brief (`tools/issue-harvest-brief.md`) are built and committed. Ten of eleven
   batches ran over 99 of 109 candidate issues and produced **40 records, 21 mappings onto
   existing records and 37 skipped as unconfirmed**, banked unmerged in
-  `raw/issue-harvest-partial.json`. Before any of it enters the corpus: run batch 01,
-  reconcile six near-duplicate pairs, and audit all 40. The `existing` list is re-audit
-  fuel for O3 and names three records the tracker contradicts.
+  `raw/issue-harvest-partial.json`. Both remaining blockers except the audit cleared on
+  2026-09-10 and 2026-09-11: the duplicates were reconciled in two passes, nineteen records into
+  nine, batch 01 was read, adding six more, and all 36 were audited. **Every one of the 36 came
+  back `corrected`**, 34 at high confidence and 2 at medium, with 29 fixes rewritten. The audited
+  set is `raw/issue-harvest-audited.json` and the merge is the only thing left. The `existing`
+  list, now 25 entries, is re-audit fuel for O3 and names four records the tracker contradicts,
+  one of which sends readers to a hypridle config file that does not exist on Omarchy 4.
 - **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
   its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
   consumers, covered by the `FIELDS` tests. Not started.

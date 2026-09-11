@@ -1,6 +1,6 @@
 # Displays & monitors
 
-34 problems. Sorted by severity, then by how often users hit it.
+35 problems. Sorted by severity, then by how often users hit it.
 
 ## Stop closing the lid from killing every GUI app at once
 
@@ -1123,6 +1123,116 @@ Then `hyprctl reload` as the record already says. Also worth adding: #9286 is cl
 **Verify.** `hyprctl monitors -j | jq -r '.[] | "\(.name) \(.currentFormat) \(.activelyTearing)"'` shows a 10-bit format (e.g. `XRGB2101010`) once `bitdepth = 10` is active. Take a screenshot and confirm it is not transparent/empty, then start a screen share and confirm the preview is not black.
 
 Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Monitors.md> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Variables.md> · <https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/313> · <https://github.com/hyprwm/Hyprland/discussions/10950> · <https://wiki.hypr.land/Configuring/Basics/Monitors/>
+
+---
+
+## Stop the internal laptop panel snapping back to 2x scale a second after every change
+
+`internal-panel-forced-to-2x-scale-clamshell-poll` · severity: **medium** · frequency: **common** · applies to: `hyprland`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`, `wayland`
+
+**Symptom.** After the Quattro upgrade the internal laptop display is held at scale 2 while external monitors scale normally at any value. Every manual change to the internal panel's scale is reverted about a second after it is applied, whether it is made in `~/.config/hypr/monitors.lua`, with `hyprctl`, or in the Display panel on the bar. Opening the Display panel snaps the viewport straight back to 2.
+
+Reported on Omarchy 4 on a laptop with a 1920x1080 built-in panel and an external 1920x1080 monitor, and by three more people with different `monitors.lua` shapes.
+
+**Cause.** `omarchy-hyprland-monitor-clamshell` is polled every two seconds by `omarchy-hyprland-monitor-watch` for as long as an external monitor is active, and each pass re-asserts what it reads as the internal panel's configured scale. When that read produced no number it substituted a hardcoded `2`. With the shipped `monitors.lua`, where `local omarchy_monitor_scale = "auto"` and no rule names the internal panel, that fallback fired on every poll, which is why the panel returned to 2 about a second after any change.
+
+`omacom/omarchy#7581` merged as commit `b63616422f427bb778f49f573e6cc197e29c7b4f` on 2026-08-22 and first shipped in v4.0.1. It did not remove the hardcoded fallback. It added a guard in `sync_internal_scale`: when the config yields no usable number and the panel has a valid active scale, the poll returns without writing, so an auto-scaled panel keeps whatever Hyprland's `auto` resolved. The `echo 2` is still in the shipped script at line 153 of `read_monitor_scale`. It is now reached only when the script re-enables a panel it disabled itself and `~/.local/state/omarchy/toggles/hypr/internal-monitor-scale` holds nothing usable.
+
+Because that guard tests for the *absence* of a number, it stops protecting the panel the moment `monitors.lua` yields one. Adjusting scale from the Display panel on the bar rewrites `local omarchy_monitor_scale` to a single number, which is `omacom/omarchy#7505`, open. After one such adjustment the poll re-asserts that one global number on the internal panel, and resets its position to `auto`, whenever the panel's live scale differs from it. It does not repeat every two seconds once corrected, because `scales_match` then returns early. It writes again on the next `hyprctl reload`, resume or redock that restores the user's value.
+
+A reader limitation from the same thread is also still live, and it looks identical from the outside. `monitor_rule_regex` matches only a rule written as `hl.monitor({` with a literal quoted `output = "<name>"` on the same line of `~/.config/hypr/monitors.lua`. A rule keyed by `desc:`, spread over several lines, naming a variable in `output`, or living in another file that `hyprland.lua` requires is invisible to the poll, which then acts on the catch-all rule or on the global knob instead of on the rule. That is `omacom/omarchy#7084`, open, with `#7146` proposed against it and not merged as of 2026-09-11.
+
+> **Audit corrected this record.** Checked the three claims separately against the shipped script on this workstation (omarchy 4.0.2-1) and against every cited thread read in full today, 2026-09-11.
+
+Claim 1 is half wrong. PR 7581 is merged into `quattro` with `merge_commit_sha` exactly `b63616422f427bb778f49f573e6cc197e29c7b4f` (`gh api repos/omacom/omarchy/pulls/7581`), confirmed, and the shipped `/usr/share/omarchy/bin/omarchy-hyprland-monitor-clamshell` is byte-identical to both `quattro` and `v4.0.3`. But the hardcoded scale fallback is NOT gone: `echo 2` sits at line 153 in `read_monitor_scale`, and the PR is +24/-2 on that file, a guard rather than a removal. The record's sentence "the shipped script has no hardcoded scale left" is false as written, so the cause is rewritten to describe the guard at line 192 and to say where the `2` is still reachable (re-enabling a panel the script itself disabled, with no usable remembered scale). The record's version floor is also understated: I fetched the script at every 4.x tag, and v4.0.1, v4.0.2 and v4.0.3 are identical and all carry the guard, while v4.0.0 is the only release without it and has the `echo 2` at line 137, the line the upstream comments cite. The triage comment on issue 7084 claiming the fix is "not in v4.0.0 or v4.0.1" is itself wrong about v4.0.1, which was published 2026-08-25, three days after the merge.
+
+A live path the record misses, and the reason for the rewritten fix. The 7581 guard only fires when the config yields NO usable number. I ran the shipped reader functions (lines 22 to 165, no side effects) against fixture configs under a temp HOME: the stock file resolves `configured_monitor_scale` to `auto`, so the guard holds and nothing is written, but the same file with `local omarchy_monitor_scale = 1.6` resolves to 1.6, the guard does not fire, and the poll pushes 1.6 and `position = auto` onto the internal panel. Confirmed on this machine that `shell/plugins/panels/monitor/Panel.qml:308` runs `omarchy-hyprland-monitor-scaling`, whose `set_scale()` rewrites `local omarchy_monitor_scale` to one number. So anyone who has touched the Display panel is back in the symptom, which the record's "no config change is needed" does not cover.
+
+Claim 2 confirmed, and extended. I copied `monitor_rule_regex` and the extraction `sed` verbatim into a scratch script and ran them over four fixtures: the one-line connector-keyed rule returns `scale=1.33`, while the `desc:`-keyed, multiline and variable-in-`output` shapes all return nothing. `omarchy-hyprland-monitor-laptop` only ever prints a connector name matching `^(eDP|LVDS|DSI)-`, so a `desc:` rule can never match. Issue 7084 is open (4 comments) and PR 7146 is open and unmerged. Its thread adds a fourth trigger the record omits and which its own advice does not cover: `MONITOR_LUA` is pinned at line 10, so a correctly formatted rule in a `require()`d file is never read. Added, along with the 1/120 rounding caveat and the cadence correction that the rewrite does not repeat every two seconds once the scales match.
+
+Claim 3 confirmed from the source and on this machine. Issue 7505 is open with 0 comments, and its body matches the claim: the `sed -i` in `set_scale()` replaces `local omarchy_monitor_scale` and `local omarchy_gdk_scale`, destroying `"auto"` on the first adjustment. I read that `sed` in the shipped script and it is as described. PR 8145, "Persist monitor scaling onto named per-output rules", is open against it and is now named. A `danger` was added because 7505's own suggested restore, `omarchy refresh config hypr/monitors.lua`, discards the user's monitor config.
+
+Symptom left unchanged: issue 6909's body matches it (built-in 1920x1080 at 144 Hz forced to 2, external 1920x1080 at 60 Hz scaling normally, reverted one second after any change, Display panel crash). If anything it undercounts the other reporters, since four more describe the same symptom in that thread.
+
+Not exercised: this machine is a desktop workstation (`/sys/class/dmi/id/chassis_type` is 3, and `hyprctl monitors all -j` shows only HDMI-A-1 plus a vncpanel output, no eDP). With no internal panel, `INTERNAL` is empty and every function in the script returns early, so the clamshell poll, the lid-open path and the actual reapplication of a scale could not be run here. Everything above is source reading plus the script's own config-reading functions driven over fixture files, not an observed fix on a laptop.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Restoring the shipped catch-all with `omarchy refresh config hypr/monitors.lua` overwrites `~/.config/hypr/monitors.lua` with the template and loses every per-monitor rule, mode, position and transform in it. Edit the file by hand instead, or copy it somewhere first.
+
+**Fix.**
+
+**Update first. The fix is in v4.0.1 and later, so only v4.0.0 carries the original defect.**
+
+```bash
+omarchy update
+pacman -Q omarchy
+hyprctl reload
+```
+
+No config change is needed for the stock `monitors.lua`, and an explicit rule added only to stop the snapping can be dropped again. The script is byte-identical across v4.0.1, v4.0.2 and v4.0.3.
+
+**Then check the global scale knob, because this is the part that is still live.**
+
+```bash
+grep -n 'local omarchy_monitor_scale' ~/.config/hypr/monitors.lua
+```
+
+The guard only holds while the config gives the poll no number. `"auto"` is such a value. A bare number is not. Changing scale from the Display panel, or running `omarchy-hyprland-monitor-scaling <n>`, rewrites that line to one number and destroys `"auto"` (`omacom/omarchy#7505`, open, with `#8145` proposed against it). From then on the poll pushes that number onto the internal panel and resets its position to `auto`. Put `"auto"` back, or give the internal panel a rule of its own:
+
+```lua
+-- ~/.config/hypr/monitors.lua
+local omarchy_monitor_scale = "auto"
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
+hl.monitor({ output = "eDP-1", mode = "2560x1600@240", position = "0x0", scale = 1.33 })
+```
+
+Then `hyprctl reload`. Edit the file by hand rather than running `omarchy refresh config hypr/monitors.lua`, which restores the template and discards the rest of your monitor config.
+
+**If the scale still moves on its own, the poll is not reading your rule.** It reads one file with a line-based regex, so the rule must be on one line, name the connector in a literal quoted string, and live in `~/.config/hypr/monitors.lua`. These four shapes are all invisible to it:
+
+```lua
+-- keyed by description: the script only ever looks for the connector name
+hl.monitor({ output = "desc:Samsung Display Corp ATNA60HR07-0", scale = 1.33 })
+
+-- spread over several lines
+hl.monitor({
+  output = "eDP-1",
+  scale = 1.33,
+})
+
+-- the output named through a variable
+local laptop_output = "eDP-1"
+hl.monitor({ output = laptop_output, scale = 1.33 })
+```
+
+The fourth is scope rather than syntax: `MONITOR_LUA` is pinned to `~/.config/hypr/monitors.lua` at line 10 of the script, so a correctly written rule in a file that `hyprland.lua` pulls in with `require()`, such as a layout written by HyprMon, is never opened. Duplicate that rule into `monitors.lua`.
+
+Get the connector name, and the scale value to write, from Hyprland itself:
+
+```bash
+hyprctl monitors all -j | jq -r '.[] | "\(.name) \(.scale) \(.description)"'
+```
+
+Use the scale Hyprland reports, not the one you asked for. It rounds to whole logical pixels in steps of 1/120, so a requested 1.66 on 2256x1504 becomes 1.6, and the poll's 0.001 tolerance would otherwise mismatch and reapply.
+
+One thing from the original report is still untracked: the Display panel crashing when it is opened was never explained and has no issue of its own. The scale snapping back to 2 in that same moment was this defect.
+
+**Verify.** ```bash
+pacman -Q omarchy                                  # v4.0.1-1 or later carries the fix
+
+# the guard PR 7581 added. No output means a pre-v4.0.1 script
+grep -n 'valid_scale "$configured_scale"' /usr/share/omarchy/bin/omarchy-hyprland-monitor-clamshell
+
+# must not be a bare number unless you want that number on the internal panel too
+grep -n 'local omarchy_monitor_scale' ~/.config/hypr/monitors.lua
+
+hyprctl monitors all -j | jq -r '.[] | "\(.name) \(.scale) \(.x)x\(.y)"'
+sleep 5
+hyprctl monitors all -j | jq -r '.[] | "\(.name) \(.scale) \(.x)x\(.y)"'   # unchanged after more than two polls
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/6909> · <https://github.com/omacom/omarchy/pull/7581> · <https://github.com/omacom/omarchy/issues/7084> · <https://github.com/omacom/omarchy/issues/7505> · <https://github.com/omacom/omarchy/pull/7146> · <https://github.com/omacom/omarchy/pull/8145> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-clamshell> · <https://github.com/omacom/omarchy/blob/v4.0.1/bin/omarchy-hyprland-monitor-clamshell> · <https://github.com/omacom/omarchy/blob/v4.0.0/bin/omarchy-hyprland-monitor-clamshell> · <https://github.com/omacom/omarchy/releases/tag/v4.0.1>
 
 ---
 

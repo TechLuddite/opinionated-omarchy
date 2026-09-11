@@ -1,6 +1,6 @@
 # Wayland app compatibility
 
-37 problems. Sorted by severity, then by how often users hit it.
+38 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix screen share showing a black rectangle or no picker at all
 
@@ -679,6 +679,112 @@ The stock `hyprland-share-picker` lists outputs as plain text rows and works whe
 **Verify.** Re-open the share dialog; the Outputs tab lists your monitors by connector name (eDP-1, DP-3, HDMI-A-1) and selecting one produces live video rather than black.
 
 Sources: <https://github.com/basecamp/omarchy/issues/4097> · <https://github.com/basecamp/omarchy/issues/6040> · <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/>
+
+---
+
+## Fix a black desktop with only a cursor in a VMware guest, where omarchy-shell cannot attach its buffers
+
+`vmware-shell-black-desktop-qt-quick-dmabuf` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `omarchy-shell`, `quickshell`, `vmware`, `vmwgfx`, `wayland`, `xwayland`
+
+**Symptom.** Omarchy 4.0.x installs cleanly as a VMware guest and then boots to a uniform dark screen with only the mouse cursor. There is no bar and no wallpaper, and `Super + Space` does nothing, but Hyprland itself is running, so `Super + Enter` opens a terminal and applications launch.
+
+`omarchy-launch-shell` relaunches the shell five times in under a minute and then logs `Giving up on the Omarchy shell`. Running the shell by hand with `WAYLAND_DEBUG=1` shows the fatal protocol error:
+
+```
+[Default Queue] -> zwp_linux_buffer_params_v1#34.create_immed(new id wl_buffer#46, 1718, 52, 875713089, 0)
+[Default Queue] -> wl_surface#42.attach(wl_buffer#46, 0, 0)
+[Display Queue] wl_display#1.error(wl_display#1, 1, "invalid arguments for wl_surface#42.attach")
+WARN: The Wayland connection experienced a fatal error: Invalid argument
+```
+
+Hyprland logs `unknown object (61), message attach(?oii)` and `error in client communication`. Other GPU-rendered clients hit the same error, including `mpv --vo=gpu`, a plain GTK4 window and Ghostty, and XWayland dies when an X11 application such as Spotify starts. `foot`, `imv` and Chromium were reported fine on hardware GL by one reporter, so which clients survive varies between guests.
+
+**This is the 3D-accelerated case.** Reported on Omarchy 4.0.0 through 4.0.2 with Hyprland 0.56.2, aquamarine 0.14.0, Mesa 26.1.7 and 26.2.1 and `vmwgfx` 2.21.0 on VMware SVGA II `15ad:0405`, with Windows 10, Windows 11 and Ubuntu hosts, in every case with VMware's `Accelerate 3D Graphics` enabled. With that setting off the guest fails differently: Hyprland cannot initialise its renderer at all and the display is blank, which is a separate problem and this fix does not address it.
+
+**Cause.** Established by reporters across four threads and by one independent before-and-after measurement. No maintainer has given a verdict on any of them.
+
+`vmwgfx` prime-imports a surface-backed dmabuf as a TTM surface handle rather than an ordinary GEM handle, because `vmw_prime_fd_to_handle` tries `ttm_prime_fd_to_handle` first and only falls back to `drm_gem_prime_fd_to_handle`. Hyprland's `CLinuxDMABUFParamsResource::commence()` in `src/protocols/LinuxDMABUF.cpp` then calls `drmCloseBufferHandle()`, which is GEM_CLOSE. That returns `EINVAL` because the handle is not in the GEM table, and Hyprland treats the whole import as failed. It answers `zwp_linux_buffer_params_v1.failed`, so the `wl_buffer` is never created, and the client's following `wl_surface.attach` names an object the compositor does not know. That is a fatal protocol error and the client is killed.
+
+The format and the modifier are not the problem. One reporter wrote small GBM and EGL programs that import the exact buffer the client offers, 1920x1080 `XR24` at stride 7680 with modifier `0` (`LINEAR`), and every combination succeeded, including import on a second device fd. Mesa's `svga` driver does advertise zero dma-buf render modifiers for the scanout formats while `vmwgfx` KMS advertises only `LINEAR`, but the compositor still advertises 116 format and modifier pairs through `zwp_linux_dmabuf_v1` feedback and then fails the one the client picks out of its own tranche.
+
+Qt leaves through `_exit()` on a fatal Wayland error and raises no signal, so Quickshell's crash handler never runs and `omarchy-launch-shell` sees a bare exit. omarchy-shell is a Quickshell client, which is why the bar, wallpaper and menus never appear while the compositor and shm-backed clients carry on. The compositor itself is not affected: aquamarine survives the missing modifiers with `GBM: Allocating with modifiers failed, falling back to implicit` and keeps scanning out. A minimal `qml6` window reproduces the same error with no Omarchy involved, which places the fault in the compositor's dmabuf import path rather than in Omarchy.
+
+The upstream threads are `hyprwm/Hyprland` discussion 12966 (a discussion, not an issue, so the `/issues/12966` URL 404s) and `hyprwm/aquamarine` issue 360, which is still open with no maintainer reply. A userspace patch that falls back to `DRM_VMW_UNREF_SURFACE` when GEM_CLOSE fails was posted in discussion 12966 and has since been rebuilt and confirmed by two further reporters, one of whom measured dmabuf errors dropping from about 31,545 per minute to zero and found `LIBGL_ALWAYS_SOFTWARE=1` no longer needed. It was re-filed as `hyprwm/Hyprland` issue 16175 on 2026-09-07 and a bot closed it as not planned fifteen seconds later, because Hyprland no longer accepts user-filed issues. Nothing has landed in Hyprland or aquamarine as of 2026-09-11, so an environment variable is still the only fix that does not require building a patched package.
+
+`omacom/omarchy` issue 7918 is the same GEM close failure reached through the DRM cursor plane. It reports `legacy drm: drmCloseBufferHandle in cursor failed` and an invisible pointer, and is fixed separately with `cursor { no_hardware_cursors = true }`.
+
+> **Audit corrected this record.** This machine is an Omarchy 4.0.2-1 workstation on bare metal and is NOT a VMware guest, so nothing in this record could be exercised. Every claim about the failure and about the workaround rests on reporter testimony in the cited threads, which I read in full today, and the record is right to say so.
+
+Confirmed on this machine: Omarchy sets no `QT_QUICK_BACKEND` and no `QSG_RHI_BACKEND` anywhere under `/usr/share/omarchy` (grep returns nothing for both), and it does set `QT_QPA_PLATFORM` and `QT_QPA_PLATFORMTHEME` at `/usr/share/omarchy/default/hypr/envs.lua:13` and `:14`. The load order holds: `require("default.hypr.omarchy")` is line 14 of both `~/.config/hypr/hyprland.lua` and the stock `/usr/share/omarchy/config/hypr/hyprland.lua`, the bootstrap `dofile` is line 4, and `/usr/share/omarchy/default/hypr/omarchy.lua:16` pulls in `default.hypr.envs`, so a later `hl.env` runs after Omarchy's. The override semantics come from Hyprland v0.56.2 source, `src/config/lua/bindings/LuaBindingsConfigRules.cpp:508`, which is `setenv(name.c_str(), value.c_str(), 1)`, so last write wins. Also confirmed locally: `nano` is not installed and `neovim 0.12.5-1` is, `omarchy-launch-shell` logs the exact string `exited with status` and gives up after five relaunches in under a minute, and `omarchy-restart-shell` respawns through `hyprctl dispatch 'hl.dsp.exec_cmd("omarchy-launch-shell")'`.
+
+Confirmed from source, not from the thread: `QSG_RHI_BACKEND` accepts only `gl`, `gles2`, `opengl`, `d3d11`, `d3d`, `d3d12`, `vulkan`, `metal` and `null`, and anything else emits `Unknown key "%s" for QSG_RHI_BACKEND, falling back to default backend.` This is qtdeclarative 6.11 `src/quick/scenegraph/qsgrhisupport.cpp` lines 77 to 97, and the local `qt6-declarative` is 6.11.2-1. `QT_QUICK_BACKEND=software` is the documented way to request the Software adaptation on the Qt docs page the record already cites. The `LIBGL_ALWAYS_SOFTWARE=1` characterisation holds as a reporter measurement in `omacom/omarchy#8113`: a table gives llvmpipe compositing at about 12% Hyprland idle CPU against about 4% with the Qt-only switch, and a second reporter on a fresh 4.0.2 install got no shell with it.
+
+Four defects, which is why this is `corrected`. First, the cited URL `https://github.com/hyprwm/Hyprland/issues/12966` does not exist and returns 404. 12966 is a DISCUSSION, "Kitty and alacritty cannot launch in vmware workstation pro, 3d accel is enabled", opened 2026-01-11 in the Bugs - DRM category with 3 comments and no accepted answer. The verdict can only append sources, so that dead URL has to be deleted from the record's `sources` by hand before ingest.
+
+Second, the cause's mechanism was wrong. The record blames a modifier Hyprland rejects. The mechanism established across discussion 12966, `omacom/omarchy#8113` and `hyprwm/aquamarine#360` is that `vmwgfx` prime-imports surface-backed dmabufs as TTM surface handles, so Hyprland's `drmCloseBufferHandle()` (GEM_CLOSE) in `CLinuxDMABUFParamsResource::commence()` fails with `EINVAL`, the import is marked failed, `zwp_linux_buffer_params_v1.failed` is sent and the never-created `wl_buffer` makes the following `attach` fatal. The reporter on `aquamarine#360` imported the exact buffer, `XR24` 1920x1080 stride 7680 modifier `LINEAR`, through GBM and EGL in standalone programs and every combination succeeded, which rules the modifier out directly. The zero-render-modifiers finding is real but it explains why aquamarine falls back, not why the client is killed.
+
+Third, "nobody else confirmed" the `DRM_VMW_UNREF_SURFACE` patch is false. It was posted by Pascal-0x90 in discussion 12966 with a kernel-level analysis, independently rebuilt and validated by carlpe on `aquamarine#360` (errors from about 31,545 per minute to zero, `LIBGL_ALWAYS_SOFTWARE=1` no longer needed), and rebuilt again by dsuarezv in `omacom/omarchy#8113`. What is true is that no maintainer has acted: `aquamarine#360` is open with no maintainer reply, and the re-filed `hyprwm/Hyprland#16175` (2026-09-07) was closed as `not_planned` fifteen seconds after opening by the bot that tells users to open a discussion instead. So no compositor-side fix has landed as of 2026-09-11.
+
+Fourth, the symptom said the crash-loop was reported "both with and without VMware's `Accelerate 3D Graphics` enabled". The sources say the opposite: every dmabuf report had it enabled, and with it off Hyprland cannot initialise a renderer at all, which is a different blank-screen failure. Mesa was reported as both 26.1.7 and 26.2.1, not only 26.2.1.
+
+Also corrected, and confirmed on this machine: the verify block told the reader to find the shell in `hyprctl clients -j`. It is never there. `hyprctl clients` here lists only `foot`, while `hyprctl layers` lists `omarchy-bar` and `omarchy-background`, because the shell draws layer-shell surfaces. And the fix's explanation for needing a logout was wrong: `hyprctl reload` does re-run `hl.env` and does `setenv` in the compositor, so the reason a reload is not enough is that the shell supervisor has already given up, which `omarchy-restart-shell` fixes without a logout.
+
+Two further corrections kept small: the VMware `Accelerate 3D Graphics` paragraph now says the setting is required rather than "a setting to check", and the fix now names the upstream patch and says plainly that taking it means maintaining a package `omarchy update` will replace. Confidence is medium, not high, because the whole record is reporter testimony with no maintainer verdict, the guest side could not be exercised here, and `omacom/omarchy#7835` and `#8113` are both still open with no Omarchy-side fix. One reporter note deliberately not carried over: mktpostal in `#7835` refers to "Omarchy 4.1", which does not exist (newest tag is v4.0.3, 2026-09-08).
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Run Quickshell's Qt Quick scene graph on the software rasterizer, so its surface is an shm buffer and no dmabuf is created. The compositor stays on the GPU. Two reporters confirmed this on 4.0.2 and two more on earlier releases.
+
+If you cannot reach a terminal, log in and press `Ctrl+Alt+F2` for a TTY. `nano` is not installed on Omarchy 4, confirmed on 4.0.2-1, so use `nvim`.
+
+Add the line to `~/.config/hypr/hyprland.lua`, below the `require("default.hypr.omarchy")` line, which is line 14 of the stock file:
+
+```lua
+-- VMware: avoid Qt Quick dmabuf attachments vmwgfx cannot satisfy.
+hl.env("QT_QUICK_BACKEND", "software")
+```
+
+Omarchy sets no `QT_QUICK_BACKEND` and no `QSG_RHI_BACKEND` of its own, confirmed on 4.0.2-1 by grepping `/usr/share/omarchy`, so anywhere after the bootstrap `dofile` on line 4 works for this variable. Below the `require` is the habit to keep, because `hl.env` calls `setenv()` with overwrite enabled, so for a variable Omarchy does set in `/usr/share/omarchy/default/hypr/envs.lua`, such as `QT_QPA_PLATFORM` or `GDK_BACKEND`, only a line after `require("default.hypr.omarchy")` wins.
+
+Then log out and back in, which is the simplest way to get every client restarted with the new variable. A `hyprctl reload` does re-run `hl.env`, so clients started after it do inherit the setting, but the shell supervisor has already given up by then, so follow the reload with:
+
+```bash
+omarchy-restart-shell
+```
+
+That respawns the shell through `hyprctl dispatch 'hl.dsp.exec_cmd("omarchy-launch-shell")'`, so it inherits the compositor's environment rather than your terminal's. One reporter saw the desktop come up after a bare `hyprctl reload`.
+
+If XWayland applications still kill XWayland, one reporter added this as well and tested the two together:
+
+```lua
+hl.env("XWAYLAND_NO_GLAMOR", "1")
+```
+
+That makes X11 applications render in software, and the same reporter measured Spotify at about 60% of a core with it. The same reporter also found that neither variable fixes the SDDM greeter, because SDDM runs its own Hyprland with its own environment, so logging out can still leave no visible login screen.
+
+Three alternatives do not work, and two of them look like they should. `QSG_RHI_BACKEND=software` changes nothing, because `software` is not a value that variable accepts: Qt's `qsgrhisupport.cpp` takes only `gl`, `gles2`, `opengl`, `d3d11`, `d3d`, `d3d12`, `vulkan`, `metal` and `null`, and anything else logs `Unknown key "software" for QSG_RHI_BACKEND, falling back to default backend.` and leaves the GPU path in place. `QT_WAYLAND_DISABLE_HARDWARE_INTEGRATION=1` does not help either. `LIBGL_ALWAYS_SOFTWARE=1` does stop the crash, but it forces the whole session including the compositor onto llvmpipe, measured at about 12% idle CPU for Hyprland against 4% with the Qt-only switch, and one reporter on a fresh 4.0.2 install got no shell with it at all.
+
+`Accelerate 3D Graphics` in VM Settings, Display, has to be on. Every crash-loop report came from a guest that had it enabled, and with it off Hyprland cannot bring up a renderer at all, so turning it off is not an alternative workaround.
+
+The real fix is upstream and has not landed. A patch to `src/protocols/LinuxDMABUF.cpp` that falls back to `DRM_VMW_UNREF_SURFACE` when `drmCloseBufferHandle()` fails on a vmwgfx device is in `hyprwm/Hyprland` discussion 12966, and three reporters have built it against Hyprland 0.56.2 and found the whole family of failures gone with full GPU acceleration. Building it means maintaining a patched `hyprland` package that a normal `omarchy update` will replace, so the environment variable is the right answer until it is merged.
+
+**Plain Arch:** the variable is the same for any Qt Quick client on `vmwgfx`. Set `QT_QUICK_BACKEND=software` in the environment of whatever launches the Qt application.
+
+**Verify.** After a fresh login the bar, wallpaper and `Super + Space` menu appear and the shell stays up:
+
+```bash
+journalctl -b -t omarchy-shell | grep -c 'exited with status'     # 0 relaunches
+hyprctl layers -j | jq -r '..|.namespace? // empty' | sort -u     # omarchy-bar, omarchy-background
+cat /proc/$(pgrep -o quickshell)/environ | tr '\0' '\n' | grep QT_QUICK_BACKEND
+```
+
+The shell draws layer surfaces, not toplevel windows, so it never appears in `hyprctl clients`. Confirmed on Omarchy 4.0.2-1: `hyprctl layers` reports the namespaces `omarchy-bar` and `omarchy-background`.
+
+The last command prints `QT_QUICK_BACKEND=software`. The journal shows `Disabling glamor and dri3 support, XWAYLAND_NO_GLAMOR is set` if that variable was added.
+
+Sources: <https://github.com/omacom/omarchy/issues/7835> · <https://github.com/omacom/omarchy/issues/8113> · <https://github.com/omacom/omarchy/issues/7918> · <https://doc.qt.io/qt-6/qtquick-visualcanvas-adaptations.html> · <https://github.com/hyprwm/Hyprland/discussions/12966> · <https://github.com/hyprwm/Hyprland/issues/16175> · <https://github.com/hyprwm/aquamarine/issues/360> · <https://github.com/qt/qtdeclarative/blob/6.11/src/quick/scenegraph/qsgrhisupport.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsConfigRules.cpp>
 
 ---
 

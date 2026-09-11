@@ -1,6 +1,6 @@
 # Networking
 
-45 problems. Sorted by severity, then by how often users hit it.
+46 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix a brand-new Intel Wi-Fi card that finds no usable firmware
 
@@ -640,6 +640,59 @@ Only add `soft` if you accept that the client returns EIO after `retrans` retran
 **Verify.** `systemctl list-units 'mnt-nas.*'` shows an `.automount` unit active and the `.mount` unit inactive until first access. Power the server off, then reboot: boot reaches the greeter without stalling, and `systemctl poweroff` completes without a stop job.
 
 Sources: <https://man.archlinux.org/man/nfs.5> · <https://man.archlinux.org/man/systemd.mount.5>
+
+---
+
+## Recover a link saturated by orphaned `omarchy-network-speedtest` workers
+
+`omarchy-speedtest-orphan-workers-saturate-link` · severity: **high** · frequency: **common** · applies to: `desktop`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`
+
+**Symptom.** After running the shell's Speed Test panel and closing it before it finished (clicking away, or the shell restarting during the test), the internet stays very slow for tens of minutes. `ps` shows several `/bin/bash /usr/share/omarchy/bin/omarchy-network-speedtest down` (or `up`) processes reparented to `systemd --user`, each with a `curl` pulling from or posting to `*.nflxvideo.net/speedtest`. Reporters measured 300 to 440 Mbit/s of sustained traffic for 31 to 47 minutes, and one upload run reached about 126 GB transmitted before it was killed. Reported on Omarchy 4.0.0-1 and 4.0.1-1 with quickshell 0.3.0 and 0.3.1.
+
+**Cause.** Established by several reporters reading `bin/omarchy-network-speedtest` and the panel code. The script forks eight `traffic_worker` loops that run `while true` with no duration cap and no `curl --max-time`, and relies on `trap cleanup EXIT` in the parent to reap them. Hiding the panel sends SIGTERM through `Process.running = false` and then destroys the panel `Process` object in the same event-loop turn, so `QProcess` finishes the parent with SIGKILL before its trap has run and the workers are adopted by `systemd --user`. A plain SIGTERM to the parent from a terminal cleans up correctly every time, which is what isolates the leak to the panel teardown. The script is unchanged on `quattro` since 2026-07-22 and `#7598` (bound each worker) and `#9344` (keep the panel loaded during cleanup) are both open.
+
+> **Audit corrected this record.** Confirmed on this machine (omarchy 4.0.2-1, quickshell 0.3.1-1) by reading the shipped code rather than trusting the thread. /usr/share/omarchy/bin/omarchy-network-speedtest is a symlink to /usr/bin/omarchy-network-speedtest, owned by omarchy 4.0.2-1, and is byte-identical to the file at both quattro HEAD and tag v4.0.3, whose only commits are 2026-06-29 and 2026-07-22, so no fix has landed and the record's unchanged-since claim holds. In that script I confirmed parallel=8, traffic_worker looping while true with no duration cap, curl with no --max-time, trap cleanup EXIT as the only reaper, and a sampling loop that blocks in sleep 1, which is the latency the teardown race beats. I confirmed the panel side locally too: /usr/share/omarchy/shell/plugins/panels/speedtest/manifest.json sets no keepLoaded, shell.qml:625 ties the panel Loader's active to keepLoaded or openPanelIds, and shell.qml:480-495 hide() calls close() and then drops the id in the same turn, while Panel.qml close() only sets speedTestProc.running = false and phaseTimer.interval is 5000, so a full run is about 10 s and a Run again control exists. I checked the fix patterns instead of assuming them: the worker command line is /bin/bash /usr/share/omarchy/bin/omarchy-network-speedtest down because /usr/share/omarchy/bin precedes /usr/bin in PATH, so pkill -f omarchy-network-speedtest matches the workers and nothing else on a normal system, and fetching the script's own fast.com v2 target list today returned https://ipv4-c653-sjc002-dev-ix.1.oca.nflxvideo.net/speedtest, so pkill -f 'nflxvideo.net/speedtest' does match the live curl children, which carry only the URL. The dd feeding an upload curl needs no pattern because it stops after 64 MiB or on SIGPIPE. Issue 6989 read in full with all seven comments does support every claim, including the versions 4.0.0-1 and 4.0.1-1, quickshell 0.3.0 and 0.3.1, 300 to 440 Mbit/s, 31 and 47 minutes, and about 126.7 GB, and gh confirms today that 6989 is open, 7598 is an open pull request, and 9344 is an open pull request. One thing was wrong: the fix said the workaround stops being needed once 7598 or 9344 lands, but 9344 only marks the panels keepLoaded and so fixes ordinary dismissal, leaving the shell-crash and restart path that the record's own symptom describes and that is tracked in open issue 8515, while 7598 bounds a worker to 30 s and shortens the leak rather than removing it. I rewrote the fix to separate those two paths, name 8515, and cite the 5 s phase timer behind the run-it-to-completion advice, and I filled the empty danger because the verify block tells a reader to start a real unbounded transfer. Not exercised: I did not run the speedtest, the repro, or any kill, so the QProcess destructor SIGKILL, the reparenting to systemd --user, and the claim that a terminal SIGTERM reaps cleanly every time remain from the thread and from Qt's documented destructor behaviour, not from my own measurement.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** The reproduction in `verify` deliberately starts real unbounded traffic. One reported orphan run moved about 126 GB in 33 minutes, so do not run it on a metered or capped connection.
+
+**Fix.**
+
+Kill the leftover workers. Three reporters confirmed this restores normal throughput immediately:
+
+```bash
+pkill -f omarchy-network-speedtest
+pkill -f 'nflxvideo.net/speedtest'     # ends the in-flight curl transfers straight away
+```
+
+The first pattern matches the orphaned worker shells, whose command line is `/bin/bash /usr/share/omarchy/bin/omarchy-network-speedtest down`. The second is still needed because the `curl` children carry only the fast.com target URL, and a worker shell blocked in a foreground `curl` does not act on SIGTERM until that transfer ends. The `dd` feeding an upload `curl` needs no pattern of its own, since it stops after 64 MiB or on SIGPIPE.
+
+Until a fix ships, let a test run through to the `Run again` button before closing the panel. Each phase is capped at 5 seconds by the panel's own timer (`phaseTimer.interval: 5000` in `/usr/share/omarchy/shell/plugins/panels/speedtest/Panel.qml`), so a complete run takes about 10 seconds and leaves nothing behind. Do not restart the shell while one is running.
+
+The two open pull requests cover different paths, so neither alone retires the workaround:
+
+- `#9344` marks both speed test panels `keepLoaded`, which fixes ordinary panel dismissal. A shell crash or restart mid-test still orphans the workers, tracked in open issue `#8515`.
+- `#7598` bounds each worker with a parent check, `curl --max-time` and a 30 second lifetime, which covers every path but shortens the leak rather than removing it.
+
+As of 2026-09-11 neither had landed, and the shipped script is byte-identical to the one at tag `v4.0.3`.
+
+**Verify.** ```bash
+ps -e -o pid=,ppid=,cmd= | grep -F '/omarchy-network-speedtest' | grep -v grep
+pgrep -af nflxvideo
+```
+
+Both should print nothing. To reproduce the leak deliberately on an unpatched shell, two reporters used:
+
+```bash
+omarchy-shell shell summon omarchy.speedtest '{}'
+sleep 7
+omarchy-shell shell hide omarchy.speedtest
+sleep 4
+ps -e -o pid=,ppid=,cmd= | grep -F '/omarchy-network-speedtest' | grep -v grep
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/6989> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-network-speedtest> · <https://github.com/omacom/omarchy/pull/7598> · <https://github.com/omacom/omarchy/pull/9344> · <https://github.com/omacom/omarchy/issues/8515> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-network-speedtest> · <https://api.fast.com/netflix/speedtest/v2>
 
 ---
 

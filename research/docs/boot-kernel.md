@@ -1,6 +1,6 @@
 # Boot, kernel & initramfs
 
-35 problems. Sorted by severity, then by how often users hit it.
+37 problems. Sorted by severity, then by how often users hit it.
 
 ## Recover from "ERROR: device 'UUID=...' not found" dropping to an initramfs emergency shell
 
@@ -1126,6 +1126,108 @@ Sources: <https://github.com/basecamp/omarchy/issues/8629> · <https://man.archl
 
 ---
 
+## Recover from "device '' not found" dropping to an emergency shell after the Quattro upgrade
+
+`quattro-upgrade-uki-missing-root-parameter` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `btrfs`, `desktop`, `laptop`, `limine`, `luks`, `omarchy`
+
+**Symptom.** The machine does not boot after upgrading to Omarchy 4 and lands in an initramfs emergency shell. The device in the message is empty quotes, not a UUID:
+
+```
+:: running hook [keymap]
+:: Loading keymap...done
+Error: device '' not found. Skipping fsck
+:: mounting '' on real root
+mount: /new_root: wrong fs type, bad option, bad superblock on , missing codepage or helper program, or other error.
+:: running emergency hook [plymouth]
+ERROR: Failed to mount '' on real root
+sh: can't access tty; job control turned off
+[rootfs ~]#
+```
+
+The empty quotes are the diagnostic detail. They mean the initramfs parsed a kernel command line carrying no `root=` at all, rather than a `root=` it could not resolve. A missing hook or a stale UUID would have printed the device name it failed to find.
+
+A second reporter whose upgrade was interrupted mid-transaction hit the same message with two additional symptoms: the active entry in `/boot/limine.conf` had its `cmdline:` line truncated to `initramfs_async=0` alone, and the kernel image that entry pointed at was missing because the pacman transaction never finished.
+
+**Cause.** Established by collaborator triage on `omacom/omarchy#6894`, which is now closed as completed. `/etc/limine-entry-tool.d/omarchy-defaults.conf` appends to `KERNEL_CMDLINE[default]` with `+=`, and `+=` by design stops `limine-entry-tool` falling back to `/etc/kernel/cmdline` or `/proc/cmdline`. On an install that predates the ISO pinning `root=` in `/etc/default/limine`, the moment that drop-in lands any UKI rebuilt afterwards carries only the drop-in's own parameters, and `root=` is gone. `omarchy-upgrade-to-quattro` repairs this in `preserve_kernel_cmdline_root`, but that runs after the package transaction, so there is a window in which the machine will not boot.
+
+Confirmed on an omarchy 4.0.2-1 install. `/etc/limine-entry-tool.d/omarchy-defaults.conf` uses `KERNEL_CMDLINE[default]+=` for the `quiet splash` and `initramfs_async=0` parameters, and `/etc/default/limine` carries the pinned `cryptdevice=` and `root=` line that a repaired or newly installed machine has. `/proc/cmdline` on the running kernel shows those parameters, which is what proves that file and that syntax are the ones that take effect.
+
+The `+=` behaviour is documented by the package itself, in `/etc/limine-entry-tool.conf` and at line 380 of `/usr/share/doc/limine-entry-tool/README.md`: `+=` "Ignores /etc/kernel/cmdline and /proc/cmdline". `/etc/default/limine` is the last of the four layers `load_config` reads in `/usr/lib/limine/limine-common-functions`, which is why pinning there wins and why the same file recommends `+=` rather than `=` there. The installer refuses to finish an install whose assembled config has no `root=` (`orchestrator/phases_impl.py:1288` on the `quattro` branch of `omacom/omarchy-iso`), and that is the pinning an upgraded machine never received.
+
+`omacom/omarchy#6951`, which pins `root=` before the packages that can drop it, is still open on 2026-09-11, so the window is still there. It is still there in the newest release: at tag `v4.0.3`, published 2026-09-08, `omarchy-upgrade-to-quattro` still calls `install_omarchy_quattro_packages` at line 2360 and `preserve_kernel_cmdline_root` only at line 2363.
+
+> **Audit corrected this record.** Checked every claim against local files on this omarchy 4.0.2-1 workstation and against `omacom/omarchy#6894` and `#6951` read in full today. The failure itself cannot be exercised here: this machine boots, it is already pinned, I have no sudo, and nothing was rebuilt, no UKI written and no VM used. So the mechanism is confirmed from source and from config files, and the recovery steps are confirmed as correct commands on Omarchy 4 rather than as a completed recovery.
+
+Confirmed on this machine. `/etc/limine-entry-tool.d/omarchy-defaults.conf` does use `KERNEL_CMDLINE[default]+=` for `quiet splash` and for `initramfs_async=0`, and `/etc/default/limine` does carry a pinned `cryptdevice=` and `root=` line, exactly as the record says. `/proc/cmdline` shows all of those parameters on the running kernel, which is the strongest check available here: that file and that `+=` syntax demonstrably produce a working cmdline. The `+=` mechanism is documented by the package, not only asserted by a collaborator: `/etc/limine-entry-tool.conf` and line 380 of `/usr/share/doc/limine-entry-tool/README.md` both say `+=` "Ignores /etc/kernel/cmdline and /proc/cmdline", and `load_config` in `/usr/lib/limine/limine-common-functions` loads `/etc/default/limine` last of four layers. `preserve_kernel_cmdline_root` is at line 520 of `/usr/share/omarchy/bin/omarchy-upgrade-to-quattro` and is called at line 2362, after `install_omarchy_quattro_packages` at 2359, so the record's window claim holds on the installed version, and it still holds at tag `v4.0.3` (lines 2360 and 2363), which I fetched because 4.0.2 is no longer the newest release. `#6951` is still open. `#6894`'s collaborator comment supports the cause in detail and recommends the same recovery, appending to `/etc/default/limine` with `+=` and running `limine-mkinitcpio`, so the citation genuinely supports the claim. Issue `#6894` is closed as completed, which the record did not say.
+
+`limine-mkinitcpio` over the preset form is correct, which I was asked to confirm. `/etc/mkinitcpio.d/` is empty here, and `/usr/bin/mkinitcpio` line 986 dies with `No presets found in %s` when it is, so the record's quoted message is right. The underlying reason is firmer than the record gave: `limine-mkinitcpio-hook` ships `/etc/pacman.d/hooks/90-mkinitcpio-install.hook`, which overrides Arch's hook of the same name and calls `limine-mkinitcpio-install` instead of the script that generates presets, and `mkinitcpio` on `PATH` resolves to `/usr/local/bin/mkinitcpio`, a wrapper from that same package which warns "This does not update Limine boot entries" and offers `limine-mkinitcpio`. I also checked that the quattro upgrade never touches `/etc/mkinitcpio.d/`, so an upgraded machine can still hold a stale preset and `mkinitcpio -P` can run there and leave the boot entries untouched. That is the stronger reason to avoid it, so I put it first. I checked `sudo pacman -S linux` against `/usr/bin/omarchy-update-pacman-guard`: the guard aborts only when both `-S` and `-u` are present, so that command is not blocked and the record is not proposing a blocked path.
+
+What was wrong. The fix's one worked example is `root=/dev/mapper/root`, and the Omarchy 4 ISO opens LUKS as `omarchy_root` (`configurator` on the `quattro` branch of `omacom/omarchy-iso`), so `/dev/mapper/omarchy_root`. On a boot fix, one example with no way to tell which name applies is a defect, so I rewrote the fix to derive the name from `ls -l /dev/mapper/` and to give the encrypted and unencrypted forms separately, with `cryptdevice=` and `root=` agreeing on the mapper name. Second, the record tells the reader to get real values off the machine but never warns that the values on hand come from a snapshot boot: `/proc/cmdline` there carries the snapshot's `rootflags=subvol=` and not `@`, and copying it reproduces the unbootable state. The package warns about this itself in `/etc/limine-entry-tool.conf`, and it now appears in both the fix and the danger. Everything else in the record held and I left it as written.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** You are editing the kernel command line on a machine that already will not boot. Keep `+=` rather than `=` in `/etc/default/limine`, because a bare `=` replaces Omarchy's own defaults, `initramfs_async=0` among them. Read the device names and the decrypted root's mapper name off the machine with `lsblk -f`, `blkid` and `ls -l /dev/mapper/` instead of copying the example: an ISO-installed machine is `omarchy_root` and an upgraded one is commonly `root`, and the wrong name is another failed boot. Do not copy `rootflags=` out of `/proc/cmdline` while you are booted from a snapshot, because it names the snapshot's subvolume rather than `@`, which is the same warning the package prints in `/etc/limine-entry-tool.conf`. If you rebuild while booted from a snapshot, restore that snapshot over `@` before rebooting, or the new entry stays rooted on the snapshot.
+
+**Fix.**
+
+Boot a working kernel first. The Limine menu's btrfs snapshot entries point at complete kernel copies, so pick one of those rather than the broken `linux` entry.
+
+Read the real values off the machine before you write anything:
+
+```bash
+lsblk -f                 # the LUKS container and the btrfs root
+blkid                    # PARTUUIDs and UUIDs
+ls -l /dev/mapper/       # the decrypted root's actual mapper name
+cat /proc/cmdline        # reference only, see the warning below
+```
+
+Two things that catch people here. The mapper name is not the same on every install: a machine installed by the Omarchy 4 ISO opens LUKS as `omarchy_root`, so `/dev/mapper/omarchy_root`, while a machine that came up through earlier releases is commonly `/dev/mapper/root`. Use what `ls -l /dev/mapper/` shows. And while you are booted from a snapshot, `/proc/cmdline` carries the snapshot's `rootflags=subvol=` value, not `@`, so do not copy that parameter out of it. The package warns about exactly this in `/etc/limine-entry-tool.conf`.
+
+Then pin the parameters the UKI is missing, in the file Omarchy reads, and rebuild. On an encrypted root, `cryptdevice=` names the LUKS partition and the mapper name to create, and `root=` names that mapper:
+
+```bash
+# add to /etc/default/limine, keeping += so Omarchy's own defaults survive
+sudo tee -a /etc/default/limine >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" cryptdevice=PARTUUID=<partuuid-of-the-luks-partition>:omarchy_root root=/dev/mapper/omarchy_root rootflags=subvol=@ rw rootfstype=btrfs"
+EOF
+
+sudo limine-mkinitcpio
+```
+
+On an unencrypted root, `root=` names the btrfs partition itself, by UUID rather than by a device node that can move:
+
+```bash
+sudo tee -a /etc/default/limine >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" root=UUID=<uuid-of-the-btrfs-partition> rootflags=subvol=@ rw rootfstype=btrfs"
+EOF
+
+sudo limine-mkinitcpio
+```
+
+If the upgrade was interrupted and the kernel image itself is missing, finish the transaction from the snapshot before rebuilding:
+
+```bash
+sudo mount -o remount,rw /
+sudo pacman -S linux
+sudo limine-mkinitcpio
+```
+
+That `pacman -S` is not blocked by Omarchy's ALPM guard, which aborts only when both `-S` and `-u` are present. Do not turn it into `pacman -Syu`: that is the guard's case, and on a half-finished upgrade it is a partial-upgrade risk as well.
+
+Use `limine-mkinitcpio`, not the `mkinitcpio` preset form. The preset form does not update the Limine boot entries or rebuild the UKI, which is the whole of what this machine needs. On a machine installed by the Omarchy 4 ISO it does not even run: `limine-mkinitcpio-hook` ships `/etc/pacman.d/hooks/90-mkinitcpio-install.hook`, which overrides Arch's own hook and never generates presets, so `/etc/mkinitcpio.d/` is empty and `mkinitcpio -P` stops with `No presets found in /etc/mkinitcpio.d`. An upgraded machine may still have a preset file left from before, in which case `mkinitcpio -P` runs and silently leaves the boot entries stale. `mkinitcpio` on `PATH` is itself a wrapper from that package at `/usr/local/bin/mkinitcpio`, and it answers a preset run by warning that it did not update the Limine boot entries and offering to run `limine-mkinitcpio` for you.
+
+One trap from the reporter who recovered this way. Running the rebuild while booted from a snapshot roots the new boot entry on the snapshot rather than on the real `@` subvolume, and Omarchy notifies you to restore the snapshot before rebooting. Use the snapshot tool's restore menu to replace `@` with the snapshot you are running from, then reboot into the normal entry.
+
+**Verify.** ```bash
+cat /proc/cmdline                 # root= is present, with cryptdevice= on LUKS
+mount | grep ' / '                # subvol=/@, not a snapshot path
+omarchy-migrate --pending         # empty, if the upgrade had stalled
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/6894> · <https://github.com/omacom/omarchy/pull/6951> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-upgrade-to-quattro> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py>
+
+---
+
 ## Boot/reboot loop when the TPM is present but unresponsive (systemd-pcrphase)
 
 `tpm-unresponsive-reboot-loop` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `laptop`, `limine`, `omarchy`, `systemd-boot`, `tpm`
@@ -2104,6 +2206,138 @@ sync
 **Verify.** The installer reaches its menu/desktop without the emergency shell, and `lsblk -f` inside the live session shows the ISO label on the USB device.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8454> · <https://github.com/basecamp/omarchy/issues/8680>
+
+---
+
+## Omarchy installer dies at 'mounting the ESP failed (exit 32)' with a SQUASHFS superblock error
+
+`installer-mounting-the-esp-failed-squashfs-superblock` · severity: **high** · frequency: **occasional** · applies to: `arch`, `btrfs`, `desktop`, `dual-boot`, `laptop`, `limine`, `luks`, `omarchy`, `windows`
+
+**Symptom.** Installing Omarchy 4 from the ISO with the free space option, either alongside Windows or alongside plain data partitions. The installer creates the partitions, the LUKS container where asked for, the btrfs filesystem and its subvolumes, then stops at the last disk step:
+
+```
+mount: /mnt/boot: fsconfig() failed: Can't find a SQUASHFS superblock on nvme0n1p3.
+       dmesg(1) may have more information after failed mount system call.
+mounting the ESP failed (exit 32)
+```
+
+The device named in the message is the EFI partition the installer just created, so its number varies with the disk: `nvme0n1p3` on a dual-boot machine, `sda2` on a disk holding one data partition. The mount target is `/mnt/boot` on an encrypted install and `/mnt/efi` on an unencrypted one (`configurator:660` and `:662`). The aborted run removes the partitions it created before handing the disk back, so nothing is written to your existing partitions.
+
+Two threads report it. In the first the free space was on a second NVMe drive with Windows on the first, and five other people in that thread report the identical message or confirm the workaround. In the second the target disk held a data partition and unallocated space but no EFI System Partition at all, reproduced by the reporter on a ten year old laptop and on a PC, once with an NTFS data partition and once with an empty Linux filesystem, and confirmed by other reporters on a MacBook Pro 16 (T2) with NTFS and exFAT partitions, on an MSI laptop, and on an Acer Nitro AN515-55 with a data-only NTFS drive.
+
+One thing is common to every report in both threads: the target disk carried no FAT partition before the install. See the cause.
+
+**Cause.** Named in the pull request that fixes it, `omacom/omarchy-iso#111`, still open and unmerged on 2026-09-11. Two facts about the installer combine.
+
+First, the free-space path always creates its own dedicated EFI partition and never adopts an existing one. The comment at `configurator:531` says exactly that, and the only consumer of `detect_windows_esp` is a `say` line at `:539` that prints what it found. So the device named in the SQUASHFS error is always the partition the installer just made, and a thread that reads as a missing-ESP problem is the same defect.
+
+Second, that new partition is formatted and then mounted with no filesystem type:
+
+```bash
+disk_step "creating the ESP filesystem on $efi_dev" mkfs.fat -F32 -n OMARCHY_EFI "$efi_dev"
+disk_step "mounting the ESP" mount "$efi_dev" /mnt"$esp_mount_in_target"
+```
+
+Those are `configurator:772` and `:773` on the `quattro` branch of `omacom/omarchy-iso`, in the file last changed by commit `2673c613`, so every ISO built from that branch carries the defect. `detect_windows_esp` has the same untyped `mount -o ro` at `:396`.
+
+The SQUASHFS text is not a claim about what is on the partition. `mount(8)` with no `-t` asks libblkid for the type, and when libblkid comes back empty or ambiguous it falls back to trying every non-`nodev` filesystem listed in `/etc/filesystems` or `/proc/filesystems`. On the live ISO `squashfs` is in that list, because the airootfs is a squashfs image, and `vfat` usually is not, because nothing mounts a FAT volume during a normal live boot. The error therefore names the last type tried, not the thing that failed. Naming the type removes the guess and also lets the kernel autoload the driver, which the untyped fallback cannot do.
+
+It is not a timing race, despite the pull request's title, and it is not a leftover signature. `create_partition` already runs `partprobe` and `udevadm settle`, `configurator:718` to `:720` runs `partprobe`, `sync` and `sleep 2`, `wait_for_device` at `:722` polls for the device node and aborts the install if it never appears, and `wipefs -af` at `:728` and `mkfs.fat` at `:772` each open that device and write to it successfully before the mount runs. The ESP wipe arrived in commit `7d3b01e` on 2026-08-13, and a reporter hit the failure on an ISO dated 2026-08-14 with the FAT boot sector `dd`-verified as correctly written at the partition start. Upstream states plainly that why the libblkid probe comes back empty or ambiguous is still not pinned down: two attempts to reproduce the ambiguity on a loop device failed.
+
+One likely explanation for the disk layouts involved, consistent with every report in both threads but not confirmed upstream. `detect_windows_esp` at `:391` loops over `blkid -t TYPE=vfat -o device`, skips any candidate that is not on the target disk, and mounts each one that is left. That mount hands a libblkid-identified `vfat` to `mount(2)`, which autoloads the `vfat` module and puts it in `/proc/filesystems`. A target disk that already carries a FAT partition therefore has `vfat` in the fallback list by the time `:773` runs, and a target disk without one does not. Every failing report is a target disk with no FAT partition on it, including the case where Windows and its ESP sat on a second drive and that same reporter then installed successfully onto the Windows disk itself. It also explains why creating a small FAT partition by hand works as a workaround.
+
+> **Audit corrected this record.** Checked against the `quattro` branch of `omacom/omarchy-iso` fetched today, and against all four cited threads read in full with comments. Neither this record nor its fix can be exercised on this workstation: it is an installer defect on a live ISO, I have no sudo, no ISO was built and no VM was used, so everything below is source reading and thread reading, not a run.
+
+What held. The central claim is confirmed in the source: the free-space path always creates its own ESP and never adopts an existing one, stated in the comment at `configurator:531` to `:536`, with `detect_windows_esp`'s only consumer a `say` line at `:539`, and the shared-ESP path deleted outright in commit `f79578f2` on 2026-07-18. All three line numbers the record cites still match today: the comment at `:531`, `create_partition` for the EFI partition at `:704`, and the untyped `mount -o ro` in `detect_windows_esp` at `:396`. The bare ESP mount is still present at `:773`, the file's last commit is still `2673c613` (2026-09-01), and `omacom/omarchy-iso#111` is still open, so an ISO built from `quattro` still carries the defect. The fix's rerun path is upstream's own: `abort()` at `configurator:178` to `:183` prints `You can retry later by running: ./.automated_script.sh`. The counts hold: three confirmations of the patch sequence in `#7263`, and the second route reported twice in `#7515`, once with a 256M partition and once with a 2 MB one, with one reporter deleting it afterwards and still booting.
+
+What was wrong. The cause's mechanism is wrong, and it was the one thing I was asked to test hard. It claims the probe runs before udev has re-read the new partition, or reads a leftover signature. Upstream refutes both on the pull request: `create_partition` plus `configurator:718` to `:722` already run `partprobe`, `udevadm settle`, `sync`, `sleep 2` and a ten second `wait_for_device`, and `wipefs -af` at `:728` (added in `7d3b01e`, 2026-08-13) plus `mkfs.fat` at `:772` each open and write the device successfully before the mount. `udevadm settle` and `sleep 2` were in the PR's first revision and were removed from the head `daa0cc3` after review, so the record's fix reproduces lines upstream deliberately dropped and justifies them with a mechanism upstream rejects. The real mechanism, from `mount(8)` as quoted by the reviewer, is that an untyped mount whose libblkid probe comes back empty or ambiguous falls through every non-`nodev` type in `/proc/filesystems`, where `squashfs` is present on the live ISO and `vfat` is not, so the error names the last thing tried. Why the probe fails is explicitly not pinned down upstream, and I have said so rather than substituting a new guess. Two unverified specifics in the symptom also had to go: `#7515` says "empty linux fs partition", not ext4, and "including with the free space on the Windows disk" is contradicted by `#7263`'s own body, whose reporter says installing onto the Windows disk is what worked. I rewrote the danger: its first sentence mis-described the rollback, and `#7867`, which it already cited, carries two concrete hazards it did not pass on, one of them a command (`omarchy-refresh-limine`) that silently removes Windows from the boot menu after a successful install.
+
+One addition is labelled as inference and not as fact. `detect_windows_esp` mounts any FAT partition found on the target disk, which autoloads `vfat` into `/proc/filesystems` before the ESP mount runs, and every failing report in both threads is a target disk with no FAT partition on it. That explains the otherwise unexplained second route and why it must be on the same disk. I marked it "not confirmed upstream" in the record because upstream says the trigger is still open.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** You are repartitioning a disk that holds data you want to keep. Confirm the target disk and partition on the installer's summary screen before accepting: on a two-disk machine the free space and the Windows ESP are on different drives, and picking the wrong one destroys Windows. The aborted run removes the partitions it created before handing the disk back (`disk_abort_hook` at `configurator:427`, which unmounts the target, closes LUKS and reclaims those partitions), so a rerun creates them again in the free space rather than reusing anything left over. The second route has you partition that same disk by hand, so back the data up first and create the new partition inside the free space only.
+
+Two things afterwards on a dual-boot machine, both from `omacom/omarchy#7867`. This free-space path can leave a 2 GB ESP the firmware does not surface in its top-level boot list, so the machine boots straight to Windows, and recovery there took a chroot, a Limine reinstall, and repointing the `/boot` mount in `/etc/fstab` at the real Windows ESP. The same issue reports that `omarchy-refresh-limine` drops any Windows entry from `/boot/limine.conf` on every run and never restores it, because the template it copies in carries no OS entries and nothing downstream rescans for `bootmgfw.efi`, so do not run it on a dual-boot machine until that is fixed.
+
+**Fix.**
+
+One change fixes this: name the filesystem type on the ESP mount. Patch the installer script inside the live environment and rerun it. The aborted run already rolled back the partitions it created, and the edit is lost on reboot, so do it in the same live session that failed.
+
+1. The installer prints `You can retry later by running: ./.automated_script.sh` and exits to a shell in `/root` on the live ISO. Open the script:
+
+```bash
+ls -la
+nano configurator
+```
+
+Which editors the ISO ships was not confirmed. If `nano` is absent, try `vim`, or use the `sed` form at the end of this fix.
+
+2. Find the block that formats and mounts the ESP (search for `mounting the ESP`):
+
+```bash
+disk_step "creating the ESP filesystem on $efi_dev" mkfs.fat -F32 -n OMARCHY_EFI "$efi_dev"
+disk_step "mounting the ESP" mount "$efi_dev" /mnt"$esp_mount_in_target"
+```
+
+Change the second line to:
+
+```bash
+disk_step "mounting the ESP" mount -t vfat "$efi_dev" /mnt"$esp_mount_in_target"
+```
+
+That is the whole fix. The widely copied version of this workaround also inserts `udevadm settle` and `sleep 2` above the mount. They are harmless but they are not what repairs it, and upstream removed both from the pull request after review, because several settles and a ten second device poll already run before this point. Naming the type is the change that alters the outcome.
+
+3. Optional, and only if Windows is on the target disk. In `detect_windows_esp`, change:
+
+```bash
+if mount -o ro "$p" "$tmp_mp" 2>/dev/null; then
+```
+
+to:
+
+```bash
+if mount -t vfat -o ro "$p" "$tmp_mp" 2>/dev/null; then
+```
+
+The loop already filters on `blkid -t TYPE=vfat`, so this changes no outcome on the success path. It makes an unreadable candidate fail as a FAT mount instead of falling through the same filesystem list.
+
+4. Save, then start the installer again:
+
+```bash
+umount -R /mnt 2>/dev/null
+./.automated_script.sh
+```
+
+Answer the installer's questions again exactly as before. Three people in `omacom/omarchy#7263` confirmed this sequence completes the install, and four more confirmed it on `omacom/omarchy-iso#111`, one of whom changed only the ESP mount line and nothing else, and one of whom built an ISO from the branch.
+
+Without an editor, the same two edits:
+
+```bash
+sed -i 's|mount "$efi_dev" /mnt"$esp_mount_in_target"|mount -t vfat "$efi_dev" /mnt"$esp_mount_in_target"|' configurator
+sed -i 's|mount -o ro "$p" "$tmp_mp"|mount -t vfat -o ro "$p" "$tmp_mp"|' configurator
+grep -n 'mount -t vfat' configurator      # two hits
+bash -n configurator                      # still parses
+```
+
+A second route was reported to work twice. On a disk with data partitions and no EFI System Partition, two reporters created a small FAT32 partition themselves before running the installer, and the free-space install then completed:
+
+1. Press Ctrl+C at the installer to reach a shell, or open a second console.
+2. `cfdisk /dev/sdX` on the target disk. Create a 256M partition inside the free space, set its type to `EFI System`, write, quit.
+3. Format it: `mkfs.fat -F32 /dev/sdXN`
+4. Relaunch with `./.automated_script.sh` and pick the free space option again.
+
+The second reporter used a 2 MB FAT partition and rebooted into the installer first. The partition has to be on the disk you are installing to, because `detect_windows_esp` skips candidates that are not. It ends up unused either way: the installer still creates and uses its own EFI partition. Prefer the typed mount above, which is the change upstream is merging. One reporter deleted the spare partition afterwards and Omarchy still booted, but that was one machine, so check `findmnt /boot` points at the installer's own ESP before removing anything.
+
+**Verify.** The installer passes `mounting the ESP` and continues to package installation. After the first boot into Omarchy:
+
+```bash
+findmnt /boot                    # FSTYPE vfat, SOURCE the new EFI partition
+lsblk -f | grep OMARCHY_EFI
+lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME /dev/sdX    # the data partition untouched
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/7263> · <https://github.com/omacom/omarchy/issues/7515> · <https://github.com/omacom/omarchy/issues/7867> · <https://github.com/omacom/omarchy-iso/pull/111> · <https://github.com/omacom/omarchy-iso/blob/2673c613d9a71e23920e43fbb951238145e0f1e8/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/configurator> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/root/.automated_script.sh>
 
 ---
 

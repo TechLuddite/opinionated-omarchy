@@ -1,6 +1,6 @@
 # Apps, containers & services
 
-50 problems. Sorted by severity, then by how often users hit it.
+59 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix btrfs "No space left on device" while df still shows free space
 
@@ -231,6 +231,64 @@ Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.
 
 ---
 
+## Stop Ghostty dying with a SIGSEGV in its io thread by removing Omarchy's async-backend = epoll
+
+`ghostty-epoll-backend-segfault-write-queue` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `ghostty`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** Ghostty disappears, taking every window in the process with it. With the single-instance launch Omarchy uses (`--gtk-single-instance=true`) that is every terminal you had open, not one. It happens while typing, on an idle terminal, and on a theme switch.
+
+`coredumpctl` shows the same fault every time, on six machines across four Omarchy releases:
+
+```
+kernel: io[493042]: segfault at 108 ip 000055eac209190d ... in ghostty[151b90d,55eac1d52000+88d000]
+```
+
+Thread `io`, `SIGSEGV` / `SEGV_MAPERR`, fault address `0x108`, offset `ghostty + 0x151c90d`, instruction `mov 0x108(%r14),%rcx` with `r14 = 0`, build-id `36aeb61c844ddf428f960758acdb8b37f30d7e31`.
+
+Triggers reported, in order of how deterministic they are: launching a TUI that queries terminal capabilities at startup (`herdr` every time, on two machines, to the second), a tool issuing an OSC 4 palette query, plain shell-integration traffic on a terminal idle for 23 seconds after login, and a config reload from a theme switch.
+
+Reported on Omarchy 4.0.0rc5-1, 4.0.0-1, 4.0.1-1 and 4.0.2-1, all with Ghostty 1.3.1-2, on NVIDIA, Intel `xe` and Intel Panther Lake graphics. One reporter's `herdr` client detached cleanly and its panes survived server side, so multiplexed work comes back and anything running directly in a surface does not.
+
+**Cause.** Omarchy ships `async-backend = epoll` at line 41 of its Ghostty config and the migration copies it into your own, where it stays. Confirmed on an omarchy 4.0.2-1 install: the line is at line 41 of both `/usr/share/omarchy/config/ghostty/config` (owned by `omarchy-settings`) and `~/.config/ghostty/config`. It was added as a workaround for slowness on Hyprland.
+
+The epoll backend of libxev, which that setting selects, has a null dereference in its write path. The thread's source reading is against libxev rev `34fa5087`, the revision Ghostty 1.3.1 pins: `epoll.zig` checks completion state when submitting but not when dispatching, so a dead completion still reaches its callback, and the write callback opens with `const req_inner: *xev.WriteRequest = q_inner.head.?` in `stream.zig` on a queue whose head and tail are both null. `next` sits at offset `0x108` of the epoll `WriteRequest`, which is the fault address. Upstream bug `mitchellh/libxev#234`, open since 2026-08-18 with no fix, and libxev's own queued-write test skips the x86_64 dynamic case as failing.
+
+One reporter caught `error(io_exec): write error: error.FileDescriptorAlreadyPresentInSet` logged immediately before a crash, which is `epoll_ctl` returning `EEXIST` and cannot come from an io_uring backend, so the failing write was demonstrably in the epoll path. The second crash on that machine did not log it, so treat it as a co-symptom rather than a precursor.
+
+> **Audit corrected this record.** Confirmed on this machine, omarchy 4.0.2-1 and omarchy-settings 4.0.2-1: `async-backend = epoll` is line 41 of `/usr/share/omarchy/config/ghostty/config`, `pacman -Qo` names `omarchy-settings 4.0.2-1` as its owner, and `diff` shows `~/.config/ghostty/config` byte-identical to the shipped file, so the migration claim holds. Also confirmed here that `/usr/bin/omarchy-refresh-config` copies the shipped file over the user one after saving `$user_config_file.bak.$(date +%s)`, which is what the fix warns about. I read `omacom/omarchy#6868` in full with comments: six reporters across 4.0.0rc5-1, 4.0.0-1, 4.0.1-1 and 4.0.2-1, all Ghostty 1.3.1-2, all the same `io` thread SIGSEGV at `ghostty + 0x151c90d` with `r14 = 0` faulting on `mov 0x108(%r14),%rcx`, on NVIDIA, Intel xe and Panther Lake, with the herdr, OSC 4, idle and theme-reload triggers the symptom lists. The thread supports the claim. I verified the libxev source claims directly rather than trusting the thread: `src/watcher/stream.zig:818` is `const req_inner: *xev.WriteRequest = q_inner.head.?`, `src/backend/epoll.zig:380` guards submission with `if (c.flags.state != .adding) continue` while the dispatch callbacks at lines 432, 452 and 494 have no such guard, and `test "pty: queued writes"` skips itself with `if (xev.dynamic and builtin.cpu.arch == .x86_64) return error.SkipZigTest`. `mitchellh/libxev#234` is open with no fix, and libxev main is still `9ce8e8e6` dated 2026-05-06, so nothing has landed. Two things were wrong in the fix and I rewrote it. First, the sentence "PR 7649 is not this one" cites `omacom/omarchy#7649`, which is a closed pull request titled "Fix Codex usage collection on 0.149" and appears nowhere in issue 6868 or pull request 6963, so it was misleading noise and is gone. Second, the release statement needed re-checking against a tag published after the record was written: `v4.0.3` (2026-09-08) and the `quattro` branch both still carry the epoll line at line 41, which is stronger evidence than the pull request being open, so the rewritten fix states both and adds a grep to tell when the fix ships. Not exercised: Ghostty is not installed on this workstation (only `foot 1.27.0-2`), so I could not run the `sed`, reproduce the crash, or see the `libxev manual backend=epoll` startup line, and the `verify` block is unchanged but untested here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+Remove the setting from your own config. Do not edit the file under `/usr/share/omarchy`: it belongs to the `omarchy-settings` package and is not the file Ghostty reads.
+
+```bash
+grep -n 'async-backend' ~/.config/ghostty/config
+sed -i '/^async-backend = epoll$/d' ~/.config/ghostty/config
+```
+
+Then quit every Ghostty window and start it again. The crash lives in the long-running single-instance process, so a reload is not enough to leave the epoll backend behind. Ghostty falls back to its default backend, which is what the reporter who found the deterministic `herdr` trigger did.
+
+Two things to know afterwards. `omarchy-refresh-config ghostty/config` copies the shipped file back over yours, epoll line included, after saving your version as `~/.config/ghostty/config.bak.<epoch>`, so if you ever run it you will need to delete the line again. And the removal is what upstream intends: `omacom/omarchy#6963`, "Remove unsafe Ghostty epoll workaround", was still open on 2026-09-11, and the newest tag `v4.0.3` (2026-09-08) still carries `async-backend = epoll` at line 41 of `config/ghostty/config`, as does the `quattro` branch. A plain `omarchy update` therefore does not fix this yet. Check whether it has landed before editing by hand:
+
+```bash
+grep -n 'async-backend' /usr/share/omarchy/config/ghostty/config   # no output once the PR ships
+```
+
+If you would rather keep the workaround the setting was added for, there is nothing else in the thread to offer: libxev has no fix, `mitchellh/libxev#237` was backported and measured in the issue thread without significantly reducing the crash rate, and Ghostty upstream asked for a debug build rather than more stripped 1.3.1-2 cores.
+
+**Verify.** ```bash
+grep -c 'async-backend' ~/.config/ghostty/config     # 0
+coredumpctl list ghostty                              # no new entry after the restart
+```
+
+Ghostty's startup log line `info(gtk_ghostty_application): libxev manual backend=epoll` is what the setting produces, so its absence is the direct check.
+
+Sources: <https://github.com/omacom/omarchy/issues/6868> · <https://github.com/omacom/omarchy/pull/6963> · <https://github.com/mitchellh/libxev/issues/234> · <https://github.com/omacom/omarchy/pull/7649> · <https://github.com/omacom/omarchy/blob/v4.0.3/config/ghostty/config> · <https://github.com/mitchellh/libxev/pull/237> · <https://github.com/mitchellh/libxev/blob/main/src/watcher/stream.zig> · <https://github.com/mitchellh/libxev/blob/main/src/backend/epoll.zig> · <https://github.com/mitchellh/libxev/blob/main/src/queue.zig>
+
+---
+
 ## Fix virt-manager failing to connect to qemu:///system
 
 `libvirt-virt-manager-permission-denied` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `kvm`, `libvirt`, `manjaro`, `omarchy`, `polkit`, `qemu`
@@ -429,6 +487,69 @@ omarchy reinstall configs   # DESTRUCTIVE: re-copies all of /etc/skel over $HOME
 **Verify.** After restore and reboot, the version shown in the Limine entry matches the snapshot you selected, and the previously broken behaviour is gone. `sudo btrfs subvolume list /` shows the restored root.
 
 Sources: <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots> · <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting>
+
+---
+
+## Windows VM launch does nothing after the polkit password (setgid bit on ~/Windows fails the mode check)
+
+`omarchy-windows-vm-launch-silent-setgid-chmod` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `docker`, `laptop`, `omarchy`, `windows-vm`
+
+**Symptom.** Omarchy 4.0.2-1. Apps menu > Windows, or `omarchy-windows-vm launch`, shows the polkit password dialog, accepts the password, and then nothing happens: no error, no window. Every retry asks for the password again. From a terminal the elevated step exits 1 with no output:
+
+```console
+$ stat -c %a ~/Windows
+2700
+$ pkexec /usr/bin/omarchy-windows-vm __priv up; echo $?
+1
+```
+
+`omarchy-windows-vm remove` fails the same way with `Windows VM removal stopped before user-side cleanup`, so reinstalling does not help. It hits installs upgraded from 4.0.1 (`~/Windows` at `drwx--S---`) and fresh 4.0.2 installs from the second launch onward. Six reporters confirmed it on Intel and AMD machines, all on kernel 7.1.9-arch1-2, coreutils 9.11 and btrfs.
+
+**Cause.** Established by the reporters and confirmed on this machine. `prepare_caller_mounts()` in `/usr/bin/omarchy-windows-vm` (line 583 in omarchy 4.0.2-1) runs `chmod 0700` on the pinned `~/.windows` and `~/Windows` sources and then requires `stat -Lc %a` to return exactly `700`. GNU coreutils `chmod` deliberately preserves a directory's setuid and setgid bits when given a numeric mode of four or fewer digits, so `chmod 0700` leaves `2700` as `2700` and the check returns 1. The same strict `mode == 700` test is in `mounted_leaf_matches()` (line 508), and `assert_mounts_safe` gates `launch`, `install` and `remove`, so none of them can recover. The `dockurr/windows` container sets the shared folder (`~/Windows` on the host) to `2777` when it starts against an **empty** share, which is why the second launch fails on a fresh install. One reporter traced that to the emptiness probe in the image's `/run/samba.sh` and found a non-empty share is left alone. `windows-vm.desktop` has `Terminal=false`, so the failure is invisible. This is coreutils behaviour, not a kernel regression, which the original report first claimed and then retracted.
+
+> **Audit corrected this record.** Checked the code path against the installed script and the upstream tree, and checked the coreutils behaviour by experiment on this machine. Confirmed here on omarchy 4.0.2-1: line 583 of `/usr/bin/omarchy-windows-vm` is exactly `chmod 0700 -- "/proc/$BASHPID/fd/$storage_fd" "/proc/$BASHPID/fd/$shared_fd"`, and lines 588 to 590 reject any mode that is not `700`. `mounted_leaf_matches()` starts at line 508 and its test at line 518 is `$mode == 700`. `assert_mounts_safe()` at line 839 is called by `__priv_up` (line 896), `__priv_up_wait` (line 902) and `__priv_remove` (line 931), so launch, install and remove all gate on it. `up` is an accepted privileged action (line 149) and `with_vm_lock` returns the action's own status (line 131), which makes the record's exit 1 from `pkexec ... __priv up` consistent with the code. The desktop entry written at line 1170 does carry `Terminal=false`, and the `Windows VM removal stopped before user-side cleanup` message is at line 1373. `gh api` on `repos/omacom/omarchy/contents/bin/omarchy-windows-vm?ref=quattro` returned a file byte-identical to the installed one, and the v4.0.2 to v4.0.3 compare does not list `bin/omarchy-windows-vm`, so nothing has been fixed upstream. Issue 9334 is open and supports the cause in full, including the retraction of the original kernel claim, the `dockurr/windows` emptiness probe in the image's `/run/samba.sh`, the `hide dot files = yes` detail, and the inode and bind-anchor warning. PR #9322 is still open with `merged_at` null and its diff is the `chmod u=rwx,go=,a-s` change the record describes, so the fix section's claim that nothing has merged holds today, 2026-09-11. Measured in a throwaway `/tmp` directory here with coreutils 9.11: `chmod 0700` and `chmod 700` leave `2700` at `2700` and turn `2777` into `2700`, `chmod 00700` gives `700` from both, and the same preservation happens through the `/proc/$$/fd/N` indirection the script uses. That experiment is where the record broke. Its fix leads with `chmod g-s ~/Windows ~/.windows` and tells the reader to expect `700`, but `g-s` on the `2777` that the container leaves behind yields `777`, so a user following that check on the common fresh-install case sees `777` and concludes the workaround failed. The launch does still succeed from `777`, so the rewrite keeps `g-s` as a labelled alternative and leads with `chmod 00700`, which is the upstream issue's own recommendation and is correct from either starting mode. Two minor overreaches left in the symptom rather than rewritten: the thread carries seven confirmations, not six, and only four of them state kernel, coreutils and btrfs together, so "all on" is a little stronger than the source. Intel and AMD are both supported, since the reporter's machine is Intel CoffeeLake-H and christianguenter2 reports an AMD Ryzen AI 5 340. Not exercised: no Windows VM is installed here, `~/.windows` and `/var/lib/omarchy/windows` do not exist, `~/Windows` is a symlink to `/srv/vms/windows/shared`, and with no sudo I could not run `pkexec ... __priv up`, watch the container set `2777`, or read `/run/samba.sh` inside the image. Those three claims rest on the issue thread alone.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+No upstream fix has merged as of 2026-09-11. `bin/omarchy-windows-vm` on the `quattro` branch is byte-identical to the installed 4.0.2-1 copy and still runs `chmod 0700` at line 583, and v4.0.3 (2026-09-08) does not touch the file. PR #9322 (clear the special bits with `chmod u=rwx,go=,a-s` while keeping the strict check) is open, as are a dozen duplicate PRs for the same line, including #10046 and #10113.
+
+Until one lands, clear the bits in place. `chmod` never changes the inode, so the root-owned bind anchor under `/var/lib/omarchy/windows/mounts/users/<uid>/` stays valid:
+
+```bash
+chmod 00700 ~/Windows ~/.windows
+stat -c '%a %n' ~/Windows ~/.windows    # both 700
+omarchy-windows-vm launch
+```
+
+Use the five-digit `00700`. It clears the setgid bit and sets mode 700 from either starting state, the `2700` of an upgraded install or the `2777` the container leaves behind. Measured on this workstation, omarchy 4.0.2-1 with coreutils 9.11:
+
+```console
+$ mkdir -m 2777 /tmp/sg && chmod 0700 /tmp/sg && stat -c %a /tmp/sg
+2700
+$ chmod 00700 /tmp/sg && stat -c %a /tmp/sg
+700
+```
+
+`chmod g-s ~/Windows ~/.windows` also brings the next launch straight up and four reporters confirmed it, but do not expect mode 700 from it. It clears only the setgid bit, so a share the container left at `2777` becomes `777`, and the script's own `chmod 0700` is what takes it to 700 on the next launch. `chmod 0700` and `chmod 700` clear nothing at all.
+
+The bit comes back whenever the container starts against an empty `~/Windows`, so either repeat the `chmod 00700` before each launch, or leave any file in the folder. A dotfile stays hidden from the guest because the generated `smb.conf` keeps Samba's default `hide dot files = yes`:
+
+```bash
+touch ~/Windows/.keep
+```
+
+Do not move or recreate `~/Windows`. That changes the inode, and the next launch then fails with `protected mount ... no longer matches its home source` until the anchor is unmounted with `pkexec umount /var/lib/omarchy/windows/mounts/users/$(id -u)/shared`.
+
+**Verify.** ```bash
+stat -c '%a %n' ~/Windows ~/.windows          # 700 and 700 after chmod 00700, no leading 2
+pkexec /usr/bin/omarchy-windows-vm __priv up; echo $?   # 0 and the container comes up
+```
+
+If you used `chmod g-s` instead, expect `777` on a share the container had left at `2777`. That is not a failure. The launch still succeeds, because with no special bit in the way the script's own `chmod 0700` clears group and other access.
+
+Sources: <https://github.com/omacom/omarchy/issues/9334> · <https://github.com/omacom/omarchy/pull/9322> · <https://github.com/omacom/omarchy/pull/10046> · <https://github.com/omacom/omarchy/pull/10113> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-windows-vm> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3>
 
 ---
 
@@ -2068,6 +2189,77 @@ Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.o
 
 ---
 
+## Fix omarchy-windows-vm launch starting the container and never opening an RDP window
+
+`windows-vm-launch-no-rdp-window-stale-log` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `docker`, `freerdp`, `laptop`, `omarchy`, `windows`
+
+**Symptom.** `omarchy-windows-vm launch` starts the Docker container and exits without drawing a window. From the desktop entry, which runs with `Terminal=false`, nothing appears at all and no error is visible. Reported on Omarchy 4.0.0-1 with Docker 29.7.2, freerdp 2:3.30.0-2 and `dockurr/windows` v5.16.
+
+It happens on a container that has been used before and not removed:
+
+```console
+$ docker inspect omarchy-windows --format '{{.Created}} {{.State.StartedAt}}'
+2026-08-13T14:49:54Z   2026-08-14T18:07:11Z
+
+$ docker logs omarchy-windows 2>&1 | grep -ci "windows started successfully"
+9
+```
+
+**Cause.** The readiness wait grepped the whole container log. `docker logs` keeps output across `docker stop` and `docker start` and is cleared only when the container is removed, so any container that has booted Windows once already contains a `Windows started successfully` line. The loop matched on its first iteration and `xfreerdp3` ran about a second after `docker compose up -d`, while the guest was still in firmware. On the reporter's machine the guest needs about 30 seconds to reach that line, so the client fired roughly 29 seconds too early.
+
+A second path had nothing to do with stale logs: when the container was already running the readiness wait was skipped outright, and `dockurr/windows` restarts the guest inside a running container whenever Windows reboots or shuts down.
+
+Two other causes produce the same "container starts, nothing happens" symptom and are worth ruling out. FreeRDP 3 tries Kerberos before NTLM, and Arch's `krb5` ships the upstream MIT sample `/etc/krb5.conf` with `default_realm = ATHENA.MIT.EDU`, so with no working internet each attempt blocked about 23 seconds and `xfreerdp3` sat in `CLOSE-WAIT` drawing nothing. A contributor measured a stock config never connecting offline against 36 seconds with a realm-less one. And a second reporter's case was neither: their Compose credentials and `~/.config/windows/credentials` had diverged and an auth-only check returned `STATUS_LOGON_FAILURE`.
+
+> **Audit corrected this record.** Confirmed on this machine, omarchy 4.0.2-1: `/usr/share/omarchy/bin/omarchy-windows-vm` is a symlink to `/usr/bin/omarchy-windows-vm` owned by `omarchy 4.0.2-1`, line 915 is the anchored wait `docker logs --since "$started_at" "$CONTAINER" 2>&1 | grep -qi "windows started successfully"`, and lines 1441 to 1446 write `$HOME/.config/windows/krb5.conf` with `dns_lookup_kdc = false` and `dns_lookup_realm = false` and export `KRB5_CONFIG`. The version claim holds: I fetched `bin/omarchy-windows-vm` at the `v4.0.0`, `v4.0.1`, `v4.0.2`, `v4.0.3` and `quattro` refs, and `v4.0.0` has neither `docker logs --since` nor `KRB5_CONFIG` while every later ref has both. `v4.0.2`, `v4.0.3` and `quattro` are byte-identical to the installed file, md5 `b7827f13056a0e1132add721f71b66ec`, so nothing about this changed in the 2026-09-08 release. I read `omacom/omarchy#6882` in full with comments, and it supports the cause exactly, including the nine stale log matches, the roughly 30 second guest boot, the skipped wait on the already-running path, the ATHENA.MIT.EDU Kerberos hang measured at never versus 36 seconds, and davetist's credential-mismatch case. `omacom/omarchy#6882` is closed as completed and `omacom/omarchy#9515` is open with no comments, matching the record. Three things were wrong and I rewrote the fix. First, the manual workaround is broken as written: a plain `omarchy-windows-vm launch` whose RDP attempt fails runs `docker-compose -f "$COMPOSE_FILE" down` (line 351 of the `v4.0.0` script, line 1464 onward in the installed one), which removes the container, so the following `docker inspect` returns nothing, `$started` is empty, and the `until` loop polls a container that no longer exists. The first launch has to pass `--keep-alive`. Second, the workaround stopped at the log line, which issue 9515 shows is about 9 seconds short of RDP being reachable, so I added the in-container guest port probe that issue 6882 recommends and the warning that probing `127.0.0.1:3389` on the host is useless because docker-proxy accepts regardless. Third, the credential advice was version-wrong: on 4.0.0 there is no `~/.config/windows/credentials` at all and the launcher greps the compose file (lines 276 to 278 of the `v4.0.0` script), while on 4.0.1 and later the private file wins and compose is only a readable fallback (lines 1399 to 1406 installed), so "the two must agree" is the wrong check in both cases and the rewrite labels each branch. I also named `omacom/omarchy#5202`, confirmed open, because it is what turns a too-early connection into a destroyed VM. Not exercised: Docker and a `dockurr/windows` container are not set up on this workstation, so I could not run `omarchy-windows-vm launch`, reproduce the stale-log match, time a guest boot, or test the dnsmasq lease and `nc -z` probe, which come from issue 6882's suggested fix rather than from a run here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+**Update.** Both the readiness wait and the Kerberos hang are fixed in the shipped script from 4.0.1 onward. The `v4.0.0` tag carries neither and `v4.0.1` and later carry both.
+
+```bash
+omarchy update
+```
+
+Confirmed in the installed script on omarchy 4.0.2-1: the wait anchors the log scan to the container's current start time and now runs whether or not the container was already up, and the launcher writes its own realm-less Kerberos config and points `KRB5_CONFIG` at it before calling `xfreerdp3`:
+
+```bash
+grep -n 'docker logs --since' /usr/share/omarchy/bin/omarchy-windows-vm
+grep -n 'KRB5_CONFIG' /usr/share/omarchy/bin/omarchy-windows-vm
+```
+
+**If you cannot update yet**, wait for the guest yourself rather than trusting the launcher, using the container's current start time so stale lines cannot match. Pass `--keep-alive`, because a plain `launch` runs `docker-compose down` as soon as `xfreerdp3` exits, and that removes the container and leaves you nothing to inspect or poll:
+
+```bash
+omarchy-windows-vm launch --keep-alive   # run it from a terminal, so freerdp's error is visible
+started=$(docker inspect omarchy-windows --format '{{.State.StartedAt}}')
+until docker logs --since "$started" omarchy-windows 2>&1 | grep -qi 'windows started successfully'; do sleep 2; done
+guest=$(docker exec omarchy-windows awk '{print $3}' /var/lib/misc/dnsmasq.leases | head -1)
+until docker exec omarchy-windows nc -z "$guest" 3389; do sleep 2; done
+omarchy-windows-vm launch --keep-alive   # the container is already up, so this connects straight away
+```
+
+The second loop matters because the log line means QEMU booted the guest, not that Windows is accepting RDP. Probe the guest from inside the container as above rather than `127.0.0.1:3389` on the host: docker-proxy accepts that connection whether or not the guest is listening.
+
+**If the guest is up and the window still does not appear**, check the credentials rather than the timing. On 4.0.1 and later the launcher reads `~/.config/windows/credentials` first and falls back to the compose file only when that file is readable, so the one that has to match the account inside Windows is `~/.config/windows/credentials`. On 4.0.0 there is no such file and the launcher greps `USERNAME` and `PASSWORD` straight out of `~/.config/windows/docker-compose.yml`. Either way a mismatch shows as `STATUS_LOGON_FAILURE` in the terminal output.
+
+One residual defect is still open upstream and is not fixed in the newest release. `omacom/omarchy#9515` reports the fixed wait returning about 9 seconds before the guest accepts RDP, so a launch can still connect too early, and `omacom/omarchy#5202`, also open, then tears the VM down when that client exits, which makes the next attempt another cold start. Launching with `--keep-alive` avoids the teardown so you can retry against a warm guest:
+
+```bash
+omarchy-windows-vm launch --keep-alive
+```
+
+**Verify.** ```bash
+grep -n 'docker logs --since' /usr/share/omarchy/bin/omarchy-windows-vm   # the anchored wait is present
+omarchy-windows-vm launch                                                 # from a terminal, an RDP window opens
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/6882> · <https://github.com/omacom/omarchy/issues/9515> · <https://github.com/omacom/omarchy/issues/5202> · <https://github.com/omacom/omarchy/blob/v4.0.0/bin/omarchy-windows-vm> · <https://github.com/omacom/omarchy/blob/v4.0.1/bin/omarchy-windows-vm> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-windows-vm>
+
+---
+
 ## Set up zram so the desktop stops freezing under memory pressure
 
 `zram-swap-oom-freezes` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `swap`, `zram`
@@ -2115,6 +2307,178 @@ Sources: <https://wiki.archlinux.org/title/Zram> · <https://wiki.archlinux.org/
 
 ---
 
+## Fix omarchy-mise-install failing on an attestation error or a deprecated package name
+
+`mise-stale-registry-attestation-install-failure` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `gh`, `laptop`, `mise`, `omarchy`, `opencode`
+
+**Symptom.** Installing a coding agent or CLI tool through Omarchy's mise wrapper fails, in one of two shapes on Omarchy 4.
+
+The attestation check fails, on `gh` and on any other tool that resolves to an aqua package:
+
+```
+HTTP error: error decoding response body
+```
+
+Or mise resolves a package name that has moved upstream, so the install fetches the wrong thing:
+
+```console
+$ mise registry opencode
+aqua:sst/opencode
+```
+
+The reporter who chased the first one was on mise `2025.10.19`.
+
+**Cause.** Two different root causes behind two similar-looking failures, and neither one is anything wired wrong in Omarchy.
+
+The deprecated-package-name shape is a stale mise registry. The OpenCode package moved orgs upstream and mise's registry already followed it, so a current mise resolves `aqua:anomalyco/opencode` while an old one still resolves `aqua:sst/opencode`. That is the maintainer's own diagnosis in issue 6886, quoted there as "a stale mise registry rather than something wired wrong in Omarchy".
+
+The attestation shape has a different diagnosis. The maintainer read issue 6887 as a transient failure of GitHub's attestations API rather than a resolution or packaging defect, because `HTTP error: error decoding response body` is the verification call failing and not the package failing to resolve. He closed it as not planned and asked for a repeat with timestamps. The stale-mise explanation for this shape comes from the reporter, who closed the thread saying that moving from mise `2025.10.19` to `2026.8.6` made the attestation step pass and `mise use -g gh` then installed `gh@2.97.0` with "GitHub artifact attestations verified". So for the attestation shape, retry first and update mise second.
+
+The maintainer declined pinning the backend to `github:cli/cli` or `github:anomalyco/opencode` in both threads, for two reasons worth knowing before you reach for it yourself. It trades a transient network error for permanently disabled supply-chain verification, and changing the backend key orphans the existing `opencode = "latest"` entry in `~/.config/mise/config.toml` and forces a re-download for everyone.
+
+> **Audit corrected this record.** Confirmed on this workstation (omarchy 4.0.2-1, mise-bin 2026.9.1-1) that `pacman -Qo /usr/bin/mise` reports `mise-bin 2026.9.1-1`, that `pacman -Si mise-bin` puts it in the `omarchy` repo served from `https://pkgs.omarchy.org/stable/$arch`, and that `omarchy update` reaches it, since `/usr/bin/omarchy-update` calls `omarchy-update-system-pkgs`, which is `pacman -Syu --noconfirm --overwrite '/usr/share/omarchy/*'`. So the record's supported-route claim holds. Also confirmed here: `mise registry opencode` returns `aqua:anomalyco/opencode`, `mise registry gh` returns `aqua:cli/cli asdf:bartlomiejdanek/asdf-github-cli`, `/usr/share/omarchy/install/user/mise.sh` really does ship `omarchy-mise-install gh` and `omarchy-mise-install opencode` as bare names on the aqua backend, and `mise settings --all` lists `aqua.github_attestations true`, which is the setting the maintainer gestured at. Three things were wrong. First, the fix said `mise self-update` "writes over /usr/bin/mise". It does not, because the Omarchy build has already disabled it, and `mise --version` on this machine prints `mise WARN  self-update is disabled for this install, update mise the same way you installed it`. The record reached the right conclusion from a mechanism that does not happen. Second, the fix and the verify block both treat `omarchy-mise-install gh` as the command that installs and prints the attestations line. Reading `/usr/bin/omarchy-mise-install` shows it only writes a shim into `~/.local/bin` and prints nothing, and the install plus verification fire on the shim's first run, so `mise use -g gh` is the real check. Third, the cause said the maintainer "diagnosed both threads the same way" as a stale registry. He did say exactly that in issue 6886, but in issue 6887 he said the opposite, "a transient failure of GitHub's attestations API rather than a packaging or resolution defect on our side", and closed it not planned asking for timestamps. The stale-mise reading of the attestation shape is the reporter's closing comment, not the maintainer's, which changes the first action from "update mise" to "retry". Both issues were re-read in full with comments today, 2026-09-11, and both are closed as not_planned and are issues rather than pull requests. I could not exercise the failure itself: this machine is already on a current mise with a current registry, I have no sudo so `omarchy update` was never run, and I did not run `mise use -g gh` or any command that installs, so the attestations-verified line is taken from the threads rather than reproduced. One loose end left flagged rather than guessed: the reporter of 6887 says `mise self-update` worked for them, which cannot be true of this packaged mise, so their mise was probably not the `omarchy` repo build or that build did not disable the command in August.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not switch a tool's backend to `github:` and do not set `aqua.github_attestations` to false to get past this. Either one permanently disables supply-chain verification for that install in order to work around what the maintainer reads as a transient upstream API error, and changing a backend key also orphans the matching entry in `~/.config/mise/config.toml` and forces a re-download.
+
+**Fix.**
+
+**Omarchy 4.** mise here is the pacman package `mise-bin`, served from Omarchy's own repo rather than from `extra`, so take a newer mise the supported way:
+
+```bash
+pacman -Qo /usr/bin/mise        # /usr/bin/mise is owned by mise-bin
+pacman -Si mise-bin             # Repository : omarchy
+omarchy update                  # omarchy-update-system-pkgs runs pacman -Syu, which covers that repo
+mise --version
+mise registry opencode          # aqua:anomalyco/opencode on a current registry
+```
+
+Upstream's advice in both threads is `mise self-update`, and that does not work on Omarchy 4. The package build has already disabled it, so the command refuses instead of overwriting the packaged binary:
+
+```
+mise WARN  self-update is disabled for this install, update mise the same way you installed it
+```
+
+`mise self-update --help` says the same thing from the other side: "Packagers can disable this command so that mise is updated through the package manager instead." Keep `mise self-update` for a machine where mise was not installed by a package manager.
+
+For the attestation shape, retry before you update anything, because the maintainer reads it as a transient GitHub API failure. The install and the verification happen when the tool runs, not when the wrapper is created:
+
+```bash
+mise use -g gh                  # ends with: GitHub artifact attestations verified
+```
+
+`omarchy-mise-install gh` is not an install step and is not a test. Read `/usr/bin/omarchy-mise-install`: it only writes a shim to `~/.local/bin/gh` and prints nothing on success. The shim runs `mise use -g --quiet gh` on its first invocation, which is where the attestation check actually fires. Use it to put the stock wrapper back if you replaced it with a pinned backend:
+
+```bash
+omarchy-mise-install gh         # bare name, aqua backend, as /usr/share/omarchy/install/user/mise.sh ships it
+gh --version                    # this first run is what installs and verifies
+```
+
+If the attestation failure turns out to be persistent rather than transient, the maintainer's named lever is a mise setting rather than a rewritten backend. Verification is on by default:
+
+```bash
+mise settings --all | grep attestations   # aqua.github_attestations  true
+```
+
+**Plain Arch** is the same shape. Update mise through whatever installed it, which for the `extra` repo package `mise` means `pacman -Syu`, then retry.
+
+**Verify.** ```bash
+pacman -Qo /usr/bin/mise        # owned by mise-bin
+mise --version                  # 2026.9.1 or newer
+mise registry opencode          # aqua:anomalyco/opencode
+mise use -g gh                  # ends with: GitHub artifact attestations verified
+```
+
+`omarchy-mise-install gh` is not a verification step. It prints nothing on success and only writes `~/.local/bin/gh`.
+
+Sources: <https://github.com/omacom/omarchy/issues/6887> · <https://github.com/omacom/omarchy/issues/6886>
+
+---
+
+## Fix an NTFS external drive that Files refuses to mount: "volume is dirty and \"force\" flag is not set"
+
+`ntfs-external-drive-mount-fails-volume-dirty` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `intel`, `nautilus`, `ntfs`, `omarchy`, `udisks`
+
+**Symptom.** A USB hard drive formatted NTFS (a WD Elements in the report) shows up in the sidebar of Files (Nautilus) but clicking it gives a generic mount error. The kernel log has the real reason:
+
+```
+$ sudo dmesg | tail -n 20
+[  118.870318] ntfs3(sda1): It is recommended to use chkdsk.
+[  118.934869] ntfs3(sda1): volume is dirty and "force" flag is not set!
+```
+
+Reported on Omarchy 4 on an Intel NUC13, one machine.
+
+**Cause.** Omarchy mounts NTFS through udisks, which uses the kernel `ntfs3` driver. The volume carries the NTFS dirty flag because Windows did not detach it cleanly (Fast Startup, hibernation, or unplugging without Safely Remove), and `ntfs3` refuses a read/write mount of a dirty volume unless `force` is passed. Files shows only its generic message. The flag is bookkeeping and the files are normally intact. This diagnosis was posted by a helper who reproduced the error text on a test image, and the reporter confirmed the dmesg line and the fix on their drive.
+
+> **Audit corrected this record.** Checked the dirty-flag claim against the kernel source, the Arch wiki, the Arch package index, the udisks API documentation and this workstation (omarchy 4.0.2-1, kernel 7.1.9, udisks2 2.11.2-1, udiskie 2.7.0-2). Confirmed from source: fs/ntfs3/super.c emits `It is recommended to use chkdsk.` when VOLUME_FLAG_DIRTY is set and then refuses the mount with `volume is dirty and "force" flag is not set!` only when the mount is not read-only and `force` is absent, which is exactly the record's two dmesg lines and which proves the read-only mount advice. The Arch wiki NTFS page independently states that udisks prefers the ntfs3 driver, quotes the same dmesg line, and names `ntfsfix --clear-dirty` as the remedy. The Arch package index confirms ntfsprogs is still 2026.7.7-1 in extra today, pkgbase ntfs-3g, and that it ships /usr/bin/ntfsfix. Confirmed on this machine: neither ntfsprogs nor ntfs-3g is installed, so the default driver really is kernel ntfs3, `udisksctl mount` does accept `-o, --options`, /usr/share/omarchy/bin/omarchy-pkg-add exists and runs `pacman -S --noconfirm --needed` with no `-Sy`, so it trips no partial upgrade and no ALPM guard (the guard in /usr/bin/omarchy-update-pacman-guard fires only when both a sync and a sysupgrade flag are present). Issue 8725, read in full with comments, supports the symptom, the cause and the fix, and the reporter confirmed ntfsfix worked. It is still open today, which the record does not misstate. One thing needed correcting. The record stops at the dirty flag, but the same thread shows the reporter then hit a root-owned mount caused by a leftover /etc/fstab entry written by the Disks app, and the udisks Filesystem API documentation confirms the mechanism: if a device is referenced in /etc/fstab, udisks calls mount directly as root and ignores the options given. That makes two of the record's own steps unreliable as written, the `-o ro` mount and the verify line promising a /run/media/<user> target, so I rewrote the fix to check fstab first and rewrote verify to name the three failure outputs. I also moved the package date from 2026-09-07 to 2026-09-11, the day I checked it. NOT exercised: I have no NTFS device and no sudo here, so I ran no mount, no dmesg and no ntfsfix. The dirty-flag behaviour and the fstab behaviour are taken from the kernel source, the udisks documentation and the thread.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** `ntfsfix` is not chkdsk. It clears the dirty flag and repairs a few known inconsistencies, and if it reports errors it cannot fix, stop and let Windows chkdsk run on the drive. Copy irreplaceable data off through the read-only mount before clearing the flag.
+
+**Fix.**
+
+Confirm the cause first. Retry the mount in Files, then read the kernel log and look for the `volume is dirty` line:
+
+```bash
+sudo dmesg | tail -n 20
+lsblk -f                       # find the NTFS partition if it is not /dev/sda1
+```
+
+Check for an `/etc/fstab` entry before anything else. udisks hands a device that is named in fstab straight to `mount` as root and ignores the options you pass it, so both the read-only mount below and the later mount from Files come back owned by root:
+
+```bash
+grep -n sda1 /etc/fstab
+```
+
+If that prints a line, delete it, reload, and unmount what is already there, so udisks manages the drive again:
+
+```bash
+sudo nvim /etc/fstab            # delete the sda1 line
+sudo systemctl daemon-reload
+sudo umount /mnt/sda1           # repeat until findmnt /mnt/sda1 prints nothing
+```
+
+If anything on the drive is irreplaceable, copy it off first. A read-only mount works while the flag is set, because `ntfs3` refuses only a read/write mount:
+
+```bash
+udisksctl mount -b /dev/sda1 -o ro
+```
+
+Clear the flag. `ntfsfix` is in the `ntfsprogs` package (a split package of the `ntfs-3g` pkgbase, extra repo, version 2026.7.7-1 on 2026-09-11), which Omarchy does not install by default.
+
+Omarchy 4:
+
+```bash
+omarchy pkg add ntfsprogs
+sudo ntfsfix --clear-dirty /dev/sda1
+```
+
+Plain Arch:
+
+```bash
+sudo pacman -S --needed ntfsprogs
+sudo ntfsfix --clear-dirty /dev/sda1
+```
+
+Then mount from Files again, or unplug and replug so udiskie automounts it. Never put `sudo` in front of `udisksctl` for a removable drive. `ntfs3` has no SID to uid mapping and takes ownership from the `uid=` and `gid=` mount options udisks sets from the caller, so a mount made as root lands in `/run/media/root/<label>`, which your user cannot enter.
+
+If you also use Windows, eject with Safely Remove and turn off Fast Startup (Control Panel, Hardware and Sound, Power Options, "Choose what the power buttons do", untick "Turn on fast startup"), which was offered as the alternative fix but not tested in the thread.
+
+**Verify.** ```bash
+sudo dmesg | tail -n 5          # no new 'volume is dirty' line after the mount
+findmnt -no SOURCE,TARGET,FSTYPE,OPTIONS /dev/sda1
+id -u; id -g
+```
+
+A mount made by Files lands under `/run/media/<user>/<label>` with `uid=` and `gid=` matching your own ids. Three other outputs mean the job is not finished. A `/run/media/root/<label>` target means something ran `udisksctl` or `mount` under `sudo`. A `/mnt/...` target with `uid=0,gid=0` means an `/etc/fstab` entry is still in play, which is what the reporter hit after clearing the flag. Two lines for the same target mean the device is mounted twice and needs unmounting until `findmnt` prints nothing. `ro` in the options is the read-only mount from the earlier step, so unmount and mount again without `-o ro`. The reporter confirmed the drive mounted and all files were readable after `ntfsfix --clear-dirty`.
+
+Sources: <https://github.com/omacom/omarchy/issues/8725> · <https://archlinux.org/packages/extra/x86_64/ntfsprogs/> · <https://wiki.archlinux.org/title/NTFS> · <https://raw.githubusercontent.com/torvalds/linux/master/fs/ntfs3/super.c> · <https://storaged.org/doc/udisks2-api/latest/gdbus-org.freedesktop.UDisks2.Filesystem.html>
+
+---
+
 ## Fix a scanner (or USB printer) the tools can see but cannot open
 
 `scanner-not-detected-scanimage` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `cups`, `endeavouros`, `manjaro`, `omarchy`, `printing`, `sane`, `scanner`, `udev`, `usb`
@@ -2155,6 +2519,112 @@ Then `sudo udevadm control --reload-rules && sudo udevadm trigger` and re-plug. 
 **Verify.** `scanimage -L` as your normal user lists the device, `ls -l /dev/bus/usb/<bus>/<dev>` shows group `lp` mode `0664`, and `scanimage --format=png --output-file test.png --progress` produces a real image.
 
 Sources: <https://wiki.archlinux.org/title/SANE> · <https://wiki.archlinux.org/title/CUPS/Troubleshooting>
+
+---
+
+## Fix Grok Bot installed from Install > AI failing with HTTP 404 (omarchy/grok-bot 0.18.0 is too old)
+
+`grok-bot-0-18-0-404-needs-package-bump` · severity: **medium** · frequency: **rare** · applies to: `grok-bot`, `omarchy`
+
+**Symptom.** Grok Bot installed through the Omarchy menu (Install > AI > Grok Bot, which runs `omarchy-pkg-add grok-bot`) does not work. The 0.18.0 client's local daemon restart-loops and every request to Grok Bot's computer API returns `http_404`. There is no in-app updater on Linux. Reported on Omarchy 4.0.0-1 on 2026-08-24.
+
+**Cause.** Named by the reporter and confirmed by the merged package bump. Cursor floors the Grok Bot desktop computer API at client 0.24.0 (`backend_min_version`) and changed the noVNC token scheme at 0.20.0, so the 0.18.0 build in the Omarchy package repository can no longer talk to the service. The Omarchy menu entry is correct. The package it installs was stale.
+
+> **Audit corrected this record.** I read issue omacom/omarchy#8070 in full with comments and both cited pull requests. The issue supports the cause. Its body states Omarchy 4.0.0-1, names `https://pkgs.omarchy.org/stable/x86_64/grok-bot-0.18.0-1-x86_64.pkg.tar.zst`, and says 0.18.0 404s against the computer API because `backend_min_version` is 0.24.0 and Linux has no in-app updater. The reporter's first attempt, omarchy#8075, switched the menu to the AUR and he closed it himself as the wrong layer, which is exactly the record's line that the menu entry is correct and the package was stale. The issue itself is closed as NOT_PLANNED with the comment `Opened in error. Closing.`, so the record's note that nobody reported back in the thread is right. On the pull requests the record has the merge state right where the issue body does not: omarchy-pkgs#198 `Update grok-bot to 0.24.0` merged on 2026-08-24T19:52:10Z, while #201, the one the issue body links as the fix, is closed unmerged. The whole cause paragraph is a restatement of #198's body, including the 0.24.0 floor, the noVNC token change at 0.20.0 and `Unknown platform: linux-x64-user`, and its diff confirms the packaging claims: `pkgver` 0.18.0 to 0.24.0, `install -Dm755 "${srcdir}/grok-bot.sh" "${pkgdir}/usr/bin/grok-bot"` with `ln -s grok-bot "${pkgdir}/usr/bin/sand"`, and `grok-bot.desktop` installed. Both are still in the PKGBUILD on `master` today. Note the cause and the test evidence come from one person, the reporter and PR author, not from an independent confirmation.
+
+Two things in the fix are wrong as of 2026-09-11. First the version. I fetched `https://pkgs.omarchy.org/stable/x86_64/omarchy.db` and it carries `grok-bot-0.29.0-1`, not the `0.24.0-1` the record reports, and the PKGBUILD on `master` is `pkgver=0.29.0`. The 0.24.0 figure was a dated observation and reads as a current claim on a published page. Second the plain Arch branch is false. The AUR does carry this app: `grok-bot-bin` and `grokbot-linux-port-bin` are both 0.47.0-1 and maintained, and the plain `grok-bot` AUR package is orphaned, flagged out of date, and pinned at 0.20.0-1, which is below the 0.24.0 floor and therefore still broken. That last one is a trap the record sends a reader straight into by saying the package exists only in the Omarchy repository. I rewrote the fix for both and added the ALPM guard and partial upgrade warnings, since the record gave a bare `omarchy update` with no note on what not to substitute.
+
+Confirmed on this Omarchy 4.0.2-1 workstation: `/etc/pacman.conf` line 28 defines `[omarchy]` with `Server = https://pkgs.omarchy.org/stable/$arch`, so stable is the ring this machine tracks. `/usr/share/omarchy/bin/omarchy-update-system-pkgs` runs `sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm`, so `omarchy update` really does sync and upgrade. The menu entry at `/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc` line 235 now reads `omarchy-install-and-launch 'Grok Bot' grok-bot grok-bot` rather than calling `omarchy-pkg-add grok-bot` directly, but that wrapper `exec`s a shell running `omarchy-pkg-add grok-bot`, so the symptom's description still holds and I left it alone. I could not exercise any of this: grok-bot is not installed here, `pacman -Q grok-bot` finds nothing, I have no sudo, and I have no account to authenticate a client against the computer API, so the 404 itself and the PR's upgrade test are taken from the source.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+The fix is omarchy-pkgs PR #198, merged 2026-08-24, which repackages Grok Bot 0.24.0. The stable package repository has moved on since: `https://pkgs.omarchy.org/stable/x86_64/omarchy.db` carried `grok-bot-0.29.0-1` when fetched on 2026-09-11, and the PKGBUILD on `master` is at 0.29.0. Anything at 0.24.0 or above clears the `backend_min_version` floor, so an ordinary update is enough.
+
+**Omarchy 4:**
+
+```bash
+omarchy update
+```
+
+That syncs and upgrades against the `[omarchy]` repository, which `/etc/pacman.conf` points at `https://pkgs.omarchy.org/stable/$arch`. Do not run `pacman -Syu` directly, because Omarchy's ALPM guard blocks it, and never `pacman -Sy grok-bot`, which is a partial upgrade. To take just this package now, sync and upgrade in one transaction:
+
+```bash
+OMARCHY_ALLOW_DIRECT_PACMAN=1 sudo pacman -Syu grok-bot
+```
+
+If Grok Bot was never installed, or you removed it, install it through Install > AI > Grok Bot, or directly:
+
+```bash
+omarchy-pkg-add grok-bot
+```
+
+0.24.0 renamed the binary from `sand` to `grok-bot`. The package keeps `/usr/bin/sand` as a compatibility symlink and ships `grok-bot.desktop`, so launcher entries keep working. Both are still in the PKGBUILD at 0.29.0.
+
+**Plain Arch:** the Omarchy repository is not the only source. The AUR carries maintained builds, `grok-bot-bin` and `grokbot-linux-port-bin`, both at 0.47.0-1 on 2026-09-11:
+
+```bash
+yay -S --noconfirm aur/grok-bot-bin
+```
+
+Avoid the plain `grok-bot` AUR package. It is orphaned, flagged out of date, and sits at 0.20.0-1, which is below the 0.24.0 floor, so it has the same `http_404` failure the Omarchy 0.18.0 package had. Building the official Linux .deb yourself also works. PR #198 pins `https://downloads.cursor.com/grokbot/stable/<commit>/linux/x64/Grok_Bot_<version>.deb`, and that PKGBUILD is the reference for the Wayland wrapper flags and the `sand` compatibility symlink.
+
+**Verify.** ```bash
+pacman -Q grok-bot
+ls -l /usr/bin/grok-bot /usr/bin/sand
+```
+
+`pacman -Q` prints `grok-bot 0.24.0-1` or newer. The PR's own test on Omarchy/Hyprland: after `pacman -U` over a live 0.18.0, the app reported `appVersion=0.24.0`, the local daemon stayed up, and no new `http_404` appeared in its logs. Nobody in the issue thread itself reported back after the bump.
+
+Sources: <https://github.com/omacom/omarchy/issues/8070> · <https://github.com/omacom/omarchy-pkgs/pull/198> · <https://github.com/omacom/omarchy-pkgs/pull/201> · <https://pkgs.omarchy.org/stable/x86_64/omarchy.db> · <https://github.com/omacom/omarchy/pull/8075> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/grok-bot/PKGBUILD> · <https://aur.archlinux.org/packages/grok-bot> · <https://aur.archlinux.org/packages/grok-bot-bin> · <https://aur.archlinux.org/packages/grokbot-linux-port-bin>
+
+---
+
+## Omawrite's Save File dialog opens larger than the screen at scale 2 (GTK 3 file chooser sizing bug)
+
+`omawrite-save-dialog-oversized-gtk3-double-font-scale` · severity: **medium** · frequency: **rare** · applies to: `asahi`, `gtk3`, `hyprland`, `laptop`, `omarchy`, `omawrite`, `wayland`
+
+**Symptom.** Omarchy 4.0.1-2 on a MacBook Air M2 (Asahi), Omawrite 0.5.0-1, GTK 3.24.52, built-in 2560x1664 panel at Hyprland scale 2 (1280x832 logical). Pressing `Ctrl+S` in Omawrite opens a `Save File` window of 1231x950 logical pixels at `(342, -45)`, clipped at the top, right and bottom, so the filename field and the Cancel and Save buttons are hard to reach. `hyprctl clients` shows class `omawrite`, title `Save File`, owned by the Omawrite PID rather than `xdg-desktop-portal-gtk`. Resetting `org.gtk.Settings.FileChooser window-size` to `(-1, -1)` does not help and `GDK_SCALE=1` reproduces the same size. Reported from one machine.
+
+**Cause.** Established by the reporter and accepted upstream. Omawrite's Qt Quick `FileDialog` runs under Omarchy's `QT_QPA_PLATFORMTHEME=gtk3`, so it creates a GTK 3 file chooser inside the Omawrite process instead of calling the portal. In GTK 3's `find_good_size_from_style()`, `gtk_style_context_get(..., "font-size", ...)` already returns the computed CSS font size in pixels, but the chooser still multiplied it by `resolution / 72` as if it were points, so the default size came out roughly one third too large. The reporter reproduced it in a standalone `GtkFileChooserDialog` without Omawrite, Qt, Hyprland or Omarchy. GTK's merge request notes the same 1203x902 result was reported upstream with `GDK_SCALE=2`.
+
+> **Audit corrected this record.** Checked the Lua rule and the window-rule API on this machine, and the GTK claims against GitLab's API. Confirmed here: `o.window(match, rules)` is real, it is Omarchy's own helper at `/usr/share/omarchy/default/hypr/helpers.lua:142`, it merges the match table and calls `hl.window_rule`, and `float`, `center` and `size = { w, h }` are all keys Omarchy's own shipped rules use, for example `/usr/share/omarchy/default/hypr/apps/steam.lua:2` and `apps/battlenet.lua:5`. A `{ class = ..., title = ... }` match table is also shipped, at `apps/steam.lua:2`, so the rule in the fix is valid Omarchy 4 Lua rather than hyprlang or a guess. `hyprctl reload` is a documented subcommand of the installed Hyprland 0.56.2. Placing the rule at the bottom of `~/.config/hypr/hyprland.lua` matches that file's own instruction to add personal configuration below the `require` lines, so the fix's placement is right. GitLab's API confirms merge request 10311, titled "filechooser: Avoid converting CSS font size twice", state merged into target branch `gtk-3-24` at 2026-09-01T14:50:36Z with merge commit `b30343717dc9b02cf157d2ea87da585d8d518845`, whose short id is `b3034371`. Its diff removes exactly the `font_size = font_size * resolution / 72.0 + 0.5` line from `find_good_size_from_style()` in `gtk/gtkfilechooserwidget.c`, which is the cause the record states. The merge request description also confirms the record's `1203x902` with `GDK_SCALE=2` detail, which it attributes to GTK issue 771. The newest GTK 3 tag is still 3.24.52 from 2026-03-22 and `archlinux.org` still reports `gtk3 1:3.24.52-1`, matching `pacman -Q gtk3` here, so the fix section's statement that the commit has not shipped holds today, 2026-09-11. Issue 9046 is closed as resolved upstream on 2026-09-01 and its body matches the symptom field line for line, including the `(342, -45)` position, the `1231x950` size, the reset of `org.gtk.Settings.FileChooser window-size` not helping, and `GDK_SCALE=1` reproducing. One thing is wrong. The verify block runs `grep -A6 'title: Save File'`, and `hyprctl clients` on this machine prints `size:` five lines before `title:`, so trailing context shows `initialClass`, `initialTitle`, `pid` and `xwayland` and never shows the size the check is looking for. Replaced with `-B6`, which covers `at:` through `title:`. Not exercised: I have no Asahi MacBook and no scale 2 display here, `omawrite 0.5.0-1` is installed but I did not open its Save dialog or apply the rule, so the measured 1231x950 and 875x600 numbers and the patched 908x707 come from the reporter and the merge request, not from this machine.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+Fixed upstream in GTK merge request !10311, merged into the `gtk-3-24` branch on 2026-09-01 as commit `b3034371`. That commit is not in gtk3 3.24.52, which is what Arch ships as of 2026-09-07 (`gtk3 1:3.24.52-1`), so the fix arrives with the next gtk3 release through the normal update:
+
+```bash
+omarchy update
+pacman -Q gtk3        # needs a version newer than 1:3.24.52-1
+```
+
+Until then, the reporter's Hyprland rule constrains only Omawrite's `Save File` window. It was verified on the one machine above and the size is chosen for that display, so adjust it for yours:
+
+```lua
+-- ~/.config/hypr/hyprland.lua, below the require lines
+o.window(
+  { class = "^omawrite$", title = "^Save File$" },
+  { float = true, center = true, size = { 875, 600 } }
+)
+```
+
+```bash
+hyprctl reload
+```
+
+**Verify.** Open Omawrite, press `Ctrl+S`, then:
+
+```bash
+hyprctl clients | grep -B6 'title: Save File'    # size within the monitor's logical resolution
+```
+
+The context has to be taken before the match, not after. `hyprctl clients` prints `size:` five lines above `title:`, so `-A6` shows `initialClass`, `pid` and the rest and never shows the size. On the reporter's display the rule gave 875x600 at `(203, 130)`, and the patched GTK gave 908x707 with no rule.
+
+Sources: <https://github.com/omacom/omarchy/issues/9046> · <https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/10311> · <https://gitlab.gnome.org/GNOME/gtk/-/commit/b3034371> · <https://archlinux.org/packages/extra/x86_64/gtk3/>
 
 ---
 
@@ -2873,5 +3343,162 @@ Note the file layout rules: within each `wireplumber.conf.d/` directory files lo
 **Verify.** `journalctl --user -u wireplumber -b` shows no config parse errors, `wpctl inspect <ID>` reflects your changed property, and the behaviour you wanted (no suspend, device hidden, new name) is back after a reboot.
 
 Sources: <https://wiki.archlinux.org/title/WirePlumber> · <https://bbs.archlinux.org/viewtopic.php?id=294454> · <https://bbs.archlinux.org/viewtopic.php?id=305957> · <https://wiki.archlinux.org/title/PipeWire>
+
+---
+
+## Make Files (Nautilus) 'Set as Wallpaper' change the Omarchy background
+
+`nautilus-set-as-wallpaper-does-nothing` · severity: **low** · frequency: **occasional** · applies to: `arch`, `hyprland`, `nautilus`, `omarchy`, `omarchy-shell`, `wayland`, `xdg-desktop-portal`
+
+**Symptom.** Right-click an image in Files (Nautilus) and choose Set as Wallpaper (Set as Background on Nautilus 50). Nothing changes. `journalctl --user` shows:
+
+```
+org.gnome.Nautilus: Failed to set wallpaper via portal:
+GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod:
+No such interface "org.freedesktop.portal.Wallpaper"
+on object at path /org/freedesktop/portal/desktop
+```
+
+Reported on Omarchy 4.0.1-1 and 4.0.2-1 with Nautilus 50.2.2-1.
+
+**Cause.** Nautilus 50 asks the XDG desktop portal to set the wallpaper. Its binary carries `xdp_portal_set_wallpaper` and the message `Failed to set wallpaper via portal: %s`, and the menu item is labelled `Set as Background` behind the action id `view.set-as-wallpaper`. The session's portal backends are `xdg-desktop-portal-hyprland` 1.4.1 (Screenshot, ScreenCast, GlobalShortcuts, InputCapture) and `xdg-desktop-portal-gtk` 1.15.3 (FileChooser, AppChooser, Print, Notification, Inhibit, Access, Account, Email, DynamicLauncher, Lockdown, Settings), with `/usr/share/xdg-desktop-portal/hyprland-portals.conf` setting `default=hyprland;gtk`. Neither implements `org.freedesktop.portal.Wallpaper`, so the call fails before anything is written, and introspecting the live portal confirms the interface is simply absent:
+
+```bash
+gdbus introspect --session --dest org.freedesktop.portal.Desktop \
+  --object-path /org/freedesktop/portal/desktop | grep Wallpaper
+```
+
+Installing `xdg-desktop-portal-gnome` would not help. That backend sets `org.gnome.desktop.background picture-uri`, which nothing in Omarchy reads, and its `gnome.portal` file is marked `UseIn=gnome` while an Omarchy session reports `XDG_CURRENT_DESKTOP=Hyprland`. Omarchy's background is the `~/.local/state/omarchy/current/background` symlink, read by the shell's background plugin at `/usr/share/omarchy/shell/plugins/background/Background.qml` and written by `omarchy-theme-bg-set`. A commenter on the issue said a real fix would need Omarchy to either implement `org.freedesktop.impl.portal.Wallpaper` and hand the file to `omarchy theme bg set`, or hide the dead menu item. Neither had landed when the issue was closed on 2026-09-02, and neither is in v4.0.3, released 2026-09-08.
+
+> **Audit corrected this record.** Checked every claim against this workstation (omarchy 4.0.2-1, nautilus 50.2.2-1, xdg-desktop-portal 1.22.1-2, xdg-desktop-portal-hyprland 1.4.1-1, xdg-desktop-portal-gtk 1.15.3-1, nautilus-python 4.1.0-3) and against issue 8311 read in full with comments. Confirmed on this machine: the two `.portal` files in /usr/share/xdg-desktop-portal/portals/ export exactly the interface lists the record gives and neither lists Wallpaper, hyprland-portals.conf says `default=hyprland;gtk`, `gdbus introspect` on the live org.freedesktop.portal.Desktop object shows no Wallpaper interface at all, the nautilus binary contains `xdp_portal_set_wallpaper` and the exact string `Failed to set wallpaper via portal: %s`, the only matching menu label in the binary is `Set as Background`, `nautilus-python` is line 85 of /usr/share/omarchy/install/omarchy-base.packages, the installed typelib is /usr/lib/girepository-1.0/Nautilus-4.1.typelib, Omarchy's own extensions already sit in ~/.local/share/nautilus-python/extensions/ as plain files, grep over /usr/share/omarchy finds no reference to org.gnome.desktop.background or picture-uri, /usr/share/omarchy/shell/plugins/background/Background.qml line 15 reads the current/background symlink, /usr/share/omarchy/bin/omarchy-theme-bg-set writes it with `ln -nsf`, and `omarchy theme bg set` with no argument routes correctly and printed its usage. From sources: xdg-desktop-portal-gnome's src/wallpaper.c sets picture-uri on org.gnome.desktop.background, and its gnome.portal.in is UseIn=gnome while this session reports XDG_CURRENT_DESKTOP=Hyprland, so that backend would neither be selected nor help. The issue does support the symptom, the cause and the extension. Two provenance errors needed fixing. The fix said the extension was confirmed by the reporter on 4.0.1-1, but 4.0.1-1 is the version on which the bug was reproduced by a different commenter, while the extension was posted and confirmed on 4.0.2-1 and the reporter confirmed it without naming a version. The cause credited the portal recommendation to a contributor, but the commenter who made it carries no repository association. I also updated the landing status: the issue closed 2026-09-02 with neither upstream fix merged, and the v4.0.3 release notes of 2026-09-08 add no wallpaper portal and no Files extension, with no wallpaper or portal path in the quattro tree. NOT exercised: I did not open Files, click the menu item or install the extension, so the end-to-end behaviour of the new context-menu entry is taken from the thread rather than reproduced here.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Add a Files context-menu item that calls Omarchy's own command. `nautilus-python` is in Omarchy's base package set (line 85 of `/usr/share/omarchy/install/omarchy-base.packages`), so no install is needed. This extension was posted in the issue thread by a commenter who confirmed it on 4.0.2-1, and the reporter confirmed it worked before closing the issue:
+
+```bash
+mkdir -p ~/.local/share/nautilus-python/extensions
+cat > ~/.local/share/nautilus-python/extensions/omarchy-background.py <<'EOF'
+import gi
+
+gi.require_version("Nautilus", "4.1")
+from gi.repository import Gio, GObject, Nautilus
+
+
+class OmarchyBackgroundExtension(GObject.GObject, Nautilus.MenuProvider):
+    def get_file_items(self, files):
+        if len(files) != 1:
+            return []
+
+        selected = files[0]
+        location = selected.get_location()
+        path = location.get_path() if location else None
+        mime_type = selected.get_mime_type() or ""
+        if not path or not mime_type.startswith("image/"):
+            return []
+
+        item = Nautilus.MenuItem(
+            name="OmarchyBackgroundExtension::set_background",
+            label="Set as Omarchy Background",
+        )
+        item.connect("activate", self._set_background, path)
+        return [item]
+
+    def get_background_items(self, _current_folder):
+        return []
+
+    @staticmethod
+    def _set_background(_item, path):
+        Gio.Subprocess.new(
+            ["omarchy", "theme", "bg", "set", path],
+            Gio.SubprocessFlags.NONE,
+        )
+EOF
+nautilus -q
+```
+
+That directory is the same one Omarchy already uses for its own Files extensions, and `gi.require_version("Nautilus", "4.1")` matches the typelib `nautilus-python` installs. Check both if the item does not appear:
+
+```bash
+ls ~/.local/share/nautilus-python/extensions/
+ls /usr/lib/girepository-1.0/Nautilus-*.typelib
+```
+
+Reopen Files. Right-click an image and choose **Set as Omarchy Background**. The stock GNOME item, labelled **Set as Background** on Nautilus 50, stays in the menu and still does nothing.
+
+Without the extension, set the background from a terminal:
+
+```bash
+omarchy theme bg set /path/to/image.jpg
+```
+
+**Verify.** The background changes at once, and `readlink ~/.local/state/omarchy/current/background` points at the chosen image.
+
+Sources: <https://github.com/omacom/omarchy/issues/8311> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://gitlab.gnome.org/GNOME/xdg-desktop-portal-gnome/-/raw/main/src/wallpaper.c> · <https://gitlab.gnome.org/GNOME/xdg-desktop-portal-gnome/-/raw/main/data/gnome.portal.in>
+
+---
+
+## Zed install ends with '[WARN] Could not determine current Omarchy theme' from omazed
+
+`omazed-could-not-determine-current-omarchy-theme` · severity: **low** · frequency: **occasional** · applies to: `arch`, `aur`, `desktop`, `laptop`, `omarchy`, `omazed`, `zed`
+
+**Symptom.** Installing Zed from the Omarchy menu (Install > Editor > Zed, which runs `omarchy-install-editor-zed`) installs the `zed` and `omazed` packages, then `omazed setup` prints:
+
+```
+[INFO] Setting up Omazed for user: user
+
+[INFO] Removed old omazed hook
+[SUCCESS] ✓ Omarchy hook configured
+[WARN] Could not determine current Omarchy theme
+```
+
+Zed opens with its default theme and does not follow the Omarchy theme. Running `omazed setup` again gives the same warning. Reported on a fresh Omarchy Quattro (4.0.0) install.
+
+**Cause.** Named by the person who fixed it in the thread and confirmed against the omazed source. omazed 2.0.x read the active theme from `~/.config/omarchy/current/theme`, which is where Omarchy 3 kept it. At tag v2.0.1 the script sets that path on line 5 and warns `Could not determine current Omarchy theme` on line 319 when nothing is found there. Omarchy 4 keeps state under `~/.local/state/omarchy/`, so the current theme is `~/.local/state/omarchy/current/theme` and `~/.config/omarchy/current` does not exist at all. omazed commit 302cd396 (2026-08-15), one commit behind the v2.1.0 tag, added a `detect_omarchy_version` probe that reads `omarchy-version` and otherwise tests for the Omarchy 4 state directory, then selects the matching theme path with the Omarchy 3 path kept as a fallback.
+
+The channel is what decides the fix, and it is pacman rather than the AUR. `omarchy-install-editor-zed` runs `omarchy-pkg-add zed omazed`, and `omarchy-pkg-add` is plain `sudo pacman -S --needed`, so omazed comes from the `[omarchy]` repository. That repository carried omazed 2.0.1-1 from 2026-05-29 and only moved to 2.1.0-2 on 2026-08-15. A fresh Omarchy 4.0.0 machine installs from the offline ISO and has no synced `[omarchy]` database, so `pacman -S omazed` installs whatever the stale database names, which is the 2.0.1-1 build with the Omarchy 3 path. The AUR also carries omazed, built from the same `v$pkgver` release tarball, so an AUR installation older than 2.1.0 has the same defect.
+
+> **Audit corrected this record.** I read issue omacom/omarchy#7325 in full with comments. It supports the mechanism but not the channel. marijn070's comment gives exactly the path pair the record cites, and Thijzert123 confirmed the fix, so the cause is well sourced. I verified the mechanism against the omazed source itself: at tag v2.0.1 `omazed` line 5 is `OMARCHY_THEME_PATH="$HOME/.config/omarchy/current/theme"` and line 319 emits `Could not determine current Omarchy theme`, and all four lines the symptom quotes appear in that file at lines 126, 111, 122 and 319. At tag v2.1.0 lines 5 to 7 add `OMARCHY_THEME_PATH_V4="$HOME/.local/state/omarchy/current/theme"` and a `detect_omarchy_version` function that reads `omarchy-version` and otherwise tests for the Omarchy 4 state directory. Commit 302cd396 is dated 2026-08-15 and `gh api repos/aps6/omazed/compare/302cd396...v2.1.0` reports behind_by 0, so it is in v2.1.0 as the record says. Confirmed on this Omarchy 4.0.2-1 workstation: `~/.local/state/omarchy/current/theme/colors.toml` and `~/.local/state/omarchy/current/theme.name` exist, `theme.name` reads `gruvbox`, and `ls ~/.config/omarchy/current` returns `No such file or directory`. The keybinding in the verify block is right, `/usr/share/omarchy/default/hypr/bindings/utilities.lua` line 18 binds `SUPER + SHIFT + CTRL + SPACE` to the theme menu. What is wrong is the fix and the last sentence of the cause. The Omarchy menu does not install omazed from the AUR. On this machine `/usr/share/omarchy/bin/omarchy-install-editor-zed` runs `omarchy-pkg-add zed omazed`, and `/usr/share/omarchy/bin/omarchy-pkg-add` is plain `sudo pacman -S --noconfirm --needed`, which can only resolve from a repository. omazed is in the `[omarchy]` repository: `pacman -Si omarchy/omazed` here reports 2.1.0-2 and the stable `omarchy.db` I fetched on 2026-09-11 carries `omazed-2.1.2-1`. Its PKGBUILD history in omacom/omarchy-pkgs shows 2.0.1-1 from 2026-05-29 and 2.1.0-2 from 2026-08-15T18:34Z, which is the real reason the reporter hit it on 2026-08-17 on a fresh 4.0.0 install: the offline ISO leaves the `[omarchy]` database unsynced, so `pacman -S omazed` installed the old 2.0.1-1. So `yay -S aur/omazed` is the wrong layer. It happens to work, because the AUR PKGBUILD builds the same v$pkgver release tarball, but it replaces a repository-tracked package with a local build for no reason. I rewrote the fix around `omarchy update`, which I confirmed runs `pacman -Syu` in `/usr/share/omarchy/bin/omarchy-update-system-pkgs` and `yay -Sua` in `omarchy-update-aur-pkgs`, so it covers both channels. I could not exercise the bug: neither `zed` nor `omazed` is installed here (`pacman -Q omazed` errors), I have no sudo, and I did not run `omazed setup` or switch themes. The version floor and the 2.0.x to 2.1.0 diff come from the upstream git tags, not from a local install.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Update omazed, then run its setup again. omazed comes from the `[omarchy]` pacman repository, so the supported path is an ordinary Omarchy update, which syncs that repository's database and pulls the fixed build:
+
+```bash
+omarchy update
+pacman -Q omazed          # 2.1.0 or newer
+omazed setup
+```
+
+The `[omarchy]` repository shipped the fix as 2.1.0-2 and serves 2.1.2-1 as of 2026-09-11, so any current update clears the floor.
+
+Do not run `pacman -Syu` directly, because Omarchy's ALPM guard blocks it, and never `pacman -Sy omazed`, which is a partial upgrade. If you want just this package now rather than a full Omarchy update, sync and upgrade in one transaction:
+
+```bash
+OMARCHY_ALLOW_DIRECT_PACMAN=1 sudo pacman -Syu omazed
+omazed setup
+```
+
+If you installed omazed from the AUR rather than through the Zed menu entry, `omarchy update` still covers it, because it runs `yay -Sua` for foreign packages after the pacman pass. To rebuild that one package on its own:
+
+```bash
+yay -S --noconfirm aur/omazed
+omazed setup
+```
+
+Plain Arch users of omazed are not affected unless they also run Omarchy 4.
+
+**Verify.** ```bash
+omazed setup              # ends without the [WARN] line
+ls ~/.local/state/omarchy/current/theme/colors.toml
+```
+
+Change the Omarchy theme (Super+Ctrl+Shift+Space) and Zed's theme changes with it.
+
+Sources: <https://github.com/omacom/omarchy/issues/7325> · <https://github.com/aps6/omazed/commit/302cd396> · <https://aur.archlinux.org/packages/omazed> · <https://github.com/aps6/omazed/commit/302cd396be88cf508a05d97edcdc7d48eafdc299> · <https://github.com/aps6/omazed/blob/v2.0.1/omazed> · <https://github.com/aps6/omazed/blob/v2.1.0/omazed> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/omazed/PKGBUILD> · <https://github.com/omacom/omarchy-pkgs/commits/master/pkgbuilds/omazed/PKGBUILD> · <https://pkgs.omarchy.org/stable/x86_64/omarchy.db>
 
 ---
