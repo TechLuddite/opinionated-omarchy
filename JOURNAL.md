@@ -27,8 +27,7 @@ Last updated: 2026-09-10
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
 >    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
->    and `pacman-aur`, and O4 is paused mid-harvest with 40 records banked unmerged, reconciled down to 33 on
->    2026-09-10. The corpus prose has 1,756 dashes across 405 records, item 6
+>    and `pacman-aur`, and O4 has finished harvesting: 39 records banked unmerged as of 2026-09-10, none audited. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -46,13 +45,14 @@ Last updated: 2026-09-10
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-10: the O4 duplicates reconciled, 40 records down to 33
+## Session of 2026-09-10: O4 finished harvesting, 39 records banked and still unaudited
 
-Step 2 of the O4 pick-up list, and nothing else. `data/problems.jsonl` is untouched and
-still reads `ok` 207 / `corrected` 249 / `unaudited` 0. The result is a new raw file,
-[research/raw/issue-harvest-reconciled.json](research/raw/issue-harvest-reconciled.json).
-`issue-harvest-partial.json` is left exactly as the workflow wrote it, so the provenance of
-what the harvesters actually produced survives.
+Steps 2 and 1 of the O4 pick-up list, in that order: the duplicates reconciled, then batch
+01 read. The harvest is now complete at 39 records and every one of them is still unaudited.
+`data/problems.jsonl` is untouched and still reads `ok` 207 / `corrected` 249 / `unaudited` 0.
+The banked set is [research/raw/issue-harvest-reconciled.json](research/raw/issue-harvest-reconciled.json),
+batch 01 on its own is `raw/harvest-01.json`, and `issue-harvest-partial.json` is left exactly
+as the workflow wrote it, so the provenance of what the harvesters actually produced survives.
 
 ### 1. Six groups, not six pairs
 
@@ -122,20 +122,59 @@ explains the RDNA3 integrated-GPU reports, the codex release note that retired `
 the date Google cut individual accounts off, whether the migration reporters were on dev or
 edge, and `PR #7169`.
 
-Two `lint_corpus.py` hits survive across the 33 records, both `sudo pacman -Syu` inside a
-branch labelled plain Arch, which is correct advice. They are new hits, so
-`lint_corpus.py --check` will fail the first time these records enter the corpus. Add them
-to `data/lint-baseline.json` in the merge commit rather than rewording them.
+Three `lint_corpus.py` hits survive across the 39 records and all three are legitimate: two
+`sudo pacman -Syu` inside a branch labelled plain Arch, and one `/boot/limine.conf` in a
+symptom describing what a reporter saw in that generated file rather than telling anyone to
+edit it. They are new hits, so `lint_corpus.py --check` will fail the first time these
+records enter the corpus. Add them to `data/lint-baseline.json` in the merge commit rather
+than rewording correct text.
 
-### 4. Where to pick this up
+### 4. Batch 01, the ten issues the 2026-09-07 run never reached
 
-1. Run batch 01, the ten unread issues, with `issue-harvest-brief.md`. The numbers are in
-   the 2026-09-07 (second) session and in both raw files.
-2. Audit all 33 with `reaudit-brief.md`, one agent per one or two records, and answer Q1 to
-   Q6 on the way through.
-3. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect it to
+Read in full on 2026-09-10 against `issue-harvest-brief.md`, with every claim about what
+Omarchy ships checked on this workstation (4.0.2-1) and against the `quattro` branch or a
+release tag. Six records, four mapped onto records that already exist, nothing skipped.
+
+| issue | outcome |
+| --- | --- |
+| 6868 | `ghostty-epoll-backend-segfault-write-queue` |
+| 6882 | `windows-vm-launch-no-rdp-window-stale-log` |
+| 6887 | `mise-stale-registry-attestation-install-failure` |
+| 6894 | `quattro-upgrade-uki-missing-root-parameter` |
+| 6909 | `internal-panel-forced-to-2x-scale-clamshell-poll` |
+| 6917 | `screensaver-self-dismisses-and-session-never-locks` |
+| 6858 | existing: `omarchy-lockscreen-no-keyboard-focus-after-resume` |
+| 6888 | existing: the pending plugin-lock record, added as a third source |
+| 6889 | existing: the pending Gemini record, already cited |
+| 6890 | existing: `quattro-upgrade-incomplete-do-not-reboot` |
+
+Two of the six are live defects on 4.0.2-1 with no merged fix, which is why they are worth
+having. Omarchy ships `async-backend = epoll` in its Ghostty config as a workaround for
+Hyprland slowness, and that setting selects a libxev backend with a null dereference in its
+write path: six reporters, four Omarchy releases, one fault offset, and every window in the
+single-instance process dies together. The removal is `omacom/omarchy#6963`, still open. And
+the screensaver closes itself about a second after it opens whenever a bar panel holds
+keyboard focus, which cancels the pending lock: one reporter measured 239 dismissals over two
+days, 233 of them within 1.40 to 1.56 seconds, and an overnight run of 225 idle cycles in
+which the session never locked at all. That is `omacom/omarchy#7102`, still open, and the
+workaround is to turn the screensaver off so the lock path runs without it.
+
+The `existing` notes are the more useful half again. The corpus record for the lock screen
+not taking keystrokes scopes the defect to lid-open resume and tells the reader to edit
+`~/.config/hypr/hypridle.conf`. Neither hypridle nor hyprlock is installed on Omarchy 4 and
+no such file exists, and the thread shows the defect is one single-shot focus grab that five
+separate paths lose, with three pull requests open and none merged. That record needs a
+re-audit, not a tweak.
+
+### 5. Where to pick this up
+
+1. Audit all 39 with `reaudit-brief.md`, one agent per one or two records, and answer Q1 to
+   Q6 on the way through. This is the expensive step, so check `/usage-credits` first.
+2. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect it to
    need a small change: its append path assigns `gapfill-unaudited` and these records will
    arrive already audited.
+3. Add the three lint hits to `data/lint-baseline.json` in the same commit, and remember that
+   a commit touching `data/problems.jsonl` must regenerate `research/docs/` with it.
 
 ## Session of 2026-09-07 (second): O4 harvests from the issue tracker, and stops one batch short
 
@@ -214,7 +253,8 @@ hardware problems users hit.
 ### 5. Where to pick this up
 
 1. Run batch 01: `gh issue view <n> -R omacom/omarchy --comments` for the ten numbers above,
-   with `issue-harvest-brief.md`.
+   with `issue-harvest-brief.md`. DONE 2026-09-10: six records, four mapped onto existing
+   records, nothing skipped. See the 2026-09-10 session.
 2. Reconcile the six near-duplicate pairs into one record each. DONE 2026-09-10, and it
    was six groups over thirteen records rather than six pairs. See the 2026-09-10 session
    and `raw/issue-harvest-reconciled.json`.
@@ -2648,10 +2688,12 @@ again.
   harvester brief (`tools/issue-harvest-brief.md`) are built and committed. Ten of eleven
   batches ran over 99 of 109 candidate issues and produced **40 records, 21 mappings onto
   existing records and 37 skipped as unconfirmed**, banked unmerged in
-  `raw/issue-harvest-partial.json`. The duplicates were reconciled on 2026-09-10, thirteen
-  records into six, leaving 33 in `raw/issue-harvest-reconciled.json`. Before any of it
-  enters the corpus: run batch 01 and audit all 33. The `existing` list is re-audit
-  fuel for O3 and names three records the tracker contradicts.
+  `raw/issue-harvest-partial.json`. Both remaining blockers except the audit cleared on
+  2026-09-10: the duplicates were reconciled, thirteen records into six, and batch 01 was
+  read, adding six more. 39 records now sit in `raw/issue-harvest-reconciled.json` and
+  **none of them has been audited**, which is the only thing left before a merge. The
+  `existing` list, now 25 entries, is re-audit fuel for O3 and names four records the
+  tracker contradicts.
 - **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
   its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
   consumers, covered by the `FIELDS` tests. Not started.

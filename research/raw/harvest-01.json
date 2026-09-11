@@ -1,0 +1,179 @@
+{
+  "records": [
+    {
+      "slug": "ghostty-epoll-backend-segfault-write-queue",
+      "title": "Stop Ghostty dying with a SIGSEGV in its io thread by removing Omarchy's async-backend = epoll",
+      "category": "apps-services",
+      "symptom": "Ghostty disappears, taking every window in the process with it. With the single-instance launch Omarchy uses (`--gtk-single-instance=true`) that is every terminal you had open, not one. It happens while typing, on an idle terminal, and on a theme switch.\n\n`coredumpctl` shows the same fault every time, on six machines across four Omarchy releases:\n\n```\nkernel: io[493042]: segfault at 108 ip 000055eac209190d ... in ghostty[151b90d,55eac1d52000+88d000]\n```\n\nThread `io`, `SIGSEGV` / `SEGV_MAPERR`, fault address `0x108`, offset `ghostty + 0x151c90d`, instruction `mov 0x108(%r14),%rcx` with `r14 = 0`, build-id `36aeb61c844ddf428f960758acdb8b37f30d7e31`.\n\nTriggers reported, in order of how deterministic they are: launching a TUI that queries terminal capabilities at startup (`herdr` every time, on two machines, to the second), a tool issuing an OSC 4 palette query, plain shell-integration traffic on a terminal idle for 23 seconds after login, and a config reload from a theme switch.\n\nReported on Omarchy 4.0.0rc5-1, 4.0.0-1, 4.0.1-1 and 4.0.2-1, all with Ghostty 1.3.1-2, on NVIDIA, Intel `xe` and Intel Panther Lake graphics. One reporter's `herdr` client detached cleanly and its panes survived server side, so multiplexed work comes back and anything running directly in a surface does not.",
+      "cause": "Omarchy ships `async-backend = epoll` at line 41 of its Ghostty config and the migration copies it into your own, where it stays. Confirmed on an omarchy 4.0.2-1 install: the line is at line 41 of both `/usr/share/omarchy/config/ghostty/config` (owned by `omarchy-settings`) and `~/.config/ghostty/config`. It was added as a workaround for slowness on Hyprland.\n\nThe epoll backend of libxev, which that setting selects, has a null dereference in its write path. The thread's source reading is against libxev rev `34fa5087`, the revision Ghostty 1.3.1 pins: `epoll.zig` checks completion state when submitting but not when dispatching, so a dead completion still reaches its callback, and the write callback opens with `const req_inner: *xev.WriteRequest = q_inner.head.?` in `stream.zig` on a queue whose head and tail are both null. `next` sits at offset `0x108` of the epoll `WriteRequest`, which is the fault address. Upstream bug `mitchellh/libxev#234`, open since 2026-08-18 with no fix, and libxev's own queued-write test skips the x86_64 dynamic case as failing.\n\nOne reporter caught `error(io_exec): write error: error.FileDescriptorAlreadyPresentInSet` logged immediately before a crash, which is `epoll_ctl` returning `EEXIST` and cannot come from an io_uring backend, so the failing write was demonstrably in the epoll path. The second crash on that machine did not log it, so treat it as a co-symptom rather than a precursor.",
+      "fix": "Remove the setting from your own config. Do not edit the file under `/usr/share/omarchy`: it belongs to the `omarchy-settings` package and is not the file Ghostty reads.\n\n```bash\ngrep -n 'async-backend' ~/.config/ghostty/config\nsed -i '/^async-backend = epoll$/d' ~/.config/ghostty/config\n```\n\nThen quit every Ghostty window and start it again. The crash lives in the long-running single-instance process, so a reload is not enough to leave the epoll backend behind. Ghostty falls back to its default backend, which is what the reporter who found the deterministic `herdr` trigger did.\n\nTwo things to know afterwards. `omarchy-refresh-config ghostty/config` copies the shipped file back over yours, epoll line included, after backing your version up, so if you ever run it you will need to delete the line again. And the removal is what upstream intends: PR 7649 is not this one, the relevant one is `omacom/omarchy#6963`, \"Remove unsafe Ghostty epoll workaround\", still open on 2026-09-10, so a plain `omarchy update` does not fix this yet.\n\nIf you would rather keep the workaround the setting was added for, there is nothing else in the thread to offer: libxev has no fix, and Ghostty upstream asked for a debug build rather than more stripped 1.3.1-2 cores.",
+      "verify": "```bash\ngrep -c 'async-backend' ~/.config/ghostty/config     # 0\ncoredumpctl list ghostty                              # no new entry after the restart\n```\n\nGhostty's startup log line `info(gtk_ghostty_application): libxev manual backend=epoll` is what the setting produces, so its absence is the direct check.",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "ghostty",
+        "hyprland",
+        "wayland",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "high",
+      "frequency": "common",
+      "danger": "",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/6868",
+        "https://github.com/omacom/omarchy/pull/6963",
+        "https://github.com/mitchellh/libxev/issues/234"
+      ]
+    },
+    {
+      "slug": "windows-vm-launch-no-rdp-window-stale-log",
+      "title": "Fix omarchy-windows-vm launch starting the container and never opening an RDP window",
+      "category": "apps-services",
+      "symptom": "`omarchy-windows-vm launch` starts the Docker container and exits without drawing a window. From the desktop entry, which runs with `Terminal=false`, nothing appears at all and no error is visible. Reported on Omarchy 4.0.0-1 with Docker 29.7.2, freerdp 2:3.30.0-2 and `dockurr/windows` v5.16.\n\nIt happens on a container that has been used before and not removed:\n\n```console\n$ docker inspect omarchy-windows --format '{{.Created}} {{.State.StartedAt}}'\n2026-08-13T14:49:54Z   2026-08-14T18:07:11Z\n\n$ docker logs omarchy-windows 2>&1 | grep -ci \"windows started successfully\"\n9\n```",
+      "cause": "The readiness wait grepped the whole container log. `docker logs` keeps output across `docker stop` and `docker start` and is cleared only when the container is removed, so any container that has booted Windows once already contains a `Windows started successfully` line. The loop matched on its first iteration and `xfreerdp3` ran about a second after `docker compose up -d`, while the guest was still in firmware. On the reporter's machine the guest needs about 30 seconds to reach that line, so the client fired roughly 29 seconds too early.\n\nA second path had nothing to do with stale logs: when the container was already running the readiness wait was skipped outright, and `dockurr/windows` restarts the guest inside a running container whenever Windows reboots or shuts down.\n\nTwo other causes produce the same \"container starts, nothing happens\" symptom and are worth ruling out. FreeRDP 3 tries Kerberos before NTLM, and Arch's `krb5` ships the upstream MIT sample `/etc/krb5.conf` with `default_realm = ATHENA.MIT.EDU`, so with no working internet each attempt blocked about 23 seconds and `xfreerdp3` sat in `CLOSE-WAIT` drawing nothing. A contributor measured a stock config never connecting offline against 36 seconds with a realm-less one. And a second reporter's case was neither: their Compose credentials and `~/.config/windows/credentials` had diverged and an auth-only check returned `STATUS_LOGON_FAILURE`.",
+      "fix": "**Update.** Both the readiness wait and the Kerberos hang are fixed in the shipped script from 4.0.1 onward. The `v4.0.0` tag does not carry it and `v4.0.1` and later do.\n\n```bash\nomarchy update\n```\n\nConfirmed in the installed script on omarchy 4.0.2-1: the wait anchors the log scan to the container's current start time, and the launcher writes its own realm-less Kerberos config and points `KRB5_CONFIG` at it before calling `xfreerdp3`:\n\n```bash\ngrep -n 'docker logs --since' /usr/share/omarchy/bin/omarchy-windows-vm\ngrep -n 'KRB5_CONFIG' /usr/share/omarchy/bin/omarchy-windows-vm\n```\n\n**If you cannot update yet**, wait for the guest yourself rather than trusting the launcher, using the container's current start time so stale lines cannot match:\n\n```bash\nomarchy-windows-vm launch                     # run it from a terminal, so freerdp's error is visible\nstarted=$(docker inspect omarchy-windows --format '{{.State.StartedAt}}')\nuntil docker logs --since \"$started\" omarchy-windows 2>&1 | grep -qi 'windows started successfully'; do sleep 2; done\nomarchy-windows-vm launch                     # the guest is up, so the client connects\n```\n\n**If the guest is up and the window still does not appear**, check the credentials rather than the timing: the protected Compose credentials and `~/.config/windows/credentials` must agree, and a mismatch shows as `STATUS_LOGON_FAILURE` in the terminal output.\n\nOne residual defect is still open upstream. `omacom/omarchy#9515` reports the fixed wait returning about 9 seconds before the guest accepts RDP, so a launch can still connect too early and auto-stop the VM. If that is what you see, launch again once Windows is fully up.",
+      "verify": "```bash\ngrep -n 'docker logs --since' /usr/share/omarchy/bin/omarchy-windows-vm   # the anchored wait is present\nomarchy-windows-vm launch                                                 # from a terminal, an RDP window opens\n```",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "docker",
+        "freerdp",
+        "windows",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "medium",
+      "frequency": "common",
+      "danger": "",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/6882",
+        "https://github.com/omacom/omarchy/issues/9515"
+      ]
+    },
+    {
+      "slug": "mise-stale-registry-attestation-install-failure",
+      "title": "Fix omarchy-mise-install failing on an attestation error or a deprecated package name",
+      "category": "apps-services",
+      "symptom": "Installing a coding agent or CLI tool through Omarchy's mise wrapper fails, in one of two shapes on Omarchy 4.\n\nThe attestation check fails, on `gh` and on any other tool that resolves to an aqua package:\n\n```\nHTTP error: error decoding response body\n```\n\nOr mise resolves a package name that has moved upstream, so the install fetches the wrong thing:\n\n```console\n$ mise registry opencode\naqua:sst/opencode\n```\n\nThe reporter who chased the first one was on mise `2025.10.19`.",
+      "cause": "A stale mise, not anything wired wrong in Omarchy. The maintainer diagnosed both threads the same way: mise's registry has already followed the upstream move, so a current mise resolves `aqua:anomalyco/opencode` and verifies `gh`'s GitHub artifact attestations cleanly, and the `error decoding response body` is the verification call failing rather than resolution failing.\n\nThe maintainer declined the suggested fix of pinning the backend to `github:cli/cli` or `github:anomalyco/opencode` in both threads, for two reasons worth knowing before you reach for it yourself: it trades a transient network error for permanently disabled supply-chain verification, and changing the backend key orphans the existing `opencode = \"latest\"` entry in `~/.config/mise/config.toml` and forces a re-download for everyone.",
+      "fix": "**Omarchy 4.** mise is the pacman package `mise-bin` here, so take the newer mise the supported way:\n\n```bash\npacman -Q mise-bin\nomarchy update\nmise registry opencode          # aqua:anomalyco/opencode on a current registry\nomarchy-mise-install gh         # bare name, aqua backend, as shipped\n```\n\nUpstream's advice in both threads is `mise self-update`. On Omarchy that writes over `/usr/bin/mise`, which belongs to `mise-bin`, and mise's own help notes that packagers can disable the command for exactly this reason, so prefer the package update and keep `mise self-update` for a machine where mise was not installed by pacman.\n\nThe reporter confirmed the outcome after moving from mise `2025.10.19` to `2026.8.6`: `mise use -g gh` installed `gh@2.97.0` with \"GitHub artifact attestations verified\", and the stock `omarchy-mise-install gh` wrapper worked again with no Omarchy change.\n\n**Plain Arch** is the same shape: update mise through whatever installed it, then retry.",
+      "verify": "```bash\nmise --version\nmise registry opencode          # aqua:anomalyco/opencode\nomarchy-mise-install gh         # ends with the attestations verified line\n```",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "mise",
+        "gh",
+        "opencode",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "medium",
+      "frequency": "occasional",
+      "danger": "",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/6887",
+        "https://github.com/omacom/omarchy/issues/6886"
+      ]
+    },
+    {
+      "slug": "quattro-upgrade-uki-missing-root-parameter",
+      "title": "Recover from \"device '' not found\" dropping to an emergency shell after the Quattro upgrade",
+      "category": "boot-kernel",
+      "symptom": "The machine does not boot after upgrading to Omarchy 4 and lands in an initramfs emergency shell. The device in the message is empty quotes, not a UUID:\n\n```\n:: running hook [keymap]\n:: Loading keymap...done\nError: device '' not found. Skipping fsck\n:: mounting '' on real root\nmount: /new_root: wrong fs type, bad option, bad superblock on , missing codepage or helper program, or other error.\n:: running emergency hook [plymouth]\nERROR: Failed to mount '' on real root\nsh: can't access tty; job control turned off\n[rootfs ~]#\n```\n\nThe empty quotes are the diagnostic detail. They mean the initramfs parsed a kernel command line carrying no `root=` at all, rather than a `root=` it could not resolve. A missing hook or a stale UUID would have printed the device name it failed to find.\n\nA second reporter whose upgrade was interrupted mid-transaction hit the same message with two additional symptoms: the active entry in `/boot/limine.conf` had its `cmdline:` line truncated to `initramfs_async=0` alone, and the kernel image that entry pointed at was missing because the pacman transaction never finished.",
+      "cause": "Established by collaborator triage on the thread. `/etc/limine-entry-tool.d/omarchy-defaults.conf` appends to `KERNEL_CMDLINE[default]` with `+=`, which by design stops `limine-entry-tool` falling back to `/proc/cmdline`. On an install that predates the ISO pinning `root=` in `/etc/default/limine`, the moment that drop-in lands any UKI rebuilt afterwards carries only the drop-in's own parameters, and `root=` is gone. `omarchy-upgrade-to-quattro` repairs this in `preserve_kernel_cmdline_root`, but that runs after the package transaction, so there is a window in which the machine will not boot.\n\nConfirmed on an omarchy 4.0.2-1 install: `/etc/limine-entry-tool.d/omarchy-defaults.conf` uses `KERNEL_CMDLINE[default]+=` for the `quiet splash` and `initramfs_async=0` parameters, and `/etc/default/limine` carries the pinned `cryptdevice=` and `root=` line that a repaired or newly installed machine has.\n\n`omacom/omarchy#6951`, which pins `root=` before the packages that can drop it, is still open on 2026-09-10, so the window is still there.",
+      "fix": "Boot a working kernel first. The Limine menu's btrfs snapshot entries point at complete kernel copies, so pick one of those rather than the broken `linux` entry.\n\nThen pin the parameters the UKI is missing, in the file Omarchy reads, and rebuild:\n\n```bash\n# add to /etc/default/limine, keeping += so Omarchy's own defaults survive\nsudo tee -a /etc/default/limine >/dev/null <<'EOF'\nKERNEL_CMDLINE[default]+=\" root=/dev/mapper/root rootflags=subvol=@ rw rootfstype=btrfs\"\nEOF\n\nsudo limine-mkinitcpio\n```\n\nOn an encrypted root add the matching `cryptdevice=` to the same line. Get the real values from the machine rather than copying the example:\n\n```bash\nlsblk -f\nblkid\n```\n\nIf the upgrade was interrupted and the kernel image itself is missing, finish the transaction from the snapshot before rebuilding:\n\n```bash\nsudo mount -o remount,rw /\nsudo pacman -S linux\nsudo limine-mkinitcpio\n```\n\nUse `limine-mkinitcpio`. The `mkinitcpio` preset form does not work here, because `/etc/mkinitcpio.d/` is empty on Omarchy 4 and it stops with \"No presets found\".\n\nOne trap from the reporter who recovered this way. Running the rebuild while booted from a snapshot roots the new boot entry on the snapshot rather than on the real `@` subvolume, and Omarchy notifies you to restore the snapshot before rebooting. Use the snapshot tool's restore menu to replace `@` with the snapshot you are running from, then reboot into the normal entry.",
+      "verify": "```bash\ncat /proc/cmdline                 # root= is present, with cryptdevice= on LUKS\nmount | grep ' / '                # subvol=/@, not a snapshot path\nomarchy-migrate --pending         # empty, if the upgrade had stalled\n```",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "limine",
+        "luks",
+        "btrfs",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "critical",
+      "frequency": "occasional",
+      "danger": "You are editing the kernel command line on a machine that already will not boot. Keep `+=` rather than `=` in `/etc/default/limine`, because a bare `=` replaces Omarchy's own defaults. Read the device names off the machine with `lsblk -f` and `blkid` instead of copying the example, and if you rebuild while booted from a snapshot, restore that snapshot over `@` before rebooting or the new entry stays rooted on the snapshot.",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/6894",
+        "https://github.com/omacom/omarchy/pull/6951"
+      ]
+    },
+    {
+      "slug": "internal-panel-forced-to-2x-scale-clamshell-poll",
+      "title": "Stop the internal laptop panel snapping back to 2x scale a second after every change",
+      "category": "display-monitors",
+      "symptom": "After the Quattro upgrade the internal laptop display is held at scale 2 while external monitors scale normally at any value. Every manual change to the internal panel's scale is reverted about a second after it is applied, whether it is made in `~/.config/hypr/monitors.lua`, with `hyprctl`, or in the Display panel on the bar. Opening the Display panel snaps the viewport straight back to 2.\n\nReported on Omarchy 4 on a laptop with a 1920x1080 built-in panel and an external 1920x1080 monitor, and by three more people with different `monitors.lua` shapes.",
+      "cause": "`omarchy-hyprland-monitor-clamshell` polls every two seconds and re-asserts the internal panel's configured scale. When it could not read that scale as a number it substituted a hardcoded `2`. With the shipped `monitors.lua`, where `omarchy_monitor_scale = \"auto\"` and no rule names the internal panel, that fallback fired on every poll, which is why the panel returned to 2 about a second after any change.\n\nFixed by `omacom/omarchy#7581`, merged as commit `b63616422f427bb778f49f573e6cc197e29c7b4f`. The poll now leaves an auto-scaled internal panel alone, so it keeps whatever Hyprland's `auto` resolved.\n\nConfirmed on an omarchy 4.0.2-1 install: the shipped script has no hardcoded scale left, resolves a name the config gives a value through its own `lua_local_value`, and falls back to the `omarchy_monitor_scale` knob rather than to a number.\n\nA reader limitation from the same thread is still live, and it looks identical from the outside. `monitor_rule_regex` in that script matches only a rule written as `hl.monitor({` with a literal quoted `output = \"<name>\"` on the same line. A rule keyed by `desc:`, spread across several lines, or naming a variable in `output` is invisible to the poll, so the poll acts on the catch-all rule or on the global knob instead of on your rule. That is `omacom/omarchy#7084`, open, with `#7146` proposed against it.",
+      "fix": "**Update, then reload Hyprland.** No config change is needed:\n\n```bash\nomarchy update\nhyprctl reload\n```\n\nIf you added an explicit rule naming the internal output purely to stop the snapping, you can drop it again.\n\n**If your scale still moves on its own**, the poll is not reading your rule. Write it on one line with a literal quoted output rather than by description or through a variable:\n\n```lua\n-- ~/.config/hypr/monitors.lua\nhl.monitor({ output = \"eDP-1\", mode = \"2560x1600@240\", position = \"0x0\", scale = 1.33 })\n```\n\nGet the output name from `hyprctl monitors all -j | jq -r '.[].name'`. A contributor confirmed that naming the output directly is what makes the rule visible, after a local variable in that field left them with the same symptom.\n\nTwo related defects in the same thread are untouched by this fix. Adjusting scale from the Display panel writes that one number to every monitor and destroys `scale = \"auto\"` on the way, which is `omacom/omarchy#7505`, still open, so prefer editing `monitors.lua`. And the Display panel crashing when it is opened, reported in the original issue, was never explained or tracked, and the scale snapping back in that same moment was this defect.",
+      "verify": "```bash\nhyprctl monitors all -j | jq -r '.[] | \"\\(.name) \\(.scale)\"'\nsleep 5\nhyprctl monitors all -j | jq -r '.[] | \"\\(.name) \\(.scale)\"'   # unchanged after more than two polls\ngrep -n lua_local_value /usr/share/omarchy/bin/omarchy-hyprland-monitor-clamshell   # the fixed reader\n```",
+      "applies_to": [
+        "omarchy",
+        "hyprland",
+        "wayland",
+        "laptop",
+        "quickshell",
+        "omarchy-shell"
+      ],
+      "severity": "medium",
+      "frequency": "common",
+      "danger": "",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/6909",
+        "https://github.com/omacom/omarchy/pull/7581",
+        "https://github.com/omacom/omarchy/issues/7084",
+        "https://github.com/omacom/omarchy/issues/7505"
+      ]
+    },
+    {
+      "slug": "screensaver-self-dismisses-and-session-never-locks",
+      "title": "Fix the screensaver closing itself after a second and leaving the session unlocked",
+      "category": "omarchy-core",
+      "symptom": "The screensaver appears as a small floating terminal window in the middle of the screen instead of filling it, animates briefly, and closes on its own after about one second with no input. The session then does not lock on that idle cycle, and the journal records the screensaver as dismissed:\n\n```\nomarchy idle ... idle-cycle-cancel: screensaver-dismissed\n```\n\nIt is deterministic with any bar widget panel open when the idle timer fires, and it also happens with no panel open.\n\nOne reporter measured the consequence over two days on omarchy 4.0.2-1 with `lock: 300` configured: 239 dismissals, 233 of them between 1.396 and 1.560 seconds after the screensaver started, mean 1.420 seconds with a 0.03 second spread. One overnight stretch ran 225 idle cycles, every one of them dismissed, and the session stayed unlocked from 21:47 until 07:28. In cycles where no screensaver window existed, the lock fired at the deadline every time.\n\nReported on Omarchy 4.0.0-1 and 4.0.2-1, Hyprland 0.56.2, Quickshell 0.3.0 and 0.3.1, with `foot` and with Ghostty as the terminal, on Intel and on AMD graphics, single monitor and multi monitor.",
+      "cause": "`/usr/share/omarchy/bin/omarchy-screensaver` polls with `read -n1 -t 1` and exits when that read returns a byte or when the screensaver is no longer the active window. `screensaver_in_focus` asks `hyprctl activewindow` for the window class. An open bar panel maps as a full-output layer surface on the overlay layer and holds keyboard focus, and while it does, `activewindow` keeps reporting the window that was focused before, so the class never matches and the first tick exits.\n\nA collaborator instrumented the script on a disposable worker and measured five identical runs: exactly one tick at +1.09 seconds, with `read` returning 142, which is a timeout with no byte read, and the focus check returning false. No keypress is involved, and the one second is just the read timeout.\n\nTwo details of the appearance follow from the same cause. The 700x500 box is `foot`'s own documented default, because no Omarchy rule sizes `org.omarchy.screensaver`, so a different terminal gives a different box. And the compositor declines the fullscreen rule specifically while a layer surface holds keyboard focus, while the float rule from the same block still applies.\n\nThe idle service is what turns a cosmetic problem into an unlocked machine: the handler for the screensaver window closing stops the pending lock timer, with no line in the journal that reads as an error.\n\n`omacom/omarchy#7102`, which only treats lost focus as a dismissal once the screensaver has actually held focus, is open on 2026-09-10. Confirmed unfixed on an omarchy 4.0.2-1 install: the exit test and the `hyprctl activewindow` focus check are both as described.",
+      "fix": "There is no upstream fix yet. Two things work now, and the second is the one to use if you care about the machine locking.\n\n**Close any bar panel before the screen idles.** With no panel holding keyboard focus the screensaver takes focus, fills the output and stays up until you touch the machine.\n\n**Or turn the screensaver off, so the lock path runs without it:**\n\n```bash\nomarchy-toggle-screensaver\n```\n\nThe launcher then exits without starting a window, nothing closes, and the lock fires at its deadline. The reporter's control measurement is exactly this: every idle cycle with no screensaver window locked on time, with the same configuration and the same idle service.\n\nCheck what your idle timers actually are before relying on either, since the screensaver and the lock are separate deadlines:\n\n```bash\njq '.idle' ~/.config/omarchy/shell.json\n```",
+      "verify": "```bash\njournalctl --user -t omarchy-shell -b --no-pager | grep -E 'process-start: screensaver|idle-cycle-cancel|lock-timeout'\n```\n\nA healthy cycle reaches `lock-timeout` with no `idle-cycle-cancel: screensaver-dismissed` a second or so after the screensaver started. After toggling the screensaver off, wait out the lock timeout once and confirm the session locks.",
+      "applies_to": [
+        "omarchy",
+        "omarchy-shell",
+        "quickshell",
+        "hyprland",
+        "wayland",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "high",
+      "frequency": "common",
+      "danger": "",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/6917",
+        "https://github.com/omacom/omarchy/pull/7102"
+      ]
+    }
+  ],
+  "existing": [
+    {
+      "number": 6858,
+      "slug": "omarchy-lockscreen-no-keyboard-focus-after-resume",
+      "note": "The corpus record scopes this to lid-open resume and says manual locking is fine. The thread shows the defect is one single-shot focus grab in shell/plugins/lock/LockView.qml that five paths lose: the cold-lock race, suspend and resume, the screensaver being killed up to a second after the lock request, a failed password re-enabling the field, and a monitor hotplugged mid-lock, which no retry can fix because that surface can never take focus. Near-deterministic on four outputs. Three PRs are open, 7164, 7592 and 7471, and none has merged: the grab is still single-shot at LockView.qml in quattro, in the v4.0.3 tag and on an omarchy 4.0.2-1 install. The record's fix is also stale: it edits ~/.config/hypr/hypridle.conf and after_sleep_cmd, and neither hypridle nor hyprlock is installed on Omarchy 4 and no such file exists, so that half sends the reader to configuration that is not there."
+    },
+    {
+      "number": 6888,
+      "slug": "plugin-file-write-while-locked-strands-session",
+      "note": "Third thread on the pending reconciled record for this defect, alongside 7106 and 9441, and the purest form of the stall variant: quickshell never aborts, and recoverStrandedLock() early-returns at the sessionLock.secure guard in requestSessionLock(), so the session sits on lock-pending: screen-stabilizing forever. Added to that record's sources. Two things it adds that the record does not carry: on 4.0.2 a single reload is enough to strand the lock, where 4.0.1 needed a burst, and after the failsafe is cleared the shell can stay latched with isLocked true for hours while the machine is unlocked and the screensaver suppressed, which is issue 10299 and needs omarchy restart shell. PR 7169 is the open fix for the recovery path itself."
+    },
+    {
+      "number": 6889,
+      "slug": "default-agent-gemini-fails-antigravity-replacement",
+      "note": "Already a source on the pending reconciled record for the Gemini default agent. Closed as implemented on quattro by PR 6900, which is not the same as shipped: the stable backport, PR 8952, is still open and the v4.0.3 tag still installs gemini."
+    },
+    {
+      "number": 6890,
+      "slug": "quattro-upgrade-incomplete-do-not-reboot",
+      "note": "The corpus record already names the route this issue was closed on, the Omarchy menu's Update then Omarchy To Quattro entry. What the issue adds is the symptom that sent the reporter looking: on 3.8.5 the bar's update indicator says an Omarchy update is available and the ordinary update path does nothing, because the major upgrade is a separate menu item, and fastfetch reports a version string that is not on the releases page. Closed as not planned with no code change. Worth a sentence in the record's symptom."
+    }
+  ],
+  "skipped": []
+}
