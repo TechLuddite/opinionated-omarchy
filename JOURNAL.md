@@ -27,7 +27,8 @@ Last updated: 2026-09-11
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
 >    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
->    and `pacman-aur`, and O4 has finished harvesting: 39 records banked unmerged as of 2026-09-10, none audited. The corpus prose has 1,756 dashes across 405 records, item 6
+>    and `pacman-aur`, and O4 is harvested, reconciled and audited: 36 records banked unmerged as of 2026-09-11, all 36
+>    corrected by the audit. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -45,11 +46,12 @@ Last updated: 2026-09-11
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-10 and 2026-09-11: O4 finished harvesting, 36 records banked and the audit started
+## Session of 2026-09-10 and 2026-09-11: O4 harvested, reconciled and audited. 36 of 36 records were wrong
 
 Steps 2 and 1 of the O4 pick-up list, in that order: the duplicates reconciled, then batch
 01 read, then a second duplicate pass on 2026-09-11 that found three groups the first pass had
-missed. The harvest is complete at 36 records and the audit of them has started.
+missed, then the audit of all 36. **Every one of the 36 came back `corrected`.** Nothing was clean
+and nothing was rejected, so the problems are all real and the detail was all wrong somewhere.
 `data/problems.jsonl` is untouched and still reads `ok` 207 / `corrected` 249 / `unaudited` 0.
 The banked set is [research/raw/issue-harvest-reconciled.json](research/raw/issue-harvest-reconciled.json),
 batch 01 on its own is `raw/harvest-01.json`, and `issue-harvest-partial.json` is left exactly
@@ -198,24 +200,96 @@ no such file exists, and the thread shows the defect is one single-shot focus gr
 separate paths lose, with three pull requests open and none merged. That record needs a
 re-audit, not a tweak.
 
-### 5. The audit, started 2026-09-11
+### 5. The audit: 36 of 36 corrected
 
-36 records, 21 agent batches of one or two records each, grouped by category, each agent handed
-`reaudit-brief.md`, the record JSON and an output directory, exactly as the brief prescribes.
-Three facts are passed in on top of the brief because they are newer than it: today's date, that
-`v4.0.3` is the newest tag rather than `v4.0.2`, and that every cited issue and pull request
-state in these records was written between 2026-09-07 and 2026-09-11 and has to be re-checked.
-That last one is not hypothetical: it is what the `v4.0.3` correction above came from.
+21 agent batches of one or two records each, grouped by category, each handed `reaudit-brief.md`,
+the record JSON and an output directory, exactly as the brief prescribes. Three facts were passed
+in on top of the brief because they are newer than it: today's date, that `v4.0.3` is the newest
+tag rather than `v4.0.2`, and that every cited issue and pull request state in these records was
+written between 2026-09-07 and 2026-09-11 and had to be re-checked. That last one was not
+hypothetical, since it is what the `v4.0.3` correction above came from.
+
+The result is [research/raw/issue-harvest-audited.json](research/raw/issue-harvest-audited.json),
+36 records carrying `audit_status`, `audit_confidence` and the auditor's reason verbatim as
+`audit_note`, with `cause_reconciled` stamped on the 25 whose cause was rewritten.
+
+| | |
+| --- | --- |
+| verdicts | 36 corrected, 0 ok, 0 rejected |
+| confidence | 34 high, 2 medium |
+| `fix` rewritten | 29 |
+| `cause` rewritten | 25 |
+| `danger` rewritten | 13 |
+| `symptom` rewritten | 13 |
+| `verify` rewritten | 12 |
+| records with a `danger` | 16 of 36 |
+
+**The fix field is where the defects live.** 29 of 36 fixes were rewritten, and the failures are
+not subtle once someone runs them. A `sed` command could not run at all, because the substitution
+used `|` as its delimiter while the replacement contained `||`. A `chmod g-s` promised mode 700 and
+produces 777 from what the container actually leaves. A verify command grepped six lines after a
+marker for a value printed five lines before it. Another called a script with no argument, so it
+prints usage and fails even on a fixed system. None of these survive one attempt by a person at a
+keyboard, which is the whole argument for the audit.
+
+**Three fixes were actively harmful.** The screensaver record told the reader to run
+`omarchy-toggle-screensaver` to restore locking, and that command is a flip, so on a machine where
+the screensaver is already off it re-enables it and silently restores the unlocked session the
+record exists to prevent. The fingerprint record stopped the daemon synchronously during resume,
+which blocks the thaw for the stop timeout in exactly the wedged case the hook exists for. And the
+boot record's example `root=` named a device that does not exist on an ISO-installed machine, so a
+reader following it literally stays unbootable.
+
+**Mechanisms were wrong even where the fix worked.** The installer ESP cause blamed an unsettled
+udev re-read, and the script already runs `partprobe`, `sync`, a sleep, a device wait and `wipefs`
+before formatting. The real mechanism is the untyped `mount` walking `/proc/filesystems`, where
+`squashfs` is present on the live ISO and `vfat` is not. The pull request author had already removed
+the settle and sleep from the patch after review, so our fix told readers to add two steps upstream
+had dropped. The VMware cause blamed a rejected dmabuf modifier where the established mechanism is
+a driver surface handle failing to close, disproved for modifiers by standalone tests. The Codex
+cause described an 8 second timeout that never happens, because the read returns empty on the dead
+child and raises immediately, measured upstream in single-digit milliseconds.
+
+**Staleness inside three days.** One record pinned a guard to a line number read on 4.0.2-1, and
+`v4.0.3` rewrote that file and moved it, so the auditor replaced the pin with a grep. Another had
+its version floor corrected from one release to a range. A third had a release-note claim tightened
+from "about three hours" to two hours forty-three minutes.
+
+**Four of the nine open questions were answered, three of them against my own judgement.** The
+Gemini cutoff date I dropped as uncited is citable: the issue links a Google developers blog post,
+retrieved 2026-09-11, stating that Gemini CLI stopped serving individual accounts on 2026-06-18.
+The Codex approval-policy change I declined to cite exists as `openai/codex#39630`, merged
+2026-08-20. Q2 resolved to "do not split the AV1 record", because Arch's `-2` reverted every amdgpu
+VCN blob and the Mesa fix is gated on the quantizer matrix rather than on any ASIC, so one
+regression covers RDNA3 and RDNA4. Q5 resolved to both channels, with one reporter's own
+`$OMARCHY_PATH` proving a dev checkout where they had written edge.
+
+**The audit found two gaps in its own schema.** An auditor judged a severity wrong and had nowhere
+to put it, because `reaudit-brief.md`'s verdict carries no `corrected_severity`, so the judgement
+went into prose and was applied by hand. A second found a cited GitHub issue number that is really
+a discussion and could only say in prose that the URL must be deleted, because a verdict can append
+sources and never remove one. Both are recorded in the audited file under `audit.schema_gaps`, and
+the brief needs both fields before the next run.
+
+**Every source was then fetched.** 273 distinct URLs, all resolving except `api.fast.com`, which
+answers 403 to an anonymous GET and is kept deliberately with that noted. Nine URLs were repaired by
+hand: seven `omacom-io` organisation names normalised to the canonical `omacom`, one `blob/main` path
+corrected to `blob/master`, and the discussion-as-issue URL removed.
 
 ### 6. Where to pick this up
 
-1. Finish the audit of all 36, answering Q1 to Q9 on the way through. This is the expensive
-   step, so check `/usage-credits` first.
-2. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect it to
-   need a small change: its append path assigns `gapfill-unaudited` and these records will
-   arrive already audited.
-3. Add the three lint hits to `data/lint-baseline.json` in the same commit, and remember that
-   a commit touching `data/problems.jsonl` must regenerate `research/docs/` with it.
+1. Merge the 36, through `merge_gapfill.py`, dry-run on a copy first. Expect it to need a small
+   change, because its append path assigns `gapfill-unaudited` and these records arrive audited.
+   The records are already projected onto `corpus.FIELDS` key order.
+2. Raise `screensaver-self-dismisses-and-session-never-locks` to `critical` if it is re-derived
+   from the verdicts rather than taken from the audited file, since the verdict schema could not
+   carry that change and it was applied by hand.
+3. Add the 12 lint hits to `data/lint-baseline.json` in the same commit. Every one was read and
+   every one is legitimate: plain-Arch branches, the documented `OMARCHY_ALLOW_DIRECT_PACMAN`
+   bypass, and warnings that tell the reader not to run the matched command.
+4. Add `corrected_severity` and `corrected_frequency` to `reaudit-brief.md`, and a way to remove a
+   source, before the next audit run.
+5. A commit touching `data/problems.jsonl` must regenerate `research/docs/` with it.
 
 ## Session of 2026-09-07 (second): O4 harvests from the issue tracker, and stops one batch short
 
@@ -2730,11 +2804,12 @@ again.
   batches ran over 99 of 109 candidate issues and produced **40 records, 21 mappings onto
   existing records and 37 skipped as unconfirmed**, banked unmerged in
   `raw/issue-harvest-partial.json`. Both remaining blockers except the audit cleared on
-  2026-09-10: the duplicates were reconciled, thirteen records into six, and batch 01 was
-  read, adding six more. 39 records now sit in `raw/issue-harvest-reconciled.json` and
-  **none of them has been audited**, which is the only thing left before a merge. The
-  `existing` list, now 25 entries, is re-audit fuel for O3 and names four records the
-  tracker contradicts.
+  2026-09-10 and 2026-09-11: the duplicates were reconciled in two passes, nineteen records into
+  nine, batch 01 was read, adding six more, and all 36 were audited. **Every one of the 36 came
+  back `corrected`**, 34 at high confidence and 2 at medium, with 29 fixes rewritten. The audited
+  set is `raw/issue-harvest-audited.json` and the merge is the only thing left. The `existing`
+  list, now 25 entries, is re-audit fuel for O3 and names four records the tracker contradicts,
+  one of which sends readers to a hypridle config file that does not exist on Omarchy 4.
 - **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
   its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
   consumers, covered by the `FIELDS` tests. Not started.
