@@ -1,6 +1,6 @@
 # GPU & drivers
 
-35 problems. Sorted by severity, then by how often users hit it.
+39 problems. Sorted by severity, then by how often users hit it.
 
 ## Repair a DKMS driver that did not rebuild after a kernel update
 
@@ -863,6 +863,49 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Co
 
 ---
 
+## Boot the Omarchy install USB with nomodeset when an NVIDIA machine goes to a black screen
+
+`installer-usb-black-screen-nvidia-nomodeset` · severity: **high** · frequency: **common** · applies to: `desktop`, `installer`, `laptop`, `nvidia`, `omarchy`
+
+**Symptom.** Booting the Omarchy 4 (Quattro) install medium on a machine with an NVIDIA card shows a black screen and never reaches the installer. Reported on an RTX 5060 Ti, an RTX 5060 and an RTX 4090 in this thread, and on an RTX 3060 in #7061. One reporter saw the screen stay black for about 20 seconds, the keyboard backlight go out, and the monitor start its sleep countdown. On UEFI no boot menu is shown at all, so there is nowhere obvious to type a kernel parameter.
+
+**Cause.** The workaround is confirmed by three reporters on three cards in #7045, an RTX 5060 Ti, an RTX 4090 and an RTX 5060, and by a fourth reporter on an RTX 3060 in #7061. The mechanism is the collaborator's reading of the `omarchy-iso` sources, not a reproduction, since nobody triaging had an NVIDIA card. `configs/airootfs/etc/mkinitcpio.conf.d/archiso.conf` puts `kms` in HOOKS with no `autodetect`, so every in-tree DRM driver is built into the live initramfs and modesets during the live boot. `builder/build-iso.sh` adds no NVIDIA driver to the live environment, so nouveau is the NVIDIA display driver in play. The default boot entry carries `quiet splash`, so when that takeover fails nothing is left on screen. Exactly what nouveau gets wrong on these cards is not established. The missing UEFI menu is configuration, not a symptom: `configs/grub/grub.cfg` in `omacom/omarchy-iso` sets `timeout=0` and `timeout_style=hidden` at lines 49 and 50, and `configs/grub/loopback.cfg` does the same for the Ventoy and loopback path, so GRUB boots the default entry on every UEFI machine without drawing anything (re-read on `quattro` on 2026-09-11). Legacy BIOS boots show a syslinux menu for 15 seconds (`TIMEOUT 150` in `configs/syslinux/archiso_sys.cfg`). `nomodeset` is needed on the live medium only. The installed system boots normally without it afterwards, confirmed on the 4090.
+
+> **Audit corrected this record.** Re-read issue omacom/omarchy#7045 in full today with all eleven comments, plus issue #7061, plus every cited omarchy-iso file on the `quattro` branch. The issues do support the symptom and the workaround: the opening report is an RTX 5060 Ti whose author states that adding `nomodeset` to the installer's GRUB parameters lets the installer boot, joaomcarlos confirmed the same on an RTX 4090 after patching the stick with `dd`, fbal98 confirmed it on an RTX 5060 from the `grub>` prompt using the exact four commands the record quotes, and Ycaro-Oleg reports the same live-ISO failure and workaround on an RTX 3060 in #7061. Confirmed from source on 2026-09-11: `configs/grub/grub.cfg:49-50` still sets `timeout=0` and `timeout_style=hidden` with no `nomodeset` entry, `configs/grub/loopback.cfg` matches it, `configs/syslinux/archiso_sys.cfg:4` sets `TIMEOUT 150`, `configs/syslinux/archiso_sys-linux.cfg:6` carries the exact menu label the fix tells the user to highlight, `configs/airootfs/etc/mkinitcpio.conf.d/archiso.conf:2` puts `kms` in HOOKS with no `autodetect`, `builder/build-iso.sh:121` adds no NVIDIA driver to the live environment, and `configs/profiledef.sh` sets `install_dir="arch"` and `arch="x86_64"`, which is what makes the `/arch/boot/x86_64/vmlinuz-linux-t2` paths in the `grub>` recipe correct. Two things were wrong. The canonical repository name is `omacom/omarchy-iso` and every source URL in the record used the old `omacom-io/omarchy-iso` name, which redirects on github.com but is not the current name. And the release enumeration is stale: PR #110 is still open at head `c7cbcb4` with base `quattro`, last updated 2026-09-08 and never merged, while omarchy v4.0.3 was published on 2026-09-08, so the affected-image list has to include it rather than stopping at 4.0.2. I also added a labelled note on `omacom/omarchy-iso#160`, raised on #7045 on 2026-09-07, which puts `modprobe.blacklist=nouveau` on both GRUB boot paths and deliberately not on the syslinux one, is still open, and has never been tested by anyone with an affected card. On this machine I confirmed only that an installed Omarchy 4.0.2 NVIDIA system has no `nomodeset` in `/proc/cmdline`, which supports the verify step. Nothing about the live ISO boot was exercised: this workstation runs `nvidia-open-dkms 610.57.04` on a card none of the reports cover, and booting an install medium is outside what a read-only audit can do.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Add `nomodeset` to the live medium's kernel command line for that one boot.
+
+**Legacy BIOS boot.** The syslinux menu is visible for 15 seconds. Highlight `Omarchy install medium (x86_64, BIOS)`, press Tab, append ` nomodeset` to the end of the line, press Enter.
+
+**UEFI boot, if you can raise the hidden GRUB menu.** Hold Shift from the moment the firmware hands off. This is a GRUB side effect that depends on the firmware reporting modifier state, so it may do nothing. If a menu appears, highlight `Omarchy`, press `e`, find the line beginning `linux`, append ` nomodeset`, and press Ctrl-X.
+
+**UEFI boot, no menu at all.** Get to the `grub>` prompt (one reporter reached it with Shift+Esc during boot, on one machine) and boot the live kernel by hand. The paths and arguments are the shipped default entry with `archisosearchuuid=` swapped for `archisosearchfilename=`, because the UUID is not known at a bare prompt:
+
+```
+search --file --set=root /arch/boot/x86_64/vmlinuz-linux-t2
+linux /arch/boot/x86_64/vmlinuz-linux-t2 archisobasedir=arch archisosearchfilename=/arch/boot/x86_64/vmlinuz-linux-t2 quiet splash xe.enable_panel_replay=0 initramfs_async=0 nomodeset
+initrd /arch/boot/x86_64/initramfs-linux-t2.img
+boot
+```
+
+If the screen still goes black, drop `quiet splash` from that `linux` line so the last kernel message stays visible.
+
+The installer then runs as normal, and the installed system does not need `nomodeset`.
+
+**Status of the real fix, re-checked on 2026-09-11.** The proposed fix is an `Omarchy with safe graphics` menu entry carrying `nomodeset` plus a three second visible menu, `omacom/omarchy-iso#110`. It is still open and has never merged, head `c7cbcb4`, base `quattro`, last updated 2026-09-08. `quattro` still sets `timeout=0` and `timeout_style=hidden` at `configs/grub/grub.cfg:49-50` and carries no `nomodeset` entry anywhere, and both the nightly and the released image build from `quattro`, so every image published up to and including the omarchy v4.0.3 release of 2026-09-08 still black-screens with no safe entry and no visible UEFI menu.
+
+A second and different proposal, `omacom/omarchy-iso#160`, puts `modprobe.blacklist=nouveau` on both GRUB boot paths (`configs/grub/grub.cfg` and `configs/grub/loopback.cfg`, deliberately not on the syslinux BIOS path). That would rescue the boot with nothing for the user to select and without stopping Intel or AMD modesetting. It is also open and unmerged, it was raised for an unrelated reason, and nobody with an affected card has tested it, so treat it as an idea rather than a workaround.
+
+**Verify.** The Omarchy logo and the installer's configurator appear instead of a black screen. After the install, reboot without the USB stick: the installed system starts its graphical session with no `nomodeset` anywhere (`cat /proc/cmdline` shows the Omarchy defaults only).
+
+Sources: <https://github.com/omacom/omarchy/issues/7045> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/grub/grub.cfg> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/syslinux/archiso_sys-linux.cfg> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/syslinux/archiso_sys.cfg> · <https://github.com/omacom/omarchy-iso/pull/110> · <https://github.com/omacom/omarchy/issues/7061> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/grub/loopback.cfg> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/airootfs/etc/mkinitcpio.conf.d/archiso.conf> · <https://github.com/omacom/omarchy-iso/blob/quattro/builder/build-iso.sh> · <https://github.com/omacom/omarchy-iso/blob/quattro/configs/profiledef.sh> · <https://github.com/omacom/omarchy-iso/pull/160> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3>
+
+---
+
 ## nouveau grabs the card instead of the NVIDIA driver (or a stale blacklist stops nvidia loading)
 
 `nouveau-loaded-instead-of-nvidia-blacklist` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `nvidia`, `omarchy-4`
@@ -1018,6 +1061,136 @@ Lower the 500 floor to reduce idle power draw — too low and the freeze comes b
 **Verify.** Leave the machine idle past the blank timeout, then wake it: the desktop returns. `journalctl -b -1 -k | grep -i 'Xid\|GSP Timeout'` stays empty.
 
 Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://github.com/basecamp/omarchy/issues/2112> · <https://github.com/basecamp/omarchy/issues/2635>
+
+---
+
+## Fix corrupted browser video and a dGPU that never sleeps on a hybrid laptop whose panel runs on the iGPU
+
+`nvidia-env-forced-on-igpu-primary-hybrid-laptop` · severity: **high** · frequency: **common** · applies to: `amd`, `chrome`, `chromium`, `edge`, `electron`, `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `teams`
+
+**Symptom.** Omarchy 4.0.1 or later on a hybrid laptop whose Intel or AMD iGPU renders the session. Usually the NVIDIA card drives nothing, but the same failure happens when it scans out an external monitor while the compositor and the browser still render on the iGPU.
+
+Chromium, Chrome, Edge, Discord, Teams and other Electron apps show corrupted or black video, ghosting while scrolling, elements that paint only on mouse hover, hard scroll stalls on video-heavy pages, or a WebRTC stream that never paints. Live streams with a chat panel open are the most reliable trigger, while static pages stay smooth and ordinary playback can look fine. Rarely the browser's GPU process aborts with `SIGTRAP` and leaves a `chromium` core with `--type=gpu-process` in `coredumpctl`. Launched from a terminal, Chromium prints hundreds of:
+
+```
+eglCreateImage failed with 0x00003009
+Unable to initialize binding from pixmap
+OzoneImageBacking::ProduceSkiaGanesh failed to create GL representation
+```
+
+The session carries the NVIDIA values even though the NVIDIA card is not the rendering device:
+
+```console
+$ systemctl --user show-environment | grep -E 'LIBVA|NVD_BACKEND|__GLX'
+LIBVA_DRIVER_NAME=nvidia
+NVD_BACKEND=direct
+__GLX_VENDOR_LIBRARY_NAME=nvidia
+```
+
+`vainfo` reports the NVDEC driver rather than the Intel or AMD one, and installing `intel-media-driver` alone changes nothing. On most of the reported machines every NVIDIA connector under `/sys/class/drm/` reads `disconnected` and `disabled` while the iGPU's `eDP-1` is `connected`, but on several the NVIDIA card has a live external output and the browser's GPU process is still pinned to the iGPU's render node.
+
+On battery the dGPU never runtime-suspends while a browser is open. `/sys/bus/pci/devices/<dgpu>/power/runtime_status` stays `active` and `runtime_suspended_time` stays 0. One reporter measured the dGPU at about a third of idle draw on a 99.9 Wh laptop.
+
+**Cause.** Established in the threads by the repository's triage collaborator, from source, and confirmed on an omarchy 4.0.2-1 workstation where `nvidia.lua` and all three detectors read exactly as described. The file is unchanged at the `v4.0.3` tag. The cluster's canonical thread is issue 8215.
+
+`/usr/share/omarchy/default/hypr/nvidia.lua`, loaded from `default/hypr/envs.lua`, which `default/hypr/omarchy.lua` requires, runs `hl.env("NVD_BACKEND", "direct")`, `hl.env("LIBVA_DRIVER_NAME", "nvidia")` and `hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")` whenever `bin/omarchy-hw-nvidia` and `bin/omarchy-hw-nvidia-gsp` both succeed. Those detectors only check that a PCI device with vendor `0x10de` at class `0x03*` exists with a device id at or above `0x1e00`, which is Turing and newer. Neither asks whether the NVIDIA GPU renders or scans out anything, and class `0x0302`, a 3D controller, drives no display by definition. `default/hypr/autostart.lua` then exports the whole environment session-wide on `hyprland.start` through `systemctl --user import-environment` and `dbus-update-activation-environment --systemd --all`, so every app inherits it.
+
+`LIBVA_DRIVER_NAME` overrides libva's DRM-based autodetection, so every VA-API client loads `nvidia_drv_video.so` against the iGPU's render node. Compositing then happens on the iGPU while NVDEC decode runs on the NVIDIA card and the exported frames cross GPUs, which fails on import with `EGL_BAD_MATCH`. A contributor isolated the rare abort to Chromium's `CHECK_EQ(handle.modifier, object.drm_format_modifier)` in `VaapiWrapper::ExportVASurfaceAsNativePixmapDmaBufUnwrapped`, because `libva-nvidia-driver` returns a different NVIDIA block-linear modifier for the half-height UV plane than for the Y plane. The NVIDIA VA driver is decode only and exposes no `VAEntrypointEnc*` entrypoints, so the pin removes the iGPU's hardware encode as well. Any app touching video decode also opens `/dev/nvidia-uvm`, which is what blocks runtime suspend. Which mechanism breaks Teams was not isolated.
+
+Scanout is not the same thing as rendering, which is why "does an NVIDIA connector report connected" is the wrong question to ask about a machine. Four machines in the tracker have a live NVIDIA output and still show the bug, because the compositor keeps rendering on the iGPU while the dGPU only scans out the ports wired to it, and the browser follows the compositor's render node. What decides it is the render node the compositor and the browser actually open.
+
+The branch went live in 4.0.1 through commit `33d7363c`, which fixed `o.shell_succeeds()` always returning false inside Hyprland and so un-masked code that had been dead in 4.0.0. These machines were accidentally correct before that.
+
+Two limits established in the threads. An `hl.env` placed before `require("default.hypr.omarchy")` loses, because the default loads after it, and the shipped `config/hypr/hyprland.lua` says plainly that the personal files load after the defaults. And `~/.config/hypr/envs.lua` is never loaded by anything, confirmed here: nothing in `/usr/share/omarchy` requires `hypr.envs`, the only match in the tree is `default.hypr.envs` at `default/hypr/omarchy.lua:16`, so an override written there does nothing. That is issue 9902.
+
+Maxwell, Pascal and Volta take the other branch, device ids from `0x1340` to `0x1dff`, which sets `NVD_BACKEND=egl` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` with no `LIBVA_DRIVER_NAME`. Anything older than Maxwell matches neither detector and gets no NVIDIA environment at all. One Quadro P520 reporter found the dGPU pinned awake with `nvidia_uvm used_by=0` and no process holding a CUDA context, so the mechanism above is not what holds it there, and that machine is not fixed by the override below. None of the open pull requests fixes it either, because all of them work on the GSP branch. The thread had no confirmed fix for it, only an untested suggestion of `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`.
+
+Three upstream pull requests propose different gates, 7851, 9483 and 10588, and none has merged as of 2026-09-11. Triage's recommendation on issue 10410 is 7851, which reads PCI vendors rather than connectors and so cannot flip when a monitor is docked, with one condition: a fix has to clear `LIBVA_DRIVER_NAME` rather than merely decline to set it, because `systemctl --user import-environment` only adds or overwrites names and anyone who has run 4.0.1 or 4.0.2 already has the stale value in their systemd user environment.
+
+> **Audit corrected this record.** Confirmed on this machine, omarchy 4.0.2-1: /usr/share/omarchy/default/hypr/nvidia.lua sets all three variables behind omarchy-hw-nvidia plus omarchy-hw-nvidia-gsp with no display check, /usr/share/omarchy/default/hypr/envs.lua requires default.hypr.nvidia, /usr/share/omarchy/default/hypr/omarchy.lua:16 requires default.hypr.envs, and /usr/share/omarchy/default/hypr/autostart.lua:3-4 runs systemctl --user import-environment and dbus-update-activation-environment --systemd --all. The file is byte-identical to the v4.0.3 tag fetched with gh api, so claim 1 holds, and I also ran the three detectors here: nvidia and nvidia-gsp both succeed and the session really carries LIBVA_DRIVER_NAME=nvidia, NVD_BACKEND=direct and __GLX_VENDOR_LIBRARY_NAME=nvidia. Claim 2 holds: nothing under /usr/share/omarchy requires hypr.envs, the only match in the tree is default.hypr.envs, and the shipped config/hypr/hyprland.lua requires hypr.monitors, hypr.input, hypr.bindings, hypr.looknfeel and hypr.autostart and no envs file, so ~/.config/hypr/envs.lua is dead, which is upstream issue 9902. Claim 3 holds by load order in that same file, where require("default.hypr.omarchy") runs above the personal requires, so an hl.env placed before it loses. Claim 4, Q7, is honest: issue 8989 carries the Quadro P520 report with nvidia_uvm used_by=0 and no LIBVA_DRIVER_NAME on that branch, no confirmed fix, and only an untested __EGL_VENDOR_LIBRARY_FILENAMES hypothesis, but the record says "Pascal and older" where omarchy-hw-nvidia-without-gsp is bounded 0x1340 to 0x1dff, so Maxwell, Pascal and Volta take that branch and anything older than Maxwell matches neither branch and gets no NVIDIA environment at all. Two defects, both in the gate rather than the mechanism. First, the fix tells the reader to apply the override only when every NVIDIA connector is disconnected and disabled and the danger says the shipped setting is correct otherwise, and I read four machines in issue 8215 that falsify this: Hakira-Shymuy, RTX 4060 driving HDMI-A-1 with a monitor attached while Brave's GPU process stays on the AMD node, marioxabel, RTX 2060 driving DP-3 while Chromium stays on the Intel node, jhostileo, fixed with an hl.env override on an AMD panel plus NVIDIA HDMI plus dock, and a Lenovo i7-13800H with an RTX 4060 on DP-2 whose single-variable A/B gives a blank YouTube window under nvidia and clean playback under iHD. Scanout ownership is not render-device ownership, triage on issue 10410 settled the same point, so I rewrote the gate around which render node the compositor holds and rewrote the danger to match. Second, the fix says the __GLX_VENDOR_LIBRARY_NAME line was confirmed by an Arrow Lake plus RTX 5070 reporter, and that confirmation does not exist: that reporter set LIBVA_DRIVER_NAME only and pointed out that __GLX survives it, the issue 9890 reporter wrote that he had not tested __GLX, and the Arrow Lake plus RTX 5070 Ti reporter who did set both saw the eglCreateImage storm stop while the corruption persisted without a full logout. Everything else held from source: the CHECK_EQ modifier isolation in issue 9890, the decode-only entrypoint tables, the 99.9 Wh one-third idle draw measurement in issue 8989's body, the 4.0.1 attribution to 33d7363c which gh api shows inside the v4.0.0..v4.0.1 range, and pull requests 7851, 9483 and 10588 all open on quattro as of 2026-09-11. Not exercised: this is a desktop with one NVIDIA card driving card1-HDMI-A-1 and renderD128 on vendor 0x10de, so the hybrid path, the corruption, the crash and the power behaviour could not be reproduced here, and all of those rest on the reporters.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On a machine where the NVIDIA card is the rendering device, a desktop or a muxed laptop in dGPU mode, `LIBVA_DRIVER_NAME=nvidia` matches the render device and this override will break hardware decode instead of fixing it. Check which render node the compositor and the browser hold first, as the fix shows. A connected NVIDIA output is not that test: on a hybrid laptop the dGPU can scan out an external monitor while the compositor and the browser still render on the iGPU, and the override applies there too.
+
+**Fix.**
+
+Omarchy 4 only, and only on a machine where the iGPU is the rendering device. Check that first, because where the NVIDIA card renders, a desktop or a muxed laptop in dGPU mode, the shipped setting matches the render device and this override is wrong.
+
+Find which render node the compositor holds, and which PCI vendor owns it:
+
+```sh
+ls -l /proc/$(pgrep -x Hyprland | head -1)/fd | grep -oE 'renderD[0-9]+' | sort | uniq -c
+for n in /sys/class/drm/renderD*; do
+  printf '%s %s vendor=%s\n' "$(basename "$n")" "$(basename "$(readlink -f "$n/device")")" "$(cat "$n/device/vendor")"
+done
+```
+
+Vendor `0x8086` is Intel, `0x1002` is AMD, `0x10de` is NVIDIA. If the node the compositor holds belongs to the Intel or AMD iGPU, the override applies. Check the browser the same way once it is running, because it picks its own node:
+
+```sh
+ls -l /proc/$(pgrep -f 'type=gpu-process' | head -n1)/fd | grep -oE 'renderD[0-9]+' | sort | uniq -c
+```
+
+Connector state is a useful cross-check and nothing more. A dGPU with a monitor plugged into one of its own ports can still be a machine whose compositor and browser render on the iGPU, and four machines in the upstream cluster are exactly that, so do not read a connected NVIDIA output as "the shipped setting is right here":
+
+```sh
+for c in /sys/class/drm/card*-*; do printf '%s status=%s enabled=%s\n' "$(basename "$c")" "$(cat "$c/status")" "$(cat "$c/enabled")"; done
+```
+
+Intel iGPU, install the media driver first:
+
+```sh
+omarchy update                      # fetch the sync databases first on a fresh install
+sudo pacman -S intel-media-driver
+```
+
+Then override the variable from your own config, which loads after Omarchy's defaults, so the last `hl.env` assignment wins. Put it in `~/.config/hypr/hyprland.lua` **below** the `require("default.hypr.omarchy")` line:
+
+```lua
+-- ~/.config/hypr/hyprland.lua, below require("default.hypr.omarchy")
+hl.env("LIBVA_DRIVER_NAME", "iHD")              -- Intel iGPU
+hl.env("__GLX_VENDOR_LIBRARY_NAME", "mesa")
+```
+
+On an AMD iGPU use `radeonsi` in place of `iHD`. Mesa is already installed there. `~/.config/hypr/autostart.lua` works as well, because `hyprland.lua` requires it after the defaults, and one reporter fixed an AMD machine that way. Do not use `~/.config/hypr/envs.lua`, which nothing loads.
+
+Both lines together are the workaround the issue 8989 reporter validated, and after a relogin he reported no corruption, the dGPU in D3cold even during playback, and about 5 W less idle draw. The `LIBVA_DRIVER_NAME` line is the one that carries the fix: two other reporters cleared their machines with it alone, one on an Arrow Lake plus RTX 5070 Max-Q laptop who then removed `--disable-gpu-compositing` and kept full GPU acceleration, and one who restored incoming Discord streams with `iHD`. A third set both lines on an Arrow Lake plus RTX 5070 Ti, saw the `eglCreateImage` errors stop, and still had corruption in the live session because he did not log out, so do not skip the relogin below.
+
+Then log out and back in. `hyprctl reload` re-parses the config and processes Hyprland spawns afterwards do see the new value, but Omarchy's autostart runs `systemctl --user import-environment` at session start, so apps launched through systemd user scopes keep the old value until the next login. Fully quit any browser or Electron app that was running before the change, because each keeps its old environment until restarted.
+
+Leave `NVD_BACKEND=direct` alone. The same branch still sets it and it is inert once the NVIDIA VA driver is no longer loaded.
+
+Remove any `--disable-gpu-compositing` line from `~/.config/chromium-flags.conf` or `chrome-flags.conf` afterwards, because reporters found full GPU compositing works once the driver matches. `--disable-features=VaapiVideoDecoder` does not fix this, because the NVIDIA VA driver still loads.
+
+Apps that should run on the dGPU keep working with PRIME offload scoped to their own launch:
+
+```sh
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <game>
+```
+
+**Verify.** After a fresh login:
+
+```bash
+systemctl --user show-environment | grep -E 'LIBVA|__GLX'   # iHD or radeonsi, and mesa
+vainfo 2>/dev/null | head -3                                # the iGPU driver, not NVDEC
+dgpu=$(grep -l 0x10de /sys/bus/pci/devices/*/vendor | head -1 | xargs dirname)
+cat "$dgpu/power/runtime_status"                            # suspended, even during playback
+cat "$dgpu/power/runtime_suspended_time"                    # grows over time
+```
+
+Then restart the browser and check what its GPU process actually maps:
+
+```bash
+GP=$(pgrep -f 'type=gpu-process' | head -n1)
+grep -oE '/usr/lib/dri/[a-z0-9_]+_drv_video\.so' /proc/$GP/maps | sort -u
+grep -oE 'lib(cuda|nvcuvid)\.so[.0-9]*' /proc/$GP/maps | sort -u
+ls -l /proc/$GP/fd | grep -oE 'renderD[0-9]+|nvidia[a-z0-9-]*' | sort | uniq -c
+```
+
+On Intel, `iHD_drv_video.so` is mapped, the `libcuda` and `libnvcuvid` grep is empty, and the `/dev/nvidia0` and `/dev/nvidia-uvm` fds are gone. On AMD, `nvidia_drv_video.so` is absent, since the radeonsi driver resolves to `libgallium-*.so`, and the count of `/dev/nvidia0` fds is zero. Do not read `/proc/<pid>/environ` of the browser process, because Chromium rewrites that region for process titles and it reads back as garbage. The `chrome_crashpad_handler` child inherits the same environment and reads correctly. Chromium should also play video with no `eglCreateImage failed with 0x00003009` lines.
+
+Sources: <https://github.com/omacom/omarchy/issues/8989> · <https://github.com/omacom/omarchy/issues/9890> · <https://github.com/omacom/omarchy/issues/10410> · <https://github.com/omacom/omarchy/pull/7851> · <https://github.com/omacom/omarchy/pull/9483> · <https://github.com/omacom/omarchy/pull/10588> · <https://github.com/omacom/omarchy/commit/33d7363c337134f11ec6ffcea132c92053bc8fe8> · <https://github.com/omacom/omarchy/issues/8215> · <https://github.com/omacom/omarchy/issues/9902> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/hypr/nvidia.lua>
 
 ---
 
@@ -1835,6 +2008,70 @@ Sources: <https://wiki.archlinux.org/title/AMDGPU>
 
 ---
 
+## AV1 video shows shifted colours or blocky corruption on AMD graphics (linux-firmware-amdgpu 20260810-1)
+
+`av1-video-color-corruption-linux-firmware-amdgpu-20260810-1` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `brave`, `chromium`, `desktop`, `firefox`, `laptop`, `omarchy`, `rdna4`, `rx-9070-xt`, `youtube`
+
+**Symptom.** After updating, or on a fresh Omarchy 4.0.0-1 install, AV1 video in Firefox, Chromium and Brave shows rectangular areas in the wrong colours, sometimes pixelated. Lower resolutions such as 480p look fine and higher AV1 streams do not, for example YouTube `av01.0.12M.08` at 4K while `av01.0.04M.08` at 480p is clean. The corruption is in the decoded frames, so it appears in screenshots too.
+
+Reported on a Ryzen 7 8745HS with Radeon 780M and a Ryzen 5 7640U with Radeon 760M, both on Omarchy 4.0.0-1, and on two Radeon RX 9070 XT machines, one of which was still on Omarchy 3.8.4 and read the broken firmware from the same Omarchy stable mirror. `pacman -Q linux-firmware-amdgpu` shows `20260810-1`. The RX 9070 XT reports add Mesa 26.1.7-1, libva 2.24.1-1 and kernel 7.1.8-arch1-3.
+
+**Cause.** `linux-firmware-amdgpu 20260810-1` carries an AMD GPU firmware regression that corrupts hardware AV1 decoding. The browsers all reach the decoder through VA-API, which on Mesa is the radeonsi gallium media path, so every browser was affected.
+
+The firmware changed how the AV1 decoder reads the quantizer matrix parameters. The high 4 bits of `qm_y`, `qm_u` and `qm_v` stopped being ignored, while Mesa was still OR-ing `0xf0` into all three unconditionally. Two independent fixes exist upstream and either one is enough, but they do not stack the way the version numbers suggest.
+
+Arch published `linux-firmware-amdgpu 20260810-2` on 2026-08-14. Its packaging commit `ba3cc99c` is "20260810-2: Backport an upstream revert and revert all amdgpu VCN firmware", so it reverts every amdgpu VCN blob rather than only the RDNA4 one.
+
+Mesa merge request 43787, `radeonsi,radv/video: Fix AV1 decode qmatrix params`, merged on 2026-08-17 and shipped in Mesa 26.1.8 on 2026-08-19. It carries two commits, `radeonsi/mm: Fix AV1 decode qmatrix params` for the VA-API path the browsers use and `radv/video: Fix AV1 decode qmatrix params` for Vulkan video. The radeonsi change, in `src/gallium/drivers/radeonsi/mm/si_video_dec.c`, passes the raw quantizer matrix values when the stream uses one and `0xff` when it does not, and it is not gated on any ASIC, so it covers every VCN generation.
+
+Arch then published `20260810-3` on 2026-09-08 with packaging commit `cc4c7047`, "20260810-3: Remove VCN revert now that Mesa is fixed", and `20260910-1` on 2026-09-10 on top of that. From `-3` onwards the firmware revert is gone and the fix rests on Mesa alone, so a machine on `-3` or newer whose Mesa is older than 26.1.8 is back in the broken combination.
+
+The thread established the mechanism on RDNA4 (gfx12, Navi 48), and the Radeon 780M and 760M reports belong in the same record rather than a separate one: they carry the same firmware version, the Mesa fix is ASIC-independent, and the `-2` revert covered all VCN generations. The 780M reporter confirmed that `-2` cleared it. The 760M reporter confirmed only the Firefox workaround and never reported back on the firmware update.
+
+Omarchy's stable mirror lagged, which is why this reached people a week after Arch had fixed it. The reporter of issue 7514 read the mirror's `core.db` as last modified Fri, 14 Aug 2026 15:15:59 GMT, and `-2` reached the Arch archive at 15:52 the same day, so the snapshot was taken about 37 minutes before the fixed build existed. The mirror was serving `20260810-2` by 2026-08-22, read from `/var/log/pacman.log` on an Omarchy stable workstation.
+
+> **Audit corrected this record.** Checked the Arch package archive with curl and a named user agent: 20260810-2 is dated 14-Aug-2026 15:52 and 20260810-3 is dated 08-Sep-2026 21:07, both as the record says, and a fourth build, 20260910-1, landed on 10-Sep-2026 which the record does not know about. The Arch packaging commits say what each build does, and that is the main defect: ba3cc99c is "20260810-2: Backport an upstream revert and revert all amdgpu VCN firmware" while cc4c7047 is "20260810-3: Remove VCN revert now that Mesa is fixed", so the record's "anything from -2 up carries the fix" is wrong. From -3 onwards the firmware revert is gone and the fix rests entirely on Mesa 26.1.8 or newer, so a machine on -3 or 20260910-1 with an older Mesa is back in the broken pair, and the fix and verify text had to be rewritten around that. Confirmed on this machine: /var/log/pacman.log records linux-firmware-amdgpu 20260810-1 installed at 2026-08-23T00:40:33+0000 and upgraded to 20260810-2 at 2026-08-22T17:52:45-0700, in the same transaction that took mesa from 1:26.1.7-1 to 1:26.1.8-1, which confirms the mirror claim as written. Mesa merge request 43787 is titled "radeonsi,radv/video: Fix AV1 decode qmatrix params", not "radv/video:" as the record has it, and it carries two commits, so the record quoted the Vulkan one while its own mechanism is VA-API, which runs through the radeonsi commit. On Q2 the answer is do not split the RDNA3 reports out: I read the radeonsi diff, src/gallium/drivers/radeonsi/mm/si_video_dec.c in si_dec_av1, and it is gated on using_qmatrix rather than on any ASIC, the Mesa 26.1.8 notes of 2026-08-19 list both commits, and the -2 package reverted all amdgpu VCN blobs rather than only the Navi 48 one, so one firmware regression covers both generations. Read both cited issues in full: 7377 supports the 780M and 760M reports and the Firefox workaround, and its 780M reporter confirmed -2 cleared it while the 760M reporter only ever confirmed the Firefox workaround, so I narrowed that sentence. 7514 does not support "after an upgrade from Omarchy 3.8.4": that reporter was running Omarchy 3.8.4 and read the broken firmware off the same Omarchy stable mirror, and his core.db last-modified of Fri, 14 Aug 2026 15:15:59 GMT sits 37 minutes before -2 reached the archive, which is better evidence for the lag claim than the record gives, so I put it in. Not exercised: this workstation has an NVIDIA card, so no AV1 decode on AMD hardware was reproduced here and nothing about the corruption itself was seen first hand.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Update. Omarchy 4:
+
+```bash
+omarchy update
+pacman -Q linux-firmware-amdgpu mesa
+```
+
+Plain Arch:
+
+```bash
+sudo pacman -Syu
+```
+
+Either upstream fix alone is enough, but check which one you ended up with, because Arch dropped the firmware revert again:
+
+- `20260810-2` carries the firmware revert and fixes this on any Mesa.
+- `20260810-3` (2026-09-08) and `20260910-1` (2026-09-10) dropped that revert, so on those you need Mesa 26.1.8 or newer.
+
+So the good pairs are `20260810-2` with any Mesa, or `-3` and newer with Mesa 26.1.8 or newer. A full `omarchy update` gives you both halves and is the supported path. Do not pull the firmware package on its own, which leaves you with a partially upgraded system.
+
+Reboot afterwards. GPU firmware is loaded when the `amdgpu` module initialises, so the running session keeps the old firmware until then.
+
+If you cannot update yet, turn off the hardware AV1 path in the browser. One reporter on a Radeon 760M confirmed that disabling AV1 in Firefox, `media.av1.enabled` set to `false` in `about:config`, stops the corruption, because YouTube then falls back to VP9. For Chromium and Brave, launch with `--disable-accelerated-video-decode`, which the RX 9070 XT reporter used to isolate the fault to hardware decode. That same reporter found that disabling hardware decoding in Firefox alone did not help on his machine, so treat the Firefox route as unconfirmed there. All of this is a workaround, not the fix.
+
+**Verify.** ```bash
+pacman -Q linux-firmware-amdgpu mesa
+```
+
+You want either `20260810-2` with any Mesa, or `20260810-3` and newer together with Mesa 26.1.8 or newer. Arch's mesa carries an epoch, so 26.1.8 reads as `1:26.1.8-1`.
+
+After a reboot, play a 1080p or 4K AV1 stream with hardware decoding on: colours are stable and no blocks appear. One reporter on Omarchy 4.0.0-1 confirmed the firmware update alone fixed it, and another confirmed Mesa 26.1.8 alone fixed it with the firmware still on `20260810-1`.
+
+Sources: <https://github.com/omacom/omarchy/issues/7377> · <https://github.com/omacom/omarchy/issues/7514> · <https://archlinux.org/packages/core/any/linux-firmware-amdgpu/> · <https://archive.archlinux.org/packages/l/linux-firmware-amdgpu/> · <https://archlinux.org/packages/extra/x86_64/mesa/> · <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43787> · <https://gitlab.archlinux.org/archlinux/packaging/packages/linux-firmware/-/commits/main> · <https://gitlab.freedesktop.org/mesa/mesa/-/commit/3c4d3e46> · <https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/docs/relnotes/26.1.8.rst>
+
+---
+
 ## Install the Vulkan ICD when an app silently refuses to launch
 
 `vulkan-driver-missing-app-fails-to-start` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
@@ -1942,6 +2179,62 @@ Keep `/etc/modprobe.d/nvidia.conf` with `options nvidia_drm modeset=1` — modes
 **Verify.** `lsinitcpio /boot/initramfs-linux.img | grep nvidia` returns nothing, `cat /sys/module/nvidia_drm/parameters/modeset` still returns `Y`, and `systemctl hibernate` followed by power-on restores your session.
 
 Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks>
+
+---
+
+## Screen recording never starts on a Pascal NVIDIA card: 'Driver does not support the required nvenc API version. Required: 13.1 Found: 13.0'
+
+`screenrecord-nvenc-api-13-1-required-pascal-580xx` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `ffmpeg`, `gpu-screen-recorder`, `hyprland`, `kdenlive`, `laptop`, `nvidia`, `omarchy`, `wayland`
+
+**Symptom.** `omarchy screenrecord` (every variant: fullscreen, region, with or without audio or webcam) does nothing. The bar's recording indicator never turns on and no file appears in `~/Videos`. With `OMARCHY_SCREENRECORD_DEBUG=true` set, `/tmp/omarchy-screenrecord.log` ends with:
+
+```
+gsr info: using h264 encoder because a codec was not specified
+[h264_nvenc @ 0x557b3650a880] ignoring invalid SAR: 0/0
+[h264_nvenc @ 0x557b3650a880] Driver does not support the required nvenc API version. Required: 13.1 Found: 13.0
+[h264_nvenc @ 0x557b3650a880] The minimum required Nvidia driver for nvenc is 610.00 or newer
+gsr error: Could not open video codec: Function not implemented
+```
+
+Reported on Omarchy 4.0.0-1 with a GeForce GTX 1070 Ti on `nvidia-580xx-dkms 580.178.04` and `gpu-screen-recorder 6.0.0-1`. A second reporter hit the same two `h264_nvenc` lines from Kdenlive's NVENC export presets on a Quadro P1000 with the same driver, and the same message comes from any program that encodes through the system `ffmpeg`.
+
+**Cause.** Named by the gpu-screen-recorder author in the thread and checked against ffmpeg's own source. ffmpeg 9.0 is built against nv-codec-headers that declare NVENC API 13.1, and `libavcodec/nvenc.c` refuses to open the encoder when the driver reports a lower maximum version, returning `AVERROR(ENOSYS)`, which surfaces as `Could not open video codec: Function not implemented`. The same function maps API 13.1 to a minimum driver of 610.00, which is where that second log line comes from. Pascal cards (GTX 10 series, Quadro P series) are stuck on the legacy `nvidia-580xx` branch, which reports API 13.0 only, and that branch is packaged in the AUR rather than in Arch's repositories, while `extra/nvidia-utils` is 610.57.04 and does not cover Pascal. `omarchy-capture-screenrecording` passes `-fallback-cpu-encoding yes` to `gpu-screen-recorder` (line 191 of the script, identical on this machine, at tag v4.0.3 and on `quattro`), but before 6.0.1 that option only checked whether the GPU supports NVENC, not whether ffmpeg accepts the driver's API version, so the recorder died opening the codec instead of falling back to software encoding. The author added an ffmpeg NVENC version check in gpu-screen-recorder 6.0.1 so the fallback fires. He also described making the `-Dffmpeg_static=true` build option (a bundled ffmpeg patched to negotiate the NVENC API at runtime) the default, but that is not what Arch ships: the upstream README still documents the option as disabled by default, and Arch's PKGBUILD for 6.1.1 passes `-Dffmpeg_static=false` and links the system ffmpeg. So on Omarchy the recording falls back to the CPU rather than regaining NVENC. Programs that use the system ffmpeg, such as Kdenlive, mpv and OBS, are not helped by either change.
+
+> **Audit corrected this record.** Re-read issue omacom/omarchy#7217 in full with all five comments today, and it supports the record. The reporter's debug log carries both `h264_nvenc` lines and `gsr error: Could not open video codec: Function not implemented` on a GTX 1070 Ti with `nvidia-580xx-dkms 580.178.04` and `gpu-screen-recorder 6.0.0-1`, the recorder's author (dec05eba) states that ffmpeg 9.0 raised the minimum NVENC version to 13.1 and that he added the ffmpeg version check in 6.0.1, and ritechoice23 reproduces the identical two lines out of Kdenlive through the system `ffmpeg 2:9.0.1-1` on a Quadro P1000. I verified the mechanism in ffmpeg's source rather than accepting it from the thread: `libavcodec/nvenc.c` on `release/9.0` compares `NVENCAPI_MAJOR_VERSION`/`NVENCAPI_MINOR_VERSION` against the driver's reported maximum, logs exactly the `Driver does not support the required nvenc API version` line and returns `AVERROR(ENOSYS)`, and its `nvenc_print_driver_requirement` maps API 13.1 to minimum driver 610.00. nv-codec-headers declares `NVENCAPI_MAJOR_VERSION 13` and `NVENCAPI_MINOR_VERSION 1`, which is what ffmpeg 9 is built against. Confirmed on this machine: line 191 of `/usr/share/omarchy/bin/omarchy-capture-screenrecording` passes `-fallback-cpu-encoding yes` and is byte-identical at tag v4.0.3 and at `quattro` HEAD, the script exposes no way to inject extra recorder arguments (only `OMARCHY_SCREENRECORD_DIR`, `OMARCHY_SCREENRECORD_USE_PORTAL` and `OMARCHY_SCREENRECORD_DEBUG`), `omarchy screenrecord` is a real alias declared in the script header, the debug log path `/tmp/omarchy-screenrecord.log` is the one the script writes, and `gpu-screen-recorder --help` on the installed 6.0.1-1 lists `-w`, `-encoder gpu|cpu`, `-fallback-cpu-encoding yes|no`, `-f` and `-o`, so the workaround command is valid as written. Two claims were wrong. The record says the author made `-Dffmpeg_static=true` the default for later releases, but the upstream README fetched today still documents that option as disabled by default and Arch's PKGBUILD for 6.1.1 passes `-Dffmpeg_static=false`, so no Arch or Omarchy package restores NVENC on Pascal and the CPU fallback is the only relief. And the version history is stale: `extra` shipped 6.0.1-1 on 2026-08-20, 6.0.2-1 on 2026-08-29, 6.1.0-1 on 2026-09-01 rather than 2026-09-02, and 6.1.1-1 on 2026-09-10, which is what `extra` carries now (this workstation still has 6.0.1-1). The Pascal driver claim holds and is now cited: the Arch wiki driver table puts Maxwell, Pascal and Volta on AUR `nvidia-580xx-dkms`, marked legacy and supported. Not exercised: this workstation runs `nvidia-open-dkms 610.57.04`, so the API floor cannot be hit here and neither the failure nor the CPU fallback was reproduced.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+1. Check the recorder version. 6.0.1 or newer carries the fallback fix, so recording starts and encodes on the CPU instead of failing outright. On Omarchy 4 update through the supported path:
+
+```bash
+pacman -Q gpu-screen-recorder    # 6.0.0-1 is affected, 6.0.1-1 or newer has the fallback
+omarchy update
+```
+
+On plain Arch, `sudo pacman -Syu`. Arch's `extra` repository shipped 6.0.1-1 on 2026-08-20, 6.0.2-1 on 2026-08-29, 6.1.0-1 on 2026-09-01 and 6.1.1-1 on 2026-09-10. No Arch build gives a Pascal card NVENC back: the PKGBUILD passes `-Dffmpeg_static=false`, so the package uses the system ffmpeg 9 and its API 13.1 floor still applies. The CPU fallback is the whole of the relief available here.
+
+2. Until the update lands, or if it still fails, force software encoding when calling the recorder directly. The Omarchy wrapper has no option for this, so run `gpu-screen-recorder` yourself. Replace `DP-2` with your monitor name from `hyprctl monitors`:
+
+```bash
+gpu-screen-recorder -w DP-2 -encoder cpu -f 60 -o ~/Videos/recording.mp4
+# stop with Ctrl+C, or from another terminal:
+pkill -SIGINT -f gpu-screen-recorder
+```
+
+The reporter confirmed `-encoder cpu` produces a valid clip on the same card and driver.
+
+3. Kdenlive, mpv, OBS and anything else that uses the system `ffmpeg` cannot use NVENC on a Pascal card with ffmpeg 9 at all. Pick a software encoder (x264 or x265) in those programs. No driver available through Arch changes this: the Arch wiki's driver table puts Maxwell, Pascal and Volta on the AUR `nvidia-580xx-dkms` branch, and the newer `extra/nvidia-utils` 610.57.04 that reports API 13.1 does not support those cards.
+
+**Verify.** ```bash
+pacman -Q gpu-screen-recorder            # 6.0.1-1 or newer
+OMARCHY_SCREENRECORD_DEBUG=true omarchy screenrecord --fullscreen
+```
+
+The bar's recording indicator turns on, a file appears in `~/Videos`, and `/tmp/omarchy-screenrecord.log` no longer contains `Could not open video codec`.
+
+Sources: <https://github.com/omacom/omarchy/issues/7217> · <https://git.dec05eba.com/gpu-screen-recorder/plain/README.md> · <https://archlinux.org/packages/extra/x86_64/gpu-screen-recorder/> · <https://gitlab.archlinux.org/archlinux/packaging/packages/gpu-screen-recorder/-/raw/main/PKGBUILD> · <https://archive.archlinux.org/packages/g/gpu-screen-recorder/> · <https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/9.0/libavcodec/nvenc.c> · <https://raw.githubusercontent.com/FFmpeg/nv-codec-headers/master/include/ffnvcodec/nvEncodeAPI.h> · <https://wiki.archlinux.org/title/NVIDIA> · <https://archlinux.org/packages/extra/x86_64/ffmpeg/> · <https://archlinux.org/packages/extra/x86_64/nvidia-utils/>
 
 ---
 

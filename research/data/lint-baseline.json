@@ -27,6 +27,9 @@
  "aur-package-needs-rebuild-after-soname-bump": [
   "sudo-pacman-Syu"
  ],
+ "av1-video-color-corruption-linux-firmware-amdgpu-20260810-1": [
+  "sudo-pacman-Syu"
+ ],
  "battery-charge-threshold-resets-or-missing": [
   "sudo-pacman-Syu"
  ],
@@ -140,6 +143,10 @@
  "gpgme-error-no-data-captive-portal": [
   "sudo-pacman-Syu"
  ],
+ "grok-bot-0-18-0-404-needs-package-bump": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
+ ],
  "grub-ran-out-of-memory-zen5-large-initramfs": [
   "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P"
@@ -184,6 +191,9 @@
  ],
  "installed-theme-without-colors-toml-breaks-foot": [
   "hyprland-conf"
+ ],
+ "installer-mounting-the-esp-failed-squashfs-superblock": [
+  "boot-limine-conf"
  ],
  "interrupted-upgrade-unbootable-pacman-broken": [
   "mkinitcpio-P",
@@ -326,10 +336,17 @@
   "mkinitcpio-P",
   "omarchy3-tree"
  ],
+ "omarchy-shell-quickshell-undefined-symbol-qt-private-api": [
+  "bare-pacman-Sy"
+ ],
  "omarchy-update-aborted-midway": [
   "sudo-pacman-Syu"
  ],
  "omarchy-update-overwrites-pacman-conf": [
+  "sudo-pacman-Syu"
+ ],
+ "omazed-could-not-determine-current-omarchy-theme": [
+  "bare-pacman-Sy",
   "sudo-pacman-Syu"
  ],
  "package-conflict-and-provider-prompts-during-upgrade": [
@@ -364,6 +381,10 @@
   "boot-limine-conf",
   "mkinitcpio-P"
  ],
+ "quattro-upgrade-uki-missing-root-parameter": [
+  "boot-limine-conf",
+  "mkinitcpio-P"
+ ],
  "r8169-rtl8111-link-flapping-r8168-dkms": [
   "boot-limine-conf",
   "mkinitcpio-P"
@@ -386,6 +407,9 @@
  ],
  "screen-never-wakes-after-dpms-off": [
   "hyprctl-dispatch-bare"
+ ],
+ "screenrecord-nvenc-api-13-1-required-pascal-580xx": [
+  "sudo-pacman-Syu"
  ],
  "screenshare-black-screen-no-portal": [
   "hyprland-conf"

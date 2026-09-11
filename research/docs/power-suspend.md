@@ -1,6 +1,6 @@
 # Power, suspend & thermal
 
-37 problems. Sorted by severity, then by how often users hit it.
+38 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix hibernation that powers off but boots a fresh session instead of resuming
 
@@ -1539,6 +1539,137 @@ cat /sys/devices/system/cpu/cpufreq/boost      # 1 = boost enabled
 **Verify.** `systemctl status thermald` is active; `sensors` shows the package temperature settling lower under sustained load and the fan stepping down.
 
 Sources: <https://wiki.archlinux.org/title/CPU_frequency_scaling> · <https://wiki.archlinux.org/title/Power_management>
+
+---
+
+## Fingerprint unlock fails after every suspend: fprintd reports 'Cannot run while suspended'
+
+`lock-screen-fingerprint-fails-after-suspend-cannot-run-while-suspended` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `fprintd`, `framework`, `goodix`, `hyprland`, `intel`, `laptop`, `omarchy`, `omarchy-shell`, `quickshell`, `wayland`
+
+**Symptom.** The fingerprint reader unlocks the Omarchy lock screen fine after boot. After the machine suspends and resumes, the lock screen's fingerprint prompt hangs or fails instantly, and only the password gets you in. In the journal:
+
+```
+fprintd[PID]: Device reported an error during verify: Cannot run while suspended.
+```
+
+Some readers log `transfer timed out` or `device was disconnected` instead, and on the way down `pam_fprintd` usually logs a failed release:
+
+```
+pam_fprintd(omarchy-lock-fingerprint:auth): ReleaseDevice failed: Release failed with error: The device is still busy with another operation, please try again later.
+```
+
+The lock screen then retries fingerprint PAM about four times a second, so the journal fills with lines like these until you type the password:
+
+```
+omarchy-shell[...]: Error while authenticating: "Authentication service cannot retrieve authentication info" (code 9)
+```
+
+`sudo` and polkit with a fingerprint usually keep working, because they activate fprintd outside any sleep transition. That is not guaranteed. One reporter on a Synaptics reader lost sudo and polkit too, with the lid open, because there the stale daemon keeps a second ghost device object and `pam_fprintd` always picks the first one.
+
+Reported on Omarchy 4.0.0-1, 4.0.1-1, 4.0.2-1 and 4.0.3-1, on Goodix MOC readers (`27c6:609c`, `27c6:634c`, `27c6:659c`, `27c6:6594`) and on a Synaptics Prometheus `06cb:00fc`, across Intel Meteor Lake, Panther Lake, a 12th gen Intel, AMD Ryzen AI and AMD Ryzen 5 laptops, fprintd 1.94.5-2 with either libfprint 1.94.100-1 or libfprint-git, on both s2idle and deep sleep.
+
+**Cause.** A fingerprint verify is open across the sleep transition, its `ReleaseDevice` fails on the still busy device, and the claim left behind survives resume. The same fprintd process then refuses every verify until it exits on its own idle timer, which can be hours later because that timer barely advances across s2idle. One reporter measured a poisoned instance lasting just over ten hours and 56 failed unlock attempts.
+
+The common route to that on the lock path is Omarchy specific and is proven in source. `omarchy-system-sleep-monitor` runs itself under a delay inhibitor and locks the screen inside that window:
+
+```bash
+exec systemd-inhibit \
+  --what=sleep --mode=delay --who=Omarchy \
+  --why="Lock screen before suspend" \
+  "$sleep_monitor" --inhibited
+```
+
+`shell/plugins/lock/Service.qml` then calls `startFingerprint()` as soon as the session goes secure, which opens a `pam_fprintd` session against `omarchy-lock-fingerprint` and D-Bus activates fprintd while logind's sleep operation is already in flight. logind refuses fprintd its own sleep delay inhibitor:
+
+```
+fprintd[...]: Failed to install a sleep delay inhibitor: GDBus.Error:org.freedesktop.login1.OperationInProgress: The operation inhibition has been requested for is already running
+```
+
+fprintd is then never told to release the reader before suspend and never sees the wake up signal after it, so it goes down holding an open USB handle. That is also why `sudo` normally works: it activates fprintd outside any sleep transition.
+
+The refused inhibitor is the common trigger, not the whole cause, and two reports rule it out as the only one. On Omarchy 4.0.3-1 one reporter had fprintd activated 2 minutes 32 seconds before `Reached target Sleep`, no `OperationInProgress` line anywhere in the journal, and fprintd suspending its device on cue one second before the sleep target, so its inhibitor was granted and the daemon still wedged. A second reporter on a Synaptics reader found that when the reader drops off the bus on resume, fprintd registers a second device object by hotplug and keeps the wedged first one, and `pam_fprintd` uses the first, which is why sudo and polkit fail on that machine too. Upstream tracks the lock ordering half as issue 10252.
+
+The roughly 4 Hz retry storm is a separate lock-screen defect, `fingerprintRetryTimer` in the same file has `interval: 250` with no backoff and no failure cap, tracked as issues 7172 and 7176. It does not cause this problem but it makes it far louder, 94 PAM sessions in 27 seconds in one report and 298 in a single locked session in another.
+
+> **Audit corrected this record.** Checked on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, systemd 261.2-1) and against every cited issue and pull request read in full today. Confirmed locally: the lock screen authenticates through omarchy-shell's Quickshell lock plugin using PAM, at `/usr/share/omarchy/shell/plugins/lock/` with `/etc/pam.d/omarchy-lock-password` present and `omarchy-lock-fingerprint` absent because this box has no reader, and `hyprlock` and `hypridle` are not installed, so the record is right to stay away from them. Confirmed locally in source: the `exec systemd-inhibit --what=sleep --mode=delay` block at the end of `/usr/share/omarchy/bin/omarchy-system-sleep-monitor`, `startFingerprint()` called from the secure-state change at `Service.qml:209-241`, `fingerprintRetryTimer` with `interval: 250` at `Service.qml:357-358`, and the `fprintd-list` plus `/etc/pam.d/omarchy-lock-fingerprint` probe at `Service.qml:380`. Also confirmed locally: `/usr/lib/systemd/system-sleep/` is the only directory systemd 261 scans, from `man 8 systemd-sleep` and from `strings /usr/lib/systemd/systemd-sleep`, the man page states that `user.slice` is frozen and that the action does not continue until every hook returns, and `/usr/lib/systemd/system-sleep/keyboard-backlight` sits there at mode 644 and is therefore inert. `fprintd` and `libfprint` are not installed here and this machine has no fingerprint reader, so the flow itself was not exercised and nothing about the daemon's behaviour was reproduced.
+
+The problem is real and well evidenced, so this is not a reject: issue 7229 carries eight independent reproductions with journals, and the `omarchybot` comment confirms the Omarchy-side trigger against `quattro` at `f99d33a8`. Three fields were wrong. First, the cause states the refused sleep-delay inhibitor as the established mechanism, and two later reports in the same thread rule it out as the only one. A reporter on Omarchy 4.0.3-1 had fprintd activated 2 minutes 32 seconds before `Reached target Sleep`, zero `OperationInProgress` lines in the journal, and fprintd suspending its device on cue, so the inhibitor was granted and the daemon still wedged. A Synaptics Prometheus `06cb:00fc` reporter found a ghost second device object created by hotplug on resume, which also breaks sudo and polkit. The common factor both point to is the failed `ReleaseDevice` on an in-flight verify, so the cause is rewritten to lead with that and keep the inhibitor race as the common lock-path trigger, with upstream issue 10252 named for the ordering half.
+
+Second, the fix is defective in two ways upstream itself documents. Its `pre` stop is contradicted by pull request 9868's own hook comment, which says a `pre` stop loses the race because fprintd is D-Bus activated and the lock and polkit plugins re-activate it before the machine goes down, and both upstream hooks act on `post` only. Its synchronous `systemctl stop` in `post` blocks the thaw for the stop timeout in exactly the wedged case the hook exists for, which is why pull request 7158 uses `systemctl --no-block try-restart` plus a `TimeoutStopSec=3s` drop-in and why a reporter measured about 10 seconds added to every resume. The rewritten fix uses the `post`-only SIGKILL form that reporter verified at 28ms, explains the executable-bit and ownership traps against Omarchy 4.0.3's own `migrations/1788662350.sh`, and warns that `fprintd-reset` and `fprintd-resume` are the filenames the open pull requests would install over a hand written hook. I did not test the rewritten hook, for want of a reader.
+
+Third, the symptom's version and hardware list stopped at 4.0.2-1 and Goodix, which was true on 2026-09-07 but not now, and it asserted that sudo keeps working, which the Synaptics report contradicts. Both are corrected. The verify block also misattributed its evidence: the reporter who corrected the directory confirmed the negative, that the `/etc` hook never ran and the PID was unchanged, so verify is rewritten around the journal line the hook actually produces. The empty `danger` is filled, because a root hook in that directory blocks resume by design. Re-checked upstream today: issues 7229, 7172, 7176 and 10252 are open, pull requests 7158, 9868 and 9919 are all open with `mergedAt` null, and the `v4.0.2...v4.0.3` diff adds no fprintd sleep hook, so the record's "none has merged" still holds at v4.0.3. v4.0.3 did touch this area, which is why the symptom needed the version bump: it changed `bin/omarchy-setup-security-fingerprint` to install `libfprint-git` rather than stock `libfprint`, added a `capabilities: ["authentication"]` block to the lock plugin manifest, and hardened `bin/omarchy-apply-lock` and the two shipped sleep hooks. None of that fixes this bug, and the 4.0.3-1 reporter on `libfprint-git` still hit it.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Anything dropped in `/usr/lib/systemd/system-sleep/` runs as root on every suspend and resume, with `user.slice` frozen, and resume does not continue until it returns. A hook that blocks holds the wake, and a hook that hangs hangs it. Keep it root owned, mode 0755, `post` only and non-blocking, and test one `systemctl suspend` cycle from a terminal before trusting it on a closed lid.
+
+**Fix.**
+
+Discard fprintd on resume so the next authentication activates a fresh daemon against whatever the bus actually has. Do it in a `post` hook only, and do not let the hook block.
+
+Three things decide whether the hook works at all, and the thread has a reporter who got each one wrong:
+
+- `/usr/lib/systemd/system-sleep/` is the only directory systemd scans. A copy in `/etc/systemd/system-sleep/` never runs and nothing is logged. Confirmed on systemd 261.2-1:
+
+```bash
+man 8 systemd-sleep | grep -o '/[a-z/-]*system-sleep' | sort -u
+strings /usr/lib/systemd/systemd-sleep | grep system-sleep
+```
+
+- The file must be executable or it is ignored silently. This is not hypothetical on Omarchy: on a 4.0.2-1 workstation `/usr/lib/systemd/system-sleep/keyboard-backlight` is mode 644 and therefore inert, and Omarchy 4.0.3 added migration `1788662350.sh` that reinstalls its own hooks there as root:root mode 0755.
+- `user.slice` is frozen while hooks run and resume does not continue until every hook returns, both stated in `man 8 systemd-sleep`. A plain `systemctl stop` on an fprintd wedged on a stale handle waits out `TimeoutStopSec` before SIGKILL and holds the wake for that long. One reporter measured about 10 seconds added to every resume that way. Check your own bound with `systemctl show fprintd.service -p TimeoutStopUSec` rather than assuming it is short.
+
+Do not add a `pre` stop. fprintd is D-Bus activated and the lock screen re-activates it inside the same delay window before the machine goes down, which is the reasoning upstream gives in pull request 9868 for its own hook being `post` only.
+
+SIGKILL is safe here. Enrolments live on disk under `/var/lib/fprint`, which is `StateDirectory=fprint` in fprintd's own unit, not in the process.
+
+```bash
+sudo tee /usr/lib/systemd/system-sleep/fprintd-clear-stale-claim >/dev/null <<'EOF'
+#!/bin/bash
+# Drop fprintd on resume so the lock screen's next attempt claims a fresh
+# daemon instead of the one that rode through suspend holding the reader.
+[[ $1 == post ]] || exit 0
+systemctl kill --signal=KILL fprintd.service 2>/dev/null || true
+systemctl reset-failed fprintd.service 2>/dev/null || true
+exit 0
+EOF
+sudo chmod 0755 /usr/lib/systemd/system-sleep/fprintd-clear-stale-claim
+```
+
+Ownership matters as much as the mode, because everything in that directory runs as root at every suspend. `sudo tee` plus `sudo chmod 0755` gives root:root 0755, which is what the 4.0.3 migration enforces for Omarchy's own hooks.
+
+Do not name the file `fprintd-reset` or `fprintd-resume`. Those are the exact filenames the two open upstream pull requests would install, so a merge would overwrite a hand written hook with either name.
+
+The upstream shape is the same idea without SIGKILL, and it needs a drop-in to stay fast:
+
+```bash
+# equivalent body for the hook above
+systemctl --no-block try-restart fprintd.service 2>/dev/null || true
+```
+
+with `TimeoutStopSec=3s` in a `/etc/systemd/system/fprintd.service.d/` drop-in so a wedged daemon cannot stall the restart. Either form works. The kill form needs no drop-in.
+
+To recover right now without installing a hook:
+
+```bash
+systemctl kill --signal=KILL fprintd.service && systemctl reset-failed fprintd.service
+```
+
+The same applies on plain Arch with any lock screen that starts fingerprint auth around suspend. The directory and the blocking behaviour are systemd behaviour, not Omarchy behaviour. The delay window that usually triggers it is Omarchy's.
+
+Upstream has three open pull requests as of 2026-09-11 and none has merged. 7158 ships `default/systemd/system-sleep/fprintd-resume` plus a `TimeoutStopSec=3s` drop-in, 9868 ships `default/systemd/system-sleep/fprintd-reset`, and 9919 holds the lock screen's fingerprint calls until after resume. Omarchy 4.0.3 shipped none of the three, so the hook is still the fix.
+
+**Verify.** ```bash
+systemctl show fprintd.service -p MainPID            # note the PID, 0 if not running
+systemctl suspend
+# after resume, before typing the password:
+systemctl show fprintd.service -p MainPID            # 0, or a new PID once the lock screen activates it
+journalctl -b -u fprintd.service | grep 'on client request'
+```
+
+Check the last command first, because a hook in the wrong directory or without the executable bit fails silently. When the hook fires, systemd logs `fprintd.service: Sent signal SIGKILL to main process <pid> on client request`. One reporter running this form out of `/usr/lib/systemd/system-sleep/` recorded that line landing between `System returned from sleep operation 'suspend'` and `Successfully thawed unit 'user.slice'`, the hook taking 28ms, and the finger accepted three seconds later. Two other reporters proved the negative case: with the hook in `/etc/systemd/system-sleep/` it never executed and fprintd carried the same PID straight through the suspend.
+
+Sources: <https://github.com/omacom/omarchy/issues/7229> · <https://github.com/omacom/omarchy/pull/7158> · <https://github.com/omacom/omarchy/pull/9868> · <https://github.com/omacom/omarchy/pull/9919> · <https://github.com/omacom/omarchy/issues/7172> · <https://github.com/omacom/omarchy/issues/7176> · <https://github.com/omacom/omarchy/issues/10252> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://github.com/omacom/omarchy/compare/v4.0.2...v4.0.3> · <https://github.com/omacom/omarchy/blob/v4.0.3/migrations/1788662350.sh> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-apply-lock> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-setup-security-fingerprint> · <https://gitlab.freedesktop.org/libfprint/fprintd/-/blob/master/data/fprintd.service.in>
 
 ---
 

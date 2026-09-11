@@ -12,8 +12,8 @@ Last updated: 2026-09-11
 >
 > **What "back on track" means, in the order the dependencies run:**
 >
-> 1. **Expand the corpus.** 456 records across 12 categories is the harvest of one
->    interrupted workflow plus one gap-fill pass. `CLAUDE.md` "Regenerating the corpus"
+> 1. **Expand the corpus.** 492 records across 12 categories: one interrupted harvest, one
+>    gap-fill pass, and the O4 issue-tracker harvest merged on 2026-09-11. `CLAUDE.md` "Regenerating the corpus"
 >    names the three workflow scripts, what each does, and that `harvest-workflow.js`
 >    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
 >    limit. Pass the corpus root in `args`. Every new record lands with its provenance
@@ -46,16 +46,22 @@ Last updated: 2026-09-11
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-10 and 2026-09-11: O4 harvested, reconciled and audited. 36 of 36 records were wrong
+## Session of 2026-09-10 and 2026-09-11: O4 finished, 36 records merged, and all 36 were wrong
 
 Steps 2 and 1 of the O4 pick-up list, in that order: the duplicates reconciled, then batch
 01 read, then a second duplicate pass on 2026-09-11 that found three groups the first pass had
-missed, then the audit of all 36. **Every one of the 36 came back `corrected`.** Nothing was clean
-and nothing was rejected, so the problems are all real and the detail was all wrong somewhere.
-`data/problems.jsonl` is untouched and still reads `ok` 207 / `corrected` 249 / `unaudited` 0.
-The banked set is [research/raw/issue-harvest-reconciled.json](research/raw/issue-harvest-reconciled.json),
-batch 01 on its own is `raw/harvest-01.json`, and `issue-harvest-partial.json` is left exactly
-as the workflow wrote it, so the provenance of what the harvesters actually produced survives.
+missed, then the audit of all 36, then the merge. **Every one of the 36 came back `corrected`.**
+Nothing was clean and nothing was rejected, so the problems are all real and the detail was all
+wrong somewhere.
+
+The corpus is now **492 records, `ok` 207 / `corrected` 285 / `unaudited` 0**, drawn from 1,190
+distinct sources, with 80 `cause_reconciled` stamps across five dates. O4 is done.
+
+Every stage is banked separately, because each one is evidence about a different thing: the raw
+harvest in `raw/issue-harvest-partial.json` exactly as the workflow wrote it, the reconciled set in
+`raw/issue-harvest-reconciled.json`, batch 01 alone in `raw/harvest-01.json`, the audited set in
+`raw/issue-harvest-audited.json`, and what was actually fed to the merge in
+`raw/issue-harvest-merge-payload.json`.
 
 ### 1. Nine groups, found in two passes, and the first pass was not good enough
 
@@ -276,20 +282,39 @@ answers 403 to an anonymous GET and is kept deliberately with that noted. Nine U
 hand: seven `omacom-io` organisation names normalised to the canonical `omacom`, one `blob/main` path
 corrected to `blob/master`, and the discussion-as-issue URL removed.
 
-### 6. Where to pick this up
+### 6. The merge, and what it needed
 
-1. Merge the 36, through `merge_gapfill.py`, dry-run on a copy first. Expect it to need a small
-   change, because its append path assigns `gapfill-unaudited` and these records arrive audited.
-   The records are already projected onto `corpus.FIELDS` key order.
-2. Raise `screensaver-self-dismisses-and-session-never-locks` to `critical` if it is re-derived
-   from the verdicts rather than taken from the audited file, since the verdict schema could not
-   carry that change and it was applied by hand.
-3. Add the 12 lint hits to `data/lint-baseline.json` in the same commit. Every one was read and
-   every one is legitimate: plain-Arch branches, the documented `OMARCHY_ALLOW_DIRECT_PACMAN`
-   bypass, and warnings that tell the reader not to run the matched command.
-4. Add `corrected_severity` and `corrected_frequency` to `reaudit-brief.md`, and a way to remove a
-   source, before the next audit run.
-5. A commit touching `data/problems.jsonl` must regenerate `research/docs/` with it.
+`merge_gapfill.py` needed no change after all. Its append path only stamps `gapfill-unaudited` when
+the audit block is missing, and every record had a verdict, so the tested path applied all 36 and
+stamped `cause_reconciled` itself. The payload deliberately carries `gapfill` and `gapfillAudit` and
+**no `audit` block**: that first pass walks every record of a named category, so an `audit` block
+here would have re-audited the 456 records already in the corpus against verdicts that do not name
+them, which is the exact hazard `CLAUDE.md` warns about.
+
+The merge ran against a backup and the first 456 lines of the result diffed byte-identical, so
+nothing already in the corpus moved. The corpus diff is 36 insertions and 0 deletions.
+
+Three things the tool could not carry were re-applied by hand afterwards, from the audited file,
+and each one is listed in it:
+
+- the severity raised to `critical`, because the verdict schema has no field for it,
+- four source URLs deduplicated away where the canonical `omacom` form was already present,
+- the discussion-as-issue URL removed, because a verdict can append sources and never remove one.
+
+The 12 new lint hits went into `data/lint-baseline.json`, 140 records to 147, with nothing removed.
+Every number in prose across the repo was recomputed rather than copied: `README.md`,
+`research/README.md`, `CLAUDE.md`, `corpus.py`, the `FIELDS` test, `validation/README.md` and this
+file. One had drifted badly. `validation/README.md` said 6 of 456 records carry a fenced `verify`
+block, and it is now 39 of 492, because 33 of the merged records have one.
+
+### 7. Where to pick this up
+
+1. **O4 is finished.** The next corpus work is O3, the 120 `ok` records with a `danger` that apply
+   to Omarchy, on `gpu-drivers` or `apps-services`.
+2. Add `corrected_severity` and `corrected_frequency` to `reaudit-brief.md`, and a way for a verdict
+   to remove a source, before the next audit run. Both gaps cost hand edits here.
+3. The dash cleanup of `data/problems.jsonl` is unchanged at 1,756 across 405 records, now of 492.
+   The 36 merged records carry none.
 
 ## Session of 2026-09-07 (second): O4 harvests from the issue tracker, and stops one batch short
 

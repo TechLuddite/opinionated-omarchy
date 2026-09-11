@@ -14,7 +14,7 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
    upstream's MIT licence, whose notice is reproduced inside each directory; see
    [NOTICE](NOTICE). Keep `omarchy/SKILL.md` byte-identical: the +29.3 pt baseline was
    measured against that exact content.
-2. **A troubleshooting corpus** in [research/](research/): 456 real Omarchy/Arch
+2. **A troubleshooting corpus** in [research/](research/): 492 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
 This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
@@ -497,7 +497,8 @@ read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from thei
 A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, 12 more on
 2026-09-06 by the audit of the last unaudited records, the first VM-found defect and a
 re-audit of ten boot-kernel records against Omarchy 4, and 14 more on 2026-09-07 by the
-re-audit of all 22 `pacman-aur` records, so **55 records carry the stamp across four
+re-audit of all 22 `pacman-aur` records, and 25 more on 2026-09-11 by the audit of the 36
+records harvested from the issue tracker, so **80 records carry the stamp across five
 dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
@@ -518,7 +519,7 @@ There is now one definition, in **[research/tools/corpus.py](research/tools/corp
 and `ingest.py` and `merge_gapfill.py` both import it. Read that file before touching
 either. Three rules it enforces:
 
-- **`FIELDS` order is load-bearing.** It is the key order of all 456 lines on disk.
+- **`FIELDS` order is load-bearing.** It is the key order of all 492 lines on disk.
   Append; never reorder, or the next merge becomes a whole-corpus diff that hides the
   records actually touched.
 - **`read_jsonl` / `write_jsonl` are the only ways in and out.** They pin `newline="\n"`
@@ -647,8 +648,9 @@ Three things are specific to this repo and are the ones that get got wrong:
   naming the workflow that does the opposite of what it claimed.
 
 **`research/data/problems.jsonl` is deliberately excluded for now.** 1,756 em and en dashes
-sit across 405 of its 456 records as of 2026-09-07 (the thirty-seven records rewritten by
-the re-audits carry none, which is where the count moved), and cleaning them means rewriting the source of truth
+sit across 405 of its 492 records as of 2026-09-11 (the thirty-seven records rewritten by
+the re-audits carry none, and neither do the 36 merged from the issue harvest, which is where
+the denominator moved), and cleaning them means rewriting the source of truth
 and regenerating `research/docs/` in the same commit. Tracked in
 [JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose
 piecemeal: a partial pass makes the remaining records look like a deliberate choice.

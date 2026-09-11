@@ -1,6 +1,6 @@
 # Hyprland configuration
 
-37 problems. Sorted by severity, then by how often users hit it.
+39 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix a hypr tool failing with symbol lookup error after a system update
 
@@ -1465,6 +1465,87 @@ Sources: <https://github.com/basecamp/omarchy/issues/7371> · <https://github.co
 
 ---
 
+## Stop the screensaver and lock firing over a fullscreen Steam game
+
+`steam-game-fullscreen-not-inhibiting-idle` · severity: **medium** · frequency: **occasional** · applies to: `desktop`, `gamescope`, `hyprland`, `omarchy`, `steam`, `wayland`
+
+**Symptom.** A fullscreen Steam or Proton game played with a controller gets the Omarchy screensaver drawn over it after the idle timeout, and the lock screen follows. Mouse and keyboard activity prevent it, controller input does not. `hyprctl clients -j` shows the game with `inhibitingIdle: false`:
+
+```json
+{
+  "class": "steam_app_244210",
+  "title": "Assetto Corsa",
+  "fullscreen": 2,
+  "xwayland": true,
+  "inhibitingIdle": false
+}
+```
+
+Four people report the symptom on issue 6947. Three of them name a controller, a Sony DualSense, a GameSir Cyclone 2 and a Steam Controller, and the fourth only says controller. Three give Omarchy 4.0.0-1 and two of those give Hyprland 0.56.2.
+
+**Cause.** Omarchy's default Steam rule in `default/hypr/apps/steam.lua` is:
+
+```lua
+o.window("steam", { float = true, idle_inhibit = "fullscreen" })
+```
+
+`o.window` with a string assigns that string to `rules.match.class` and hands the table to `hl.window_rule`, which is what `/usr/share/omarchy/default/hypr/helpers.lua` does, and Hyprland 0.56.2 matches a class against the whole string. The rule therefore covers the Steam client, whose class is `steam`, and not the games, whose XWayland class is `steam_app_<appid>`. Games started through gamescope expose the class `gamescope` and miss the rule the same way. A controller does not reset the compositor idle timer on its own, so with no inhibitor the idle timeout runs during play.
+
+The inhibitor is what Omarchy's idle handling watches. `/usr/share/omarchy/shell/plugins/services/idle/Service.qml` drives a Quickshell `IdleMonitor` with `respectInhibitors: true`, default `idle.screensaver` 150 seconds and `idle.lock` 300 seconds, so a Hyprland window inhibitor stops both the screensaver and the lock, and a window without one gets both.
+
+Still the shipped default on `quattro`, on tag `v4.0.3` of 2026-09-08, and on omarchy 4.0.2-1:
+
+```bash
+grep -n idle_inhibit /usr/share/omarchy/default/hypr/apps/steam.lua
+```
+
+Issue 6947 is open. Two pull requests add `o.window("steam_app_.*", { idle_inhibit = "fullscreen" })` to that file, 9651 and 9667, and both were still open on 2026-09-11. Neither covers the `gamescope` class, so the fix below is wider than either.
+
+> **Audit corrected this record.** Checked on this workstation, which runs omarchy 4.0.2-1 and Hyprland 0.56.2, and against issue 6947 read in full with comments. Confirmed here: `/usr/share/omarchy/default/hypr/apps/steam.lua` line 1 is exactly the rule the record quotes, `/usr/share/omarchy/default/hypr/helpers.lua` assigns a string `match` straight to `rules.match.class` and calls `hl.window_rule`, the installed `/usr/bin/Hyprland` exports only RE2's `FullMatchN` and no `PartialMatchN`, and `/usr/share/omarchy/default/hypr/apps/terminals.lua` carries the comment `The class is matched in full`, so the full-match premise holds. `hyprctl clients -j` on this session shows `fullscreen` as an integer and `inhibitingIdle` as a real field, so both the symptom JSON and the verify block name fields that exist. `idle_inhibit` is a recognised rule key in the 0.56.2 binary, which also carries the string `idle_inhibit rule has unknown mode "{}"`, and the Hyprland wiki lists the modes as none, always, focus and fullscreen, so both the record's `fullscreen` and the reported `focus` variant are valid. `hyprctl reload` and `hyprctl configerrors` are both in `hyprctl --help` here. The comment the fix anchors to, `Add any other personal Hyprland configuration below`, is present verbatim in `/usr/share/omarchy/config/hypr/hyprland.lua`, and `o` is global by then, which my own config already relies on.
+
+The missing link the record left implicit is now in the cause and it checks out here: `/usr/share/omarchy/shell/plugins/services/idle/Service.qml` lines 250 to 256 run a Quickshell `IdleMonitor` with `respectInhibitors: true`, so a Hyprland inhibitor really does suppress Omarchy's screensaver and lock rather than only a hypridle that is not installed.
+
+Issue 6947 supports the claim. The reporter gives the class, the `inhibitingIdle: false` reading and the same one-line rule, VillainRU confirms the workaround with `inhibitingIdle: true` and controller-only play past the timeout, cinco gives the gamescope class with `inhibitingIdle: false` and confirms the gamescope rule, and etherealheim reports the `focus` variant without a second confirmation, which is how the record already describes it. Corrected rather than ok for two reasons. The record's version line stops at omarchy 4.0.2-1 and `quattro`, and tag `v4.0.3` of 2026-09-08 is newer and still ships the unfixed rule, which I checked with `gh api` on both refs. And two pull requests now exist, 9651 and 9667, both open on 2026-09-11, both adding only the `steam_app_.*` rule and neither covering `gamescope`. The symptom's user and controller counts were also loose, so they are restated exactly. Not exercised: I did not launch Steam or a game, gamescope is not installed here, and I never reloaded the running config, so every live reading of a `steam_app_*` or `gamescope` window comes from the issue thread rather than from this machine.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Add rules for the game window classes to the end of `~/.config/hypr/hyprland.lua`, below the `Add any other personal Hyprland configuration below` comment:
+
+```lua
+-- ~/.config/hypr/hyprland.lua
+o.window("steam_app_.*", { idle_inhibit = "fullscreen" })
+o.window("gamescope", { idle_inhibit = "fullscreen" })
+```
+
+Reload and check the config parsed:
+
+```bash
+hyprctl reload
+hyprctl configerrors
+```
+
+`steam_app_.*` covers Proton games. A native Linux game can use its own class, so if one still triggers the screensaver, read its class while it is running and add a rule for it:
+
+```bash
+hyprctl clients -j | jq '.[] | {class, initialClass, title, fullscreen, inhibitingIdle}'
+```
+
+One reporter used `idle_inhibit = "focus"` instead for games run borderless-windowed rather than fullscreen. Nobody else confirmed that variant.
+
+**Verify.** With the game fullscreen, the window now reports the inhibitor, and normal idle locking resumes when the game is closed:
+
+```bash
+hyprctl clients -j | jq '.[] | select(.class | test("^steam_app_|^gamescope")) | {class, fullscreen, inhibitingIdle}'
+```
+
+Expected `"fullscreen": 2` and `"inhibitingIdle": true`. Two reporters confirmed controller-only play past the idle timeout with neither screensaver nor lock activating.
+
+Sources: <https://github.com/omacom/omarchy/issues/6947> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/steam.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://github.com/omacom/omarchy/pull/9651> · <https://github.com/omacom/omarchy/pull/9667> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/hypr/apps/steam.lua> · <https://wiki.hypr.land/configuring/core/rules/window-rules/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/window-rules.md>
+
+---
+
 ## Clear the red config-error bar pinned across every screen
 
 `config-error-bar-covers-screen` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`
@@ -1701,6 +1782,79 @@ For a systemd *user* unit, the cleanest fix is `After=graphical-session.target` 
 **Verify.** `hyprctl monitors` returns your outputs from the TTY/script context.
 
 Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://wiki.hypr.land/Configuring/Basics/Binds/> · <https://wiki.hypr.land/Crashes-and-Bugs/>
+
+---
+
+## Make LocalSend float again: Omarchy's window rule does not match class `org.localsend.localsend_app`
+
+`localsend-opens-tiled-window-rule-class-mismatch` · severity: **low** · frequency: **common** · applies to: `hyprland`, `localsend`, `omarchy`, `wayland`
+
+**Symptom.** LocalSend opens tiled in the active layout instead of as a centered 1100x700 floating window. The older report 7482 adds that clicks do not reach the window's buttons while it is tiled, and that floating the window fixes that too. Reported on Omarchy 4.0.0-1 with `localsend` 1.18.1-1 and on Omarchy 4.0.1-1 with `localsend` 1.18.2-1, both from the Arch repos, on Hyprland 0.56.2. `hyprctl clients` shows the window's class:
+
+```json
+{
+  "class": "org.localsend.localsend_app",
+  "initialClass": "org.localsend.localsend_app",
+  "title": "LocalSend"
+}
+```
+
+**Cause.** `/usr/share/omarchy/default/hypr/apps/localsend.lua` matches the class with `(Share|localsend)` and `localsend`:
+
+```lua
+-- Float LocalSend and fzf file picker.
+o.window("(Share|localsend)", { float = true, center = true })
+o.window("localsend", { size = { 1100, 700 } })
+```
+
+`o.window` in `default/hypr/helpers.lua` puts that string straight into `rules.match.class` and hands it to `hl.window_rule`, and Hyprland 0.56 matches a class against the whole string, so `(Share|localsend)` cannot match `org.localsend.localsend_app` and the window gets no rule at all. Anchors were never the missing piece, the app id was.
+
+That app id is the installed package's own. The binary `/usr/lib/localsend/localsend_app` and `/usr/lib/localsend/lib/libapp.so` from `localsend` 1.18.2-1 both carry the string:
+
+```bash
+strings -a /usr/lib/localsend/localsend_app | grep org.localsend
+```
+
+Three people report the same class. peteonrails reproduced it with the real application on Hyprland 0.56.2, stock rules giving `floating: false` at 656x1167 and an anchored rule giving floating at 1100x700. The repository's review bot reached the same result on a disposable worker, though with a terminal relabelled to that app id rather than LocalSend itself.
+
+Nothing has shipped. Issue 7482 is open, issue 8817 was closed on 2026-09-03 by its own reporter as a duplicate of 7482 and not because a fix landed, and the two pull requests that make the byte-identical change to `default/hypr/apps/localsend.lua`, 7736 and 8878, were both still open on 2026-09-11. `quattro` and tag `v4.0.3` of 2026-09-08 both still carry the unfixed rule, as does omarchy 4.0.2-1 on disk.
+
+> **Audit corrected this record.** Checked on this workstation, which runs omarchy 4.0.2-1, Hyprland 0.56.2 and has `localsend` 1.18.2-1 installed, and against issues 8817 and 7482 and pull requests 8878 and 7736, all read in full with comments. Confirmed here: `/usr/share/omarchy/default/hypr/apps/localsend.lua` is still the two unfixed rules the record quotes, `/usr/share/omarchy/default/hypr/helpers.lua` assigns a string `match` to `rules.match.class` and calls `hl.window_rule`, the installed `/usr/bin/Hyprland` exports only RE2's `FullMatchN` with no `PartialMatchN`, and `/usr/share/omarchy/default/hypr/apps/terminals.lua` states `The class is matched in full`, so the full-match mechanism is confirmed on this machine and not only asserted upstream. The app id is confirmed here too: `strings -a /usr/lib/localsend/localsend_app` and the same on `/usr/lib/localsend/lib/libapp.so` both return `org.localsend.localsend_app`. `hyprctl clients -j` on this session has `floating` and `size` as real fields, so the verify block is well formed, and `hyprctl reload` is in `hyprctl --help`. The comment in `/usr/share/omarchy/config/hypr/hyprland.lua` confirms a user rule appended after the `require` lines is loaded after Omarchy's defaults, and in this case there is no conflict to resolve because the shipped rule matches nothing for that app id. The fix's Lua is correct: `org\\.` in the record renders as `org\.` in the file, which reaches RE2 as a literal dot, and it is byte-identical to the change in both pull requests, which I read as diffs.
+
+The cited issues do support the claim. 7482 gives the class, the tiled window and the dead clicks, with a working anchored workaround, although its own root-cause hypothesis about unanchored matching is wrong and the record correctly does not repeat it. 8817 gives the same class with the same diagnosis. Corrected rather than ok on three points of fact. 8817 is now closed, on 2026-09-03, by the reporter as a duplicate rather than by a fix, and a reader who saw only a closed issue would draw the wrong conclusion. The record's date line stopped at 2026-09-07 while both pull requests are still open on 2026-09-11 and tag `v4.0.3` of 2026-09-08 still ships the unfixed file, which I checked on both refs with `gh api`. And the version pairing in the symptom was wrong: 7482 reports `localsend` 1.18.1-1 on Omarchy 4.0.0-1, while 1.18.2-1 belongs to the 4.0.1-1 report. The stronger evidence was also under-credited, so the cause now names peteonrails' reproduction with the real application and says plainly that the bot's reproduction used a relabelled terminal. Not exercised: I did not launch LocalSend and did not reload the running config, so the floating and 1100x700 result comes from those reports rather than from this machine.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+Until the fix ships, add the corrected rules to your own config. `~/.config/hypr/hyprland.lua` loads Omarchy's defaults first, so a rule placed after the `require` lines wins. Append at the end of the file:
+
+```lua
+-- LocalSend's Wayland app id is org.localsend.localsend_app, which the
+-- shipped (Share|localsend) rule cannot match. Same rules as omarchy PR #8878.
+o.window("^(Share|localsend|org\\.localsend\\.localsend_app)$", { float = true, center = true })
+o.window("^(localsend|org\\.localsend\\.localsend_app)$", { size = { 1100, 700 } })
+```
+
+Reload and relaunch LocalSend:
+
+```bash
+hyprctl reload
+```
+
+Remove the two lines once an update ships a `localsend.lua` that names the app id:
+
+```bash
+grep -n localsend_app /usr/share/omarchy/default/hypr/apps/localsend.lua
+```
+
+**Verify.** ```bash
+hyprctl clients -j | jq '.[] | select(.class == "org.localsend.localsend_app") | {floating, size}'
+```
+
+Expect `"floating": true` and `"size": [1100, 700]`. The collaborator's reproduction on Hyprland 0.56.2 gave exactly that with the fixed rules and `floating=false` at the layout's size without them.
+
+Sources: <https://github.com/omacom/omarchy/issues/8817> · <https://github.com/omacom/omarchy/issues/7482> · <https://github.com/omacom/omarchy/pull/8878> · <https://github.com/omacom/omarchy/pull/7736> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/localsend.lua> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/hypr/apps/localsend.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://wiki.hypr.land/configuring/core/rules/window-rules/>
 
 ---
 

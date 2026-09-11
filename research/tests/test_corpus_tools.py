@@ -101,7 +101,7 @@ class TestFieldsAgreesWithItsConsumers(unittest.TestCase):
                          f"records on disk carry keys corpus.FIELDS does not name: {sorted(missing)}")
 
     def test_field_order_matches_the_corpus_on_disk(self):
-        """Reordering FIELDS rewrites all 456 lines and hides the real diff."""
+        """Reordering FIELDS rewrites all 492 lines and hides the real diff."""
         first = next(iter(corpus.read_jsonl(ROOT / "data" / "problems.jsonl")))
         self.assertEqual(list(first.keys()), corpus.FIELDS)
 
