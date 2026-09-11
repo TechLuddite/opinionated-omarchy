@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-07
+Last updated: 2026-09-10
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -27,7 +27,8 @@ Last updated: 2026-09-07
 >    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
 >    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
 >    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
->    and `pacman-aur`, and O4 is paused mid-harvest with 40 records banked unmerged. The corpus prose has 1,756 dashes across 405 records, item 6
+>    and `pacman-aur`, and O4 is paused mid-harvest with 40 records banked unmerged, reconciled down to 33 on
+>    2026-09-10. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -44,6 +45,97 @@ Last updated: 2026-09-07
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-10: the O4 duplicates reconciled, 40 records down to 33
+
+Step 2 of the O4 pick-up list, and nothing else. `data/problems.jsonl` is untouched and
+still reads `ok` 207 / `corrected` 249 / `unaudited` 0. The result is a new raw file,
+[research/raw/issue-harvest-reconciled.json](research/raw/issue-harvest-reconciled.json).
+`issue-harvest-partial.json` is left exactly as the workflow wrote it, so the provenance of
+what the harvesters actually produced survives.
+
+### 1. Six groups, not six pairs
+
+The banked payload listed six `near_duplicates_to_reconcile` pairs. Three of those pairs
+share a record, so they are five groups covering eleven records. A second similarity pass
+over all 40, token-set Jaccard on title plus symptom plus cause, found a sixth group the
+harvest's own detector missed: the two plugin-lock records, from issues 7106 and 9441, which
+are one defect with two outcomes. Thirteen records became six.
+
+| group | records in | kept |
+| --- | --- | --- |
+| installer ESP mount failure | 2 | `installer-mounting-the-esp-failed-squashfs-superblock` |
+| AMD AV1 firmware corruption | 2 | `av1-video-color-corruption-linux-firmware-amdgpu-20260810-1` |
+| Codex limits unavailable | 3 | `codex-limits-unavailable-agents-panel` |
+| Gemini default agent | 2 | `default-agent-gemini-fails-antigravity-replacement` |
+| migration 1787515927 | 2 | `omarchy-update-migration-1787515927-fails-bash-5-3` |
+| plugin write while locked | 2 | `plugin-file-write-while-locked-strands-session` |
+
+The 27 records outside those groups are carried through byte-identical and in their
+original order, and the `existing` and `skipped` lists are untouched.
+
+### 2. Reconciling is not deduplicating, and four groups disagreed with themselves
+
+Every group was read in full and settled against upstream sources and this workstation
+rather than by keeping the longer record. What that turned up:
+
+- **The two ESP records disagreed about the cause.** One blamed a bare `mount` with no
+  `-t vfat` on the freshly created EFI partition, naming `omarchy-iso#111`. The other
+  blamed the free-space path for expecting an ESP that was not there. The installer source
+  settles it: that path always creates its own EFI partition and never adopts an existing
+  one, so the device in the SQUASHFS message is always the partition it just made, and the
+  `sda2` in the second thread is that partition in the lowest free GPT slot. The second
+  cause was discarded. Its workaround, hand-creating an EFI partition first, is kept and
+  labelled as reported twice with no known mechanism.
+- **A fix had shipped under us.** Both plugin-lock records said `PR #9485` was in no tagged
+  release. `v4.0.3` was published on 2026-09-08, two days before this session, and contains
+  commit `d3d23fdd`: `unloadPluginServices` at that tag consults `serviceKeepLoaded`. The
+  merged record says update to 4.0.3 rather than wait.
+- **Two records contradicted each other about `omarchy-restart-shell`.** One said it refuses
+  while locked, the other offered it as the recovery step. Lines 28 to 36 of the installed
+  script show both are half right: it refuses while the wedged lock service still reports
+  `.secure` or `.requested`, and it re-locks a fresh shell when neither is true. The merged
+  record states the condition instead of the conclusion.
+- **Three dates were wrong or uncheckable.** Arch published `linux-firmware-amdgpu
+  20260810-2` on 2026-08-14, not the 2026-08-15 both AV1 records claimed, per the Arch
+  package archive listing. Those two also disagreed on when Omarchy's stable mirror picked
+  it up, 2026-08-21 against 2026-08-24, and neither is checkable from here, so the merged
+  record states the one hard local fact: this workstation upgraded to `-2` on 2026-08-22.
+  The 2026-06-18 date both Gemini records gave for Google's cutoff is cited by nothing and
+  was dropped rather than laundered into a merged record.
+- **`#8952` is an open pull request, not an issue**, titled as the backport of `#6900`.
+  Stable still ships Gemini at the `v4.0.3` tag: `install/user/mise.sh` runs
+  `omarchy-mise-install gemini`, there is no `migrations/1786719479.sh`, and the packaged
+  menu still lists `setup.default.agent.gemini`.
+
+Local confirmations that went into the merged records, all on omarchy 4.0.2-1: line 531 of
+`omarchy-agent-usage-codex` reads `-a on-request`, the `cleanup()` at line 82 of
+`omarchy-theme-set-browser-policy` is an `if` block and line 16 of migration 1787515927 ends
+in `|| true`, and `shell.qml` lines 348 to 354 still destroy every plugin service.
+
+### 3. What the audit still owns
+
+None of this is an audit. The reconciled file carries six open questions, Q1 to Q6, one per
+group, naming what a merge may not assume: whether `omarchy-iso#111` is the accepted fix and
+why hand-creating an EFI partition helps, whether the RDNA4 quantizer-matrix mechanism
+explains the RDNA3 integrated-GPU reports, the codex release note that retired `untrusted`,
+the date Google cut individual accounts off, whether the migration reporters were on dev or
+edge, and `PR #7169`.
+
+Two `lint_corpus.py` hits survive across the 33 records, both `sudo pacman -Syu` inside a
+branch labelled plain Arch, which is correct advice. They are new hits, so
+`lint_corpus.py --check` will fail the first time these records enter the corpus. Add them
+to `data/lint-baseline.json` in the merge commit rather than rewording them.
+
+### 4. Where to pick this up
+
+1. Run batch 01, the ten unread issues, with `issue-harvest-brief.md`. The numbers are in
+   the 2026-09-07 (second) session and in both raw files.
+2. Audit all 33 with `reaudit-brief.md`, one agent per one or two records, and answer Q1 to
+   Q6 on the way through.
+3. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect it to
+   need a small change: its append path assigns `gapfill-unaudited` and these records will
+   arrive already audited.
 
 ## Session of 2026-09-07 (second): O4 harvests from the issue tracker, and stops one batch short
 
@@ -123,7 +215,9 @@ hardware problems users hit.
 
 1. Run batch 01: `gh issue view <n> -R omacom/omarchy --comments` for the ten numbers above,
    with `issue-harvest-brief.md`.
-2. Reconcile the six near-duplicate pairs into one record each.
+2. Reconcile the six near-duplicate pairs into one record each. DONE 2026-09-10, and it
+   was six groups over thirteen records rather than six pairs. See the 2026-09-10 session
+   and `raw/issue-harvest-reconciled.json`.
 3. Audit all 40 with `reaudit-brief.md`, one agent per one or two records.
 4. Only then merge, through `merge_gapfill.py`, dry-run on a copy first, and expect
    `merge_gapfill.py` to need a small change: its append path assigns `gapfill-unaudited`
@@ -2554,8 +2648,9 @@ again.
   harvester brief (`tools/issue-harvest-brief.md`) are built and committed. Ten of eleven
   batches ran over 99 of 109 candidate issues and produced **40 records, 21 mappings onto
   existing records and 37 skipped as unconfirmed**, banked unmerged in
-  `raw/issue-harvest-partial.json`. Before any of it enters the corpus: run batch 01,
-  reconcile six near-duplicate pairs, and audit all 40. The `existing` list is re-audit
+  `raw/issue-harvest-partial.json`. The duplicates were reconciled on 2026-09-10, thirteen
+  records into six, leaving 33 in `raw/issue-harvest-reconciled.json`. Before any of it
+  enters the corpus: run batch 01 and audit all 33. The `existing` list is re-audit
   fuel for O3 and names three records the tracker contradicts.
 - **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
   its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
