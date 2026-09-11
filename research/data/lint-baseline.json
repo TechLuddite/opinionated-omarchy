@@ -333,8 +333,10 @@
   "sudo-pacman-Syu"
  ],
  "omarchy-nvidia-580xx-target-not-found": [
+  "bare-pacman-Sy",
+  "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P",
-  "omarchy3-tree"
+  "sudo-omarchy-cmd"
  ],
  "omarchy-shell-quickshell-undefined-symbol-qt-private-api": [
   "bare-pacman-Sy"
@@ -449,6 +451,10 @@
   "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P"
  ],
+ "vaapi-init-failed-screen-recording": [
+  "bare-pacman-Sy",
+  "hyprland-conf"
+ ],
  "vantablack-white-theme-broken-icon-placeholders": [
   "sudo-pacman-Syu"
  ],
@@ -466,6 +472,10 @@
  ],
  "vm-remote-desktop-steals-or-leaks-compositor-binds": [
   "hyprctl-dispatch-bare"
+ ],
+ "vulkan-driver-missing-app-fails-to-start": [
+  "bare-pacman-Sy",
+  "sudo-pacman-Syu"
  ],
  "webp-wallpaper-black-lock-screen": [
   "sudo-pacman-Syu"

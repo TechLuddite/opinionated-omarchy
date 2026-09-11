@@ -493,8 +493,9 @@ an auditor who judged a severity wrong, and one who found a cited issue number t
 is really a discussion, could each say so only in prose, and both changes had to be
 applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 207 `ok` records remain on one source pass, and 120 of them carry a `danger` and
-apply to Omarchy.
+merge. 193 `ok` records remain on one source pass, and 106 of them carry a `danger` and
+apply to Omarchy. `gpu-drivers` was cleared on 2026-09-11: all 14 were wrong, 10 of them
+predicted by `lint_corpus.py` months earlier.
 
 A second provenance field, `cause_reconciled` (a date, or absent), exists because the
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
@@ -503,9 +504,9 @@ read on 2026-08-30 and the 22 that were genuinely wrong were rewritten from thei
 A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, 12 more on
 2026-09-06 by the audit of the last unaudited records, the first VM-found defect and a
 re-audit of ten boot-kernel records against Omarchy 4, and 14 more on 2026-09-07 by the
-re-audit of all 22 `pacman-aur` records, and 25 more on 2026-09-11 by the audit of the 36
-records harvested from the issue tracker, so **80 records carry the stamp across five
-dates**. **The disclaimer printed under the audit
+re-audit of all 22 `pacman-aur` records, and on 2026-09-11 25 more by the audit of the 36
+records harvested from the issue tracker and 11 more by the re-audit of the 14 `gpu-drivers`
+records, so **91 records carry the stamp across five dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
