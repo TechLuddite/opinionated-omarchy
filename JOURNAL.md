@@ -46,6 +46,83 @@ Last updated: 2026-09-11
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
+## Session of 2026-09-11 (second): O3 clears `gpu-drivers`, and all 14 were wrong
+
+O4 merged, so the next option is O3: the `ok` records that carry a `danger` and apply to Omarchy,
+which are the ones that can break a machine if the fix is wrong. `gpu-drivers` first, 14 records,
+seven agent batches, each handed `reaudit-brief.md`, the record JSON and an output directory.
+
+**14 of 14 came back `corrected`, all at high confidence.** Every one had its `fix`, its `verify`
+and its `danger` rewritten. 11 causes were replaced and stamped, 4 frequencies corrected, and 12
+cited URLs removed. The corpus is now 492 records, `ok` 193 / `corrected` 299, from 1,213 distinct
+sources, with 91 `cause_reconciled` stamps.
+
+### One defect family accounts for most of it
+
+These records were generic Arch advice wearing an Omarchy label, and the tell is always the apply
+step. Omarchy 4 has no `/etc/default/grub`, `/boot/limine.conf` is regenerated on every kernel
+transaction, `/etc/mkinitcpio.d/` is empty so `mkinitcpio -P` writes nothing, and the machine boots
+a UKI so there is no `/boot/initramfs-linux.img` to inspect and no fallback entry to boot. Records
+named all four.
+
+**The two `critical` records are the sharpest case: the fix caused the failure its own danger warns
+about.** Both tell the reader to rebuild the initramfs with `mkinitcpio -P`, which on this layout
+writes no boot image, so the machine reboots into the old image with no driver. That is the black
+screen the danger tells you to avoid.
+
+**One fix was more dangerous than the problem.** `amdgpu-idle-freeze-gfxoff-ppfeaturemask` carried a
+`ppfeaturemask` value copied from a forum ladder. Against the kernel 7.1 source it does not disable
+only GFXOFF: it re-enables `PP_OVERDRIVE_MASK` and `PP_GFX_DCS_MASK`, both off by default, and the
+Overdrive bit taints the kernel and prints a critical warning. The wiki's own caution is that
+enabling unstable PowerPlay bits causes flicker and broken resume, which is the failure being fixed.
+The auditor replaced the constant with one computed from the kernel's default.
+
+### Other findings worth keeping
+
+- **A fix that overwrote a package-owned file.** `igpu-electron-stall-i915-module-order` wrote
+  `/etc/mkinitcpio.conf.d/nvidia.conf`, which `install/hardware/nvidia.sh` owns and rewrites.
+  Replaced with a drop-in that sorts ahead of it.
+- **A setting Omarchy already forces, with the units it needs left off.** `gpu-screen-recorder` is in
+  the base package list and its modprobe file sets `NVreg_PreserveVideoMemoryAllocations=1` on every
+  NVIDIA machine, while the installer never enables the three units NVIDIA's own README says that
+  setting requires. The record advised leaving them off, which is backwards here, and the
+  combination makes hibernate resume discard the image on a distribution that ships the `resume`
+  hook by default.
+- **Two records were obsolete rather than wrong.** Omarchy now installs Vulkan drivers by vendor at
+  setup, so the "common gap on Intel laptops" premise no longer holds, and the 580xx packages are in
+  the `[omarchy]` repository rather than the AUR, so the record's `yay` advice names the wrong tool.
+- **A package name that has never existed**, with the two words the wrong way round, and a removal
+  command that aborts on its first uninstalled target and removes nothing. Both reproduced.
+- **12 dead or unsupporting citations removed.** Several `basecamp/omarchy` issue URLs return a hard
+  404: GitHub's rename redirect covers the repository root and blob paths but not issue paths. Two
+  cited issues, read in full, were about a different vendor-agnostic bug on the previous major
+  version and mentioned none of the parameters the records set.
+
+### The lint predicted 10 of the 14
+
+Every one of the four AMD records carried a `boot-limine-conf` hit in `data/lint-baseline.json`,
+recorded when the lint landed and never followed up. That is the lint working as designed, as a
+candidate finder rather than an audit, and it gives an order for the rest of O3: of the 106 records
+left, 22 carry a hit, and the largest single pattern is 14 records still telling readers to run
+`mkinitcpio -P`.
+
+This commit also **clears** one baseline entry, `omarchy3-tree` on
+`omarchy-nvidia-580xx-target-not-found`, because the audit fixed the Omarchy 3 path it was flagging.
+Clearing an entry is a deliberate act and belongs in the commit that re-audits the record, which is
+this one. Six new hits were added and every one was read first: three are warnings telling the
+reader not to run the matched command, two sit in branches explicitly labelled plain Arch, and
+`sudo omarchy-apply-system` is a false positive for that script, which sets its own `OMARCHY_PATH`
+default at line 83 rather than inheriting one.
+
+### Where to pick this up
+
+1. O3 continues. `apps-services` is the largest at 23, `power-suspend` 16, `omarchy-theming` and
+   `network` 15 each. Prefer the 22 records the lint already flags.
+2. A new record is owed: the auditor of the VA-API record found a live upstream defect that is not
+   in the corpus. Omarchy's video-acceleration installer matches Intel graphics by marketing name,
+   and Haswell matches none of them, so those machines finish an install with no VA-API driver and
+   the update path never re-runs the script.
+
 ## Session of 2026-09-10 and 2026-09-11: O4 finished, 36 records merged, and all 36 were wrong
 
 Steps 2 and 1 of the O4 pick-up list, in that order: the duplicates reconciled, then batch
