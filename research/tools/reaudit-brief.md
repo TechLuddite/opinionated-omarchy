@@ -66,8 +66,18 @@ For each record write `<output directory>/verdict-<slug>.json`:
 {"slug": "<slug>", "status": "ok" | "corrected" | "reject", "confidence": "high" | "medium" | "low",
  "reason": "<audit note, 3 to 10 sentences: what you checked, against which source or which local file, what held, what was wrong. Say explicitly when a claim was confirmed on this machine versus from a source. Say what was NOT exercised.>",
  "corrected_cause": "<full replacement, only if wrong>", "corrected_fix": "<full replacement in the same markdown style with fenced blocks, only if wrong>",
- "corrected_symptom": "<only if wrong>", "corrected_danger": "<only if wrong>",
- "sources": ["<every URL you retrieved and relied on>"]}
+ "corrected_symptom": "<only if wrong>", "corrected_danger": "<only if wrong>", "corrected_verify": "<only if wrong>",
+ "corrected_severity": "critical|high|medium|low", "corrected_frequency": "very-common|common|occasional|rare",
+ "sources": ["<every URL you retrieved and relied on>"],
+ "sources_remove": ["<any URL on the record that does not resolve, or does not say what the record claims>"]}
+
+`corrected_severity` and `corrected_frequency` exist because the 2026-09-11 audit of the issue
+harvest found a record whose consequence is a machine that silently stops locking, rated `high`,
+and the auditor had nowhere to put that judgement. Use them sparingly and say why in the reason.
+`sources_remove` comes from the same day: another auditor found a cited GitHub issue number that
+is really a discussion, so the issue URL only redirects, and appending was the only way a verdict
+could touch sources. Removal runs after the append, so one verdict can replace a URL. A verdict
+that would leave a record with no source at all is refused, because then nobody can check it.
 
 Omit corrected_* keys you do not need. `ok` means every claim held for Omarchy 4 AND plain
 Arch, and the reason must still say what you checked and where. `reject` only if the

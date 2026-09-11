@@ -484,8 +484,14 @@ overridden by `omarchy_hooks.conf`, a two-subvolume chroot on a four-subvolume l
 cited issues that did not support the claim. The brief that found them is
 `research/tools/reaudit-brief.md`; hand it to one agent per one or two records with the
 record JSON and an output directory. A verdict may carry `corrected_fix`,
-`corrected_cause`, `corrected_symptom`, `corrected_danger`, `corrected_verify` and
-`sources`, and `merge_gapfill.py` applies all of them (sources are appended). Always:
+`corrected_cause`, `corrected_symptom`, `corrected_danger`, `corrected_verify`,
+`corrected_severity`, `corrected_frequency`, `sources` and `sources_remove`, and
+`merge_gapfill.py` applies all of them (sources are appended, then any removals
+applied, and a verdict that would leave a record with no source is refused). The
+last four were added on 2026-09-11 after the issue-harvest audit hit their absence:
+an auditor who judged a severity wrong, and one who found a cited issue number that
+is really a discussion, could each say so only in prose, and both changes had to be
+applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
 merge. 207 `ok` records remain on one source pass, and 120 of them carry a `danger` and
 apply to Omarchy.

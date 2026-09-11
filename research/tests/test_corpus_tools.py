@@ -276,6 +276,42 @@ class TestMergeExtendPath(unittest.TestCase):
                                           "https://example.invalid/new"])
 
 
+    def test_a_corrected_severity_and_a_removed_source_are_applied(self):
+        """Both keys exist because the 2026-09-11 audit hit their absence. One auditor
+        judged a severity too low for a defect that silently costs a machine its lock
+        screen, another found a cited issue number that is really a discussion, and
+        neither could say so anywhere but prose, so both were applied by hand."""
+        rec = a_full_record("severity-and-sources")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "severity-and-sources", "status": "corrected",
+                                     "confidence": "high", "reason": "rated too low",
+                                     "corrected_severity": "critical",
+                                     "corrected_frequency": "rare",
+                                     "sources": ["https://example.invalid/kept"],
+                                     "sources_remove": ["https://example.invalid/fixture"]}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)
+        got = back["severity-and-sources"]
+        self.assertEqual(got["severity"], "critical")
+        self.assertEqual(got["frequency"], "rare")
+        self.assertEqual(got["sources"], ["https://example.invalid/kept"])
+
+    def test_a_severity_outside_the_vocabulary_stops_the_merge(self):
+        """severity and frequency are closed vocabularies. A verdict that invents a
+        value is a defect in the verdict, and writing it into the corpus would break
+        the docs sort and the site's filters silently."""
+        rec = a_full_record("bad-severity")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "bad-severity", "status": "corrected",
+                                     "confidence": "high", "reason": "r",
+                                     "corrected_severity": "catastrophic"}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SystemExit):
+                self._run([rec], payload, td)
+
+
 class TestCorpusLint(unittest.TestCase):
     """lint_corpus.py flags the shapes the 2026-09-06 re-audit found wrong on Omarchy 4.
     It is a candidate finder, not an audit, so the live corpus is held to its baseline

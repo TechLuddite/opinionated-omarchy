@@ -12,7 +12,9 @@ Unlike the first harvest, this honours `corrected_cause`: where the auditor
 disproved the cause as well as the fix, the cause is replaced rather than left
 standing. Records whose cause was NOT corrected keep the audit note so a reader
 can still see what was disputed. `corrected_symptom`, `corrected_danger` and `corrected_verify`
-are honoured the same way, and any `sources` on a verdict are appended to the record.
+are honoured the same way, as are `corrected_severity` and `corrected_frequency`, and any
+`sources` on a verdict are appended to the record while any `sources_remove` are dropped
+from it.
 
 Rewrites data/problems.jsonl in place. Re-run tools/build_db.py afterwards.
 """
@@ -24,6 +26,11 @@ from datetime import date
 from pathlib import Path
 
 from corpus import read_jsonl, write_jsonl
+
+# Closed vocabularies, from research/README.md's record schema. A verdict that corrects
+# one of these has to land inside them.
+SEVERITIES = ("critical", "high", "medium", "low")
+FREQUENCIES = ("very-common", "common", "occasional", "rare")
 
 ROOT = Path(__file__).resolve().parent.parent
 JSONL = ROOT / "data" / "problems.jsonl"
@@ -63,6 +70,20 @@ def apply_verdict(rec, v, stats):
             if v.get(f"corrected_{field}"):
                 rec[field] = v[f"corrected_{field}"]
                 stats[f"{field}-corrected"] += 1
+        # The 2026-09-11 audit of the issue harvest found this gap the hard way: an
+        # auditor judged a severity too low for a defect that silently costs a machine
+        # its lock screen, had nowhere to put it, and the change had to be applied by
+        # hand after the merge. Both fields are closed vocabularies, so an unknown value
+        # is a defect in the verdict rather than something to write into the corpus.
+        for field, allowed in (("severity", SEVERITIES), ("frequency", FREQUENCIES)):
+            value = v.get(f"corrected_{field}")
+            if not value:
+                continue
+            if value not in allowed:
+                sys.exit(f"verdict for {rec['slug']!r} sets {field}={value!r}, "
+                         f"which is not one of {sorted(allowed)}")
+            rec[field] = value
+            stats[f"{field}-corrected"] += 1
         rec["audit_status"] = "corrected"
         stats["corrected"] += 1
     else:
@@ -73,6 +94,17 @@ def apply_verdict(rec, v, stats):
     for url in v.get("sources") or []:
         if url.startswith(("http://", "https://")) and url not in (rec.get("sources") or []):
             rec.setdefault("sources", []).append(url)
+    # The other half of that gap, found the same day: an auditor caught a cited GitHub
+    # issue number that is really a discussion, so the issue URL only redirects, and
+    # could say so only in prose because appending was the sole way to touch sources.
+    # Removal runs after the append so a verdict can replace a URL in one verdict.
+    for url in v.get("sources_remove") or []:
+        if url in (rec.get("sources") or []):
+            rec["sources"].remove(url)
+            stats["source-removed"] += 1
+    if not rec.get("sources"):
+        sys.exit(f"verdict for {rec['slug']!r} removed its last source; a record with no "
+                 f"source cannot be checked by anyone")
     return rec
 
 
