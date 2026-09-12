@@ -8,7 +8,7 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**492 problems across 12 categories**, drawn from 1,324 distinct sources. Every record
+**492 problems across 12 categories**, drawn from 1,326 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
