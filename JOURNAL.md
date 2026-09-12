@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -22,13 +22,15 @@ Last updated: 2026-09-11
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 207 records carry that status on one source pass. The first 32 re-audited
->    for that, boot-kernel and pacman-aur records with a `danger`, all needed correcting. Use
->    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
->    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
->    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
->    and `pacman-aur`, and O4 is harvested, reconciled and audited: 36 records banked unmerged as of 2026-09-11, all 36
->    corrected by the audit. The corpus prose has 1,756 dashes across 405 records, item 6
+>    4", and 156 records still carry that status on one source pass. **84 records have now been
+>    re-audited that way and 83 of them needed correcting**, across `boot-kernel` (10),
+>    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23) and `network` (15). The one
+>    that passed is `mt7921e-dead-after-suspend-aspm`. Hand the brief to agents directly, one
+>    per one or two records, which is what the last four batches did, and use
+>    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared five
+>    categories with 69 records left, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -45,6 +47,59 @@ Last updated: 2026-09-11
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-11 (fifth): the mDNS merge, one record removed and one split out
+
+The decision the `network` audit left open. Both mDNS records had been re-audited that day and both
+came back `corrected`, so this is not a cleanup of bad content. It is a merge done because one of
+them carried a **slug and title asserting the cause its own audit disproved**, that ufw blocks 5353,
+and no verdict field can rename either.
+
+Corpus stays at 492 records: `mdns-local-hostnames-fail-ufw-blocks-5353` removed,
+`kde-connect-ports-blocked-by-ufw` added in its place. `apps-services` 59 to 58, `network` 46 to 47.
+Sources 1,324 to 1,326.
+
+### What moved where
+
+`mdns-local-hostname-not-resolving` survives, moves from `apps-services` to `network`, and is
+retitled to cover both halves. It absorbed three things:
+
+- the negative firewall finding, with the exact shipped rule text and the instruction to check
+  before opening anything,
+- the `ufw-not-local` MULTICAST RETURN ordering trap, in both the cause and the danger,
+- the unicast-reply caveat, which is the one case that does want a 5353 rule.
+
+`kde-connect-ports-blocked-by-ufw` is new, in `network`. KDE Connect was the one part of the removed
+record that survived its audit intact and is not mDNS at all, so it gets its own record rather than
+riding along inside a record about name resolution. Every claim in it was re-checked while splitting:
+the 1714 to 1764 range on both protocols is stated by KDE's own documentation, retrieved 2026-09-11,
+`install/config/firewall.sh` opens only LocalSend's 53317, `ufw status` on this machine lists no rule
+for the range, and `/etc/ufw/after.rules:27` is
+`-A ufw-after-input -m addrtype --dst-type BROADCAST -j ufw-skip-to-policy-input` under the comment
+`don't log noisy broadcast`, which is why the discovery packets die with no log line.
+
+### Provenance is kept rather than tidied away
+
+Both records' `audit_note` fields name the removed slug and say what moved and why. Reader-facing
+fields point only at records that exist, checked mechanically. The removed record's own text is not
+lost either: it is in the git history and in `raw/o3-network-audit.json`, which holds the verdict that
+disproved its cause with the measurements behind it.
+
+### What this does to the public site
+
+The removed record had a URL on the published site and that URL now 404s. That is the cost of
+retiring a record whose title states something false, and it is the right trade. Nothing internal
+dangles, because the site and the search index are regenerated wholesale from the JSONL on every
+build.
+
+### Where to pick this up
+
+1. O3 continues, 69 records left: `power-suspend` 16, `omarchy-theming` 15, `hyprland-config` 12,
+   `wayland-compat` 9, `audio-input` 9, `display-monitors` 5, `omarchy-core` 2, `network` 1.
+2. Two upstream reports are owed, and neither is written: the enterprise Wi-Fi profile that sets no
+   certificate validation, and the Intel video-acceleration installer that matches graphics by
+   marketing name so Haswell matches nothing.
+3. The Haswell gap also still owes the corpus a new record.
 
 ## Session of 2026-09-11 (fourth): O3 clears `network`, and one record finally passed
 

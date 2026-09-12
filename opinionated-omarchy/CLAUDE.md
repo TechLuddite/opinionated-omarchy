@@ -16,7 +16,7 @@ zero-byte `.gitkeep` that used to do the job.
 
 ## What it has to be
 
-The corpus is **456 records** of real Omarchy/Arch problems with verified, copy-pasteable
+The corpus is **492 records** of real Omarchy/Arch problems with verified, copy-pasteable
 fixes, searchable by symptom (`research/data/problems.jsonl` is the source of truth). It is
 currently reachable three ways, and none of them is a skill:
 
@@ -32,9 +32,9 @@ is what an agent gets handed: the whole corpus does not fit, and a skill that me
 
 Three findings, and each closed a design option. **Do not re-derive these.**
 
-**1. Per-category files are already impossible, not a future risk.** Seven of the twelve
-`research/docs/*.md` pages exceed a 32K context window *today* at 456 records;
-`network.md` is 43.3k tokens. So records must be reachable individually. That also
+**1. Per-category files are already impossible, not a future risk.** Eleven of the thirteen
+`research/docs/*.md` pages exceed a 32K context window *today* at 492 records, measured
+2026-09-12: `apps-services.md` is about 96k tokens and `network.md` about 77k. So records must be reachable individually. That also
 dissolves the "will a category need splitting in a few years" question: with per-record
 granularity a category is **metadata**, so splitting one is a field edit, never a
 migration.
@@ -80,7 +80,7 @@ shape that survives the contradiction is two jobs in one bundle:
 1. **A token-light core of load-bearing facts**: the Omarchy 3 → 4 tree split, Lua rather
    than hyprlang, the ALPM guard. This works in the chat lane, is what the +29.3 pt figure
    is comparable against, and is what the trap bench measures.
-2. **Retrieval for depth**: agentic only, where the 456 records live.
+2. **Retrieval for depth**: agentic only, where the 492 records live.
 
 Also worth knowing before you pick a target: on the agentic lane **only 4 of 14 local
 models can drive the loop at all** ([../skillbench/MODELS.md](../skillbench/MODELS.md)),
@@ -101,12 +101,19 @@ is in boot, pacman or system-tree territory, that is where its benches belong.
 
 The corpus carries per-record provenance and that is load-bearing, not decoration:
 
-- `audit_status`: `ok` (207), `corrected` (249), `unaudited` (0 since 2026-09-06, but the
+- `audit_status`: `ok` (156), `corrected` (336), `unaudited` (0 since 2026-09-06, but the
   status stays reachable and the next harvest will reintroduce it).
-- `cause_reconciled`: set on the 55 records whose `cause` was rewritten to match their own
-  audit note: 22 on 2026-08-30, 7 on 2026-09-01, 12 on 2026-09-06, 14 on 2026-09-07.
+- `cause_reconciled`: set on the 119 records whose `cause` was rewritten to match their own
+  audit note or a second pass: 22 on 2026-08-30, 7 on 2026-09-01, 12 on 2026-09-06, 14 on
+  2026-09-07 and 64 on 2026-09-11.
 
-**A skill that flattens those into undifferentiated advice launders the 249 records whose
+**The ratio moved the wrong way on purpose, and that is the point.** `ok` fell from 207 to 156
+across 2026-09-11, because every category re-audited against what Omarchy 4 actually ships came
+back almost entirely wrong: 84 records re-audited in five batches, of which 83 needed correcting.
+A record marked `ok` means "matched its cited sources once", and this corpus now has five days of
+evidence that this is a weaker claim than it reads as.
+
+**A skill that flattens those into undifferentiated advice launders the 336 records whose
 fix, cause or danger an auditor had to rewrite, and every unaudited record the next harvest
 adds, into the same voice as the records that passed clean.** Whatever shape the skill takes, an
 unaudited record has to still read as unaudited by the time it reaches the user. Both

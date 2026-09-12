@@ -1,6 +1,6 @@
 # Networking
 
-46 problems. Sorted by severity, then by how often users hit it.
+47 problems. Sorted by severity, then by how often users hit it.
 
 ## Restore Wi-Fi after an upgrade leaves NetworkManager pointing at a removed iwd backend
 
@@ -2962,22 +2962,23 @@ Sources: <https://man.archlinux.org/man/NetworkManager.conf.5> · <https://githu
 
 ---
 
-## Fix .local hostnames, LocalSend, KDE Connect and printer discovery not working
+## Fix `.local` names and service discovery failing, and why opening 5353/udp is not the fix
 
-`mdns-local-hostnames-fail-ufw-blocks-5353` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+`mdns-local-hostname-not-resolving` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** `.local` names do not resolve and service discovery finds nothing:
+**Symptom.** `ping nas.local` or `ping raspberrypi.local` fails with `Name or service not known`, `getent hosts nas.local` returns nothing, and a network printer or Home Assistant box that other devices reach by `.local` name is unreachable. The device answers fine by IP address. A related symptom in the same area is the machine's own hostname gaining a number (`myhost-2.local`, then `myhost-3.local`), which means two mDNS responders are fighting over it. One thing that looks like this symptom but is not: on Omarchy 4, `resolvectl query nas.local` returning `No appropriate name servers or networks for name found` is the expected reply even when `.local` resolution is working perfectly, because Omarchy disables systemd-resolved's mDNS and lets Avahi own it.
 
-```
-$ ping nas.local
-ping: nas.local: Name or service not known
-$ getent hosts nas.local
-$ avahi-browse --all --ignore-local --resolve --terminate
-```
+**Cause.** Two different mDNS stacks can serve `.local` names, and which one is in play decides everything. The record this replaces assumed systemd-resolved, which is wrong for Omarchy.
 
-The last command printing nothing at all is the useful signal. Network printers never appear in `lpstat -e`, the CUPS page or the GTK print dialog. Other machines on the same LAN discover each other fine. A different fault that looks identical is KDE Connect never seeing the phone while everything else on the LAN is discoverable, because KDE Connect does not use mDNS and needs its own ports. LocalSend is not part of this symptom on Omarchy, which opens its port 53317 on both protocols at install time.
+**Omarchy 4 gives mDNS to Avahi and preconfigures all of it.** `avahi` and `nss-mdns` ship in `/usr/share/omarchy/install/omarchy-base.packages`, `/usr/share/omarchy/install/config/enable-services.sh` runs `systemctl enable avahi-daemon.service`, and Omarchy replaces `/etc/nsswitch.conf` with its own copy whose `hosts:` line already carries `mdns_minimal [NOTFOUND=return]` ahead of `resolve`. Omarchy also ships `/etc/systemd/resolved.conf.d/10-disable-multicast.conf` setting `MulticastDNS=no` and `LLMNR=no`, so systemd-resolved is deliberately neither an mDNS resolver nor a responder. The visible consequence is that on a healthy Omarchy 4 box `getent hosts nas.local` succeeds while `resolvectl query nas.local` fails, and that is correct rather than broken. When `.local` genuinely fails on Omarchy the cause is normally `avahi-daemon` being down or its socket stuck, a firewall gap on unicast port 5353, or systemd-resolved answering the `SOA` query for the `local` domain, which makes `nss-mdns` stand down.
 
-**Cause.** The firewall is almost never the cause, and the widely repeated advice to open 5353/udp changes nothing on a stock install. ufw's own `/etc/ufw/before.rules` accepts inbound multicast mDNS before any user rule is consulted, on Arch and on Omarchy alike:
+**On plain Arch and the other derivatives nothing is preconfigured, and two separate switches are off.** systemd-resolved's global `MulticastDNS=` does default to yes, but mDNS activates for a connection only when the network manager enables it per connection as well, and NetworkManager's `connection.mdns` default of `-1` leaves it off. Independently of that, glibc will not consult Avahi at all until `nss-mdns` is installed and named in the `hosts:` line.
+
+The hostname-gaining-a-number symptom is the opposite fault, two responders on one interface, with Avahi and systemd-resolved both answering mDNS and fighting over the name. That is reachable on plain Arch and not on a stock Omarchy 4 install, where resolved's responder is already off. Avahi additionally has a long-standing hostname race of its own that can produce the same renaming even with a single responder.
+
+**The firewall is almost never the cause, and opening 5353/udp changes nothing on a stock install.**
+ufw's own `/etc/ufw/before.rules` accepts inbound multicast mDNS before any user rule is consulted,
+on Arch and on Omarchy alike:
 
 ```
 # if MULTICAST, RETURN
@@ -2988,50 +2989,186 @@ The last command printing nothing at all is the useful signal. Network printers 
 -A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT
 ```
 
-`/etc/ufw/before6.rules` carries the `ff02::fb` equivalent. Both lines have been in ufw since 0.30.1 in March 2011, so no version anyone is running ships a default that drops multicast mDNS. Avahi never sets the unicast-response bit in the questions it asks, so every answer it wants arrives at the multicast group and is accepted by that rule. That is why discovery, `.local` names and printer browsing all work on a stock Omarchy 4 machine whose only open ports are LocalSend's 53317 and two Docker DNS rules.
+`/etc/ufw/before6.rules` carries the `ff02::fb` equivalent. Both lines have shipped since ufw 0.30.1
+in March 2011, so no version anyone is running drops multicast mDNS. Avahi never sets the
+unicast-response bit in the questions it asks, so every answer it wants arrives at the multicast
+group and that rule accepts it. Measured on a stock Omarchy 4 machine whose only open ports are
+LocalSend's 53317 and two Docker DNS rules: `avahi-browse` lists the LAN, `lpstat -e` finds the
+network printer and `getent hosts nas.local` resolves.
 
-Three firewall shapes do break discovery, and all three are narrower than the usual advice:
+Two firewall shapes do break it, and both are narrower than the usual advice:
 
-1. The `ufw-not-local` MULTICAST RETURN line commented out. `ufw-before-input` jumps to `ufw-not-local` before it reaches the mDNS accept, so a multicast packet dropped there never gets the chance to match. ufw's own comment above the accept warns about exactly this.
-2. Unicast mDNS replies. The accept matches destination 224.0.0.251 only, and a unicast reply does not match the conntrack entry created by a query sent to the multicast group, so it falls through to the default deny. Avahi does not ask for unicast replies, but a one-shot resolver in a script or an application library does, and a legacy unicast reply arrives at an ephemeral port that no `--dport 5353` rule can cover.
-3. KDE Connect, which is not mDNS at all. It uses ports 1714 to 1764 on both UDP and TCP, discovers over UDP broadcast, and `/etc/ufw/after.rules` sends broadcast traffic to the default deny policy without even logging it. Omarchy opens none of those ports.
+1. **The `ufw-not-local` MULTICAST RETURN line commented out.** `ufw-before-input` jumps to
+   `ufw-not-local` before it reaches the mDNS accept, so a multicast packet dropped there never gets
+   the chance to match. ufw's own comment above the accept warns about exactly this.
+2. **Unicast mDNS replies.** The accept matches destination 224.0.0.251 only, and a unicast reply
+   does not match the conntrack entry created by a query sent to the multicast group, so it falls
+   through to the default deny. Avahi does not ask for unicast replies, but a one-shot resolver in a
+   script or an application library does, and a legacy unicast reply arrives at an ephemeral port
+   that no `--dport 5353` rule can cover.
 
-When `.local` genuinely fails, the fault is normally in the resolver stack rather than the firewall: `avahi-daemon` down or its socket stuck, `nss-mdns` missing from the `hosts:` line in `/etc/nsswitch.conf`, or systemd-resolved answering the `SOA` query for the `local` domain, which makes `nss-mdns` stand down. Omarchy 4 preconfigures all of that and the record `mdns-local-hostname-not-resolving` covers it.
+> **Audit corrected this record.** The record's central framing is inverted for Omarchy 4, and I confirmed that on this workstation (omarchy 4.0.2-1, kernel 7.1.9, avahi 1:0.9rc5-1, nss-mdns 0.15.1-2). Omarchy ships `/etc/systemd/resolved.conf.d/10-disable-multicast.conf` with `MulticastDNS=no` and `LLMNR=no`, owned by `omarchy-settings 4.0.2-1` and shown as applied by `systemd-analyze cat-config systemd/resolved.conf`, so the claim that resolved's global `MulticastDNS=` is on by default and that per-connection NetworkManager enablement is the missing half is true on plain Arch and false here. Omarchy hands mDNS to Avahi and preconfigures every part: `avahi` and `nss-mdns` are in `install/omarchy-base.packages`, `install/config/enable-services.sh` enables `avahi-daemon.service`, and `/etc/nsswitch.conf` already reads `hosts: mymachines mdns_minimal [NOTFOUND=return] resolve files myhostname dns` against the Arch stock line in `/usr/share/factory/etc/nsswitch.conf`, which has no `mdns_minimal`. Measured end to end against a real LAN device rather than reasoned about: `getent hosts truenas.local` and `avahi-resolve -n truenas.local` both return addresses while `resolvectl query truenas.local` fails with `No appropriate name servers or networks for name found`, so the record's Path A verify command reports a fault on a fully working machine, and a user acting on that reading would run Path A, disable `avahi-daemon`, and actually break both `.local` resolution and CUPS printer discovery, since the Arch CUPS wiki states DNS-SD is supported only through Avahi and never through resolved. `resolvectl query <own-hostname>.local` is a false pass on top of that, returning addresses tagged `Data from: synthetic` even with mDNS off. The most serious unflagged hazard is the nsswitch clobber: upstream `docs/file-layout.md` on `quattro` and the scriptlet at `/var/lib/pacman/local/omarchy-settings-4.0.2-1/install` both show `omarchy-settings` doing `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from `post_install` and `post_upgrade`, with an upstream comment saying customizations will be reset on every upgrade, so a hand edit vanishes with no `.pacnew`, no backup and nothing `pacdiff` can show. The `host -t SOA local` step cannot run as written, confirmed: `bind` is not installed and `command -v host` finds nothing. Everything generic in the record is source-backed and I kept it, checking each cited page in full: the Arch Avahi wiki gives the identical `hosts:` line including `[!UNAVAIL=return]`, the `NXDOMAIN` SOA precondition, the `mdns` plus `/etc/mdns.allow` fallback, the `mtr` and `traceroute` reverse-lookup breakage and a troubleshooting section for the incrementing hostname, the Systemd-resolved wiki gives the two-places activation rule and `MulticastDNS=resolve` for Avahi coexistence, and the nss-mdns README says plainly to test with `getent hosts` and not with `host` or `nslookup` because those bypass NSS. All three cited URLs resolve and support what the record draws from them, so nothing needs removing. I also checked tag v4.0.3 (`0534987`, 2026-09-08) and `etc/nsswitch.conf`, the resolved drop-in and `enable-services.sh` are unchanged there, so this holds on the newest release. Corrected symptom, cause, fix, verify and danger, and lowered frequency to `occasional` because on Omarchy the stack ships working so the condition is not commonly hit, while it stays genuine on the six other targets. On the boundary question, this record and `mdns-local-hostnames-fail-ufw-blocks-5353` are the same problem and the sibling is the better of the two, so I narrowed this one to the stack-ownership and responder-conflict question and cross-referenced the sibling for the firewall and nsswitch half rather than duplicating it. My recommendation is that a later pass merge them into one `network` record. Flagging separately that the sibling now needs its own re-audit, because stock ufw already accepts multicast mDNS: `/etc/ufw/before.rules` line 68 carries `-A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT` and `before6.rules` line 136 the `ff02::fb` equivalent, both clean under `pacman -Qkk ufw`, and on this box `/etc/ufw/user.rules` opens only 53317 yet `avahi-browse` lists the whole LAN, which contradicts the sibling's claim that ufw drops mDNS replies until a rule is added. The sibling also tells users to reconcile a nsswitch `.pacnew` that will never appear. Not exercised, because I have no sudo: I did not disable `avahi-daemon`, did not switch to the resolved stack, did not add a ufw rule, did not read live `ufw status` output, and could not reproduce either the hostname-renaming loop or a unicast-5353 block.
 
-> **Audit corrected this record.** Measured on this Omarchy 4 workstation (omarchy 4.0.2-1, ufw 0.36.2-7, avahi 1:0.9rc5-1, nss-mdns 0.15.1-2) and the record's central claim is false. Confirmed on this machine: `/etc/ufw/before.rules` line 68 carries `-A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT`, `before6.rules` line 136 carries the `ff02::fb` equivalent, and the `ufw-not-local` MULTICAST RETURN at line 57 is live and not commented out, so the `-j ufw-not-local` jump at line 51 does not eat the packet before the accept. `pacman -Qii ufw` reports both files as backup files and `[unmodified]`, so this is the packaged default and not a local edit. `/etc/ufw/user.rules` opens only 53317 on both protocols, the two `allow-docker-dns` rules and my own unrelated rules, with no 5353 entry anywhere, and `avahi-browse --all --ignore-local --resolve --terminate` still lists the whole LAN including a Brother HL-3170CDW that `lpstat -e` also shows, while `getent hosts truenas.local` and `getent hosts BRN30055CC2CA73.local` both return addresses. The record's stated cause, its symptom and its headline fix are therefore all wrong on a stock install.
-
-I tested the four possibilities rather than assuming. The MULTICAST line is not commented out. The record is not describing an older ufw default: upstream commit c7acf016 of 2011-03-22, shipped in ufw 0.30.1, replaced a blanket `-s 224.0.0.0/4` plus `-d 224.0.0.0/4` ACCEPT pair with the narrow mDNS rule, and the current trunk and 0.36 branch `conf/before.rules` at git.launchpad.net both still carry it, so multicast mDNS has been accepted by default continuously since 2008 in one form or another. `ufw-not-local` does not drop it, because MULTICAST returns at line 57. What does hold is the reply-path gap, and it is narrower than the record: the accept covers destination 224.0.0.251 only, so a unicast reply is left to the default deny, and Avahi is immune to that because it never asks for one. That last point is from source rather than from a packet capture: `avahi-core/query-sched.c` line 217 and `avahi-core/probe-sched.c` lines 189 and 265 all call `avahi_dns_packet_append_key(p, k, 0)`, and `avahi-core/dns.h` line 92 names that third parameter `unicast_response`. RFC 6762 section 5.4 defines the bit and section 6.7 requires a unicast reply to a query whose source port is not 5353, which is why a one-shot resolver can still fail where Avahi does not.
-
-Two further defects. The symptom and title blame closed 5353 for LocalSend and printer discovery: Omarchy's `/usr/share/omarchy/install/config/firewall.sh` opens 53317 on both protocols for LocalSend, and printer discovery demonstrably works here, so both attributions are wrong. The fix told the reader to reconcile a `/etc/nsswitch.conf` `.pacnew`, which will never appear: the `omarchy-settings 4.0.2-1` scriptlet at `/var/lib/pacman/local/omarchy-settings-4.0.2-1/install` line 19 runs `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from both `post_install` and `post_upgrade`, with an upstream comment saying the copies are intentionally destructive on every install and upgrade. The KDE Connect half of the fix is the one part of the firewall advice that is genuinely needed, confirmed against userbase.kde.org, which gives the 1714 to 1764 range on UDP and TCP, against `/etc/ufw/after.rules`, which sends broadcast to the policy without logging, and against the absence of `kdeconnect` and of any 1714 reference anywhere in `/usr/share/omarchy`. I scrutinised both danger clauses: the exposure clause was misleading, because a stock box already answers multicast queries from the whole link, so the rule adds only the unicast path, and the real hazard is the hardening edit that comments out the MULTICAST RETURN. The nsswitch clause was right about the risk and wrong about `.pacnew`. Rewrote symptom, cause, fix, verify and danger, dropped the systemd-resolved switch section to the sibling record rather than duplicating it, and lowered frequency from `very-common` to `occasional` because the condition as stated is not reachable on a stock machine and the residual shapes are uncommon. Severity stays `medium`: nothing here loses data or breaks boot. Removed the two `basecamp/omarchy/blob/master/...` URLs, both hard 404s after following the redirect.
-
-On the boundary question: this and `mdns-local-hostname-not-resolving` are one problem, not two. The symptom is identical, the diagnosis is a single ordered path, and the two records now cross-reference each other in both directions, which is the shape a split leaves behind. `mdns-local-hostname-not-resolving` should survive. Its slug and title are neutral and its Omarchy framing is correct, whereas this record's slug asserts the cause I just disproved and no verdict field can rename it, so keeping it means publishing a permanent URL that states a falsehood. The survivor must take three things from here that it does not have. First, the negative firewall finding with the exact `before.rules` text, the ufw 0.30.1 floor and the instruction not to open 5353, because the wrong advice is what circulates online and a reader needs it refuted rather than merely omitted. Second, the `ufw-not-local` ordering trap and its danger clause. Third, the unicast reply caveat for one-shot resolvers. It already has the better nsswitch danger, the `getent` versus `resolvectl` rule and the SOA precondition, so those need nothing. The KDE Connect ports should not be merged in at all, because KDE Connect does not use mDNS. They belong in a new `network` record of their own, and dropping them into an mDNS record is how this pair got confused in the first place. Note for whoever merges: the survivor sits in `apps-services` and a merged record about `.local` and discovery belongs in `network`, so the merge is also a category move.
-
-Not exercised, and I did not use sudo on this workstation by instruction: I never ran `ufw`, so I have no live `ufw status` output and no rule counters, and I did not add or remove a rule, comment out the MULTICAST RETURN to watch discovery break, capture packets to see whether any responder here answers by unicast, install `bind` to run `host -t SOA local`, test KDE Connect, or exercise the `mdns.allow` fallback. The conntrack argument for unicast replies being dropped is reasoned from the rule set and RFC 6762 rather than measured.
+Merged on 2026-09-11 with `mdns-local-hostnames-fail-ufw-blocks-5353`, which is removed. Both
+records were re-audited that day and both came back `corrected`. They described one problem from two
+ends, and the removed record's slug and title asserted the cause its own audit disproved, that ufw
+blocks 5353, which no verdict field can rename. What moved into this record: the negative firewall
+finding with the exact shipped rule text and the instruction to check before opening anything, the
+`ufw-not-local` ordering trap in both the cause and the danger, and the unicast-reply caveat. The
+KDE Connect half became its own record, `kde-connect-ports-blocked-by-ufw`, because KDE Connect does
+not use mDNS. This record also moved from `apps-services` to `network`. Measured for the merge on
+omarchy 4.0.2-1: `/etc/ufw/before.rules:68` and `before6.rules:136` carry the accepts as unmodified
+pacman backup files, `/etc/ufw/after.rules:27` sends broadcast to `ufw-skip-to-policy-input`, and
+`install/config/firewall.sh` opens only 53317.
 >
 > *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Opening 5353/udp exposes less than it appears to, and that cuts both ways. Avahi already answers multicast queries from the whole local link with no user rule at all, because `/etc/ufw/before.rules` accepts them, so your hostname and advertised services are visible on café and hotel Wi-Fi whether or not you add anything. If that matters, stop `avahi-daemon.service` on untrusted networks rather than trusting a closed port to hide you.
+> ⚠️ **Risk.** Do not hand-edit `/etc/nsswitch.conf` on Omarchy 4 and expect the edit to last. The file belongs to the Arch `filesystem` package, so Omarchy cannot ship it through pacman without a conflict, and `omarchy-settings` instead runs `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from both its `post_install` and its `post_upgrade` scriptlet. Upstream's own comment on those lines states that users who customize the file will have their changes reset to Omarchy defaults on every upgrade. There is no `.pacnew`, no backup and nothing for `pacdiff` to offer, so the edit disappears silently at the next `omarchy update` that bumps `omarchy-settings`. You almost never need to touch it, because the shipped line already carries `mdns_minimal`.
 
-The real hazard here is the opposite edit. Commenting out `-A ufw-not-local -m addrtype --dst-type MULTICAST -j RETURN` as a hardening step silently removes `.local` resolution, service discovery and network printing, and the breakage surfaces nowhere near the file that caused it. Copy the file aside before touching it with `sudo cp /etc/ufw/before.rules /etc/ufw/before.rules.bak`, and remember it is a pacman backup file that can arrive as a `.pacnew` on a ufw upgrade.
+Getting the `hosts:` line wrong breaks all name resolution system-wide, pacman included. Copy the file aside first with `sudo cp /etc/nsswitch.conf /etc/nsswitch.conf.bak` and test with `getent hosts archlinux.org` before you log out or reboot.
 
-Editing `/etc/nsswitch.conf` incorrectly breaks all name resolution system-wide, pacman included. Copy it aside with `sudo cp /etc/nsswitch.conf /etc/nsswitch.conf.bak` and test with `getent hosts archlinux.org` before you log out. On Omarchy 4 the edit will not last in any case: `omarchy-settings` runs `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from both `post_install` and `post_upgrade`, and upstream's own comment on those lines says customizations are reset to Omarchy defaults on every upgrade. There is no `.pacnew`, no backup and nothing for `pacdiff` to offer, so do not plan to reconcile one.
+Disabling `avahi-daemon.service` on Omarchy 4 is not a neutral cleanup. CUPS supports DNS-SD only through Avahi and never through systemd-resolved, so it removes network printer discovery on a distro that enables `cups.service` by default, and it strands the `mdns_minimal` entry that Omarchy's own `hosts:` line depends on. The mirror-image error is running Avahi and systemd-resolved as mDNS responders at the same time, which causes the hostname-conflict renaming loop. Run exactly one responder.
 
-The KDE Connect rules open 51 ports on two protocols to everything on the link. Scope them to your own network if you roam.
+Using the full `mdns` module instead of `mdns_minimal` makes reverse lookups in `mtr` and `traceroute` time out rather than falling back to other DNS services.
+
+The firewall edit worth warning about is the opposite one. Commenting out
+`-A ufw-not-local -m addrtype --dst-type MULTICAST -j RETURN` as a hardening step silently removes
+`.local` resolution, service discovery and network printing, and the breakage surfaces nowhere near
+the file that caused it. Copy the file aside before touching it, and remember it is a pacman backup
+file that can arrive as a `.pacnew` on a ufw upgrade. In the other direction, opening 5353 hides
+less than it appears to: Avahi already answers multicast queries from the whole local link with no
+user rule at all, so your hostname and advertised services are visible on café and hotel Wi-Fi
+whether or not you add anything. If that matters, stop `avahi-daemon.service` on untrusted networks
+rather than trusting a closed port to hide you.
 
 **Fix.**
 
-Diagnose in this order. Everything here is read-only:
+First find out which mDNS stack is actually in play. All of these are read-only:
 
 ```bash
-systemctl is-active avahi-daemon.service
 grep '^hosts:' /etc/nsswitch.conf
+systemctl is-active avahi-daemon.service
+resolvectl mdns
+systemd-analyze cat-config systemd/resolved.conf | grep -iE 'MulticastDNS|LLMNR'
+```
+
+**On Omarchy 4, Avahi already owns mDNS and it is already wired up.** A stock install carries `avahi` and `nss-mdns` from `/usr/share/omarchy/install/omarchy-base.packages`, has `avahi-daemon.service` enabled by `/usr/share/omarchy/install/config/enable-services.sh`, ships a `hosts:` line that already reads:
+
+```
+hosts: mymachines mdns_minimal [NOTFOUND=return] resolve files myhostname dns
+```
+
+and ships `/etc/systemd/resolved.conf.d/10-disable-multicast.conf`:
+
+```ini
+[Resolve]
+LLMNR=no
+MulticastDNS=no
+```
+
+So there is nothing to install and nothing to edit. Test with `getent hosts`, never with `resolvectl`:
+
+```bash
 getent hosts nas.local
 avahi-browse --all --ignore-local --resolve --terminate
 ```
 
-`getent hosts` is the test that matters, because it is the path applications use. Do not judge this by `resolvectl query`, which reports only systemd-resolved and fails with `No appropriate name servers or networks for name found` on a perfectly healthy Omarchy 4 machine.
+If `getent hosts` returns an address you are done. `resolvectl query nas.local` failing with `No appropriate name servers or networks for name found` is the expected reply on Omarchy 4 and is not a fault.
 
-**Check the firewall before you change it, because the rule you are about to add is almost certainly already there.** These three lines ship with ufw itself and all three must be present and uncommented:
+If `getent hosts` fails, work through it in this order:
+
+```bash
+systemctl status avahi-daemon.service
+sudo systemctl restart avahi-daemon.service avahi-daemon.socket
+getent hosts nas.local
+```
+
+A stuck `/run/avahi-daemon/socket` stops NSS forwarding lookups to mDNS, and restarting both units clears it. If service discovery is the part that fails rather than name lookup, work through the firewall section below before changing anything.
+
+**Checking the `SOA` precondition needs a tool Omarchy does not ship.** `nss-mdns` stands down for `.local` if the DNS server in `/etc/resolv.conf` answers `SOA` for the `local` domain, and on Omarchy that server is systemd-resolved's stub at `127.0.0.53`. The `host` command comes from `bind`, which is not installed:
+
+```bash
+sudo pacman -S --needed bind
+host -t SOA local
+```
+
+`NXDOMAIN` is the answer you want. Plain `pacman -S` is safe here, because Omarchy's ALPM guard aborts only when both `-S` and `-u` are present.
+
+**Switching Omarchy to systemd-resolved instead of Avahi costs you printing.** CUPS supports DNS-SD only through Avahi, so stopping `avahi-daemon.service` removes network printer discovery, and Omarchy enables `cups.service` alongside it. It also strands the shipped `mdns_minimal` entry in the `hosts:` line, which talks to Avahi over D-Bus. If you still want resolved to own mDNS, all three steps are required:
+
+```bash
+sudo tee /etc/systemd/resolved.conf.d/50-mdns.conf >/dev/null <<'EOF'
+[Resolve]
+MulticastDNS=yes
+EOF
+sudo systemctl restart systemd-resolved.service
+
+nmcli connection modify "<connection-name>" connection.mdns yes
+nmcli connection up "<connection-name>"
+
+sudo systemctl disable --now avahi-daemon.service avahi-daemon.socket
+resolvectl query nas.local
+```
+
+The `50-` prefix matters. Omarchy's own drop-in is `10-disable-multicast.conf`, systemd applies drop-ins in filename order and the last one wins, so a file sorting before that one is silently overridden. Do not edit `10-disable-multicast.conf` itself. It belongs to `omarchy-settings`, so an edit there becomes a `.pacnew` to reconcile on the next upgrade.
+
+**On plain Arch, EndeavourOS, CachyOS or Manjaro nothing is preconfigured.** Two things are separately off. systemd-resolved's `MulticastDNS=` defaults to yes, but mDNS activates for a connection only when the network manager enables it too, and NetworkManager's `connection.mdns` default of `-1` leaves it off. Separately, glibc will not consult Avahi until `nss-mdns` is installed and named in the `hosts:` line. Pick one stack.
+
+Avahi, which is what you want if you print:
+
+```bash
+sudo pacman -S --needed avahi nss-mdns
+sudo systemctl enable --now avahi-daemon.service
+```
+
+```
+# /etc/nsswitch.conf, mdns_minimal must come BEFORE resolve and dns
+hosts: mymachines mdns_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
+```
+
+```bash
+sudo mkdir -p /etc/systemd/resolved.conf.d
+sudo tee /etc/systemd/resolved.conf.d/50-mdns.conf >/dev/null <<'EOF'
+[Resolve]
+MulticastDNS=resolve
+EOF
+sudo systemctl restart systemd-resolved.service
+```
+
+`MulticastDNS=resolve` lets systemd-resolved cache mDNS answers without responding, so Avahi stays the only responder.
+
+Or systemd-resolved, if you do not need service discovery:
+
+```bash
+sudo tee /etc/systemd/resolved.conf.d/50-mdns.conf >/dev/null <<'EOF'
+[Resolve]
+MulticastDNS=yes
+EOF
+sudo systemctl restart systemd-resolved.service
+
+nmcli connection modify "<connection-name>" connection.mdns yes
+nmcli connection up "<connection-name>"
+sudo systemctl disable --now avahi-daemon.service avahi-daemon.socket
+```
+
+**If the hostname keeps gaining a number** (`myhost-2.local`, then `myhost-3.local`), two responders are claiming it. Check which are live and turn one off:
+
+```bash
+resolvectl mdns
+systemctl is-active avahi-daemon.service
+```
+
+Set `MulticastDNS=resolve` or `MulticastDNS=no` for resolved, or disable `avahi-daemon`, but never leave both responding. This cannot happen on a stock Omarchy 4 install, because resolved's responder is already off. Upstream also tracks a hostname race inside Avahi that survives having only one responder, and the workaround there is to limit Avahi to a single interface in `/etc/avahi/avahi-daemon.conf`:
+
+```ini
+[server]
+allow-interfaces=eno1
+```
+
+
+**If service discovery is what fails, check the firewall before you change it, because the rule you
+are about to add is almost certainly already there.** These three lines ship with ufw itself and all
+three must be present and uncommented:
 
 ```bash
 grep -n 'dst-type MULTICAST' /etc/ufw/before.rules
@@ -3047,7 +3184,8 @@ On a stock Omarchy 4 or Arch install that prints:
 136:-A ufw6-before-input -p udp -d ff02::fb --dport 5353 -j ACCEPT
 ```
 
-If one of them is commented out, that is the fault. `/etc/ufw/before.rules` is a pacman backup file, so copy it aside, uncomment the line by hand and reload:
+If one of them is commented out, that is the fault. `/etc/ufw/before.rules` is a pacman backup file,
+so copy it aside, uncomment the line by hand and reload:
 
 ```bash
 sudo cp /etc/ufw/before.rules /etc/ufw/before.rules.bak
@@ -3055,9 +3193,9 @@ sudoedit /etc/ufw/before.rules
 sudo ufw reload
 ```
 
-If all three are present, stop here. Opening 5353/udp will not help and the fault is in the resolver stack instead.
-
-**Open 5353/udp only for unicast mDNS**, which Avahi never asks for and some application libraries and one-shot resolvers do:
+If all three are present, stop. Opening 5353/udp will not help and the fault is in the resolver
+stack, which is the rest of this record. The one case that does want a rule is unicast mDNS, which
+Avahi never asks for and some application libraries do:
 
 ```bash
 sudo ufw allow 5353/udp comment 'mDNS unicast replies'
@@ -3069,61 +3207,14 @@ Scope it to your own network if you use café or hotel Wi-Fi:
 sudo ufw allow in proto udp from 192.168.0.0/16 to any port 5353 comment 'mDNS unicast, LAN only'
 ```
 
-**KDE Connect is a separate problem that looks the same.** It is not mDNS, it needs ports 1714 to 1764 on both protocols, and Omarchy opens neither range:
+A phone that never appears in KDE Connect looks like this symptom and is not: KDE Connect does not
+use mDNS and needs its own ports. See `kde-connect-ports-blocked-by-ufw`.
 
-```bash
-sudo ufw allow 1714:1764/udp comment 'KDE Connect'
-sudo ufw allow 1714:1764/tcp comment 'KDE Connect'
-```
+**Verify.** `getent hosts nas.local` returns an address. That is the test that matters, because it is the path applications use and the only one that exercises the `hosts:` line in `/etc/nsswitch.conf`. Then `avahi-browse --all --ignore-local --resolve --terminate` lists services from other machines, and `ping nas.local` works. Do not verify with `resolvectl query` or with `host`. The `host` command bypasses NSS entirely and so bypasses `nss-mdns`, and `resolvectl` reports only systemd-resolved, so on a correctly working Omarchy 4 box it fails with `No appropriate name servers or networks for name found` while `getent hosts` succeeds. `resolvectl query <own-hostname>.local` is worse than useless as a check, because resolved synthesizes an answer for the local hostname and tags it `Data from: synthetic`, which passes even with mDNS switched off completely. Use `resolvectl query nas.local` as the check only if you deliberately switched to the systemd-resolved stack. Before you conclude the firewall was the problem, confirm it ever was:
+`grep -n '224.0.0.251' /etc/ufw/before.rules` printing an uncommented ACCEPT line means multicast
+mDNS was already allowed and any 5353 rule you added made no difference.
 
-**If `getent hosts nas.local` fails, work on the resolver and leave the firewall alone.**
-
-On Omarchy 4 there is nothing to install. `avahi` and `nss-mdns` are in `/usr/share/omarchy/install/omarchy-base.packages`, `/usr/share/omarchy/install/config/enable-services.sh` enables `avahi-daemon.service`, and `/etc/nsswitch.conf` already reads `hosts: mymachines mdns_minimal [NOTFOUND=return] resolve files myhostname dns`. Restart both Avahi units, because a stuck `/run/avahi-daemon/socket` stops NSS forwarding lookups to mDNS:
-
-```bash
-systemctl status avahi-daemon.service
-sudo systemctl restart avahi-daemon.service avahi-daemon.socket
-getent hosts nas.local
-```
-
-On plain Arch, EndeavourOS, CachyOS or Manjaro nothing is preconfigured:
-
-```bash
-sudo pacman -S --needed avahi nss-mdns
-sudo systemctl enable --now avahi-daemon.service
-```
-
-```ini
-# /etc/nsswitch.conf, mdns_minimal must come BEFORE resolve and dns
-hosts: mymachines mdns_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
-```
-
-**If `.local` still fails, check the SOA precondition.** `nss-mdns` stands down for `.local` when the DNS server in `/etc/resolv.conf` answers `SOA` for the `local` domain. The `host` command comes from `bind`, which Omarchy does not ship. Plain `pacman -S` is safe here, because Omarchy's ALPM guard aborts only when both `-S` and `-u` are present:
-
-```bash
-sudo pacman -S --needed bind
-host -t SOA local
-```
-
-`NXDOMAIN` is the answer you want. Anything else, switch to the full `mdns` module and confine it to `.local` with an allow-list:
-
-```ini
-# /etc/nsswitch.conf
-hosts: mymachines mdns [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
-```
-
-```bash
-sudo tee /etc/mdns.allow >/dev/null <<'EOF'
-.local.
-.local
-EOF
-```
-
-Which stack owns `.local` on Omarchy, why `resolvectl` is the wrong test, and what to do when two responders fight over the hostname are covered by the record `mdns-local-hostname-not-resolving`. Read that before switching Omarchy to systemd-resolved for mDNS, because stopping `avahi-daemon` also removes CUPS printer discovery.
-
-**Verify.** `getent hosts nas.local` returns an address, `avahi-browse --all --ignore-local --resolve --terminate` lists services from other machines, and `lpstat -e` lists the network printer. Before you conclude the firewall was the problem, confirm it ever was: `grep -n '224.0.0.251' /etc/ufw/before.rules` printing an uncommented ACCEPT line means multicast mDNS was already allowed and any 5353 rule you added made no difference. Do not verify with `resolvectl query`, which reports only systemd-resolved and fails on a working Omarchy 4 box, and do not verify with `host`, which bypasses NSS and therefore bypasses `nss-mdns`. If you added the KDE Connect rules, `sudo ufw status` lists both 1714:1764 ranges and the phone appears in the KDE Connect app.
-
-Sources: <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/Systemd-resolved> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://git.launchpad.net/ufw/plain/conf/before.rules> · <https://git.launchpad.net/ufw/patch/?id=c7acf0166e9cb175d32c42ee957c2a0d89fc9c87> · <https://www.rfc-editor.org/rfc/rfc6762.txt> · <https://github.com/avahi/avahi/blob/master/avahi-core/query-sched.c> · <https://github.com/avahi/avahi/blob/master/avahi-core/dns.h> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/omacom/omarchy/blob/quattro/etc/nsswitch.conf> · <https://userbase.kde.org/KDEConnect>
+Sources: <https://wiki.archlinux.org/title/Systemd-resolved> · <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/CUPS> · <https://github.com/avahi/nss-mdns/blob/master/README.md> · <https://github.com/omacom/omarchy/blob/quattro/docs/file-layout.md> · <https://github.com/omacom/omarchy/blob/v4.0.3/etc/nsswitch.conf> · <https://github.com/omacom/omarchy/blob/v4.0.3/etc/systemd/resolved.conf.d/10-disable-multicast.conf> · <https://github.com/omacom/omarchy/blob/v4.0.3/install/config/enable-services.sh> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://git.launchpad.net/ufw/plain/conf/before.rules> · <https://git.launchpad.net/ufw/patch/?id=c7acf0166e9cb175d32c42ee957c2a0d89fc9c87> · <https://www.rfc-editor.org/rfc/rfc6762.txt> · <https://github.com/avahi/avahi/blob/master/avahi-core/query-sched.c> · <https://github.com/avahi/avahi/blob/master/avahi-core/dns.h> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/omacom/omarchy/blob/quattro/etc/nsswitch.conf>
 
 ---
 
@@ -3438,5 +3529,81 @@ bluetoothctl info <DEVICE-MAC>
 `bluetoothctl info <DEVICE-MAC>` shows `Paired: yes` and `Connected: yes` in both directions across several reboots. On Omarchy, check `omarchy-bluetooth-power is-on` before blaming the key: with the rfkill soft block set, `bluetoothctl` reports no default controller instead.
 
 Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://wiki.archlinux.org/title/Dual_boot_with_Windows> · <https://git.kernel.org/pub/scm/bluetooth/bluez.git/plain/src/adapter.c?h=5.87> · <https://archlinux.org/packages/extra/x86_64/chntpw/json/> · <https://aur.archlinux.org/packages/bt-dualboot> · <https://aur.archlinux.org/packages/bt-dualboot-ng> · <https://github.com/x2es/bt-dualboot> · <https://github.com/nbanks/bluetooth-dualboot>
+
+---
+
+## Fix KDE Connect never finding the phone while everything else on the network is discoverable
+
+`kde-connect-ports-blocked-by-ufw` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `kde-connect`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** KDE Connect on the desktop and on the phone never see each other, while the rest of the
+local network is fine: `.local` names resolve, `avahi-browse` lists other machines and network
+printers appear. Pairing by typing the other device's address by hand also fails, or pairs and then
+goes unavailable. Both devices are on the same subnet and the phone app reports no devices found.
+
+**Cause.** KDE Connect does not use mDNS, so everything that makes `.local` names and printer
+discovery work is irrelevant to it. It discovers over UDP broadcast and then connects on TCP, using
+ports 1714 to 1764 on both protocols, which its own documentation states.
+
+Two things on Omarchy 4 then stop it, both confirmed on an omarchy 4.0.2-1 install:
+
+1. `/usr/share/omarchy/install/config/firewall.sh` opens only LocalSend's 53317 on both protocols. No
+   Omarchy install step or migration opens the KDE Connect range, and `ufw status` on a stock machine
+   shows no rule for it.
+2. `/etc/ufw/after.rules:27` sends broadcast traffic to `ufw-skip-to-policy-input` under the comment
+   `don't log noisy broadcast`, so the discovery packets reach the default deny policy and are
+   dropped without a log line. Nothing appears in the journal to explain the silence.
+
+This is why the symptom reads as a general network fault when nothing general is wrong.
+
+> **Audit corrected this record.** Split out on 2026-09-11 from `mdns-local-hostnames-fail-ufw-blocks-5353`, which was
+re-audited that day, came back `corrected` and was then merged into
+`mdns-local-hostname-not-resolving`. KDE Connect was the one part of that record which survived its
+audit intact and which is not mDNS at all, so it became its own record rather than being carried by a
+record about name resolution. Every claim here was re-checked on omarchy 4.0.2-1 while splitting it:
+the 1714 to 1764 range on both protocols is stated by KDE's own documentation, retrieved 2026-09-11,
+`install/config/firewall.sh` opens only 53317, `ufw status` on this machine lists no rule for the
+range, and `/etc/ufw/after.rules:27` is
+`-A ufw-after-input -m addrtype --dst-type BROADCAST -j ufw-skip-to-policy-input` under the comment
+`don't log noisy broadcast`. Not exercised: no KDE Connect client is installed here and no phone was
+paired, so the remedy rests on the port range being right rather than on a reproduction.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** This opens 51 ports on two protocols to everything on the link, and KDE Connect's
+pairing is what stands between that and another device on the network. On a laptop that joins café,
+hotel or conference Wi-Fi, use the network-scoped form above rather than the open one.
+
+**Fix.**
+
+Open the range on both protocols:
+
+```bash
+sudo ufw allow 1714:1764/udp comment 'KDE Connect'
+sudo ufw allow 1714:1764/tcp comment 'KDE Connect'
+sudo ufw status
+```
+
+Scope it to your own network if you use café or hotel Wi-Fi, which is the better habit on a laptop:
+
+```bash
+sudo ufw allow in proto udp from 192.168.0.0/16 to any port 1714:1764 comment 'KDE Connect, LAN only'
+sudo ufw allow in proto tcp from 192.168.0.0/16 to any port 1714:1764 comment 'KDE Connect, LAN only'
+```
+
+Nothing else is needed on the Omarchy side, and in particular do not reach for 5353 or for anything
+about Avahi. If `.local` names or printer discovery are also failing, that is a different problem and
+`mdns-local-hostname-not-resolving` covers it.
+
+**Verify.** ```bash
+sudo ufw status
+```
+
+Both `1714:1764/udp` and `1714:1764/tcp` are listed, and the phone appears in the KDE Connect app on
+the desktop within a few seconds of both apps being open on the same network. If it still does not,
+the fault is not the firewall: check that both devices are on the same subnet and that the phone is
+not on a guest network that isolates clients.
+
+Sources: <https://userbase.kde.org/KDEConnect> · <https://wiki.archlinux.org/title/KDE_Connect> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://git.launchpad.net/ufw/plain/conf/after.rules> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh>
 
 ---
