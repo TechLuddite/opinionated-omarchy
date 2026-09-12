@@ -46,6 +46,109 @@ Last updated: 2026-09-11
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
+## Session of 2026-09-11 (fourth): O3 clears `network`, and one record finally passed
+
+15 records, 8 agent batches. **14 corrected, 1 `ok`.** The corpus is 492 records, `ok` 156 /
+`corrected` 336, from 1,324 distinct sources, with 119 `cause_reconciled` stamps. 13 citations
+removed, the most of any run.
+
+### The first clean pass, after 51 corrections
+
+`mt7921e-dead-after-suspend-aspm` came back `ok` with nothing rewritten. `modinfo -p mt7921e` still
+prints exactly one parameter on kernel 7.1.9, `__setup("mem_sleep_default=", ...)` is still in
+`kernel/power/suspend.c`, both forum threads carry the record's exact log lines and both its fixes,
+and the Omarchy boot path in it is right, because `limine-mkinitcpio` alone re-reads the cmdline and
+re-registers the UKI. Its `boot-limine-conf` lint hit is a false positive: it names that file only
+to warn against editing it.
+
+That matters more than another correction. It is the first evidence a record can survive this audit,
+which is what makes the other 51 verdicts mean something rather than reading as a reviewer finding
+faults to look useful.
+
+### A published record's title asserts a cause that is false
+
+`mdns-local-hostnames-fail-ufw-blocks-5353` blames ufw for blocking mDNS. It does not.
+`/etc/ufw/before.rules:68` accepts `224.0.0.251:5353` and `before6.rules:136` the `ff02::fb`
+equivalent, both `[unmodified]` per pacman, and that accept has shipped since ufw 0.30.1 in March
+2011, so no version drops it. Measured here with no 5353 rule anywhere in `user.rules`:
+`avahi-browse` lists the LAN, `lpstat -e` finds the printer, `getent hosts truenas.local` resolves.
+So the LocalSend and printer symptoms are misattributed too.
+
+What survives is narrower and worth keeping: unicast replies are dropped, which Avahi never asks for
+(`avahi-core/query-sched.c:217` passes `unicast_response=0`), the commented-out MULTICAST RETURN is
+the real trap, and KDE Connect's 1714 to 1764 genuinely is closed.
+
+**A merge is owed and is NOT done, because it deletes a record.** The auditor's recommendation, which
+this session is recording rather than executing: this is one problem,
+`mdns-local-hostname-not-resolving` should survive, because this slug and title assert the disproven
+cause and no verdict field can rename either, and the survivor must absorb three things from here,
+the negative firewall finding with the exact rule text and a "do not open 5353" instruction, the
+`ufw-not-local` ordering trap with its danger clause, and the unicast-reply caveat. KDE Connect's
+ports belong in a new `network` record, since KDE Connect is not mDNS. The merge is also a category
+move out of `apps-services`.
+
+### Two of this session's own hypotheses were wrong, and both were useful
+
+The auditors were told that Omarchy's NetworkManager global-dns override probably explained the VPN
+DNS records, and that ufw's default-deny probably explained the path MTU blackhole. Both were checked
+and rejected. The override is real and does outrank per-connection DNS, but neither Tailscale nor
+WireGuard goes through NetworkManager, and the deciding fact is the route-only domain on the tunnel
+link in systemd-resolved. And `/etc/ufw/before.rules:34` already accepts
+`icmp destination-unreachable`, which is what carries fragmentation-needed. Both corrected records
+now say so explicitly, so the next reader does not spend an hour there.
+
+### What the category was actually full of
+
+- **Work the distribution already does.** `omarchy-wifi-powersave.conf`, owned by `omarchy-settings`,
+  already sets `wifi.powersave = 2` with a comment naming the Intel BE200 and BE211 firmware that
+  drops the link when it naps. And `/etc/sysctl.d/99-omarchy-sysctl.conf` already sets
+  `net.ipv4.tcp_mtu_probing=1` under the comment "Solve common flakiness with SSH", which is the
+  path-MTU record's headline symptom named in Omarchy's own source. Neither record mentioned either.
+- **A filename that cannot win.** The power-save record tells the reader to create
+  `20-wifi-powersave.conf`, and NetworkManager reads conf.d in order with later files overriding, so
+  a numeric prefix sorts *before* `omarchy-wifi-powersave.conf` and loses to it. The MAC record's
+  `25-mac-stable.conf` does land, because Omarchy's file sets only `wifi.powersave`.
+- **A command that hands back the wrong value.** The MAC record tells the reader to read the
+  permanent address with `ip -br link`, which prints the current one, which on Wi-Fi is the
+  randomized address the record is warning about. Corrected to `ip -d link show` and `permaddr`.
+- **A tool that is not installed.** `ethtool` is not on Omarchy 4 and is not a NetworkManager
+  dependency, so two records' fixes fail with command not found, and one of them installs a unit
+  whose `ExecStart=/usr/bin/ethtool` would fail 203/EXEC on every boot.
+- **13 dead citations.** Every `basecamp/omarchy/issues/<n>` URL is a hard 404, and several cited
+  issues turned out to be Omarchy 3, which shipped `iwd`, so a NetworkManager fix could not have
+  applied to the machine in the report at all.
+
+### A security finding against the shipped product, not the corpus
+
+Omarchy's own network panel builds enterprise Wi-Fi profiles without setting `802-1x.ca-cert` or
+`802-1x.domain-suffix-match` (`Panel.qml`, `Model.js:319-326`), so an unvalidated enterprise profile
+is the shipped default rather than a reader's mistake. The auditor strengthened that record's danger
+instead of softening it. Worth an upstream report. The same record passed the password in argv, which
+Omarchy explicitly avoids with a source comment saying argv is world-readable in `/proc`, and the
+corrected fix adopts Omarchy's stdin pattern.
+
+### The brief told auditors they had no sudo, and that is no longer true
+
+`sudo -n` now succeeds without a password on this workstation. Every prompt in this run said so
+explicitly and told the agent not to use it, and `reaudit-brief.md` is corrected in this commit: it
+now names what must never be touched, including the lock screen that cannot be released headlessly,
+and says to report a check as not run rather than running it with root. Read-only discipline is the
+only thing that has kept this machine intact across 67 audited records today.
+
+### Where to pick this up
+
+1. O3 continues, 69 records left: `power-suspend` 16, `omarchy-theming` 15, `hyprland-config` 12,
+   `wayland-compat` 9, `audio-input` 9, `display-monitors` 5, `omarchy-core` 2, `network` 1. That
+   last one is `mt7921e-dead-after-suspend-aspm`, already re-audited and confirmed: the backlog is
+   defined by `audit_status: ok`, so a record that passes keeps counting. The count will never reach
+   zero and this journal is the record of what has actually been through a second pass.
+2. **The mDNS merge**, as recommended above. It deletes a record and moves a category, so it wants a
+   decision rather than an agent.
+3. Still owed from the O4 audit: a new record for the Intel video-acceleration installer matching
+   graphics by marketing name, where Haswell matches nothing.
+4. Two upstream reports are now owed: the enterprise Wi-Fi profile with no certificate validation,
+   and the Haswell VA-API gap.
+
 ## Session of 2026-09-11 (third): O3 clears `apps-services`, 23 more, and all 23 were wrong
 
 The largest O3 category, and the one most likely to pass, because `apps-services` is mostly general
