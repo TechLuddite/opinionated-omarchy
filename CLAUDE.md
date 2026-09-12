@@ -493,9 +493,12 @@ an auditor who judged a severity wrong, and one who found a cited issue number t
 is really a discussion, could each say so only in prose, and both changes had to be
 applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 170 `ok` records remain on one source pass, and 83 of them carry a `danger` and
-apply to Omarchy. `gpu-drivers` and `apps-services` were both cleared on 2026-09-11, 37 records,
-**all 37 wrong**, 10 of them predicted by `lint_corpus.py` months earlier.
+merge. 156 `ok` records remain on one source pass, and 69 of them carry a `danger` and
+apply to Omarchy. `gpu-drivers`, `apps-services` and `network` were all cleared on 2026-09-11,
+52 records, of which **51 were wrong**. The one that passed, `mt7921e-dead-after-suspend-aspm`,
+still counts in that 69, because the backlog is defined by `audit_status: ok` and a record
+re-audited and confirmed keeps it: the count will never reach zero, and the journal names which
+records have actually been through the second pass.
 
 A second provenance field, `cause_reconciled` (a date, or absent), exists because the
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
@@ -506,8 +509,8 @@ A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, 12 mo
 re-audit of ten boot-kernel records against Omarchy 4, and 14 more on 2026-09-07 by the
 re-audit of all 22 `pacman-aur` records, and on 2026-09-11 25 more by the audit of the 36
 records harvested from the issue tracker, 11 more by the re-audit of the 14 `gpu-drivers`
-records and 16 more by the re-audit of the 23 `apps-services` records, so **107 records carry the
-stamp across five dates**. **The disclaimer printed under the audit
+records, 16 more by the re-audit of the 23 `apps-services` records and 12 more by the re-audit of
+the 15 `network` records, so **119 records carry the stamp across five dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".

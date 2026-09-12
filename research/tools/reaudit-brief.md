@@ -36,8 +36,14 @@ OMARCHY_ALLOW_DIRECT_PACMAN=1. A bare `pacman -Sy <pkg>` is a partial upgrade an
 defect in any fix.
 
 You may run READ-ONLY commands here: cat, grep, ls, pacman -Q/-Ql/-Qo/-Qii/-Qkk, systemctl
-status/show, journalctl (may need permissions), hyprctl. You have NO sudo. Do not change
-anything on this machine. Useful: `ls /usr/share/omarchy/bin | grep <topic>` and reading
+status/show, journalctl (may need permissions), hyprctl. **`sudo -n` now succeeds without a
+password on this machine, and you must not use it.** That changed on 2026-09-11 and the line
+above used to say you had none. This is the operator's daily workstation: it runs a graphical
+session, libvirt VMs other work depends on, and a lock screen that cannot be released
+headlessly. Everything an audit needs is readable unprivileged. Change nothing: no install, no
+unit started or stopped, no network or firewall change, no kernel module, no initramfs, no
+bootloader, and nothing that locks the session. Where a check genuinely needs root, say in the
+reason that you could not run it rather than running it. Useful: `ls /usr/share/omarchy/bin | grep <topic>` and reading
 the scripts there, `pacman -Ql limine-mkinitcpio-hook`, `cat /etc/limine-entry-tool.d/*`,
 `ls /etc/mkinitcpio.conf.d/`, `cat /usr/share/omarchy/default/...`.
 

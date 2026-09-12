@@ -2,49 +2,6 @@
 
 46 problems. Sorted by severity, then by how often users hit it.
 
-## Fix a brand-new Intel Wi-Fi card that finds no usable firmware
-
-`iwlwifi-no-suitable-firmware-new-intel-card` · severity: **critical** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `intel`, `laptop`, `omarchy`
-
-**Symptom.** Fresh install on new hardware (e.g. Dell XPS 13 with Intel Wi-Fi 7 BE213) has no Wi-Fi at all, across reboots. `journalctl -k | grep iwlwifi` shows:
-
-```
-iwlwifi 0000:00:14.3: Detected Intel(R) Wi-Fi 7 BE213 160MHz
-iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-bz-b0-wh-b0-c101.ucode failed with error -2
-iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-bz-b0-wh-b0-100.ucode failed with error -2
-iwlwifi 0000:00:14.3: no suitable firmware found!
-iwlwifi 0000:00:14.3: minimum version required: iwlwifi-bz-b0-wh-b0-100
-iwlwifi 0000:00:14.3: maximum version supported: iwlwifi-bz-b0-wh-b0-c101
-```
-
-**Cause.** The `linux-firmware` (specifically the `linux-firmware-intel` split package) shipped on the install media predates the ucode revision the running driver will accept for that card. With no other NIC in the laptop this is a chicken-and-egg problem: you cannot `pacman -Syu` to fix it because you have no network. A plain `pacman -Syu` can also update every other `linux-firmware-*` split package while leaving `linux-firmware-intel` behind.
-
-> ⚠️ **Risk.** Installing individual packages with `pacman -U` from a stale mirror snapshot creates a partial upgrade. Install a matching kernel and firmware pair, and run a full `pacman -Syu` as soon as you have real network access.
-
-**Fix.**
-
-Get any temporary network first — USB Ethernet dongle, or USB tethering from a phone (`Settings > Personal Hotspot > USB`, the phone appears as a `usb0`/`enp0s...` device that NetworkManager will DHCP automatically). Then:
-
-```bash
-sudo pacman -Syu linux linux-firmware linux-firmware-intel
-sudo reboot
-```
-
-With no network at all, download the packages on another machine and sideload them from a USB stick:
-
-```bash
-sudo pacman -U /run/media/$USER/USB/linux-7.1.5.arch1-2-x86_64.pkg.tar.zst
-sudo pacman -U /run/media/$USER/USB/linux-firmware-intel-20260622-1-any.pkg.tar.zst
-sudo mkinitcpio -P
-sudo reboot
-```
-
-**Verify.** `journalctl -k | grep iwlwifi` now shows a loaded firmware line, e.g. `loaded firmware version 102.07fca168.0 bz-b0-wh-b0-c102.ucode op_mode iwlmld`, and `nmcli device wifi list` returns networks.
-
-Sources: <https://github.com/basecamp/omarchy/issues/6551>
-
----
-
 ## Restore Wi-Fi after an upgrade leaves NetworkManager pointing at a removed iwd backend
 
 `nm-wifi-backend-iwd-orphaned-after-quattro` · severity: **critical** · frequency: **common** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
@@ -150,6 +107,92 @@ Sources: <https://github.com/basecamp/omarchy/issues/2710> · <https://man.archl
 
 ---
 
+## Fix a brand-new Intel Wi-Fi card that finds no usable firmware
+
+`iwlwifi-no-suitable-firmware-new-intel-card` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `intel`, `laptop`, `omarchy`
+
+**Symptom.** Fresh install on new hardware (e.g. Dell XPS 13 with Intel Wi-Fi 7 BE213) has no Wi-Fi at all, across reboots. `journalctl -k | grep iwlwifi` shows:
+
+```
+iwlwifi 0000:00:14.3: Detected Intel(R) Wi-Fi 7 BE213 160MHz
+iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-bz-b0-wh-b0-c101.ucode failed with error -2
+iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-bz-b0-wh-b0-100.ucode failed with error -2
+iwlwifi 0000:00:14.3: no suitable firmware found!
+iwlwifi 0000:00:14.3: minimum version required: iwlwifi-bz-b0-wh-b0-100
+iwlwifi 0000:00:14.3: maximum version supported: iwlwifi-bz-b0-wh-b0-c101
+```
+
+**Cause.** The `linux-firmware-intel` split package on the install media predates the ucode revision the running `iwlwifi` driver will accept for that card. Firmware acceptance is a range and both ends move. The driver declares a minimum and a maximum version it will load, and on the reported machine the ucode that eventually worked, `iwlwifi-bz-b0-wh-b0-c102.ucode`, sits ABOVE the old driver's stated maximum of `c101`. That is why a newer kernel and newer firmware are both needed and newer firmware alone is not enough. With no second NIC in the laptop this is a chicken-and-egg problem: there is no network to fetch either package over. `linux-firmware` is a metapackage that depends on twelve `linux-firmware-*` split packages, and the Intel one is a separate 139 MB download, so it can lag behind the rest on a mirror. The original reporter saw one `pacman -Syu` update every other split and leave `linux-firmware-intel` behind. A full upgrade should not do that, so treat it as a single unexplained observation and check the installed version directly rather than assuming the upgrade covered it.
+
+> **Audit corrected this record.** Read omacom/omarchy issue 6551 in full. It supports the symptom, the chicken-and-egg cause and the sideload recovery, and it is the record's only source. Three defects, two of them Omarchy-specific. First, `sudo pacman -Syu linux linux-firmware linux-firmware-intel` cannot run on Omarchy 4. I read `/usr/share/libalpm/hooks/00-omarchy-update-guard.hook` and `/usr/bin/omarchy-update-pacman-guard` on this machine: the hook is `PreTransaction` with `AbortOnFail`, and the script aborts any pacman command line carrying both a sync and a sysupgrade flag, so the record's headline fix is refused. Second, `sudo mkinitcpio -P` fails hard here. `/etc/mkinitcpio.d/` is empty on this install and mkinitcpio 41.1-1 line 986 reads `[[ -e "${_optpreset[0]}" ]] || die 'No presets found in %s'`, so the command dies rather than rebuilding anything. The step is also unnecessary on plain Arch: the only initramfs MODULES on Omarchy come from `/etc/mkinitcpio.conf.d/` and are `nvidia*` plus `thunderbolt`, no `iwlwifi`, and Wi-Fi firmware is read from the mounted root after the initramfs has handed off. The rebuild is driven by the pacman hook `/etc/pacman.d/hooks/90-mkinitcpio-install.hook`, owned by `limine-mkinitcpio-hook 1.37.1-1`, when the kernel package is installed. Third, the `danger` field's remedy was `run a full pacman -Syu`, which is the blocked command, so the danger was telling the reader to do the thing the guard refuses. Confirmed on this machine: `linux-firmware 20260810-2` is a metapackage and `linux-firmware-intel 20260810-2` is a separate package that owns `/usr/lib/firmware/iwlwifi-bz-b0-wh-b0-c102.ucode.zst`, the exact ucode the reporter ended up loading, so the split-package advice is right and current. From the Arch package API, `linux-firmware` in `core` is `20260910-1` and depends on twelve `linux-firmware-*` splits including `-intel`, which is 139 MB compressed. The record's version-pinned sideload filenames were the reporter's from August and are now stale, so the fix now shows current versions and how to look them up. I kept and made explicit the point the record had right and that matters: the ucode that worked, `c102`, is ABOVE the old driver's stated maximum of `c101`, so a newer kernel and newer firmware are both required and firmware alone would have been rejected. I qualified the claim that a `pacman -Syu` left `linux-firmware-intel` behind: that is one reporter's observation on one machine and is not how a full upgrade behaves, per the Arch wiki on partial upgrades, so the fix now says to check the installed version rather than presenting it as expected behaviour. Frequency moved from `common` to `occasional`: upstream labelled the issue `device specific`, it has zero comments, and it needs install media older than a just-released card plus no second NIC. Severity stays `critical` because a fresh install has no network at all. Cited URL replaced: the `basecamp/omarchy/issues/6551` path returned 404 on two of three attempts before redirecting once, so it is not a reliable citation and the canonical `omacom` URL replaces it. NOT exercised: I have no BE213 card and did not install, sideload, reboot or run mkinitcpio here, so the recovery path itself is from the issue and from reading the guard and mkinitcpio sources, not from a live run.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Installing single packages with `pacman -U` from a stale snapshot is a partial upgrade. A kernel installed that way also replaces the module tree under `/usr/lib/modules`, so the running kernel loses its modules and anything not already loaded will fail to load until you reboot. Install the kernel and its firmware in one transaction, reboot straight away, then take a full upgrade as soon as you have real network: `omarchy update` on Omarchy, `sudo pacman -Syu` on plain Arch. Never reach for `pacman -Sy linux-firmware-intel`, which is a partial upgrade in its own right.
+
+**Fix.**
+
+Get any temporary network first. A USB Ethernet dongle works, or USB tethering from a phone (`Settings > Personal Hotspot > USB` on iOS), where the phone appears as a `usb0` or `enp0s...` device that NetworkManager will DHCP automatically. Then take a full upgrade, which pulls the new kernel and the new firmware together.
+
+On Omarchy:
+
+```bash
+omarchy update
+```
+
+On plain Arch, EndeavourOS or CachyOS:
+
+```bash
+sudo pacman -Syu
+```
+
+Do NOT run `sudo pacman -Syu linux linux-firmware linux-firmware-intel` on Omarchy. An ALPM hook aborts any pacman command line carrying both a sync and a sysupgrade flag:
+
+```
+Woah partner...
+
+This looks like a direct pacman system upgrade. Omarchy updates should normally
+run through:
+
+  omarchy update
+```
+
+If you genuinely need to bypass it for one transaction:
+
+```bash
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu
+```
+
+With no network at all, download a matching kernel and firmware pair on another machine and install them in ONE transaction, so the initramfs and boot entry are rebuilt once against a consistent set:
+
+```bash
+sudo pacman -U \
+  /run/media/$USER/USB/linux-7.1.9.arch1-2-x86_64.pkg.tar.zst \
+  /run/media/$USER/USB/linux-firmware-intel-20260910-1-any.pkg.tar.zst
+sudo reboot
+```
+
+Use whatever versions are current rather than the ones above, and check on the machine doing the downloading:
+
+```bash
+curl -s https://archlinux.org/packages/core/any/linux/json/ | grep -o '"pkgver": "[^"]*"'
+curl -s https://archlinux.org/packages/core/any/linux-firmware-intel/json/ | grep -o '"pkgver": "[^"]*"'
+```
+
+Do not run `sudo mkinitcpio -P` afterwards. On Omarchy 4 `/etc/mkinitcpio.d/` is empty, so it dies with `==> ERROR: No presets found in /etc/mkinitcpio.d` and rebuilds nothing. It is unnecessary on plain Arch too. Installing the kernel package fires `/etc/pacman.d/hooks/90-mkinitcpio-install.hook`, which on Omarchy comes from `limine-mkinitcpio-hook` and rebuilds the UKI, and Wi-Fi firmware is not in the initramfs in any case because `iwlwifi` is read from the mounted root long after the initramfs has handed off.
+
+**Verify.** ```bash
+journalctl -k | grep iwlwifi
+nmcli device wifi list
+pacman -Q linux linux-firmware-intel
+```
+
+The kernel log carries a loaded line in place of `no suitable firmware found!`, for example `iwlwifi 0000:00:14.3: loaded firmware version 102.07fca168.0 bz-b0-wh-b0-c102.ucode op_mode iwlmld`, `nmcli device wifi list` returns networks, and `pacman -Q linux-firmware-intel` shows the version you installed rather than the one from the install media.
+
+Sources: <https://github.com/omacom/omarchy/issues/6551> · <https://archlinux.org/packages/core/any/linux-firmware/json/> · <https://archlinux.org/packages/core/any/linux-firmware-intel/json/> · <https://wiki.archlinux.org/title/System_maintenance>
+
+---
+
 ## Restart systemd-resolved when a mid-upgrade DNS failure stops pacman
 
 `resolved-inactive-breaks-upgrade-dns` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `omarchy`
@@ -164,13 +207,30 @@ error: failed to synchronize all databases (failed to retrieve some files)
 Upgrade incomplete - do NOT reboot.
 ```
 
-`/etc/resolv.conf` is the expected symlink to `/run/systemd/resolve/stub-resolv.conf`, but `systemctl status systemd-resolved` shows it `inactive (dead)`.
+`/etc/resolv.conf` is the expected symlink to `/run/systemd/resolve/stub-resolv.conf`, but `systemctl status systemd-resolved` shows it `inactive (dead)`. On some machines the same total DNS failure appears with resolved active, or with resolved not installed at all, because the mid-upgrade package update left a stale `NetworkManager` daemon and `nmcli` reports a version mismatch.
 
-**Cause.** The upgrade migration restarts `systemd-resolved` with `|| true`, so a failed restart is silently swallowed and the pipeline continues. With resolved down, the stub-resolv.conf symlink target does not exist and every subsequent step — including the pacman database sync — has no DNS. Non-standard conditions (ext4 root instead of btrfs so snapshot steps failed, an unmounted EFI partition) make the failed restart more likely.
+**Cause.** Two paths reach the same symptom and the cited issue carries both.
 
-> ⚠️ **Risk.** Rebooting while the upgrade reports "Upgrade incomplete - do NOT reboot" can leave a partially migrated system with mismatched boot config. Finish the upgrade before rebooting.
+The resolved path. Migration `1782002156` restarts `systemd-resolved` with `|| true` at lines 58 and 88 of `/usr/share/omarchy/migrations/1782002156.sh`, so a failed restart is swallowed and the pipeline continues. Omarchy routes all DNS through resolved: `/etc/resolv.conf` is a symlink to `../run/systemd/resolve/stub-resolv.conf`, `resolvectl status` reports `resolv.conf mode: stub`, and NetworkManager sets no `dns=` key, so it auto-detects the resolved backend and does not write `/etc/resolv.conf` itself. The `[global-dns-domain-*]` Cloudflare block in `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` is pushed into NetworkManager and into `/etc/systemd/resolved.conf`, so it is not a fallback. With resolved down the symlink target does not exist and every lookup fails, including the pacman database sync in `run_final_system_package_upgrade` at `/usr/bin/omarchy-upgrade-to-quattro:1210`. The original reporter's non-standard conditions, an ext4 root so the snapshot steps failed and an EFI partition that was never mounted, are what he believes made the restart fail.
+
+The NetworkManager path. On a machine not using resolved, the same upgrade replaces NetworkManager underneath the running daemon, which then goes stale against the new libraries. `nmcli` reports a version mismatch and asks for a restart, and until NetworkManager is restarted nothing resolves.
+
+> **Audit corrected this record.** Read omacom/omarchy issue 8395 in full, body and its one comment. The body supports the record's symptom and cause, and I confirmed the mechanism on this Omarchy 4 workstation rather than taking it from the issue. `/usr/share/omarchy/migrations/1782002156.sh` restarts `systemd-resolved` with `|| true` at lines 58 and 88, exactly as claimed. `/etc/resolv.conf` is a symlink to `../run/systemd/resolve/stub-resolv.conf`, `resolvectl status` reports `resolv.conf mode: stub`, and `NetworkManager --print-config` shows no `dns=` key, so NetworkManager auto-selects the resolved backend and never writes `/etc/resolv.conf` itself. That settles the question the global-dns override raised: `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` sets a `[global-dns-domain-*]` Cloudflare block, but `omarchy-dns` pushes those servers into NetworkManager and into `/etc/systemd/resolved.conf`, never into `resolv.conf`, so the override is no fallback. With resolved down the symlink target does not exist and every lookup fails. The failing step is `run_final_system_package_upgrade` at `/usr/bin/omarchy-upgrade-to-quattro:1210`, and it runs pacman under `OMARCHY_UPDATE_PACMAN=1`, so the ALPM guard is not what broke it. Two defects. First, the resume step. The record said `sudo pacman -Syu` then `omarchy update`. `sudo pacman -Syu` is aborted by `/usr/bin/omarchy-update-pacman-guard`, which refuses any command line carrying both a sync and a sysupgrade flag, and `omarchy update` is the routine update path rather than the 3 to 4 migration. The script's own cleanup text at `/usr/bin/omarchy-upgrade-to-quattro:374` is `Fix the error reported above and run this script again. Re-running is safe and resumes the remaining steps.`, so the correct resume is `omarchy upgrade to quattro`. Second, the cited source carries a whole branch the record dropped. The comment from @paul-fornage reports the same total DNS failure after the same upgrade on a machine not using `systemd-resolved` at all, fixed by `sudo systemctl restart NetworkManager` after `nmcli` reported a version mismatch. A reader whose resolved is active, or absent, would have been sent nowhere by the record as written, so the fix now branches on which resolver the machine actually uses. I scrutinised both `danger` clauses. The reboot warning is real and I verified its text, but `mismatched boot config` understates what the script itself says at line 372, which is that the system is part Omarchy 3 and part quattro and rebooting can leave it with no working network or desktop, so I replaced it with the verified consequence. I also added the hazard the record created and never warned about: its own static `/etc/resolv.conf` fallback outlives the emergency and silently overrides everything `omarchy dns` configures. Backed the stub-mode and NetworkManager auto-detection claims against the Arch wiki systemd-resolved page, which gives the same relative symlink form the machine has. Severity stays `critical` and frequency stays `occasional`: the reporter says the resolved path needs non-standard conditions and probably cannot be recreated, but the comment shows a second person reaching the same symptom by another route. NOT exercised: I did not run a quattro upgrade, did not stop `systemd-resolved` and did not restart `NetworkManager` on this machine, all of which would disrupt a live workstation, so the failure state itself is from the issue and from reading the migration and upgrade scripts, not from a live reproduction.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not reboot while the upgrade has printed `Upgrade incomplete - do NOT reboot.`. The script's own wording at `/usr/bin/omarchy-upgrade-to-quattro:372` is that the system is part Omarchy 3 and part Omarchy quattro, and rebooting then can leave it with no working network and no desktop. Finish the upgrade first. Separately, the static `/etc/resolv.conf` fallback outlives the emergency: it bypasses the resolved stub, so `omarchy dns` changes stop taking effect and VPN split DNS stops working until the symlink is restored.
 
 **Fix.**
+
+Find out which resolver the machine actually uses before changing anything:
+
+```bash
+ls -l /etc/resolv.conf
+systemctl is-active systemd-resolved NetworkManager
+```
+
+If `/etc/resolv.conf` points at `stub-resolv.conf` and resolved is not active, start it:
 
 ```bash
 sudo systemctl enable --now systemd-resolved
@@ -178,25 +238,46 @@ resolvectl status | head -20
 getent hosts stable-mirror.omarchy.org
 ```
 
-Then resume the upgrade rather than rebooting into a half-migrated system:
+If resolved is not in use, or it is active and names still do not resolve, restart NetworkManager. The upgrade replaces it underneath the running daemon and `nmcli` will report a version mismatch:
 
 ```bash
-sudo pacman -Syu
-omarchy update
+sudo systemctl restart NetworkManager
+getent hosts stable-mirror.omarchy.org
 ```
 
-If resolved refuses to start, get DNS back long enough to finish by writing a static resolv.conf:
+Then resume the upgrade rather than rebooting. Rerun the same script that failed, which is what it tells you to do and which picks up the remaining steps:
+
+```bash
+omarchy upgrade to quattro
+```
+
+Do not substitute `sudo pacman -Syu`, which an ALPM hook aborts because the command line carries both a sync and a sysupgrade flag, and do not substitute `omarchy update`, which is the routine update path and not the 3 to 4 migration.
+
+If neither resolver will come up, get DNS back just long enough to finish by replacing the symlink with a static file:
 
 ```bash
 sudo rm /etc/resolv.conf
 printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' | sudo tee /etc/resolv.conf
 ```
 
-…and restore the symlink afterwards with `sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf`.
+Put the symlink back as soon as the upgrade completes, because a static file silently overrides everything `omarchy dns` configures:
 
-**Verify.** `systemctl is-active systemd-resolved` prints `active`, `getent hosts stable-mirror.omarchy.org` resolves, and the upgrade completes without further `Could not resolve host` errors.
+```bash
+sudo rm /etc/resolv.conf
+sudo ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+sudo systemctl restart systemd-resolved
+```
 
-Sources: <https://github.com/basecamp/omarchy/issues/8395>
+**Verify.** ```bash
+systemctl is-active systemd-resolved NetworkManager
+resolvectl status | head -20
+getent hosts stable-mirror.omarchy.org
+ls -l /etc/resolv.conf
+```
+
+`getent hosts stable-mirror.omarchy.org` returns addresses, `/etc/resolv.conf` is back to the `../run/systemd/resolve/stub-resolv.conf` symlink, and `omarchy upgrade to quattro` runs to completion with no further `Could not resolve host` error.
+
+Sources: <https://github.com/omacom/omarchy/issues/8395> · <https://wiki.archlinux.org/title/Systemd-resolved>
 
 ---
 
@@ -334,7 +415,7 @@ sudo systemctl restart NetworkManager bluetooth
 
 **Verify.** Run `systemctl suspend`, resume, then `nmcli device status` — the wlan device should be `connected` or `disconnected`, never `unavailable`. `journalctl -kb | grep -i mt7921` should show no `error -110`, no `driver own failed` and no `D3cold` message after the resume timestamp. `cat /sys/module/mt7921e/parameters/disable_aspm` should print `Y`.
 
-Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <https://bbs.archlinux.org/viewtopic.php?id=295916> · <https://bbs.archlinux.org/viewtopic.php?id=284180> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/mediatek/mt76/mt7921/pci.c> · <https://github.com/basecamp/omarchy/blob/master/bin/omarchy-hibernation-setup>
+Sources: <https://wiki.archlinux.org/title/Network_configuration/Wireless> · <https://bbs.archlinux.org/viewtopic.php?id=295916> · <https://bbs.archlinux.org/viewtopic.php?id=284180> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/mediatek/mt76/mt7921/pci.c> · <https://github.com/basecamp/omarchy/blob/master/bin/omarchy-hibernation-setup> · <https://raw.githubusercontent.com/torvalds/linux/master/kernel/power/suspend.c> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hibernation-setup>
 
 ---
 
@@ -979,50 +1060,6 @@ Sources: <https://github.com/basecamp/omarchy/issues/7003> · <https://github.co
 
 ---
 
-## Fix total DNS failure after connecting Tailscale
-
-`tailscale-accept-dns-breaks-all-dns` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
-
-**Symptom.** Toggling Tailscale on breaks **all** DNS, not just MagicDNS — nothing resolves anywhere while the Tailscale widget still says "Connected". `tailscale status --json` health messages include:
-
-```
-Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
-Some peers are advertising routes but --accept-routes is false
-```
-
-**Cause.** Linux defaults are `--accept-dns` on and `--accept-routes` off. When the tailnet pushes nameservers that only live behind an advertised subnet route, Tailscale rewrites the system resolvers to those addresses but refuses the routes needed to reach them, so every lookup fails. In Omarchy only the installer path passes `--accept-routes`; if you skip auth there and log in later from the bar widget, the widget runs a flagless `tailscale up` and the pref is never written.
-
-> ⚠️ **Risk.** `--accept-routes` makes this machine honour every subnet route advertised on the tailnet, which can shadow local LAN addresses. On a home network that overlaps a tailnet subnet, this can black-hole your own router.
-
-**Fix.**
-
-Either accept the routes that make the pushed resolvers reachable:
-
-```bash
-sudo tailscale set --accept-routes
-```
-
-or stop using tailnet DNS entirely:
-
-```bash
-sudo tailscale set --accept-dns=false
-sudo resolvectl flush-caches
-```
-
-Inspect what is actually set:
-
-```bash
-tailscale debug prefs | grep -E 'CorpDNS|RouteAll'
-tailscale status --json | jq '.Health'
-resolvectl status | grep -A4 tailscale0
-```
-
-**Verify.** `tailscale debug prefs` shows `RouteAll: true` (or `CorpDNS: false`), `resolvectl query archlinux.org` succeeds with Tailscale connected, and `tailscale status --json | jq '.Health'` is empty or null.
-
-Sources: <https://github.com/basecamp/omarchy/issues/6962>
-
----
-
 ## Connect to a WPA3-SAE or mixed WPA2/WPA3 network that refuses to associate
 
 `wpa3-sae-association-fails-no-psk-available` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -1257,27 +1294,155 @@ Sources: <https://github.com/basecamp/omarchy/issues/7744> · <https://man.archl
 
 ---
 
-## Fix RTL8125 2.5GbE ethernet that never gets a DHCP lease
+## Fix total DNS failure after connecting Tailscale
 
-`rtl8125-no-dhcp-lease-tx-checksum-offload` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `omarchy`
+`tailscale-accept-dns-breaks-all-dns` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
 
-**Symptom.** Wired ethernet shows link up and negotiates the correct speed, but never receives an IP address. `nmcli`/`networkctl` report DHCP timing out on every retry. Wi-Fi on the same machine works. The same cable and port get a lease instantly from Windows on the same hardware. `sudo tcpdump -i eno1 -n udp port 67 or port 68` shows DHCPDISCOVER going out repeatedly with zero replies.
+**Symptom.** Toggling Tailscale on breaks **all** DNS, not just MagicDNS — nothing resolves anywhere while the Tailscale widget still says "Connected". `tailscale status --json` health messages include:
 
-**Cause.** Some RTL8125 revisions (notably RTL8125D) hit a TX checksum offload bug in the in-kernel `r8169` driver: the NIC hardware computes bad checksums on outgoing packets. `tcpdump` captures packets *before* the NIC finishes processing them, so every DHCP request looks perfectly normal on the wire capture while the router silently drops it. Firewall rules, EEE, ASPM and DHCP client-id are all red herrings here.
+```
+Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+Some peers are advertising routes but --accept-routes is false
+```
 
-> ⚠️ **Risk.** Disabling TX checksum offload moves checksumming to the CPU. Throughput cost is negligible at 2.5 Gbit but it is a real behaviour change; do not apply it blindly to a working NIC.
+**Cause.** On Linux `tailscale up` defaults to `--accept-dns` on and `--accept-routes` off. Tailscale's CLI reference gives `--accept-dns` as 'Defaults to accepting DNS settings' and `--accept-routes` as off on every platform except Windows, iOS, Android and the two macOS variants. When the tailnet pushes nameservers that only exist behind a peer-advertised subnet route, the client takes the nameservers and refuses the routes that reach them, so every lookup fails rather than only MagicDNS names. This needs a tailnet that overrides or split-DNS-points at internal resolvers. A tailnet with no DNS override loses only `*.ts.net` names, not all of them.
+
+Two Omarchy 4 details make it easy to land in. Both were read out of the shipped files on an omarchy 4.0.2-1 machine and are unchanged on tag `v4.0.3`. The installer is the only path that passes the flag, and that same command is the login gate, so skipping auth there means the pref is never written:
+
+```bash
+# /usr/share/omarchy/bin/omarchy-install-service-tailscale
+sudo tailscale up --accept-routes
+```
+
+The bar widget then logs in with a flagless `tailscale up`, which applies the Linux defaults on a fresh node:
+
+```js
+// /usr/share/omarchy/shell/plugins/panels/tailscale/Model.js, loginPlan()
+return { authUrl: "", command: ["tailscale", "up"] }
+```
+
+The widget parses `tailscale status --json` and ignores `Health`, so it keeps reporting Connected.
+
+Omarchy's own DNS override is not the cause, and it is worth ruling out before chasing it. `omarchy-dns` writes a NetworkManager global override at `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` and a global `DNS=` line in `/etc/systemd/resolved.conf`, and `NetworkManager.conf(5)` says a valid `[global-dns-domain-*]` block overrides the servers of active connections. NetworkManager never manages `tailscale0`, and tailscaled pushes its resolvers straight into systemd-resolved as per-link DNS on that interface, so the override does not reach them. When the tailnet overrides local DNS, tailscaled also gives `tailscale0` the route-only domain `~.`, and per `systemd-resolved.service(8)` a query is sent to the DNS servers of the best matching routing domain. `~.` matches everything, so the tailnet resolvers win over the global Cloudflare servers and take every name to an address the machine cannot reach.
+
+> **Audit corrected this record.** The cited source was the wrong URL and the corpus copy of it was stale. `https://github.com/basecamp/omarchy/issues/6962` is a hard 404, confirmed with `curl -o /dev/null -w '%{http_code}'`. The issue lives at `https://github.com/omacom/omarchy/issues/6962` and returns 200. I read that issue and every comment in full. It supports the record closely: the reporter gives the same two health strings, `CorpDNS: true` with `RouteAll: false`, the installer-only `--accept-routes`, and the flagless widget `tailscale up`. It is still OPEN, so nothing was fixed upstream. I confirmed the two Omarchy claims myself on this machine rather than trusting the issue: `/usr/share/omarchy/bin/omarchy-install-service-tailscale` runs `sudo tailscale up --accept-routes`, and `/usr/share/omarchy/shell/plugins/panels/tailscale/Model.js` line 73 returns `["tailscale", "up"]` with no flags. Both are byte-identical on tag `v4.0.3`, fetched with `gh api`, so the record is true on the newest release and not only on the 4.0.0 the reporter ran. The flag defaults hold: Tailscale's CLI reference says `--accept-dns` 'Defaults to accepting DNS settings' and `--accept-routes` defaults off on every platform except Windows, iOS, Android and the two macOS variants. What the record misses is the Omarchy DNS stack, which is the thing a reader will chase first and waste time on. `omarchy-dns` writes a NetworkManager global override at `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` and a global `DNS=1.1.1.1 ...` into `/etc/systemd/resolved.conf`, and `NetworkManager.conf(5)` states that a valid `[global-dns-domain-*]` block overrides the servers of active connections. It does NOT apply here: NetworkManager never manages `tailscale0`, and tailscaled pushes resolvers into systemd-resolved as per-link DNS. I confirmed the live shape with `resolvectl status`, `resolvectl dns` and `resolvectl domain`: Global DNS is Cloudflare, every link has zero DNS servers and `-DefaultRoute`, `/etc/resolv.conf` is a symlink to `../run/systemd/resolve/stub-resolv.conf`, `systemd-resolved` is enabled and active, and `/etc/systemd/resolved.conf.d/10-disable-multicast.conf` from omarchy-settings 4.0.2-1 sets `LLMNR=no` and `MulticastDNS=no`. Per `systemd-resolved.service(8)` a query goes to the servers of the best matching routing domain, so once tailscaled sets `~.` on `tailscale0` the tailnet resolvers take every name and the global Cloudflare servers are never consulted. That is the mechanism behind 'all DNS breaks', and it also means the symptom needs the tailnet to override local DNS, which the record does not say. I also found a real diagnostic trap by reading `current_dns_provider()` in `/usr/share/omarchy/bin/omarchy-dns`: it reads only the NM drop-in then `/etc/systemd/resolved.conf`, so `omarchy dns` prints `Cloudflare` while every lookup is going to a dead tailnet resolver. The `danger` was half right. It correctly warns about route shadowing but says nothing about the cost of the other remedy: with `--accept-dns=false` there is no DNS on `tailscale0`, so queries fall to the global Cloudflare servers `omarchy-dns` wrote, which sends internal names outside the tunnel in clear text. That belongs in a danger. Tailscale is NOT installed here (`pacman -Q tailscale` fails), so nothing about tailscaled's runtime behaviour was exercised: I did not observe `tailscale0`, did not run `tailscale` in any form, and did not reproduce the widget resetting `RouteAll`. That last point is the issue reporter's observation, attributed as such in the corrected danger rather than asserted. I set `corrected_frequency` to `occasional` because `common` overstates it: the symptom needs a tailnet that overrides DNS, resolvers that live only behind a peer-advertised subnet route, and auth skipped in the installer, and one upstream report is the whole evidence base.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `--accept-routes` makes this machine honour every subnet route advertised on the tailnet, which can shadow local LAN addresses. On a home network that overlaps a tailnet subnet, this can black-hole your own router.
+
+`--accept-dns=false` carries a different cost on Omarchy. With no DNS left on `tailscale0`, every lookup falls back to the global servers `omarchy-dns` wrote into `/etc/systemd/resolved.conf`, which are Cloudflare's `1.1.1.1` and `1.0.0.1` on a stock install. Internal names the tailnet admin meant to keep inside the tunnel are then sent to Cloudflare in clear text, and MagicDNS names stop resolving at all.
+
+Either pref can be undone from the bar. The widget's on and off path runs a flagless `tailscale up`, confirmed in the shipped `Model.js`, and a reporter on the cited issue traced a silently reset `RouteAll=false` to exactly that path. That reset was not reproduced here. Re-check `tailscale debug prefs` after toggling the widget.
 
 **Fix.**
 
-Confirm the chipset and driver, then disable TX offload:
+First establish that this is the tailnet resolver and not Omarchy's own DNS setting. `omarchy dns` reads only `20-omarchy-dns.conf` and `/etc/systemd/resolved.conf`, so it reports `Cloudflare` and tells you nothing about `tailscale0`:
+
+```bash
+resolvectl status tailscale0
+resolvectl domain                 # a ~. on tailscale0 means every lookup goes to the tailnet
+tailscale status --json | jq '.Health'
+tailscale debug prefs | grep -E 'CorpDNS|RouteAll'
+```
+
+Then pick one. Accept the routes that make the pushed resolvers reachable:
+
+```bash
+sudo tailscale set --accept-routes=true
+```
+
+Or stop using tailnet DNS and keep the local resolvers:
+
+```bash
+sudo tailscale set --accept-dns=false
+sudo resolvectl flush-caches
+```
+
+`sudo` is unnecessary once the installer's `sudo tailscale set --operator="$USER"` has applied.
+
+Do not reach for `omarchy dns` to fix this. It rewrites `/etc/systemd/resolved.conf` wholesale and reloads the DNS stack without touching the per-link configuration on `tailscale0`, which is where the broken resolvers are.
+
+**Verify.** `tailscale debug prefs` shows `RouteAll: true`, or `CorpDNS: false` if you took the other branch. `tailscale status --json | jq '.Health'` is empty or null, and `resolvectl query archlinux.org` succeeds with Tailscale connected. After `--accept-dns=false`, `resolvectl domain` no longer shows `~.` on `tailscale0` and `resolvectl status tailscale0` lists no DNS servers.
+
+Sources: <https://github.com/omacom/omarchy/issues/6962> · <https://tailscale.com/docs/reference/tailscale-cli/up> · <https://man.archlinux.org/man/systemd-resolved.service.8> · <https://man.archlinux.org/man/NetworkManager.conf.5>
+
+---
+
+## Fix RTL8125 2.5GbE ethernet that never gets a DHCP lease
+
+`rtl8125-no-dhcp-lease-tx-checksum-offload` · severity: **high** · frequency: **rare** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `omarchy`
+
+**Symptom.** Wired ethernet shows link up and negotiates the correct speed, but never receives an IP address. `nmcli`/`networkctl` report DHCP timing out on every retry. Wi-Fi on the same machine works. The same cable and port get a lease instantly from Windows on the same hardware. `sudo tcpdump -i eno1 -n udp port 67 or port 68` shows DHCPDISCOVER going out repeatedly with zero replies.
+
+**Cause.** One reporter traced this to TX checksum offload in the in-kernel `r8169` driver on an RTL8125D: the NIC computes bad checksums on outgoing packets, the router drops every DHCP request, and no reply ever comes back. A `tcpdump` capture cannot rule that out, because the capture is taken before the hardware inserts the checksum, so the request looks sound in the capture whatever the card later puts on the wire. The same reporter ruled out firewall rules, EEE, PCIe ASPM, the DHCP client identifier and the choice of NetworkManager versus systemd-networkd, which are the usual suspects for these symptoms. Treat the attribution as one person's diagnosis rather than a confirmed driver bug: the upstream issue is still open with no maintainer response, `r8169` on kernel 7.1 exposes no module parameters to tune this, and the only other person on the thread reports the same symptom on an Intel `e1000e` NIC, which points at something wider than one Realtek revision. The test is cheap and reversible, so it is worth trying before spending hours on the router.
+
+> **Audit corrected this record.** Three defects, one of them fatal to checking the record at all. First, the single cited source is dead: `https://github.com/basecamp/omarchy/issues/7804` returns a hard 404 with no redirect, tested with both a browser user agent and a named tool user agent, as does every other `basecamp/omarchy/issues/<n>` path, so the rename to `omacom/omarchy` is not followed for issue URLs. The live issue is `https://github.com/omacom/omarchy/issues/7804`, opened 2026-08-22 by donutWolf and titled "Wired ethernet stopped getting a DHCP lease after upgrading to Quattro (RTL8125 NICs)", and I read it in full through the API: it supports the symptom, the cause, the ruled-out list and the `ethtool -K ... tx off` plus systemd service fix almost word for word, so the record's content was faithful and only its URL was wrong. Second, the fix cannot run as written on Omarchy 4: `ethtool` is not installed on this workstation, `/usr/bin/ethtool` does not exist, `pacman -Qo /usr/bin/ethtool` reports no owner, and it is neither a dependency nor an optional dependency of networkmanager 1.58.1-1, so `sudo ethtool -K eno1 tx off` fails with command not found and the unit's `ExecStart=/usr/bin/ethtool` would fail 203/EXEC at every boot. It is `extra/ethtool 1:7.1-1`, and the corrected fix installs it through `omarchy update` followed by `sudo pacman -S --needed ethtool`, which I confirmed is not blocked: `/usr/bin/omarchy-update-pacman-guard` aborts only when the pacman command line carries both a sync and a sysupgrade flag. Third, the persistence mechanism ignores that NetworkManager owns the connections on Omarchy. NetworkManager 1.58.1 has `ethtool.feature-tx`, which I confirmed both in `man nm-settings-nmcli` on this machine and in the upstream nm-settings-nmcli page, and it is applied during activation ahead of the first DHCP request, so it needs no `ethtool` binary and does not race. The record's device-unit approach does race, because the oneshot and NetworkManager's own activation both fire when `sys-subsystem-net-devices-<iface>.device` appears, and I confirmed such device units exist and are active here. I kept that unit as a labelled fallback and added a third route independent of any connection manager, a `.link` file using `TransmitChecksumOffload=false`, which systemd.link(5) has carried since version 245 and this machine runs systemd 261.2-1, with the default `NamePolicy` and `AlternativeNamesPolicy` lines copied from `/usr/lib/systemd/network/99-default.link` because the Arch wiki warns that only the first matching `.link` file applies and that omitting the default content can misconfigure the interface. I set `corrected_frequency` to `rare` and left severity at `high`: the evidence is one self-reported, still open issue with a single comment, that comment reports the same symptom on an `e1000e` NIC rather than a Realtek one, `modinfo -p r8169` on kernel 7.1.9 prints nothing so the driver exposes no knob for this, and the Arch wiki Ethernet page has no RTL8125 or checksum-offload section at all, so `occasional` overstated how often this is the answer while losing the network entirely is still high severity. The cause is rewritten to keep the mechanism but say whose diagnosis it is, and the danger now names the interface-rename trap in the `.link` route, which can leave a machine with no network and is a worse outcome than the offload change it was flagging. Not exercised: no RTL8125 is in this machine (the wired NIC is an Intel I219-V on `e1000e`), so no lease failure could be reproduced, and per instruction I ran no `ethtool -K`, installed nothing and changed no network configuration here.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Disabling TX checksum offload moves checksumming to the CPU. The cost is negligible at 2.5 Gbit, but it is a real behaviour change, so do not apply it to a NIC that is working. The larger risk is in the persistence step rather than in the offload. A `.link` file that matches your interface and omits the default `NamePolicy` and `AlternativeNamesPolicy` lines can change the interface name, and NetworkManager's saved profile then no longer matches it, which leaves the machine with no network at all. Only the first matching `.link` file is applied, so check the result with `sudo udevadm test-builtin net_setup_link /sys/class/net/eno1` and `networkctl status eno1` before you reboot, and keep a way back in that does not depend on this NIC.
+
+**Fix.**
+
+Confirm the chipset and the driver first:
 
 ```bash
 lspci -k | grep -A3 -i ethernet     # look for RTL8125 and "Kernel driver in use: r8169"
-sudo ethtool -K eno1 tx off         # substitute your interface name
-sudo nmcli connection up "Wired connection 1"
+ip -br link show                    # the interface name, eno1 in the examples below
 ```
 
-Make it survive reboot with a systemd unit:
+Omarchy 4 does not ship `ethtool`, so install it before testing anything. Do not reach for `pacman -Sy`, which is a partial upgrade, and note that `pacman -Syu` is aborted by Omarchy's ALPM guard:
+
+```bash
+omarchy update                      # the supported full sync and upgrade
+sudo pacman -S --needed ethtool
+```
+
+Test the theory without persisting anything:
+
+```bash
+sudo ethtool -K eno1 tx off
+sudo nmcli connection up "Wired connection 1"
+ip addr show eno1                   # expect an IPv4 address within a few seconds
+```
+
+If that gets a lease, make it persistent. **On Omarchy 4 NetworkManager owns the connection**, so put the setting on the connection profile. NetworkManager applies it during activation, before it sends the first DHCP request, and it needs neither the `ethtool` binary nor an extra unit:
+
+```bash
+nmcli -g NAME,DEVICE connection show --active
+sudo nmcli connection modify "Wired connection 1" ethtool.feature-tx off
+sudo nmcli connection up "Wired connection 1"
+nmcli -f ethtool connection show "Wired connection 1"
+```
+
+To undo it, clear the property rather than setting it back to `on`, so the kernel default returns:
+
+```bash
+sudo nmcli connection modify "Wired connection 1" ethtool.feature-tx ""
+```
+
+**If the machine does not use NetworkManager**, or the NIC has to come up with the offload already off before any connection manager touches it, use a systemd link file, which udev applies as the device appears. Copy the default `NamePolicy` and `AlternativeNamesPolicy` lines from `/usr/lib/systemd/network/99-default.link`, because only the first matching `.link` file is applied and dropping them can rename the interface:
+
+```bash
+sudo tee /etc/systemd/network/50-rtl8125-txoff.link >/dev/null <<'EOF'
+[Match]
+Driver=r8169
+
+[Link]
+NamePolicy=keep kernel database onboard slot path
+AlternativeNamesPolicy=database onboard slot path mac
+MACAddressPolicy=persistent
+TransmitChecksumOffload=false
+EOF
+
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=net --action=add
+```
+
+`Driver=r8169` matches every r8169 NIC in the machine. To pin it to one card, match on the address instead with `MACAddress=aa:bb:cc:dd:ee:ff` in the `[Match]` section.
+
+The systemd service the upstream issue suggests also works once `ethtool` is installed, but it can race the first DHCP attempt, because the service and NetworkManager both start when the device appears:
 
 ```bash
 sudo tee /etc/systemd/system/rtl8125-txoff@.service >/dev/null <<'EOF'
@@ -1294,13 +1459,26 @@ RemainAfterExit=yes
 [Install]
 WantedBy=sys-subsystem-net-devices-%i.device
 EOF
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now rtl8125-txoff@eno1.service
 ```
 
-**Verify.** `ethtool -k eno1 | grep tx-checksumming` reports `off`. Reboot cold; `ip addr show eno1` has an IPv4 address within a couple of seconds of boot, every time.
+**Verify.** Check the setting took:
 
-Sources: <https://github.com/basecamp/omarchy/issues/7804>
+```bash
+ethtool -k eno1 | grep tx-checksumming            # expect: off
+nmcli -f ethtool connection show "Wired connection 1" | grep feature-tx
+```
+
+Then reboot cold and confirm the lease arrives on its own, every time:
+
+```bash
+ip addr show eno1                                 # an IPv4 address within a couple of seconds
+journalctl -b -u NetworkManager | grep -i dhcp    # a lease, not repeated timeouts
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/7804> · <https://networkmanager.dev/docs/api/latest/nm-settings-nmcli.html> · <https://man7.org/linux/man-pages/man5/systemd.link.5.html> · <https://wiki.archlinux.org/title/Network_configuration/Ethernet>
 
 ---
 
@@ -1482,104 +1660,6 @@ Sources: <https://github.com/basecamp/omarchy/issues/5868> · <https://github.co
 
 ---
 
-## Fix .local hostnames, LocalSend, KDE Connect and printer discovery not working
-
-`mdns-local-hostnames-fail-ufw-blocks-5353` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
-
-**Symptom.** `ping nas.local` returns `Name or service not known`, network printers never appear in the CUPS or GTK print dialog, LocalSend and KDE Connect on the phone cannot see the laptop (or the laptop cannot see them), and `avahi-browse --all --ignore-local --resolve --terminate` prints nothing at all. Other machines on the same LAN discover each other fine.
-
-**Cause.** Two separate things break this and both have to be right. First, the firewall: mDNS is UDP port 5353 and every device answers from that port to the multicast group, so with `ufw default deny incoming` the replies to your own queries are dropped. Omarchy ships exactly that default and opens only 53317 for LocalSend — 5353 is never opened. Second, glibc has to be told to consult mDNS at all: the `hosts:` line in `/etc/nsswitch.conf` needs `mdns_minimal [NOTFOUND=return]` ahead of `resolve` and `dns`, backed by the `nss-mdns` package. A third, subtler failure is systemd-resolved answering SOA queries for the `local` domain, which makes nss-mdns stand down.
-
-> ⚠️ **Risk.** Opening 5353/udp exposes your hostname and advertised services to everyone on the local link. That is normal on a home or office LAN and a bad idea on café or hotel Wi-Fi — scope the rule if you roam: `sudo ufw allow in proto udp from 192.168.0.0/16 to any port 5353`. Editing `/etc/nsswitch.conf` incorrectly can break *all* name resolution including `dns`; keep a copy (`sudo cp /etc/nsswitch.conf /etc/nsswitch.conf.bak`) and test with `getent hosts archlinux.org` before you log out.
-
-**Fix.**
-
-Diagnose in that order:
-
-```bash
-systemctl is-active avahi-daemon.service
-grep '^hosts:' /etc/nsswitch.conf
-sudo ufw status verbose | grep -i 5353
-avahi-browse --all --ignore-local --resolve --terminate
-```
-
-**Open the port.** This is the missing piece on a stock Omarchy install:
-
-```bash
-sudo ufw allow 5353/udp comment 'mDNS'
-sudo ufw reload
-```
-
-If you also use KDE Connect, it needs its own range:
-
-```bash
-sudo ufw allow 1714:1764/udp comment 'KDE Connect'
-sudo ufw allow 1714:1764/tcp comment 'KDE Connect'
-```
-
-**Make glibc resolve .local.** Install the module and edit the hosts line:
-
-```bash
-sudo pacman -S --needed nss-mdns avahi
-sudo systemctl enable --now avahi-daemon.service
-```
-
-```ini
-# /etc/nsswitch.conf
-hosts: mymachines mdns_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
-```
-
-Omarchy 4 already ships this file with `mdns_minimal` in place, so check before editing. If you do edit it there, be aware the file is package-owned and your change will surface as a `.pacnew` on the next update — reconcile it with `sudo pacdiff`.
-
-**If .local still fails, check the SOA behaviour** that nss-mdns depends on:
-
-```bash
-host -t SOA local
-```
-
-If that does not return `NXDOMAIN`, switch to the full `mdns` module and confine it to `.local` with an allow-list:
-
-```ini
-# /etc/nsswitch.conf
-hosts: mymachines mdns [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
-```
-
-```bash
-sudo tee /etc/mdns.allow >/dev/null <<'EOF'
-.local.
-.local
-EOF
-```
-
-**If you would rather have systemd-resolved do mDNS instead of Avahi**, enable it globally and per-connection — both are required:
-
-```bash
-sudo tee /etc/systemd/resolved.conf.d/mdns.conf >/dev/null <<'EOF'
-[Resolve]
-MulticastDNS=yes
-EOF
-sudo systemctl restart systemd-resolved
-
-nmcli connection modify "<connection-name>" connection.mdns yes
-nmcli connection up "<connection-name>"
-```
-
-Or set it for every connection at once:
-
-```ini
-# /etc/NetworkManager/conf.d/10-mdns.conf
-[connection]
-connection.mdns=2
-```
-
-Do not run Avahi as a responder and systemd-resolved as a responder simultaneously; if you want Avahi to answer while resolved caches, set `MulticastDNS=resolve` instead of `yes`.
-
-**Verify.** `avahi-browse --all --ignore-local --resolve --terminate` lists services from other machines. `getent hosts nas.local` returns an address. `resolvectl query nas.local` succeeds. `sudo ufw status | grep 5353` shows the ALLOW rule. Printers appear in `lpstat -e` / the GTK print dialog.
-
-Sources: <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/Systemd-resolved> · <https://github.com/basecamp/omarchy/blob/master/install/config/firewall.sh> · <https://github.com/basecamp/omarchy/blob/master/etc/nsswitch.conf> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall>
-
----
-
 ## Stop NetworkManager-wait-online adding 30–120 seconds to every boot
 
 `networkmanager-wait-online-delays-boot` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -1646,51 +1726,6 @@ Environment=NM_ONLINE_TIMEOUT=120
 **Verify.** Reboot, then `systemd-analyze blame | head -5` should no longer list either wait-online unit, and `systemd-analyze` should report a total boot time tens of seconds shorter. `systemctl is-enabled NetworkManager-wait-online.service` prints `masked`.
 
 Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://github.com/basecamp/omarchy/blob/master/install/config/enable-services.sh> · <https://github.com/basecamp/omarchy/blob/master/migrations/1784568652.sh> · <https://github.com/basecamp/omarchy/blob/master/install/hardware/network.sh>
-
----
-
-## Stop Wi-Fi dropping every few minutes by disabling power save
-
-`wifi-drops-every-few-minutes-powersave` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `wayland`
-
-**Symptom.** "Every 5 or so minutes, my wifi disconnects, no matter what WiFi I'm on." The connection reassociates by itself after a delay, or needs a manual reconnect. It is much worse on battery, and on phone hotspots the drop happens almost every time the screen is idle.
-
-**Cause.** NetworkManager leaves `wifi.powersave` at the driver default, which on most Intel/Realtek/MediaTek parts enables 802.11 power save. The radio sleeps between beacons; APs (especially phone hotspots and consumer routers with aggressive client timeouts) then age the station out and the driver has to reassociate.
-
-> ⚠️ **Risk.** Disabling Wi-Fi power save measurably increases idle battery drain on laptops.
-
-**Fix.**
-
-Test it live first — if drops stop, this is your cause:
-
-```bash
-iw dev wlan0 get power_save
-sudo iw dev wlan0 set power_save off
-```
-
-Make it permanent through NetworkManager (`2` = disable, `3` = enable):
-
-```bash
-sudo tee /etc/NetworkManager/conf.d/20-wifi-powersave.conf >/dev/null <<'EOF'
-[connection]
-wifi.powersave = 2
-EOF
-sudo systemctl restart NetworkManager
-```
-
-On Intel cards you can also disable the driver-level power scheme:
-
-```bash
-sudo tee /etc/modprobe.d/iwlwifi-power.conf >/dev/null <<'EOF'
-options iwlmvm power_scheme=1
-options iwlwifi power_save=0
-EOF
-sudo reboot
-```
-
-**Verify.** `iw dev wlan0 get power_save` prints `Power save: off` after a reboot, and `journalctl -u NetworkManager --since '1 hour ago' | grep -c 'disconnected'` stays at 0 over a long idle period.
-
-Sources: <https://github.com/basecamp/omarchy/issues/3882> · <https://github.com/basecamp/omarchy/issues/2925> · <https://man.archlinux.org/man/NetworkManager.conf.5>
 
 ---
 
@@ -1947,9 +1982,23 @@ Sources: <https://github.com/basecamp/omarchy/issues/1870> · <https://github.co
 
 **Symptom.** After an update, a BIOS change, or plugging in a new PCIe/NVMe card, the network no longer comes up on its own. The saved connection is still listed by `nmcli connection show` but never activates, and `nmcli connection up "<name>"` fails with `Connection '<name>' is not available on device <iface> because profile is not compatible with device`. `ip link` shows an interface with a *different* name than before — `wlan0` where you had `wlp3s0`, or `enp4s0` where you had `enp3s0`, or `wwp0s20f0u3` where you had `enp0s20f0u3`.
 
-**Cause.** NetworkManager profiles can be pinned to a device by `connection.interface-name`. When the kernel or udev renames the interface, the pin no longer matches anything and the profile becomes unusable. Renames happen for several ordinary reasons: predictable interface names are derived from PCI topology, so adding or removing a PCIe device can make the firmware renumber the bus (systemd issue 33347); a `.link` file shipped by a package can change the policy — installing `iwd` alone is enough, because it ships `/usr/lib/systemd/network/80-iwd.link` with `NamePolicy=keep kernel`, which suppresses predictable naming for *all* wlan interfaces and leaves them as `wlan0`; and a kernel change can reclassify a device into a different prefix entirely.
+**Cause.** NetworkManager profiles can be pinned to a device by `connection.interface-name`. The 1.58 documentation for that property says setting it restricts the interfaces a connection can be used with, and that if interface names change or are reordered the connection may be applied to the wrong interface. When the name it names no longer exists, the profile becomes unusable. Renames happen for several ordinary reasons. Path-derived names such as `enp3s0` and `wlp3s0` come from PCI topology, so adding or removing a PCIe device can make the firmware renumber the bus (systemd issue 33347 reports `enp5s0` becoming `enp7s0` on Arch after a GPU swap). Onboard names such as `eno2` and `wlo1` come from a firmware-supplied index instead, so they survive PCIe changes but move if the firmware changes that index. A `.link` file shipped by a package can change the policy outright: installing `iwd` alone is enough, because it ships `/usr/lib/systemd/network/80-iwd.link` with `NamePolicy=keep kernel`, which sorts before `99-default.link` and therefore wins for all wlan interfaces and leaves them as `wlan0`. And a kernel change can reclassify a device into a different prefix entirely.
 
-> ⚠️ **Risk.** Renaming an interface with a custom `.link` file means `99-default.link` no longer applies to that device, so any other property it would have set is lost. If you rename a device that firewall rules or a `wg-quick` config refer to by name, those rules silently stop matching — grep for the old name across `/etc` before you commit: `sudo grep -rn '<oldname>' /etc/ --include='*.conf' --include='*.rules' --include='fstab'`.
+One thing masks the problem. `99-default.link` also sets `AlternativeNamesPolicy=database onboard slot path mac`, so every other candidate name is registered as a kernel alternative name and `ip` still accepts the old name after the primary name changes. The tooling looks fine. It is the NetworkManager profile that stops matching.
+
+On Omarchy 4 nothing in the distribution renames interfaces: `/etc/systemd/network/` is empty, no Omarchy package ships a `.link` file, `iwd` is not installed, and both NICs resolve to `/usr/lib/systemd/network/99-default.link`. Omarchy 3 shipped `iwd`, which Omarchy 4 replaced with NetworkManager and `wpa_supplicant`, so the `iwd` branch below only applies if you installed it yourself.
+
+> **Audit corrected this record.** Re-checked every load-bearing specific on this Omarchy 4 workstation (omarchy 4.0.2-1, networkmanager 1.58.1-1, systemd 261.2-1-arch, kernel 7.1.9) and against the current man pages and wiki. Most of the record holds and I kept it. Confirmed on this machine: the error string is in the shipped 1.58 binary verbatim, `strings /usr/bin/NetworkManager` yields both `Connection '%s' is not available on device %s because %s` and `profile is not compatible with device (%s)`. `man 5 systemd.link` states the first link file in lexicographic order wins and that a user file must sort before `99-default.link`, and `PermanentMACAddress=` is a real Match key. The Arch Iwd wiki reproduces `/usr/lib/systemd/network/80-iwd.link` with `NamePolicy=keep kernel` and the identical `ln -s /dev/null` mask. systemd issue 33347 is real and says what the record claims, `enp5s0` to `enp7s0` on Arch after a GPU swap. Network_configuration confirms the sort rule, the `PermanentMACAddress=` example, `udevadm trigger --verbose --subsystem-match=net --action=add`, `udevadm test-builtin net_setup_link` and its own accuracy flag behind the danger note. nmcli syntax is current for 1.58 and I verified it without touching anything, using `nmcli --offline connection modify` on a scratch keyfile: `connection.interface-name ""` removes the key (man nmcli confirms an empty value resets a property) and `802-11-wireless.mac-address` is accepted, while `802-3-ethernet.mac-address` is correctly rejected on a wifi profile, so the record's wired and wireless branching is right. All four diagnostics and all three verify commands ran here. Two real defects. (1) The fix said to get the permanent address from `ip -br link` or `ethtool -P <iface>`. Both are wrong on Omarchy 4. `ip -br link` prints the CURRENT address, and on Wi-Fi that is usually the randomized scan address, which is exactly the value the record warns against: `ip -br link` here shows wlo1 as fe:86:ef:5b:7e:d4 while `ip -d link show wlo1` shows `permaddr 3c:6a:a7:68:5c:5e`. Following the record as written would pin a throwaway MAC. And `ethtool` is not installed on Omarchy 4, confirmed that /usr/bin/ethtool does not exist and no package owns it. (2) The cause overgeneralised, saying predictable names are derived from PCI topology. True for `enp*`/`wlp*`, but both NICs here are onboard-named (`eno2`, `wlo1`) from ID_NET_NAME_ONBOARD under naming scheme v261, which does not move when a PCIe device is added. Added, because it answers whether the fix is even needed: `99-default.link` sets `AlternativeNamesPolicy=database onboard slot path mac`, so the other candidate names are registered as kernel altnames (`ip -d link show wlo1` lists `altname wlp0s20f3` and `altname wlx3c6aa7685c5e`) and `ip` still accepts the old name after a policy change, which masks the problem. The NetworkManager profile is what stops matching. Likely, not confirmed: NetworkManager 1.58 does not resolve altnames for `connection.interface-name`, since `strings` on /usr/bin/NetworkManager finds no altname literal and neither man page mentions altnames. Confirming that needs an actual rename on a test VM. Also labelled the Omarchy 4 branch, confirmed: /etc/systemd/network/ is empty, no Omarchy package ships a .link file (omarchy-settings ships only /etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf), iwd is not installed, and `udevadm info` reports ID_NET_LINK_FILE=/usr/lib/systemd/network/99-default.link for both NICs, so nothing in the distribution renames interfaces. Omarchy 3 did ship iwd, which dhh's closing comment on omacom/omarchy issue 4607 confirms Quattro replaced with NetworkManager. All four cited URLs resolve and support their claims, so nothing is removed. NOT exercised: no rename was induced and no profile was modified, added or deleted, because this is a live workstation. The repair steps themselves are unexercised and rest on the 1.58 documentation plus the offline syntax checks. severity and frequency unchanged.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Renaming an interface with a custom `.link` file means `99-default.link` no longer applies to that device, because only the first matching `.link` file is used, so every other property it would have set is lost, including `MACAddressPolicy=persistent` and `AlternativeNamesPolicy=`. The Arch wiki carries its own accuracy flag on exactly this point. If you rename a device that firewall rules or a `wg-quick` config refer to by name, those rules silently stop matching, so grep for the old name across `/etc` before you commit:
+
+```bash
+sudo grep -rn '<oldname>' /etc/ --include='*.conf' --include='*.rules' --include='fstab'
+```
+
+Every repair here interrupts the link. `nmcli connection up`, `udevadm trigger` and the reboot in the `iwd` branch all drop the interface, so do not run them against the NIC carrying your only route while you are logged in over it. Clearing `connection.interface-name` on a machine with more than one NIC of the same type lets the profile bind to whichever device activates first, which can put the wrong network on the wrong interface. Pin the MAC in that case rather than unpinning the name.
 
 **Fix.**
 
@@ -1960,17 +2009,20 @@ ip -br link
 nmcli -f NAME,UUID,TYPE,DEVICE connection show
 grep -r 'interface-name' /etc/NetworkManager/system-connections/
 ls -l /usr/lib/systemd/network/*.link /etc/systemd/network/*.link 2>/dev/null
+udevadm info /sys/class/net/<iface> | grep -E 'ID_NET_NAME|ID_NET_LINK_FILE|ID_NET_NAMING_SCHEME'
 udevadm test-builtin net_setup_link /sys/class/net/<iface>
 ```
 
-**Quickest fix — unpin the profile** so it binds to whatever device of the right type is present:
+`ID_NET_LINK_FILE` tells you which `.link` file actually won, which is the decisive fact.
+
+**Quickest fix, unpin the profile** so it binds to whatever device of the right type is present:
 
 ```bash
 nmcli connection modify "<name>" connection.interface-name ""
 nmcli connection up "<name>"
 ```
 
-**Better for machines with more than one NIC — pin to the MAC instead of the name**, which survives every rename:
+**Better for machines with more than one NIC, pin to the MAC instead of the name**, which survives every rename:
 
 ```bash
 # wired
@@ -1980,9 +2032,15 @@ nmcli connection modify "<name>" 802-11-wireless.mac-address AA:BB:CC:DD:EE:FF
 nmcli connection modify "<name>" connection.interface-name ""
 ```
 
-Get the permanent address from `ip -br link` or `ethtool -P <iface>` (not the randomised one).
+Get the permanent address with `ip -d link show <iface>`, which prints it as `permaddr`:
 
-**Or nail the name down** so it never moves again. A `.link` file ordered before `99-default.link`:
+```bash
+ip -d link show wlo1 | grep -o 'permaddr [0-9a-f:]*'
+```
+
+Do not read it from `ip -br link` or plain `ip link`. Those show the *current* address, and on Wi-Fi that is usually the randomized scan address, which is the one you must not pin. `ethtool -P` also works but `ethtool` is not installed on Omarchy 4.
+
+**Or nail the name down** so it never moves again. A `.link` file ordered before `99-default.link`, because only the first matching file is applied:
 
 ```ini
 # /etc/systemd/network/10-net0.link
@@ -1997,55 +2055,18 @@ Name=net0
 sudo udevadm trigger --verbose --subsystem-match=net --action=add
 ```
 
-**If installing iwd renamed your wireless interface** and you would rather keep predictable names, mask its link file:
+**If installing `iwd` renamed your wireless interface** and you would rather keep predictable names, mask its link file. Omarchy 4 does not ship `iwd`, so this only applies if you installed it:
 
 ```bash
 sudo ln -s /dev/null /etc/systemd/network/80-iwd.link
 sudo reboot
 ```
 
-After any of these, update anything else that referenced the old name — `/etc/fstab` `_netdev` mounts, firewall rules (`ufw status numbered`), `wg-quick` `PostUp` lines, and systemd-networkd `[Match] Name=` stanzas.
+After any of these, update anything else that referenced the old name: `/etc/fstab` `_netdev` mounts, firewall rules (`ufw status numbered`), `wg-quick` `PostUp` lines, and systemd-networkd `[Match] Name=` stanzas.
 
 **Verify.** `nmcli -f NAME,DEVICE connection show --active` shows the profile bound to the current interface. `ip -br addr` shows an address on it. Reboot once and confirm it comes up unattended.
 
-Sources: <https://wiki.archlinux.org/title/Network_configuration> · <https://wiki.archlinux.org/title/Iwd> · <https://wiki.archlinux.org/title/NetworkManager> · <https://networkmanager.dev/docs/api/latest/NetworkManager.conf.html>
-
----
-
-## Disable MAC randomization for hotspots and MAC-registered networks
-
-`mac-randomization-breaks-hotspot-and-portal-networks` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
-
-**Symptom.** Tethering to a phone hotspot "often disconnects automatically and I have to manually reconnect", while the same laptop is stable on home/office Wi-Fi. On university, hotel or corporate networks that register your device by MAC, you get kicked back to the sign-in page every reconnect and have to re-register.
-
-**Cause.** NetworkManager randomizes the MAC address during scanning (`wifi.scan-rand-mac-address` defaults to `yes`) and can also use a per-connection random MAC. A phone hotspot or MAC-whitelisted AP sees a different station each time, so the lease/registration does not carry over and the association is treated as a new (often rejected) client.
-
-> ⚠️ **Risk.** Pinning the permanent MAC removes the privacy benefit of randomization — you become trackable across public networks.
-
-**Fix.**
-
-```bash
-sudo tee /etc/NetworkManager/conf.d/25-mac-stable.conf >/dev/null <<'EOF'
-[device]
-wifi.scan-rand-mac-address=no
-
-[connection]
-wifi.cloned-mac-address=permanent
-ethernet.cloned-mac-address=permanent
-EOF
-sudo systemctl restart NetworkManager
-```
-
-Or for just one network, leaving randomization on elsewhere:
-
-```bash
-sudo nmcli connection modify "<SSID>" wifi.cloned-mac-address permanent
-sudo nmcli connection up "<SSID>"
-```
-
-**Verify.** `ip link show wlan0 | grep link/ether` matches the hardware MAC in `ethtool -P wlan0` both while scanning and while connected, and reconnecting to the hotspot no longer prompts for re-registration.
-
-Sources: <https://github.com/basecamp/omarchy/issues/4607> · <https://man.archlinux.org/man/NetworkManager.conf.5>
+Sources: <https://wiki.archlinux.org/title/Network_configuration> · <https://wiki.archlinux.org/title/Iwd> · <https://wiki.archlinux.org/title/NetworkManager> · <https://networkmanager.dev/docs/api/latest/NetworkManager.conf.html> · <https://man.archlinux.org/man/nm-settings-nmcli.5> · <https://man.archlinux.org/man/nmcli.1> · <https://man.archlinux.org/man/systemd.link.5> · <https://github.com/systemd/systemd/issues/33347> · <https://github.com/omacom/omarchy/issues/4607>
 
 ---
 
@@ -2055,13 +2076,43 @@ Sources: <https://github.com/basecamp/omarchy/issues/4607> · <https://man.archl
 
 **Symptom.** Small things work and big things stall. `ping` succeeds, DNS resolves, an SSH banner appears and then the session freezes the moment you run something that prints a lot; `git clone` and `apt`/`pacman` downloads hang at a few percent forever with no error; some HTTPS sites load and others hang after the TLS handshake. It happens on a VPN (WireGuard, corporate IPsec), behind a PPPoE DSL/fibre modem, or on certain hotel and mobile hotspots — and the same machine is fine on other networks.
 
-**Cause.** A path MTU black hole. Something on the path has an MTU smaller than yours, the router that needs to fragment sets the DF bit and drops the packet, and the ICMP "fragmentation needed" message that would tell your kernel to shrink is filtered out somewhere. Path MTU Discovery never completes, so your host keeps sending full-size segments into a hole. Small packets (ping, DNS, the SSH banner, the TLS handshake) fit and get through; anything at full MSS does not. PPPoE takes 8 bytes off 1500, and WireGuard takes 60 (IPv4) or 80 (IPv6) — the Arch WireGuard page describes this exact signature: ICMP ping works because of its low packet size while most TCP connections fail.
+**Cause.** A path MTU black hole. Something on the path has an MTU smaller than yours, the router that needs to fragment sees the DF bit and drops the packet, and the ICMP "fragmentation needed" message that would tell your kernel to shrink is filtered out somewhere along the way. Path MTU Discovery never completes, so your host keeps firing full-size segments into a hole. Small packets (ping, DNS, the SSH banner, the TLS handshake) fit and get through. Anything at full MSS does not. PPPoE takes 8 bytes off 1500, and WireGuard takes 60 for IPv4 or 80 for IPv6. The Arch WireGuard page describes this exact signature: ICMP ping works because of its low packet size while most TCP connections fail.
 
-> ⚠️ **Risk.** Lowering MTU costs a little throughput on paths that did not need it, so scope the change to the connection profile that is broken rather than applying it globally. Do not set an MTU below 1280 on any interface carrying IPv6 — it is below the protocol minimum and will break IPv6 outright.
+The filtering is almost never on your own machine. Omarchy's ufw is default-deny incoming, which makes it the obvious suspect, but `/etc/ufw/before.rules` accepts ICMP destination-unreachable in both `ufw-before-input` and `ufw-before-forward`, and "fragmentation needed" is a code of that type. Look upstream instead.
+
+Omarchy 4 also differs from plain Arch here, and it matters for the first step. It ships `net.ipv4.tcp_mtu_probing=1` in `/etc/sysctl.d/99-omarchy-sysctl.conf`, commented "Solve common flakiness with SSH (MTU discovery on flaky links)", which is this symptom by name. The kernel documents that value as disabled by default and enabled when an ICMP black hole is detected, so on Omarchy the kernel should already probe its way down on its own. Plain Arch sets nothing and leaves the kernel default of 0, disabled. If you are on Omarchy 4 and still seeing this, either the sysctl is not in effect or the hole is on a path this host only forwards.
+
+> **Audit corrected this record.** Every claim in the record checks out, and two Omarchy 4 facts it ignores change the first diagnostic step, so this is corrected by addition rather than by repair. Confirmed on this machine (omarchy 4.0.2-1, kernel 7.1.9-arch1-2, iputils 20250605-1, networkmanager 1.58.1-1): `ping -h` lists `-M <pmtud opt>` taking do, dont, want or probe, and the `ping` binary carries both `Frag needed and DF set (mtu = %u)` and `local error: message too long, mtu: %u`. The record quotes only the first, so I added the second, because it distinguishes a local interface limit from a real path black hole. Property names verified in `man 5 nm-settings-nmcli`: `802-3-ethernet.mtu` and `802-11-wireless.mtu` both read "If non-zero, only transmit packets of the specified size or smaller, breaking larger packets up into multiple Ethernet frames", which is what the record quotes. Read the Arch WireGuard page in full: it gives 1420 as the default, states that below 1280 wg-quick may fail to create the interface, and carries the signature near verbatim as "ICMP ping works because of its low packet size, but most of TCP connections fail because of full MTU size utilization". The arithmetic all holds: 1500 minus 8 is 1492 for PPPoE, payload plus 28 is the IPv4 MTU, and the WireGuard overheads of 60 and 80 are right.
+
+First addition, and the substantive one. Omarchy 4 ships `net.ipv4.tcp_mtu_probing=1` in `/etc/sysctl.d/99-omarchy-sysctl.conf`, owned by `omarchy-settings 4.0.2-1` per `pacman -Qo`, under the comment "Solve common flakiness with SSH (MTU discovery on flaky links)". That is this record's headline symptom named in Omarchy's own source, and the same line is present on the upstream quattro branch. The kernel documents the value as "1 - Disabled by default, enabled when an ICMP black hole detected", and `net/ipv4/tcp_ipv4.c` never initialises `sysctl_tcp_mtu_probing`, so the built-in default is 0 and plain Arch leaves it there. Nothing under `/usr/lib/sysctl.d/` sets it, so on this machine the Omarchy drop-in is the only writer, and `sysctl net.ipv4.tcp_mtu_probing` returns 1. This is exactly the class of defect the brief asks for, a setting Omarchy assigns in a drop-in that the record ignores. It cuts both ways: on Omarchy the reader should check it before touching any MTU, and on plain Arch setting it is a cheaper remedy than the per-profile MTU edits the record jumps straight to. I also confirmed `net.ipv4.tcp_base_mss` is 1024 and `net.ipv4.tcp_mtu_probe_floor` is 48 locally, matching `TCP_BASE_MSS` and `TCP_MIN_SND_MSS` in the kernel source, which is why the new danger warns against value 2.
+
+Second addition. Omarchy runs ufw with `DEFAULT_INPUT_POLICY="DROP"` and `ENABLED=yes`, which makes the local firewall the obvious suspect for the filtered ICMP the cause describes, and it is the wrong suspect. `/etc/ufw/before.rules` line 34 is `-A ufw-before-input -p icmp --icmp-type destination-unreachable -j ACCEPT` and line 40 is the same for `ufw-before-forward`, and fragmentation-needed is a code of destination-unreachable. `/etc/ufw/sysctl.conf` sets `net/ipv4/icmp_echo_ignore_all=0` and touches nothing MTU related. So ufw does not cause this and the cause now says so. Read unprivileged, no changes made.
+
+Third, smaller. The record's clamping advice is correctly scoped to a machine that routes for others, so I kept it, but I named the two Omarchy specifics it leaves out. `/etc/ufw/before.rules` contains only a `*filter` table (`*filter` at line 12, `COMMIT` at line 75), so the mangle rule cannot live there, and `man ufw-framework` documents `/etc/ufw/before.init` as the initialization customization script `ufw-init` runs if present and executable, which is the right home. `/etc/default/ufw` sets `DEFAULT_FORWARD_POLICY="DROP"`, so clamping alone will not make this box route. I also changed the one-off `ip link set` example from `wlan0` to `wlo1`, because predictable naming is on here (no `net.ifnames=0` in `/proc/cmdline`, no `.link` override) and the actual device is `wlo1`.
+
+Not exercised. I did not set an MTU, add or modify a connection, change a sysctl, run any `ping` at all, or use sudo, per the operator's instruction on a live workstation. So no path MTU black hole was induced and no remedy was observed working end to end. The MTU arithmetic, the WireGuard behaviour and the clamping rule come from the cited sources rather than from a local test. What I verified locally is version and file state: the sysctl file and its owner, the ufw rule text, the ping binary's strings and flags, the nmcli property documentation, and the interface names. All four cited URLs still resolve and all four still say what the record claims, so nothing is removed.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Lowering MTU costs a little throughput on paths that did not need it, so scope the change to the connection profile that is broken rather than applying it globally. Do not set an MTU below 1280 on any interface carrying IPv6, because it is below the protocol minimum and will break IPv6 outright. Set `net.ipv4.tcp_mtu_probing` to `1` and not `2`: at `2` probing is always on and starts from `net.ipv4.tcp_base_mss`, which defaults to 1024, so every healthy path pays for it. Add your own drop-in under `/etc/sysctl.d/` rather than editing `/etc/sysctl.d/99-omarchy-sysctl.conf`, which is owned by the `omarchy-settings` package and will be replaced on update. The `iptables` clamping rule is for a machine that forwards traffic, and on a workstation it is a no-op that looks like a fix.
 
 **Fix.**
 
-Find the largest payload that actually survives the path. `-M do` sets DF, and IPv4 header + ICMP header is 28 bytes, so working MTU = payload + 28:
+First, on Omarchy 4, check that the mitigation it ships is actually live. On plain Arch this is the cheapest real fix and the record's remaining steps are the fallback:
+
+```bash
+sysctl net.ipv4.tcp_mtu_probing
+cat /etc/sysctl.d/99-omarchy-sysctl.conf
+```
+
+`1` means the kernel enables packetization-layer probing once it detects a black hole. `0` means it will never try. To set it on plain Arch, in a drop-in of your own rather than by editing Omarchy's file:
+
+```bash
+printf 'net.ipv4.tcp_mtu_probing=1\n' | sudo tee /etc/sysctl.d/99-local-mtu.conf
+sudo sysctl --system
+```
+
+Then find the largest payload that survives the path. `-M do` sets DF, and the IPv4 header plus ICMP header is 28 bytes, so working MTU equals payload plus 28:
 
 ```bash
 ping -M do -s 1472 -c 3 1.1.1.1      # 1472 + 28 = 1500
@@ -2070,7 +2121,7 @@ ping -M do -s 1392 -c 3 1.1.1.1      # 1420
 ping -M do -s 1272 -c 3 1.1.1.1      # 1300
 ```
 
-The smallest size that fails prints `Frag needed and DF set (mtu = NNNN)` or just times out. Walk down until one succeeds, then set that.
+A size too large for the path prints `Frag needed and DF set (mtu = NNNN)` when a router tells you, or simply times out when the ICMP is being filtered, which is the black hole case. A size too large for your own interface fails immediately with `local error: message too long, mtu: NNNN` instead, which is your NIC and not the path. Take the largest payload that succeeds and add 28.
 
 **Ethernet, via NetworkManager:**
 
@@ -2105,26 +2156,26 @@ sudo wg-quick down wg0 && sudo wg-quick up wg0
 ip link show wg0 | grep mtu
 ```
 
-1420 is the WireGuard default; drop to 1380, then 1280 if the tunnel itself is riding over PPPoE or a mobile link. 1280 is the IPv6 minimum and is the safe floor — `wg-quick` refuses to create the interface below it.
+1420 is the WireGuard default. Drop to 1380, then 1280 if the tunnel itself is riding over PPPoE or a mobile link. 1280 is the IPv6 minimum and is the safe floor, and `wg-quick` refuses to create the interface below it.
 
 **Set it without a manager (one-off test):**
 
 ```bash
-sudo ip link set dev wlan0 mtu 1400
+sudo ip link set dev wlo1 mtu 1400
 ```
 
-**If this machine routes for others** (a Tailscale subnet router, a hotspot, a container host), clamp TCP MSS to the real path MTU instead of guessing per-client:
+**If this machine routes for others** (a Tailscale subnet router, a hotspot, a container host), clamp TCP MSS to the real path MTU instead of guessing per-client. A plain workstation behind a router is not the place for this, because nothing it sends is forwarded and the rule will never match:
 
 ```bash
 sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
   -j TCPMSS --clamp-mss-to-pmtu
 ```
 
-Make it persistent through your firewall's own config rather than a raw `iptables` call at boot.
+On Omarchy, make that persistent through ufw rather than a raw `iptables` call at boot, and note two things. `/etc/ufw/before.rules` holds only a `*filter` table, so a mangle rule cannot go there. The supported home is `/etc/ufw/before.init`, which `man ufw-framework` describes as an initialization customization script that `ufw-init` executes if it exists and is executable. And `/etc/default/ufw` sets `DEFAULT_FORWARD_POLICY="DROP"`, so clamping alone will not make this machine route for anyone until forwarding is permitted as well.
 
-**Verify.** `ip link show <iface>` reports the new MTU. `ping -M do -s $((MTU-28)) -c 3 1.1.1.1` succeeds while one byte larger fails. Then reproduce the original failure: `ssh <host> 'yes | head -100000'` runs to completion, and a `git clone` of a real repository finishes.
+**Verify.** `ip link show <iface>` reports the new MTU. `ping -M do -s $((MTU-28)) -c 3 1.1.1.1` succeeds while one byte larger fails. `sysctl net.ipv4.tcp_mtu_probing` reports `1` if you took that route. Then reproduce the original failure: `ssh <host> 'yes | head -100000'` runs to completion, and a `git clone` of a real repository finishes.
 
-Sources: <https://wiki.archlinux.org/title/WireGuard> · <https://wiki.archlinux.org/title/Network_configuration> · <https://networkmanager.dev/docs/api/latest/settings-802-3-ethernet.html> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html>
+Sources: <https://wiki.archlinux.org/title/WireGuard> · <https://wiki.archlinux.org/title/Network_configuration> · <https://networkmanager.dev/docs/api/latest/settings-802-3-ethernet.html> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html> · <https://www.kernel.org/doc/Documentation/networking/ip-sysctl.rst> · <https://github.com/omacom/omarchy/blob/quattro/etc/sysctl.d/99-omarchy-sysctl.conf> · <https://man.archlinux.org/man/ufw-framework.8> · <https://man.archlinux.org/man/nm-settings-nmcli.5>
 
 ---
 
@@ -2307,68 +2358,146 @@ Sources: <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://w
 
 **Cause.** Bluetooth and 2.4 GHz Wi-Fi share the same ISM band, and on almost every laptop they share the same combo chip and the same antenna. The chip's coexistence arbiter has to time-slice between them, and when the arbitration is poor — a firmware regression, a laptop whose antenna wiring the driver cannot detect, or a headset running the airtime-hungry HFP/SCO profile — one side starves the other. This is a hardware-arbitration problem, not a configuration error, so the reliable fixes are about getting off the shared band rather than tuning software.
 
-> ⚠️ **Risk.** Installing an additional kernel and rebooting into it is safe as long as you keep the current one installed and the Limine menu reachable — do not enable Omarchy's Direct Boot while you are testing, or you will have no way to select the other entry without going through the firmware boot menu.
+> **Audit corrected this record.** The primary fix is work Omarchy 4 already does, and does more safely than the record's commands. Confirmed on this machine: `/usr/share/omarchy/bin/omarchy-network-band` exists and `omarchy network band` runs, and it is in upstream `v4.0.3` at `bin/omarchy-network-band`. Reading it, it checks the SSID is actually reachable on the requested band before pinning, and on failure it restores the previous `802-11-wireless.band` and reconnects, with the comment "rather than leaving the machine stranded offline". The record's bare `nmcli connection modify ... band a` followed by `nmcli connection up` has neither guard, and the consequence, a laptop pinned to a band its AP does not serve with the setting surviving reboot, is missing from `danger` entirely. That is the main correction. The script also handles `6GHz`, which NetworkManager has accepted since 1.44 and the record does not mention, and a 6 GHz pin is strictly better for Bluetooth coexistence than 5 GHz.
+
+The record's coexistence analysis is right and I extended it. `modinfo -p iwlwifi` on kernel 7.1.9 on this machine still lists `bt_coex_active`, so the parameter exists. A GitHub code search of torvalds/linux master for `bt_coex_active` under `drivers/net/wireless/intel/iwlwifi` returns five files: `iwl-modparams.h` and `iwl-drv.c` for the declaration, `dvm/main.c` and `dvm/lib.c` where it has real effect, and `mvm/mac80211.c` where line 461 only logs `iwlmvm doesn't allow to disable BT Coex, check bt_coex_active module parameter`. The record named only `dvm/main.c`. More importantly, kernel 7.1 ships a third driver, `iwlmld` (present at `/lib/modules/7.1.9-arch1-2/kernel/drivers/net/wireless/intel/iwlwifi/mld`), which does not reference `bt_coex_active` at all and configures coexistence unconditionally in `mld/coex.c` via `iwl_mld_send_bt_init_conf`. So on BE200 class hardware the parameter is not even read to complain about. The record's operational conclusion held, but its hardware boundary was a generation out of date.
+
+The A2DP advice is correct but partly redundant on Omarchy 4, and I said so rather than dropping it. Confirmed on this machine: `~/.config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf` is installed and sets `bluez5.auto-connect = [ a2dp_sink a2dp_source ]`, and the same file is in `v4.0.3` at `config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf`. The profile name still resolves: `spa_bt_profile_name` in PipeWire's `spa/plugins/bluez5/defs.h` returns `a2dp-sink` for `SPA_BT_PROFILE_A2DP_SINK`, and `pipewire 1:1.6.8-1` with `wireplumber 0.5.15-1` is installed here, so `pactl set-card-profile ... a2dp-sink` is current rather than PulseAudio era advice.
+
+The discovery advice is folklore on a stock Omarchy 4 machine and I cut it back. `bluetoothctl show` on this machine reports `Discoverable: no` on controller `3C:6A:A7:68:5C:62`, and `/usr/share/omarchy/default/systemd/user/bt-agent.service` documents that the adapter is only pairable while the user has the Bluetooth panel open and scanning. Nothing scans in the background, so `discoverable off` and `pairable off` recover no airtime, and `pairable off` actively fights Omarchy's own pairing flow. `omarchy-bluetooth-power` states that BlueZ never persists these properties, so none of the three commands survive a reboot anyway. `/etc/bluetooth/main.conf` is stock bluez 5.87-2 with every section empty, so Omarchy sets nothing there.
+
+The kernel branch checks out, with one redundancy removed. I read `/usr/bin/omarchy-update-pacman-guard` and `/usr/share/omarchy/default/libalpm/hooks/00-omarchy-update-guard.hook`: the guard only aborts when both `-S` and `-u` appear in the pacman command line, so `pacman -S --needed linux-lts linux-lts-headers` passes, and the record's ordering of `omarchy update` first is the correct way to avoid a partial upgrade. `/usr/bin/limine-mkinitcpio` does exist, owned by `limine-mkinitcpio-hook`, but `80-limine-efi-deploy.hook` and `90-limine-mkinitcpio-remove-post.hook` already deploy the entry during the install transaction, so the manual call is redundant and I dropped it. `omarchy-setup-direct-boot` exists in `/usr/share/omarchy/bin`, so the existing Direct Boot warning is real and I kept it and named the command. The record's 6.11 to 6.12 RTL8852CE claim is sourced but four kernel series stale against 7.1.9, so I reframed it as a precedent rather than as current advice. `iw dev wlan0` was wrong throughout: this machine's only wireless interface is `wlo1`, with no `net.ifnames=0` on the kernel cmdline.
+
+Both forum sources still resolve, HTTP 200 for `https://bbs.archlinux.org/viewtopic.php?id=287090` and `...id=302036`, and both raw kernel URLs return 200, so nothing is removed. Severity stays `medium` and frequency stays `common`, because unlike the power save record the distribution does not remove the underlying cause, it only gives a safer tool. Not exercised: this workstation has an Intel Wireless-AC 9560 CNVi part (`8086:a370`, subsystem `8086:0034`) paired with an Intel 9460/9560 Jefferson Peak Bluetooth controller on USB `8087:0aaa`, which is exactly the shared combo part the cause describes, but `wlo1` is down and the machine runs on `eno2`, and I was instructed not to touch NetworkManager, the radios, Bluetooth or audio. So I did not associate on 2.4 GHz, did not measure any throughput collapse or ping latency, did not pair a Bluetooth audio device (no `bluez_card.*` exists in `pactl list cards` here), and did not test any modprobe option, band pin or LTS kernel boot.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Pinning a band can leave the machine offline. `802-11-wireless.band a` on a profile whose AP has no 5 GHz radio means there is nothing to associate to, and the setting persists across reboots, so a laptop with no wired fallback has no way back on to the network until you clear it. Check the AP answers on the band first, or use `omarchy network band`, which refuses a band the SSID is not reachable on and reverts plus reconnects if the radio cannot come back up.
+
+Installing an additional kernel and rebooting into it is safe as long as you keep the current one installed and the Limine menu reachable. Do not enable Omarchy's Direct Boot with `omarchy-setup-direct-boot` while you are testing, because it points firmware straight at the Omarchy UKI and you would then have no way to select the other entry without going through the firmware boot menu.
 
 **Fix.**
 
-Confirm you are actually on 2.4 GHz:
+Find the real interface name first. Omarchy 4 uses predictable names such as `wlo1` or `wlp3s0`, and `wlan0` does not exist:
 
 ```bash
-iw dev wlan0 link | grep -i freq     # 2412-2484 MHz = 2.4 GHz, 5xxx = 5 GHz
+iw dev | awk '/Interface/ {print $2}'
 ```
 
-**The fix that works: move Wi-Fi off 2.4 GHz.** If your AP broadcasts one SSID on both bands, pin the profile to 5 GHz — NetworkManager documents `band` as `"a"` for 5 GHz, `"bg"` for 2.4 GHz:
+Use that name in place of `wlo1` below. Confirm you are actually on 2.4 GHz:
 
 ```bash
+iw dev wlo1 link | grep -i freq     # 2412-2484 MHz = 2.4 GHz, 5xxx = 5 GHz
+```
+
+**The fix that works: move Wi-Fi off 2.4 GHz.**
+
+On Omarchy 4, use the command the distribution already ships for this. It checks that the SSID is actually reachable on the band before pinning, and if the radio cannot come back up it puts the previous setting back and reconnects, so a wrong guess does not leave you offline:
+
+```bash
+omarchy network band          # show current band, what is available, what is pinned
+omarchy network band 5        # pin 5 GHz
+omarchy network band 6        # pin 6 GHz if the AP offers it
+omarchy network band auto     # unpin
+```
+
+On plain Arch, or if you want to see the underlying property, NetworkManager takes `802-11-wireless.band` as `"a"` for 5 GHz, `"bg"` for 2.4 GHz, and since 1.44 `"6GHz"`:
+
+```bash
+nmcli -g 802-11-wireless.band connection show "<SSID>"
 nmcli connection modify "<SSID>" 802-11-wireless.band a
 nmcli connection up "<SSID>"
-iw dev wlan0 link | grep -i freq
+iw dev wlo1 link | grep -i freq
 ```
 
-If the two bands have separate SSIDs, just connect to the 5 GHz one and set `connection.autoconnect-priority` higher on it:
+Check that the AP answers on the band before you pin it. If it does not, `nmcli connection up` fails and the profile stays pinned to a band with nothing to associate to:
+
+```bash
+nmcli -f SSID,FREQ device wifi list --rescan no | grep "<SSID>"
+```
+
+If the pin leaves you offline, put it back:
+
+```bash
+nmcli connection modify "<SSID>" 802-11-wireless.band ""
+nmcli connection up "<SSID>"
+```
+
+If the two bands have separate SSIDs, connect to the 5 GHz one and give it a higher autoconnect priority:
 
 ```bash
 nmcli connection modify "<SSID-5G>" connection.autoconnect-priority 10
 ```
 
-If you must stay on 2.4 GHz, move the AP to channel 1 or 11 (the edges) rather than leaving it on "auto" — Bluetooth's adaptive frequency hopping will then have more clear room away from your channel.
+If you must stay on 2.4 GHz, move the AP to channel 1 or 11 rather than leaving it on auto, so Bluetooth's adaptive frequency hopping has clear room away from your channel.
 
-**Reduce Bluetooth's airtime.** Keep the headset on A2DP rather than HFP whenever you are not on a call — HFP/SCO keeps the radio at constant duty:
+**Keep the headset on A2DP rather than HFP.** HFP and its SCO link keeps the radio at constant duty, where A2DP bursts. Omarchy 4 already asks WirePlumber to prefer the A2DP profiles on connect, in `~/.config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf`:
+
+```
+monitor.bluez.rules = [
+  {
+    matches = [ { device.name = "~bluez_card.*" } ]
+    actions = { update-props = { bluez5.auto-connect = [ a2dp_sink a2dp_source ] } }
+  }
+]
+```
+
+WirePlumber still switches to HFP when an application opens the headset microphone, so check and override the live profile when you are not on a call:
 
 ```bash
-pactl list cards | grep -A 3 'Active Profile'
+pactl list cards | grep -E 'Name: bluez_card|Active Profile'
 pactl set-card-profile bluez_card.XX_XX_XX_XX_XX_XX a2dp-sink
 ```
 
-And stop background discovery, which hops across the whole band continuously:
+**Do not bother turning off discovery on a stock Omarchy 4 machine.** Active scanning does hop across the whole band, but Omarchy does not scan in the background. `bluetoothctl show` reports `Discoverable: no`, and `bt-agent.service` only auto-accepts pairing while you have the Bluetooth panel open and scanning. If you have started a scan by hand, stop that one scan. None of these properties persist across a reboot, because BlueZ never saves them:
 
 ```bash
 bluetoothctl scan off
-bluetoothctl discoverable off
-bluetoothctl pairable off
 ```
 
-**On old Intel cards only**, the coexistence arbiter can be turned off:
+Leave `pairable` alone. Turning it off breaks Omarchy's own pairing flow and buys no airtime.
+
+**On old Intel cards only**, the coexistence arbiter can be turned off. `bt_coex_active` is still declared in `iwlwifi/iwl-drv.c` and `modinfo -p iwlwifi` still lists it on kernel 7.1, but check which driver your card uses before spending time on it:
+
+```bash
+basename "$(readlink -f /sys/class/net/wlo1/device/driver)"
+ls /sys/module | grep -E '^iwl(mvm|mld|dvm)$'
+```
 
 ```bash
 echo 'options iwlwifi bt_coex_active=0' | sudo tee /etc/modprobe.d/iwlwifi-coex.conf
 sudo reboot
 ```
 
-Be aware this does nothing on modern hardware. `bt_coex_active` is still declared in `iwlwifi/iwl-drv.c`, but the only remaining consumer in the tree is `iwlwifi/dvm/main.c` — the iwldvm driver, which covers the 5000/6000-series cards. Everything handled by iwlmvm (7260 and newer, including AX200, AX210 and BE200) ignores it entirely, so do not expect it to help on a recent laptop despite the amount of forum advice that says otherwise.
+This only does anything under `iwldvm`, the 5000 and 6000 series cards. Under `iwlmvm` (7260 and newer through AX210) the only thing that reads the parameter is `mvm/mac80211.c`, and all it does is log `iwlmvm doesn't allow to disable BT Coex, check bt_coex_active module parameter`. Under `iwlmld`, which kernel 7.1 uses for BE200 class cards, nothing reads it at all and coexistence is configured unconditionally in `mld/coex.c`. So on any recent laptop this is a dead end, despite the amount of forum advice that says otherwise.
 
-**If this started after a kernel update**, it is likely a coexistence regression rather than your setup — Realtek RTL8852CE users tracked exactly this to the 6.11→6.12 jump. Test the LTS kernel:
+**If this started right after a kernel update**, suspect a coexistence regression rather than your setup. Realtek RTL8852CE users tracked exactly this to the 6.11 to 6.12 jump, which is the cited precedent rather than current advice against kernel 7.1. Test the LTS kernel, which installs alongside the one you have:
 
 ```bash
 omarchy update
 sudo pacman -S --needed linux-lts linux-lts-headers
-sudo limine-mkinitcpio
-sudo reboot     # pick the LTS entry from the Limine menu
+sudo reboot
+# pick the LTS entry from the Limine menu
 ```
 
-**Verify.** With the Bluetooth device connected and playing audio, run `ping -i 0.2 -c 300 <router-ip>` — latency should stay in single- or low-double-digit milliseconds with no loss. `iw dev wlan0 link` should report a 5 GHz frequency and a stable bitrate. A large download should hold its speed with the headset in use.
+Run `omarchy update` first. `pacman -S` on its own uses the sync databases as they stand, so a fully updated system is the only state in which it cannot pull a partial upgrade. The Omarchy ALPM guard does not block this command, because it only aborts when both `-S` and `-u` are present. Pacman's own Limine hooks deploy the new entry, so there is no need to run `limine-mkinitcpio` by hand.
 
-Sources: <https://bbs.archlinux.org/viewtopic.php?id=287090> · <https://bbs.archlinux.org/viewtopic.php?id=302036> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/iwl-drv.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/dvm/main.c> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html>
+**Verify.** With the Bluetooth device connected and playing audio, measure latency and loss against the router rather than against the internet:
+
+```bash
+ping -i 0.2 -c 300 <router-ip>
+```
+
+Latency should stay in single or low double digit milliseconds with no loss. Then confirm the band actually moved:
+
+```bash
+omarchy network band            # Omarchy 4
+iw dev wlo1 link | grep -i freq   # any Arch: expect 5xxx or 6xxx MHz
+```
+
+A large download should hold its speed with the headset in use. If you pinned a band, reboot once and check it reassociated on that band by itself rather than falling back.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=287090> · <https://bbs.archlinux.org/viewtopic.php?id=302036> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/iwl-drv.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/dvm/main.c> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-network-band> · <https://github.com/omacom/omarchy/blob/v4.0.3/config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/mvm/mac80211.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/mld/coex.c> · <https://raw.githubusercontent.com/PipeWire/pipewire/master/spa/plugins/bluez5/defs.h> · <https://man.archlinux.org/man/nm-settings-nmcli.5>
 
 ---
 
@@ -2384,21 +2513,50 @@ Sources: <https://bbs.archlinux.org/viewtopic.php?id=287090> · <https://bbs.arc
 
 or it comes up but internal names never resolve — the tunnel carries traffic to IPs fine, but `DNS = 10.0.0.53` in the config has no visible effect and `resolvectl status wg0` lists no DNS servers.
 
-**Cause.** `wg-quick`'s `DNS =` key is implemented purely through `resolvconf(8)`: on up it runs `resolvconf -a tun.<INTERFACE> -m 0 -x` and on down `resolvconf -d tun.<INTERFACE>`. Arch ships no `resolvconf` binary by default, and systemd-resolved's own implementation lives in the separate `systemd-resolvconf` package.
+**Cause.** `wg-quick`'s `DNS =` key is implemented entirely through `resolvconf(8)`. Arch ships no `resolvconf` binary by default, and systemd-resolved's implementation is the separate `systemd-resolvconf` package, which installs `/usr/bin/resolvconf` as a symlink to `resolvectl`. Confirmed on an omarchy 4.0.2-1 machine: `pacman -Qo /usr/bin/resolvconf` reports no owner and the file is absent.
 
-> ⚠️ **Risk.** `systemd-resolvconf` conflicts with `openresolv`. If another VPN or DNS tool pulled in `openresolv`, pacman will ask to replace it — check what depends on it (`pacman -Qi openresolv`) before confirming.
+Two details of the invocation matter and they come from the wireguard-tools source, not the man page:
+
+```bash
+# src/wg-quick/linux.bash
+30  cmd() {
+31    echo "[#] $*" >&2
+32    "$@"
+...
+145 resolvconf_iface_prefix() {
+146   [[ -f /etc/resolvconf/interface-order && ! -L $(type -P resolvconf) ]] || return 0
+...
+159   } | cmd resolvconf -a "$(resolvconf_iface_prefix)$INTERFACE" -m 0 -x
+165   cmd resolvconf -d "$(resolvconf_iface_prefix)$INTERFACE" -f
+```
+
+The missing binary is reported at line 32, where `cmd` runs its arguments. And the `tun.` prefix the man page shows is conditional on openresolv's `/etc/resolvconf/interface-order` and on `resolvconf` not being a symlink, so with `systemd-resolvconf` the interface registered is the bare `wg0`. That is why `resolvectl status wg0` is the right place to look.
+
+On Omarchy 4 the resolved side is already in place. `/etc/resolv.conf` is a symlink to `../run/systemd/resolve/stub-resolv.conf` and `systemd-resolved` is enabled and active, both confirmed on the workstation. Omarchy's own DNS override is a red herring here and worth ruling out early: `omarchy-dns` puts Cloudflare in a NetworkManager `[global-dns-domain-*]` block at `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` and in a global `DNS=` line in `/etc/systemd/resolved.conf`, and `NetworkManager.conf(5)` confirms such a block overrides the servers of active connections, but `wg-quick` never goes through NetworkManager. `resolvectl(1)` maps the shim's `-x` to the route-only domain `~.`, and `systemd-resolved.service(8)` sends a query to the servers of the best matching routing domain, so once the shim is installed the tunnel's resolvers beat the global Cloudflare ones for every name.
+
+> **Audit corrected this record.** The premise holds and the symptom is right down to the line number, but the cause mis-states the invocation, the fix has a partial-upgrade hazard, and the danger names the wrong conflict and omits a DNS leak that Omarchy makes certain. Both cited sources resolve (200) and both support what they are cited for: `wg-quick.8` documents that `DNS =` runs `resolvconf -a tun.INTERFACE -m 0 -x` on up and `resolvconf -d tun.INTERFACE` on down, and offers `PostUp`/`PostDown` as the alternative, explicitly allowing each to be given more than once. Neither is removed. Confirmed on this machine: `pacman -Qo /usr/bin/resolvconf` reports no owner, the file does not exist, and neither `openresolv` nor `systemd-resolvconf` is installed, so the record's whole premise is true on Omarchy 4 and not only on plain Arch. Also confirmed live: `/etc/resolv.conf` is a symlink to `../run/systemd/resolve/stub-resolv.conf`, `systemd-resolved` is enabled and active, and `/etc/systemd/resolved.conf.d/10-disable-multicast.conf` from omarchy-settings 4.0.2-1 sets `LLMNR=no` and `MulticastDNS=no`, so the resolved destination the fix targets is already in place. I read the wireguard-tools source rather than trusting the man page and found two things. `cmd()` at line 30 runs `"$@"` at line 32, which is why `line 32: resolvconf: command not found` is exactly right, so I kept the symptom untouched. And the `tun.` prefix is conditional: `resolvconf_iface_prefix` at line 145 returns nothing unless `/etc/resolvconf/interface-order` exists and `resolvconf` is not a symlink, which is openresolv's shape, so under `systemd-resolvconf` the registered interface is the bare `wg0`. The record's own `resolvectl status wg0` verify step is correct because of behaviour the cause gets wrong. `unset_dns` at line 165 also passes `-f`, which the man page omits. On the Omarchy override the operator asked about: it does not intercept here. `omarchy-dns` writes a NetworkManager `[global-dns-domain-*]` block and a global `DNS=` in `/etc/systemd/resolved.conf`, and `NetworkManager.conf(5)` confirms such a block overrides active connections, but `wg-quick` never goes through NetworkManager. `resolvectl(1)` says the shim maps `-x` to the route-only domain `~.`, and `systemd-resolved.service(8)` routes to the best matching routing domain, so the `DNS =` branch beats Cloudflare for every name. The leak is in the other branch: `systemd.network(5)` `DNSDefaultRoute=` defaults to automatic, meaning a link with DNS and no routing domain takes unmatched queries, so a user who copies `resolvectl dns %i` without `resolvectl domain %i` fans every query out to the tunnel and Cloudflare in parallel with first-answer-wins. Three fix defects. `systemd-resolvconf` depends on an exact `systemd=<version>`, verified both locally (`Depends On: systemd=261.2` against installed systemd 261.2-1) and from archlinux.org, which now serves 261.3-1 depending on `systemd=261.3`, so a bare `pacman -S` can drag systemd up alone. The instinctive repair is `-Syu`, which Omarchy blocks: I read `/usr/bin/omarchy-update-pacman-guard` and it aborts only when a command line carries both a sync and a sysupgrade flag, so plain `-S` passes and `-Syu <pkg>` does not. The danger is wrong on the conflict: `pacman -Si systemd-resolvconf` and the archlinux.org JSON both give `Conflicts With: resolvconf` and `Provides: openresolv resolvconf`, so it provides openresolv rather than conflicting with it by name, and `pacman -Qi openresolv` is the wrong check where `pacman -Qo /usr/bin/resolvconf` is the right one. The Arch wiki adds that `systemd-resolvconf` only works while `systemd-resolved.service` is running. NOT exercised: `wireguard-tools` is not installed here (`pacman -Q wireguard-tools` fails), so no tunnel was brought up, no package was installed, nothing was reverted, and `resolv.conf` was not touched. The routing and leak behaviour is derived from the man pages plus the live `resolvectl status`/`domain` output, not from a running `wg0`. Severity stays `medium`: the loud branch fails closed and nothing is destroyed.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** On Omarchy 4 the real risk is a DNS leak rather than a loud failure. `omarchy-dns` always writes global servers into `/etc/systemd/resolved.conf`, Cloudflare's `1.1.1.1` and `1.0.0.1` on a stock install. If `wg0` ends up with DNS servers and no routing domain, which is what happens if you take the `resolvectl dns %i` line without the `resolvectl domain %i` line, systemd-resolved treats the link as a default route and sends every unmatched query to the tunnel and to Cloudflare in parallel, returning whichever answers first. Internal names then leave the tunnel in clear text, and a Cloudflare `NXDOMAIN` can beat the tunnel's real answer. Check with `resolvectl domain` once the tunnel is up.
+
+`systemd-resolvconf` conflicts with the virtual `resolvconf` provider and itself provides `openresolv`, so pacman offers to replace whatever provider is installed. Check what that is with `pacman -Qo /usr/bin/resolvconf` before confirming. Do not install `openresolv` here instead: it manages `/etc/resolv.conf` itself, which on Omarchy is a symlink into systemd-resolved's runtime directory. `systemd-resolvconf` also only works while `systemd-resolved.service` is running, so do not install it on a machine that has resolved disabled.
 
 **Fix.**
 
-Install the resolvconf shim that feeds systemd-resolved:
+Install the resolvconf shim that feeds systemd-resolved. `systemd-resolvconf` depends on an exact `systemd=<version>`, so installing it on its own can drag systemd up by itself, which is a partial upgrade. Bring the system current first. On Omarchy this also fetches the pacman sync databases, which a fresh offline install does not have:
 
 ```bash
-sudo pacman -S systemd-resolvconf
-sudo systemctl enable --now systemd-resolved
-sudo wg-quick down wg0; sudo wg-quick up wg0
+omarchy update
+sudo pacman -S --needed systemd-resolvconf
+systemctl is-enabled systemd-resolved      # already enabled on a stock Omarchy 4
+sudo wg-quick down wg0 || true
+sudo wg-quick up wg0
 ```
 
-Or skip resolvconf entirely and drive resolved directly from the config — remove the `DNS =` line and add hooks instead:
+Do not write that as `sudo pacman -Syu systemd-resolvconf`. Omarchy's guard at `/usr/bin/omarchy-update-pacman-guard` aborts any pacman command line carrying both a sync and a sysupgrade flag. A plain `-S` is not blocked.
+
+Or skip resolvconf entirely and drive resolved from the config. `wg-quick.8` allows each hook key more than once, so keep them on separate lines:
 
 ```ini
 # /etc/wireguard/wg0.conf
@@ -2406,7 +2564,8 @@ Or skip resolvconf entirely and drive resolved directly from the config — remo
 PrivateKey = <key>
 Address = 10.0.0.2/24
 # DNS = 10.0.0.53           <-- remove this
-PostUp  = resolvectl dns %i 10.0.0.53; resolvectl domain %i '~corp.example.com'
+PostUp  = resolvectl dns %i 10.0.0.53
+PostUp  = resolvectl domain %i '~corp.example.com'
 PreDown = resolvectl revert %i
 
 [Peer]
@@ -2415,11 +2574,11 @@ Endpoint = vpn.example.com:51820
 AllowedIPs = 10.0.0.0/24
 ```
 
-Use `resolvectl domain %i '~.'` instead if you want every lookup to go down the tunnel.
+Keep the `resolvectl domain` line. Without it the link has DNS servers and no routing domain, which leaks queries to Omarchy's global resolvers. Use `resolvectl domain %i '~.'` instead if every lookup should go down the tunnel.
 
-**Verify.** `resolvectl status wg0` lists the tunnel's DNS server and routing domain; `resolvectl query intranet.corp.example.com` resolves and reports it came from `wg0`. `resolvectl status wg0` returns nothing after `wg-quick down wg0`.
+**Verify.** `resolvectl status wg0` lists the tunnel's DNS server, and `resolvectl domain` shows `~.` on `wg0` after the `DNS =` path or the configured routing domain after the `PostUp` path. `resolvectl query intranet.corp.example.com` resolves and reports it was acquired via `wg0`. `resolvectl status wg0` lists no DNS servers after `sudo wg-quick down wg0`.
 
-Sources: <https://man.archlinux.org/man/wg-quick.8> · <https://man.archlinux.org/man/systemd-resolved.service.8>
+Sources: <https://man.archlinux.org/man/wg-quick.8> · <https://man.archlinux.org/man/systemd-resolved.service.8> · <https://man.archlinux.org/man/resolvectl.1> · <https://man.archlinux.org/man/NetworkManager.conf.5> · <https://git.zx2c4.com/wireguard-tools/plain/src/wg-quick/linux.bash> · <https://wiki.archlinux.org/title/WireGuard> · <https://wiki.archlinux.org/title/Systemd-resolved> · <https://archlinux.org/packages/core/x86_64/systemd-resolvconf/>
 
 ---
 
@@ -2427,46 +2586,97 @@ Sources: <https://man.archlinux.org/man/wg-quick.8> · <https://man.archlinux.or
 
 `wpa2-enterprise-8021x-connect-from-cli` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** University or corporate Wi-Fi cannot be joined from the GUI — the network picker only asks for a password, or connecting silently fails and the panel keeps showing the enterprise network as disconnected even after it associates. Users report "impala can't connect to school wifi using WPA2 enterprise 802.1X".
+**Symptom.** University or corporate Wi-Fi either cannot be joined or joins and then reports itself wrong. With `impala` or `iwctl` the picker offers only a password field and the enterprise network never associates, which is what "impala can't connect to school wifi using WPA2 enterprise 802.1X" describes. On Omarchy 4 the bar panel does ask for an identity, so the failures look different. The profile it creates performs no server certificate check at all, and the panel can go on showing a working enterprise connection as `NOT CONNECTED` while `nmcli` reports it activated and the IP address, gateway, ping and traffic figures on that same panel are all correct.
 
-**Cause.** Lightweight Wi-Fi TUIs (`impala`, `iwctl`-only flows) and some panel versions do not expose the 802.1X fields — EAP method, phase-2 auth, identity, CA certificate, anonymous identity — that enterprise networks require. Without them wpa_supplicant has nothing to authenticate with.
+**Cause.** Two different causes, and Omarchy 4 changed which one applies.
 
-> ⚠️ **Risk.** Omitting `802-1x.ca-cert` and `802-1x.domain-suffix-match` makes the client trust any RADIUS server presenting a certificate, which allows credential theft on a spoofed SSID. Always set both.
+With `impala` or `iwctl`, the Omarchy 3 default, the TUI does not expose the fields an enterprise network needs, which are the EAP method, the phase 2 inner auth, the identity, the anonymous identity and the CA certificate. Those tools drive **iwd**, not wpa_supplicant, and iwd expects an 802.1X network to be described by a provisioning file it reads from `/var/lib/iwd` rather than by credentials entered at a prompt.
+
+Omarchy 4 does not use iwd at all. Its hardware setup runs `systemctl disable iwd.service` and the stack is NetworkManager driving wpa_supplicant. Its bar panel does detect an enterprise SSID and does ask for an identity, then builds a PEAP/MSCHAPv2 profile. What it does not set is `802-1x.ca-cert` or `802-1x.domain-suffix-match`, so the profile it writes accepts any RADIUS server that answers. Separately, the panel's connected indicator misreads an active 802.1X profile and can display `NOT CONNECTED` for a connection NetworkManager considers activated. That second one is cosmetic and does not affect traffic.
+
+> **Audit corrected this record.** Checked the whole command against `man 5 nm-settings-nmcli` and `man 1 nmcli` from networkmanager 1.58.1-1 on this machine, then executed the record's exact command under `nmcli --offline`, which builds the keyfile on stdout and never contacts the daemon. It is valid and produces a correct profile, so every property name holds for 1.58: `wifi-sec.key-mgmt wpa-eap`, `802-1x.eap peap`, `802-1x.phase2-auth mschapv2`, `802-1x.identity`, `802-1x.anonymous-identity`, `802-1x.password`, `802-1x.ca-cert`, `802-1x.domain-suffix-match`, and the `--` separator. `man 1 nmcli` states that nmcli accepts `wifi-sec` in place of `802-11-wireless-security`. The man page describes `phase2-auth` under PEAP as selecting from gtc, otp, md5 and tls, which reads as excluding mschapv2, but the combined valid-values list includes it and Omarchy 4 itself ships exactly this pairing, so the record is right and the man prose is incomplete.
+
+Three defects, all confirmed on this machine rather than inferred. First, the symptom claim that the GUI "only asks for a password" is false on Omarchy 4. `/usr/share/omarchy/shell/plugins/panels/network/Panel.qml` computes `isEnterprise` at line 1604 and shows a field with `placeholderText: "Identity (user@domain)"` at line 1848, and `/usr/share/omarchy/shell/plugins/panels/network/Model.js` lines 319 to 326 hold `enterpriseConnectScript`, which runs `nmcli connection add ... wifi-sec.key-mgmt wpa-eap 802-1x.eap peap 802-1x.phase2-auth mschapv2 802-1x.identity "$2"`. Second, the cause is Omarchy 3 framing and contains a factual error: `impala` and `iwctl` drive iwd, not wpa_supplicant, so "wpa_supplicant has nothing to authenticate with" is wrong for those tools. Omarchy 4 ships neither. `install/hardware/network.sh` on the quattro branch runs `systemctl disable iwd.service`, `pacman -Q iwd impala` reports both absent here, `systemctl is-enabled iwd` returns not-found, nothing under `/usr/share/omarchy` mentions impala, and `wpa_supplicant` is the running supplicant (pid 1624). Third, `ifname wlan0` and `ip addr show wlan0` are wrong. Predictable naming is active (no `net.ifnames=0` in `/proc/cmdline`, no `.link` file and no `80-net-setup-link.rules` override) and the card here is `wlo1` on iwlwifi. The offline run showed the record's command baking `interface-name=wlan0` into the keyfile, which would pin the profile to a nonexistent device. Omarchy's own script omits `ifname`, and an offline run without it emits no `interface-name` line.
+
+Two additions to `danger`, both genuine. Omarchy 4's own enterprise path sets no CA certificate and no domain-suffix-match, so the record's warning understates the situation by treating omission as the reader's mistake when it is the shipped default. And the record passes the password as an `nmcli` argument, which Omarchy explicitly avoids: the comment at Model.js lines 315 to 318 says "argv is world-readable in /proc, so the secret must never be an argument" and pipes it through `nmcli connection edit` instead. The corrected fix adopts that pattern. `802-1x.ca-cert` is documented as "This property can be unset even if the EAP method supports CA certificates, but this allows man-in-the-middle attacks and is NOT recommended", which backs the record's original instinct.
+
+Sources. Both cited `basecamp/omarchy` issue URLs are hard 404s under curl with no redirect, so they are removed and replaced with the `omacom` equivalents. Read both in full: #2382 is the impala WPA2-Enterprise report the symptom quotes, and #7257 is the Quickshell panel showing an enterprise connection as NOT CONNECTED. #7257 is still open with no comments as of 2026-09-11, against a newest tag of v4.0.3, so that half of the symptom is a live Omarchy 4 bug. `NetworkManager.conf.5` is removed: it resolves but documents the daemon config file and says nothing about 802-1x connection properties, so it never supported the claim. `nm-settings-nmcli.5` and `nmcli.1` replace it.
+
+Not exercised. No enterprise SSID is reachable from this workstation and I was instructed not to add a connection or use sudo, so association and EAP authentication were never performed. The Wi-Fi card `wlo1` is present and unblocked in rfkill but sits disconnected because the machine is on ethernet `eno2`. Everything above is either read from a local file, read from the upstream quattro branch, or produced by `nmcli --offline`, which alters nothing. The claim that the corrected fix successfully authenticates against a real RADIUS server is untested.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** An 802.1X profile with no `802-1x.ca-cert` and no `802-1x.domain-suffix-match` trusts any RADIUS server that presents a certificate, which is all an attacker needs to harvest the credentials from a spoofed SSID. Set both. This is not hypothetical on Omarchy 4: the bar panel's own enterprise connect path sets neither, so a profile created from the GUI needs both added afterwards. Putting the password on an `nmcli` command line is a second exposure, because `/proc/<pid>/cmdline` is world readable while the command runs and the line also enters shell history. Set the secret over stdin with `nmcli connection edit`. Prefer the CA your institution publishes over `/etc/ssl/certs/ca-certificates.crt`, because the system bundle lets any publicly trusted CA vouch for the RADIUS server and `802-1x.domain-suffix-match` is then the only thing standing between you and a mis-issued certificate.
 
 **Fix.**
 
-Create the profile explicitly with `nmcli` (PEAP/MSCHAPv2 is the common case, e.g. eduroam):
+Build the profile with `nmcli` so every 802.1X field is set explicitly.
+
+Leave `ifname` out. Predictable interface naming is on by default, so the device is normally `wlo1` or `wlp3s0` and almost never `wlan0`. Passing a name that does not exist bakes `interface-name=` into the profile and it will never activate. Check what you actually have:
 
 ```bash
-sudo nmcli connection add type wifi ifname wlan0 con-name eduroam ssid "eduroam" -- \
+nmcli -f DEVICE,TYPE device status | grep wifi
+```
+
+PEAP with MSCHAPv2 is the common case, eduroam included:
+
+```bash
+sudo nmcli connection add type wifi con-name eduroam ssid "eduroam" \
   wifi-sec.key-mgmt wpa-eap \
   802-1x.eap peap \
   802-1x.phase2-auth mschapv2 \
   802-1x.identity "you@uni.edu" \
   802-1x.anonymous-identity "anonymous@uni.edu" \
-  802-1x.password "your-password" \
   802-1x.ca-cert /etc/ssl/certs/ca-certificates.crt \
   802-1x.domain-suffix-match "radius.uni.edu"
+```
 
+Set the password separately, not on that command line. `/proc/<pid>/cmdline` is world readable for the life of the process, and the line lands in shell history too. `read` and `printf` are both bash builtins, so with this form the secret never becomes an argument to any process:
+
+```bash
+read -rs -p 'EAP password: ' pw
+printf 'set 802-1x.password %s\nsave\nquit\n' "$pw" \
+  | sudo nmcli connection edit eduroam
+unset pw
 sudo nmcli connection up eduroam
 ```
 
-For TTLS/PAP instead:
+For TTLS with PAP instead:
 
 ```bash
 sudo nmcli connection modify eduroam 802-1x.eap ttls 802-1x.phase2-auth pap
 sudo nmcli connection up eduroam
 ```
 
-Watch authentication if it fails:
+Most institutions publish their own RADIUS CA and hostname. Use that CA file rather than the whole system bundle where one is offered:
+
+```bash
+sudo nmcli connection modify eduroam \
+  802-1x.ca-cert /etc/ssl/certs/your-institution-ca.pem
+```
+
+Watch the authentication if it fails:
 
 ```bash
 journalctl -u NetworkManager -u wpa_supplicant -f
 ```
 
-**Verify.** `nmcli -f GENERAL.STATE connection show eduroam` reports `activated` and `ip addr show wlan0` has an address. `nmcli -f 802-1x connection show eduroam` shows the EAP settings you configured.
+**Omarchy 4.** The bar panel (`Super + Ctrl + W`) does detect an enterprise SSID and offer an identity field, so you can join from the GUI. It builds a PEAP/MSCHAPv2 profile and sets neither `802-1x.ca-cert` nor `802-1x.domain-suffix-match`, so add both to whatever profile it left behind:
 
-Sources: <https://github.com/basecamp/omarchy/issues/2382> · <https://github.com/basecamp/omarchy/issues/7257> · <https://man.archlinux.org/man/NetworkManager.conf.5>
+```bash
+sudo nmcli connection modify "<ssid>" \
+  802-1x.ca-cert /etc/ssl/certs/ca-certificates.crt \
+  802-1x.domain-suffix-match "radius.uni.edu"
+sudo nmcli connection up "<ssid>"
+```
+
+If that panel keeps showing `NOT CONNECTED` while `nmcli` reports the connection activated, the link is fine and the indicator is wrong. Trust `nmcli`.
+
+**Omarchy 3, or any install using `impala` or `iwctl`.** Those drive iwd, which wants a provisioning file under `/var/lib/iwd/<ssid>.8021x` rather than credentials typed at a prompt. Switch to NetworkManager and use the commands above, which is the route Omarchy 4 took.
+
+**Verify.** `nmcli -f GENERAL.STATE connection show eduroam` reports `activated` and `ip addr show <device>` has an address. Take the device name from `nmcli -f DEVICE,TYPE device status | grep wifi` rather than assuming `wlan0`. `nmcli -f 802-1x connection show eduroam` lists the EAP settings, and both `802-1x.ca-cert` and `802-1x.domain-suffix-match` must be non-empty there. On Omarchy 4 ignore the bar panel's connected indicator for this check and trust `nmcli`.
+
+Sources: <https://github.com/omacom/omarchy/issues/2382> · <https://github.com/omacom/omarchy/issues/7257> · <https://man.archlinux.org/man/nm-settings-nmcli.5> · <https://man.archlinux.org/man/nmcli.1> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Model.js> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/network.sh> · <https://wiki.archlinux.org/title/NetworkManager>
 
 ---
 
@@ -2537,29 +2747,106 @@ curl: (6) Could not resolve host: registry.npmjs.org
 
 Containers on `172.x` networks are fine; the broken one is on something like `192.168.0.0/20`.
 
-**Cause.** Omarchy points the Docker daemon at `"dns": ["172.17.0.1"]` and adds a UFW rule allowing Docker DNS only from `172.16.0.0/12`. Docker's documented default local address pools also include `192.168.0.0/16` split into `/20` networks — once enough `172.x` networks exist, Docker allocates from that pool instead. Containers there still use the embedded resolver `127.0.0.11`, which forwards to `172.17.0.1:53`, and UFW drops it.
+**Cause.** Docker's built-in `default-address-pools` are documented as six pools inside `172.16.0.0/12` followed by `{ "base": "192.168.0.0/16", "size": 20 }`. The three `/16` pools and three `/14` pools at size 16 supply 15 networks in total, so once those are taken the next bridge network Docker creates automatically comes out of `192.168.0.0/20`. Containers there still resolve through the embedded resolver at `127.0.0.11`, which forwards to whatever DNS server the daemon was given, and on Omarchy that is `172.17.0.1`, the docker0 gateway.
 
-> ⚠️ **Risk.** This opens UDP/53 on the Docker bridge gateway to the whole `192.168.0.0/16` range, which includes your LAN if it uses that space. Narrow the source to the exact Docker subnet if that matters to you.
+Three shipped pieces have to line up for that address to answer. `/etc/docker/daemon.json`, owned by `omarchy-settings`, sets `"dns": ["172.17.0.1"]` and `"bip": "172.17.0.1/16"`. `/etc/systemd/resolved.conf.d/20-docker-dns.conf`, same package, sets `DNSStubListenerExtra=172.17.0.1` so systemd-resolved actually listens on that address. `/usr/share/omarchy/install/config/firewall.sh` then opens port 53 on it to the container subnets.
+
+**On a current Omarchy 4 install this is already fixed and the record does not apply.** `firewall.sh` opens both pools:
+
+```sh
+ufw allow in proto udp from 172.16.0.0/12 to 172.17.0.1 port 53 comment 'allow-docker-dns'
+ufw allow in proto udp from 192.168.0.0/16 to 172.17.0.1 port 53 comment 'allow-docker-dns'
+```
+
+The second line landed when upstream issue 5464 was closed as completed on 2026-04-29, and it is still there on tag v4.0.3. `firewall.sh` runs at install time only and no Omarchy migration adds the rule afterwards, so a machine installed from an ISO older than that and upgraded in place still carries only the `172.16.0.0/12` rule and still fails. Plain Arch, EndeavourOS and CachyOS have neither rule and hit this as soon as a container on a `192.168` network needs the host as its DNS server. Check what is on the machine before adding anything.
+
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, ufw 0.36.2-7, docker 1:29.7.2-1) and against the cited issue and the Docker docs. The mechanism holds: docs.docker.com/engine/network confirms the built-in default pools verbatim, six inside `172.16.0.0/12` and then `{ "base": "192.168.0.0/16", "size": 20 }`, and 15 networks come out of the 172 pools before Docker reaches the 192.168 one. The scope is wrong. Confirmed on this machine that `/usr/share/omarchy/install/config/firewall.sh` already carries the `192.168.0.0/16` rule alongside the `172.16.0.0/12` one, and `/etc/ufw/user.rules` shows both applied as tuples with the `allow-docker-dns` comment, so the record's cause sentence saying Omarchy allows Docker DNS "only from 172.16.0.0/12" is false on any install made after upstream closed issue 5464 as completed on 2026-04-29. The rule is still on tag v4.0.3. A reader on a current machine is told to add a rule that already exists, which ufw declines as a duplicate, and learns something untrue about their own system. The record is still true for Omarchy machines installed before that fix, because `firewall.sh` runs at install time and nothing re-runs it: I grepped all 96 scripts in `/usr/share/omarchy/migrations` and the only one mentioning ufw is `1788025225.sh`, which removes retired installer sudoers files and adds no firewall rule. It is also still true on plain Arch and the derivatives, which ship neither rule. Rewrote the cause to say all of that rather than rejecting the record.
+
+On the daemon.json question I was asked to check: this record does not tell the reader to paste a whole `daemon.json`, so it does not delete anything. The keys it relies on are intact and consistent. `pacman -Qo /etc/docker/daemon.json` reports `omarchy-settings 4.0.2-1`, the file carries `"dns": ["172.17.0.1"]` and `"bip": "172.17.0.1/16"`, `ip -4 addr show docker0` shows `172.17.0.1/16` live, and `firewall.sh` opens port 53 on exactly that address. I found a third shipped piece the record never mentioned and added it, because without it the DNS server the containers are pointed at would not answer: `/etc/systemd/resolved.conf.d/20-docker-dns.conf`, also owned by `omarchy-settings` and also a pacman backup file, sets `DNSStubListenerExtra=172.17.0.1`. That is worth having in the cause, since a reader who deletes that drop-in or changes `bip` gets the same symptom for a different reason. I cross-referenced the danger with the `docker-gpu-could-not-select-device-driver` finding and confirmed `/etc/docker/daemon.json` is in the `omarchy-settings` backup array and currently unmodified, so the `.pacnew` claim in that record is correct and I repeated it here.
+
+Three smaller defects. The fix calls `docker network inspect` bare and the verify calls `docker run` bare, but Omarchy deliberately leaves the user out of the `docker` group: confirmed with `id -nG`, which shows no `docker`, and `docker network ls` here fails with `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`. Both now use `sudo`. The verify asked for "a non-zero packet count" from `sudo ufw status`, which never prints counters at all, so that check could not pass however healthy the machine, and it now points at `iptables -L ufw-user-input -n -v` instead. The danger clause was directionally right and imprecise: the rule is scoped to destination `172.17.0.1`, so a LAN host in `192.168.0.0/16` is not automatically able to reach it, but the thing behind it is a recursive resolver and anything that can route to `172.17.0.1` gets an open resolver, which is the sharper statement. I also added the alternative that avoids the firewall change entirely, a `default-address-pools` entry keeping automatic subnets inside `172.16.0.0/12`, and flagged that restarting dockerd stops running containers. `172.18.0.0/15` at size 24 is arithmetic from the documented pool format and does not overlap docker0's `bip`, but I could not run it. Severity `medium` and frequency `occasional` both stand: the consequence is failed name resolution in one container and nothing is damaged, and although the condition is now unreachable on a fresh Omarchy 4 install it remains genuine on older installs and on the three other targets the record claims.
+
+Sources: the only cited URL, `https://github.com/basecamp/omarchy/issues/5464`, is a hard 404 even after following redirects, so it is removed and replaced with the `omacom/omarchy` URL, which returns 200. I read the issue in full with `gh issue view 5464 -R omacom/omarchy`: it has no comments, was filed against Omarchy 2.x on 2026-04-27 and closed as completed two days later, and it does support the mechanism the record describes, including the observed `curl: (6) Could not resolve host` line and the workaround rule.
+
+Not exercised, and I did not use sudo on this workstation by instruction: I ran no docker command, so I never created a network in the 192.168 pool, never reproduced the resolution failure, and never confirmed the fix end to end. I ran no `ufw` command either, so the applied rules come from reading `/etc/ufw/user.rules` rather than from live `ufw status` output, and the exact `ufw status` formatting quoted in the fix is the documented two-line shape rather than a transcript from this machine. I did not restart dockerd or test the `default-address-pools` alternative.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** The rule allows any source in `192.168.0.0/16` to reach port 53 on `172.17.0.1`, and on Omarchy that address is a real recursive resolver, systemd-resolved's extra stub listener from `/etc/systemd/resolved.conf.d/20-docker-dns.conf`. A host on your LAN cannot reach it by accident, because a packet has to be addressed to `172.17.0.1` and routed to this machine, but anything on the same link that can add a route can use it as an open resolver. Narrow the source to the exact Docker subnet, or avoid the rule altogether with the `default-address-pools` change above.
+
+Editing `/etc/docker/daemon.json` carries its own risk on Omarchy 4. It is a pacman backup file owned by `omarchy-settings`, so a hand-edited copy produces a `.pacnew` during `omarchy update` that has to be merged rather than ignored, and dropping the shipped `dns` and `bip` keys breaks DNS in every container. Whatever you change, the file must stay valid JSON. A stray trailing comma makes `docker.service` fail to start and takes every container down with it, so run `python3 -m json.tool /etc/docker/daemon.json` before restarting the daemon.
 
 **Fix.**
 
-```bash
-sudo ufw status numbered | grep -i docker-dns
-docker network inspect <network> --format '{{ (index .IPAM.Config 0).Subnet }}'
-
-sudo ufw allow in from 192.168.0.0/16 to 172.17.0.1 port 53 proto udp comment allow-docker-dns-192
-sudo ufw reload
-```
-
-Add TCP as well if anything needs DNS-over-TCP fallback:
+Check what is already there first. On a current Omarchy 4 install both rules ship and `ufw` answers `Skipping adding existing rule` rather than changing anything:
 
 ```bash
-sudo ufw allow in from 192.168.0.0/16 to 172.17.0.1 port 53 proto tcp comment allow-docker-dns-192-tcp
+sudo ufw status | grep -i docker-dns
 ```
 
-**Verify.** `docker run --rm --network <network> alpine sh -c 'nslookup registry.npmjs.org'` resolves, and `sudo ufw status` lists the new rule with a non-zero packet count after the test.
+Expected on a current install:
 
-Sources: <https://github.com/basecamp/omarchy/issues/5464>
+```
+172.17.0.1 53/udp            ALLOW       172.16.0.0/12              # allow-docker-dns
+172.17.0.1 53/udp            ALLOW       192.168.0.0/16             # allow-docker-dns
+```
+
+Then confirm the broken network really is outside `172.16.0.0/12`, and that the daemon is pointing containers at the docker0 gateway. Omarchy leaves your user out of the `docker` group unless you opted in through Setup > Security > Sudoless Docker, so the client needs `sudo` or it fails with `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`:
+
+```bash
+sudo docker network inspect <network> --format '{{ (index .IPAM.Config 0).Subnet }}'
+cat /etc/docker/daemon.json
+ip -4 addr show docker0
+```
+
+If the rule really is missing, add it. It takes effect immediately, with no reload:
+
+```bash
+sudo ufw allow in proto udp from 192.168.0.0/16 to 172.17.0.1 port 53 comment 'allow-docker-dns'
+```
+
+Add TCP only if something needs the DNS-over-TCP fallback:
+
+```bash
+sudo ufw allow in proto tcp from 192.168.0.0/16 to 172.17.0.1 port 53 comment 'allow-docker-dns-tcp'
+```
+
+**The narrower fix is to keep Docker out of the 192.168 pool instead of widening the firewall.** Set `default-address-pools` so every automatically allocated subnet stays inside `172.16.0.0/12`, which the stock rule already covers. `172.18.0.0/15` gives 512 networks at size 24 and does not collide with the `172.17.0.0/16` that `bip` pins to docker0:
+
+```json
+{
+    "log-driver": "json-file",
+    "log-opts": { "max-size": "10m", "max-file": "5" },
+    "dns": ["172.17.0.1"],
+    "bip": "172.17.0.1/16",
+    "default-address-pools": [
+        { "base": "172.18.0.0/15", "size": 24 }
+    ]
+}
+```
+
+```bash
+python3 -m json.tool /etc/docker/daemon.json
+sudo systemctl restart docker.service
+```
+
+Restarting the daemon stops every running container. Existing networks keep the subnets they were created with, so delete and recreate the broken one afterwards.
+
+**Do not paste a whole-file `daemon.json` from a blog over the top on Omarchy 4.** The file is owned by `omarchy-settings` and the `dns` and `bip` keys above are what make container DNS work at all, because the firewall permits port 53 only to `172.17.0.1`. Add keys and keep the rest:
+
+```bash
+pacman -Qo /etc/docker/daemon.json     # omarchy-settings
+```
+
+On plain Arch, EndeavourOS or CachyOS the file usually does not exist and none of this applies, so set `dns` yourself or leave the daemon on the host's resolvers.
+
+**Verify.** ```bash
+sudo docker run --rm --network <network> alpine nslookup registry.npmjs.org
+```
+
+resolves, and `sudo ufw status` lists the `192.168.0.0/16` line to `172.17.0.1` port 53. Do not expect a packet count there, because `ufw status` never prints counters. If you want to see the rule matching, `sudo iptables -L ufw-user-input -n -v` shows packets against it. Before concluding the firewall was the problem, confirm the rule was absent to begin with: on a current Omarchy 4 install `sudo ufw status | grep -i docker-dns` already prints two lines, and `ufw` refuses the duplicate with `Skipping adding existing rule`.
+
+Sources: <https://github.com/omacom/omarchy/issues/5464> · <https://docs.docker.com/engine/network/> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh>
 
 ---
 
@@ -2611,6 +2898,232 @@ That only reorders getaddrinfo results; IPv6 connectivity stays up. Reserve `nmc
 **Verify.** `cat /etc/resolv.conf` shows `nameserver 127.0.0.53`; `resolvectl query proxy.golang.org` returns A and AAAA records immediately, and `ss -lunp | grep ':53'` shows resolved bound on 127.0.0.53.
 
 Sources: <https://github.com/basecamp/omarchy/issues/1478> · <https://man.archlinux.org/man/systemd-resolved.service.8>
+
+---
+
+## Disable MAC randomization for hotspots and MAC-registered networks
+
+`mac-randomization-breaks-hotspot-and-portal-networks` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Tethering to a phone hotspot "often disconnects automatically and I have to manually reconnect", while the same laptop is stable on home/office Wi-Fi. On university, hotel or corporate networks that register your device by MAC, you get kicked back to the sign-in page every reconnect and have to re-register.
+
+**Cause.** Two independent mechanisms, and only one of them is on by default. `wifi.scan-rand-mac-address` in the `[device]` section defaults to `yes`, so NetworkManager sets a random, locally administered MAC on the radio while it scans. Separately, the per-connection `wifi.cloned-mac-address` and `ethernet.cloned-mac-address` decide the address used at association, and since NetworkManager 1.6 both default to `preserve`, which means NetworkManager does not touch the MAC when a profile activates. The two combine: the random address left behind by scanning is the one carried into the association, so an AP that registers your device by MAC sees a different station each time and the lease or the portal registration does not carry over. The default is not a per-connection random MAC, which would be `random` or `stable`, and neither is set on a stock Omarchy 4 or Arch install. This mechanism fully explains the MAC-registered portal case. It is a plausible but undiagnosed explanation for plain hotspot drops, because the upstream report was filed against Omarchy 3 on the old iwd stack and nobody there identified a cause.
+
+> **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, networkmanager 1.58.1-1, wpa_supplicant 2:2.12-1, iwd not installed, kernel 7.1.9) and against the 1.58 man pages, the Arch wiki and the upstream author's reference post. Four defects. (1) The cited URL https://github.com/basecamp/omarchy/issues/4607 is a hard 404 with no redirect, so it is removed and replaced with the omacom path. Read in full, issue 4607 supports only the quoted symptom. It reports omarchy 3.3.3, nobody diagnosed a cause, MAC randomization is never mentioned, and dhh closed it with "Quattro replaces the iwd, Impala, and systemd-networkd stack with NetworkManager and the native network panel". Worse, the Arch wiki MAC_address_spoofing page states NetworkManager ignores MAC spoofing options from conf.d on the iwd backend, so the record's own fix could not have worked on the machine in the cited report. The mechanism is real on Omarchy 4, but the cited issue is not evidence for it. (2) The cause was mechanically wrong. It said NetworkManager "can also use a per-connection random MAC", implying that is a default. man nm-settings-nmcli for 1.58 states wifi.cloned-mac-address defaults to "preserve", and "preserve" means not to touch the MAC on activation. The upstream author's post records that the default changed from "permanent" to "preserve" in 1.6. So the real mechanism is that the random address left on the radio by scanning is carried into the association, which is why the fix works. Nothing on this install sets "random" or "stable". Confirmed live: wlo1 currently reads fe:86:ef:5b:7e:d4 against permaddr 3c:6a:a7:68:5c:5e, a locally administered scan address on a disconnected radio. (3) verify called ethtool -P. Confirmed on this machine that /usr/bin/ethtool does not exist and no package owns it, so ethtool is not installed on Omarchy 4. It also used wlan0, a name Omarchy 4 does not produce: naming scheme v261 under 99-default.link gives wlo1 here. Rewritten to ip -d link show, which prints permaddr, confirmed working unprivileged. (4) systemctl restart NetworkManager is heavier than needed. man nmcli 1.58 documents nmcli general reload conf, allowed non-root via PolicyKit, and the Arch wiki uses nmcli general reload. On the precedence question asked: conf.d is read in lexicographic order with later files winning, and Omarchy's /etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf (owned by omarchy-settings) has no numeric prefix, so it is read after every numerically prefixed file. It sets only wifi.powersave, so it does not shadow the MAC keys and 25-mac-stable.conf does land, but no numeric prefix can ever override Omarchy's file, which the fix now says. Confirmed the only other drop-ins are 20-omarchy-dns.conf (unowned, managed by omarchy-dns, [global-dns] only) and /usr/lib/NetworkManager/conf.d/20-connectivity.conf. nmcli syntax verified without changing anything by running nmcli --offline connection modify against a scratch keyfile: wifi.cloned-mac-address permanent is accepted and also emits the deprecated companion key mac-address-randomization=1, which the fix now notes. NOT exercised: this machine has a Wi-Fi radio (wlo1, iwlwifi) but no association is possible here, so the association-time MAC, the hotspot reconnect and the captive portal re-registration were not reproduced. Those rest on the 1.58 documentation and the upstream post, not on observation. frequency is lowered to occasional because the MAC-registered portal case is real but the headline hotspot-drop symptom was never diagnosed as MAC related in the only report cited. severity stays medium.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Pinning the permanent MAC removes the privacy benefit of randomization, so you become trackable across public networks by one stable identifier. The `[connection]` block is a global default and applies to every Wi-Fi and Ethernet profile on the machine, not only the one that misbehaves, so prefer the single-connection form if that matters. Reconnecting a profile drops the link, so do not run `nmcli connection up` on the connection carrying your only route while you are logged in over it.
+
+**Fix.**
+
+Two settings are involved and they are independent. Turn off scan randomization and force the permanent address at association:
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/25-mac-stable.conf >/dev/null <<'EOF'
+[device]
+wifi.scan-rand-mac-address=no
+
+[connection]
+wifi.cloned-mac-address=permanent
+ethernet.cloned-mac-address=permanent
+EOF
+nmcli general reload conf
+```
+
+`nmcli general reload conf` re-reads `conf.d` without restarting the service and is allowed for a non-root user through PolicyKit. The MAC is only applied when a profile activates, so reconnect the affected network:
+
+```bash
+nmcli connection down "<SSID>" && nmcli connection up "<SSID>"
+```
+
+Or for just one network, leaving randomization on elsewhere:
+
+```bash
+nmcli connection modify "<SSID>" wifi.cloned-mac-address permanent
+nmcli connection up "<SSID>"
+```
+
+That also writes the deprecated companion key `mac-address-randomization=1` into the profile, which is expected and not an error.
+
+**Omarchy 4 note on file ordering.** Omarchy ships its own drop-in, `/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf`, owned by `omarchy-settings`. Files in `conf.d` are read in lexicographic order and later files win, and because Omarchy's filename has no numeric prefix it is read after every numerically prefixed file. It sets only `wifi.powersave`, so it does not shadow the MAC keys above and `25-mac-stable.conf` takes effect. If you ever need to override `wifi.powersave` itself, no numeric prefix will do it: the file has to sort after `omarchy-`, for example `/etc/NetworkManager/conf.d/zz-local.conf`.
+
+**If you switched NetworkManager to the `iwd` backend**, none of the above applies. NetworkManager ignores MAC spoofing options from `NetworkManager.conf` and `conf.d` on that backend and the setting has to go in `/etc/iwd/main.conf`. Omarchy 4 does not install `iwd` and uses `wpa_supplicant`.
+
+**Verify.** `ethtool` is not installed on Omarchy 4, so read both addresses with `ip`. `ip -d link show <iface>` prints the current `link/ether` and the hardware `permaddr`:
+
+```bash
+ip -d link show wlo1 | grep -oE 'link/ether [0-9a-f:]+|permaddr [0-9a-f:]+'
+```
+
+They must match both while the radio is idle or scanning and while associated. Before the change they differ, and the current address has the locally administered bit set, so its first octet ends in `2`, `6`, `a` or `e`. Then reconnect to the hotspot or portal network and confirm it no longer asks you to register again. Use your own interface name from `ip -br link`, which on Omarchy 4 is typically `wlo1` or `wlp*` and not `wlan0`.
+
+Sources: <https://man.archlinux.org/man/NetworkManager.conf.5> · <https://github.com/omacom/omarchy/issues/4607> · <https://man.archlinux.org/man/nm-settings-nmcli.5> · <https://man.archlinux.org/man/nmcli.1> · <https://wiki.archlinux.org/title/MAC_address_spoofing> · <https://wiki.archlinux.org/title/NetworkManager> · <https://blogs.gnome.org/thaller/2016/08/26/mac-address-spoofing-in-networkmanager-1-4-0/>
+
+---
+
+## Fix .local hostnames, LocalSend, KDE Connect and printer discovery not working
+
+`mdns-local-hostnames-fail-ufw-blocks-5353` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** `.local` names do not resolve and service discovery finds nothing:
+
+```
+$ ping nas.local
+ping: nas.local: Name or service not known
+$ getent hosts nas.local
+$ avahi-browse --all --ignore-local --resolve --terminate
+```
+
+The last command printing nothing at all is the useful signal. Network printers never appear in `lpstat -e`, the CUPS page or the GTK print dialog. Other machines on the same LAN discover each other fine. A different fault that looks identical is KDE Connect never seeing the phone while everything else on the LAN is discoverable, because KDE Connect does not use mDNS and needs its own ports. LocalSend is not part of this symptom on Omarchy, which opens its port 53317 on both protocols at install time.
+
+**Cause.** The firewall is almost never the cause, and the widely repeated advice to open 5353/udp changes nothing on a stock install. ufw's own `/etc/ufw/before.rules` accepts inbound multicast mDNS before any user rule is consulted, on Arch and on Omarchy alike:
+
+```
+# if MULTICAST, RETURN
+-A ufw-not-local -m addrtype --dst-type MULTICAST -j RETURN
+...
+# allow MULTICAST mDNS for service discovery (be sure the MULTICAST line above
+# is uncommented)
+-A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT
+```
+
+`/etc/ufw/before6.rules` carries the `ff02::fb` equivalent. Both lines have been in ufw since 0.30.1 in March 2011, so no version anyone is running ships a default that drops multicast mDNS. Avahi never sets the unicast-response bit in the questions it asks, so every answer it wants arrives at the multicast group and is accepted by that rule. That is why discovery, `.local` names and printer browsing all work on a stock Omarchy 4 machine whose only open ports are LocalSend's 53317 and two Docker DNS rules.
+
+Three firewall shapes do break discovery, and all three are narrower than the usual advice:
+
+1. The `ufw-not-local` MULTICAST RETURN line commented out. `ufw-before-input` jumps to `ufw-not-local` before it reaches the mDNS accept, so a multicast packet dropped there never gets the chance to match. ufw's own comment above the accept warns about exactly this.
+2. Unicast mDNS replies. The accept matches destination 224.0.0.251 only, and a unicast reply does not match the conntrack entry created by a query sent to the multicast group, so it falls through to the default deny. Avahi does not ask for unicast replies, but a one-shot resolver in a script or an application library does, and a legacy unicast reply arrives at an ephemeral port that no `--dport 5353` rule can cover.
+3. KDE Connect, which is not mDNS at all. It uses ports 1714 to 1764 on both UDP and TCP, discovers over UDP broadcast, and `/etc/ufw/after.rules` sends broadcast traffic to the default deny policy without even logging it. Omarchy opens none of those ports.
+
+When `.local` genuinely fails, the fault is normally in the resolver stack rather than the firewall: `avahi-daemon` down or its socket stuck, `nss-mdns` missing from the `hosts:` line in `/etc/nsswitch.conf`, or systemd-resolved answering the `SOA` query for the `local` domain, which makes `nss-mdns` stand down. Omarchy 4 preconfigures all of that and the record `mdns-local-hostname-not-resolving` covers it.
+
+> **Audit corrected this record.** Measured on this Omarchy 4 workstation (omarchy 4.0.2-1, ufw 0.36.2-7, avahi 1:0.9rc5-1, nss-mdns 0.15.1-2) and the record's central claim is false. Confirmed on this machine: `/etc/ufw/before.rules` line 68 carries `-A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT`, `before6.rules` line 136 carries the `ff02::fb` equivalent, and the `ufw-not-local` MULTICAST RETURN at line 57 is live and not commented out, so the `-j ufw-not-local` jump at line 51 does not eat the packet before the accept. `pacman -Qii ufw` reports both files as backup files and `[unmodified]`, so this is the packaged default and not a local edit. `/etc/ufw/user.rules` opens only 53317 on both protocols, the two `allow-docker-dns` rules and my own unrelated rules, with no 5353 entry anywhere, and `avahi-browse --all --ignore-local --resolve --terminate` still lists the whole LAN including a Brother HL-3170CDW that `lpstat -e` also shows, while `getent hosts truenas.local` and `getent hosts BRN30055CC2CA73.local` both return addresses. The record's stated cause, its symptom and its headline fix are therefore all wrong on a stock install.
+
+I tested the four possibilities rather than assuming. The MULTICAST line is not commented out. The record is not describing an older ufw default: upstream commit c7acf016 of 2011-03-22, shipped in ufw 0.30.1, replaced a blanket `-s 224.0.0.0/4` plus `-d 224.0.0.0/4` ACCEPT pair with the narrow mDNS rule, and the current trunk and 0.36 branch `conf/before.rules` at git.launchpad.net both still carry it, so multicast mDNS has been accepted by default continuously since 2008 in one form or another. `ufw-not-local` does not drop it, because MULTICAST returns at line 57. What does hold is the reply-path gap, and it is narrower than the record: the accept covers destination 224.0.0.251 only, so a unicast reply is left to the default deny, and Avahi is immune to that because it never asks for one. That last point is from source rather than from a packet capture: `avahi-core/query-sched.c` line 217 and `avahi-core/probe-sched.c` lines 189 and 265 all call `avahi_dns_packet_append_key(p, k, 0)`, and `avahi-core/dns.h` line 92 names that third parameter `unicast_response`. RFC 6762 section 5.4 defines the bit and section 6.7 requires a unicast reply to a query whose source port is not 5353, which is why a one-shot resolver can still fail where Avahi does not.
+
+Two further defects. The symptom and title blame closed 5353 for LocalSend and printer discovery: Omarchy's `/usr/share/omarchy/install/config/firewall.sh` opens 53317 on both protocols for LocalSend, and printer discovery demonstrably works here, so both attributions are wrong. The fix told the reader to reconcile a `/etc/nsswitch.conf` `.pacnew`, which will never appear: the `omarchy-settings 4.0.2-1` scriptlet at `/var/lib/pacman/local/omarchy-settings-4.0.2-1/install` line 19 runs `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from both `post_install` and `post_upgrade`, with an upstream comment saying the copies are intentionally destructive on every install and upgrade. The KDE Connect half of the fix is the one part of the firewall advice that is genuinely needed, confirmed against userbase.kde.org, which gives the 1714 to 1764 range on UDP and TCP, against `/etc/ufw/after.rules`, which sends broadcast to the policy without logging, and against the absence of `kdeconnect` and of any 1714 reference anywhere in `/usr/share/omarchy`. I scrutinised both danger clauses: the exposure clause was misleading, because a stock box already answers multicast queries from the whole link, so the rule adds only the unicast path, and the real hazard is the hardening edit that comments out the MULTICAST RETURN. The nsswitch clause was right about the risk and wrong about `.pacnew`. Rewrote symptom, cause, fix, verify and danger, dropped the systemd-resolved switch section to the sibling record rather than duplicating it, and lowered frequency from `very-common` to `occasional` because the condition as stated is not reachable on a stock machine and the residual shapes are uncommon. Severity stays `medium`: nothing here loses data or breaks boot. Removed the two `basecamp/omarchy/blob/master/...` URLs, both hard 404s after following the redirect.
+
+On the boundary question: this and `mdns-local-hostname-not-resolving` are one problem, not two. The symptom is identical, the diagnosis is a single ordered path, and the two records now cross-reference each other in both directions, which is the shape a split leaves behind. `mdns-local-hostname-not-resolving` should survive. Its slug and title are neutral and its Omarchy framing is correct, whereas this record's slug asserts the cause I just disproved and no verdict field can rename it, so keeping it means publishing a permanent URL that states a falsehood. The survivor must take three things from here that it does not have. First, the negative firewall finding with the exact `before.rules` text, the ufw 0.30.1 floor and the instruction not to open 5353, because the wrong advice is what circulates online and a reader needs it refuted rather than merely omitted. Second, the `ufw-not-local` ordering trap and its danger clause. Third, the unicast reply caveat for one-shot resolvers. It already has the better nsswitch danger, the `getent` versus `resolvectl` rule and the SOA precondition, so those need nothing. The KDE Connect ports should not be merged in at all, because KDE Connect does not use mDNS. They belong in a new `network` record of their own, and dropping them into an mDNS record is how this pair got confused in the first place. Note for whoever merges: the survivor sits in `apps-services` and a merged record about `.local` and discovery belongs in `network`, so the merge is also a category move.
+
+Not exercised, and I did not use sudo on this workstation by instruction: I never ran `ufw`, so I have no live `ufw status` output and no rule counters, and I did not add or remove a rule, comment out the MULTICAST RETURN to watch discovery break, capture packets to see whether any responder here answers by unicast, install `bind` to run `host -t SOA local`, test KDE Connect, or exercise the `mdns.allow` fallback. The conntrack argument for unicast replies being dropped is reasoned from the rule set and RFC 6762 rather than measured.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Opening 5353/udp exposes less than it appears to, and that cuts both ways. Avahi already answers multicast queries from the whole local link with no user rule at all, because `/etc/ufw/before.rules` accepts them, so your hostname and advertised services are visible on café and hotel Wi-Fi whether or not you add anything. If that matters, stop `avahi-daemon.service` on untrusted networks rather than trusting a closed port to hide you.
+
+The real hazard here is the opposite edit. Commenting out `-A ufw-not-local -m addrtype --dst-type MULTICAST -j RETURN` as a hardening step silently removes `.local` resolution, service discovery and network printing, and the breakage surfaces nowhere near the file that caused it. Copy the file aside before touching it with `sudo cp /etc/ufw/before.rules /etc/ufw/before.rules.bak`, and remember it is a pacman backup file that can arrive as a `.pacnew` on a ufw upgrade.
+
+Editing `/etc/nsswitch.conf` incorrectly breaks all name resolution system-wide, pacman included. Copy it aside with `sudo cp /etc/nsswitch.conf /etc/nsswitch.conf.bak` and test with `getent hosts archlinux.org` before you log out. On Omarchy 4 the edit will not last in any case: `omarchy-settings` runs `cp -f /usr/share/omarchy/etc-overrides/nsswitch.conf /etc/nsswitch.conf` from both `post_install` and `post_upgrade`, and upstream's own comment on those lines says customizations are reset to Omarchy defaults on every upgrade. There is no `.pacnew`, no backup and nothing for `pacdiff` to offer, so do not plan to reconcile one.
+
+The KDE Connect rules open 51 ports on two protocols to everything on the link. Scope them to your own network if you roam.
+
+**Fix.**
+
+Diagnose in this order. Everything here is read-only:
+
+```bash
+systemctl is-active avahi-daemon.service
+grep '^hosts:' /etc/nsswitch.conf
+getent hosts nas.local
+avahi-browse --all --ignore-local --resolve --terminate
+```
+
+`getent hosts` is the test that matters, because it is the path applications use. Do not judge this by `resolvectl query`, which reports only systemd-resolved and fails with `No appropriate name servers or networks for name found` on a perfectly healthy Omarchy 4 machine.
+
+**Check the firewall before you change it, because the rule you are about to add is almost certainly already there.** These three lines ship with ufw itself and all three must be present and uncommented:
+
+```bash
+grep -n 'dst-type MULTICAST' /etc/ufw/before.rules
+grep -n '224.0.0.251' /etc/ufw/before.rules
+grep -n 'ff02::fb' /etc/ufw/before6.rules
+```
+
+On a stock Omarchy 4 or Arch install that prints:
+
+```
+57:-A ufw-not-local -m addrtype --dst-type MULTICAST -j RETURN
+68:-A ufw-before-input -p udp -d 224.0.0.251 --dport 5353 -j ACCEPT
+136:-A ufw6-before-input -p udp -d ff02::fb --dport 5353 -j ACCEPT
+```
+
+If one of them is commented out, that is the fault. `/etc/ufw/before.rules` is a pacman backup file, so copy it aside, uncomment the line by hand and reload:
+
+```bash
+sudo cp /etc/ufw/before.rules /etc/ufw/before.rules.bak
+sudoedit /etc/ufw/before.rules
+sudo ufw reload
+```
+
+If all three are present, stop here. Opening 5353/udp will not help and the fault is in the resolver stack instead.
+
+**Open 5353/udp only for unicast mDNS**, which Avahi never asks for and some application libraries and one-shot resolvers do:
+
+```bash
+sudo ufw allow 5353/udp comment 'mDNS unicast replies'
+```
+
+Scope it to your own network if you use café or hotel Wi-Fi:
+
+```bash
+sudo ufw allow in proto udp from 192.168.0.0/16 to any port 5353 comment 'mDNS unicast, LAN only'
+```
+
+**KDE Connect is a separate problem that looks the same.** It is not mDNS, it needs ports 1714 to 1764 on both protocols, and Omarchy opens neither range:
+
+```bash
+sudo ufw allow 1714:1764/udp comment 'KDE Connect'
+sudo ufw allow 1714:1764/tcp comment 'KDE Connect'
+```
+
+**If `getent hosts nas.local` fails, work on the resolver and leave the firewall alone.**
+
+On Omarchy 4 there is nothing to install. `avahi` and `nss-mdns` are in `/usr/share/omarchy/install/omarchy-base.packages`, `/usr/share/omarchy/install/config/enable-services.sh` enables `avahi-daemon.service`, and `/etc/nsswitch.conf` already reads `hosts: mymachines mdns_minimal [NOTFOUND=return] resolve files myhostname dns`. Restart both Avahi units, because a stuck `/run/avahi-daemon/socket` stops NSS forwarding lookups to mDNS:
+
+```bash
+systemctl status avahi-daemon.service
+sudo systemctl restart avahi-daemon.service avahi-daemon.socket
+getent hosts nas.local
+```
+
+On plain Arch, EndeavourOS, CachyOS or Manjaro nothing is preconfigured:
+
+```bash
+sudo pacman -S --needed avahi nss-mdns
+sudo systemctl enable --now avahi-daemon.service
+```
+
+```ini
+# /etc/nsswitch.conf, mdns_minimal must come BEFORE resolve and dns
+hosts: mymachines mdns_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
+```
+
+**If `.local` still fails, check the SOA precondition.** `nss-mdns` stands down for `.local` when the DNS server in `/etc/resolv.conf` answers `SOA` for the `local` domain. The `host` command comes from `bind`, which Omarchy does not ship. Plain `pacman -S` is safe here, because Omarchy's ALPM guard aborts only when both `-S` and `-u` are present:
+
+```bash
+sudo pacman -S --needed bind
+host -t SOA local
+```
+
+`NXDOMAIN` is the answer you want. Anything else, switch to the full `mdns` module and confine it to `.local` with an allow-list:
+
+```ini
+# /etc/nsswitch.conf
+hosts: mymachines mdns [NOTFOUND=return] resolve [!UNAVAIL=return] files myhostname dns
+```
+
+```bash
+sudo tee /etc/mdns.allow >/dev/null <<'EOF'
+.local.
+.local
+EOF
+```
+
+Which stack owns `.local` on Omarchy, why `resolvectl` is the wrong test, and what to do when two responders fight over the hostname are covered by the record `mdns-local-hostname-not-resolving`. Read that before switching Omarchy to systemd-resolved for mDNS, because stopping `avahi-daemon` also removes CUPS printer discovery.
+
+**Verify.** `getent hosts nas.local` returns an address, `avahi-browse --all --ignore-local --resolve --terminate` lists services from other machines, and `lpstat -e` lists the network printer. Before you conclude the firewall was the problem, confirm it ever was: `grep -n '224.0.0.251' /etc/ufw/before.rules` printing an uncommented ACCEPT line means multicast mDNS was already allowed and any 5353 rule you added made no difference. Do not verify with `resolvectl query`, which reports only systemd-resolved and fails on a working Omarchy 4 box, and do not verify with `host`, which bypasses NSS and therefore bypasses `nss-mdns`. If you added the KDE Connect rules, `sudo ufw status` lists both 1714:1764 ranges and the phone appears in the KDE Connect app.
+
+Sources: <https://wiki.archlinux.org/title/Avahi> · <https://wiki.archlinux.org/title/Systemd-resolved> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://git.launchpad.net/ufw/plain/conf/before.rules> · <https://git.launchpad.net/ufw/patch/?id=c7acf0166e9cb175d32c42ee957c2a0d89fc9c87> · <https://www.rfc-editor.org/rfc/rfc6762.txt> · <https://github.com/avahi/avahi/blob/master/avahi-core/query-sched.c> · <https://github.com/avahi/avahi/blob/master/avahi-core/dns.h> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/omacom/omarchy/blob/quattro/etc/nsswitch.conf> · <https://userbase.kde.org/KDEConnect>
 
 ---
 
@@ -2681,6 +3194,139 @@ Sources: <https://tailscale.com/docs/reference/messages/client/docker-stateful-f
 
 ---
 
+## Stop Wi-Fi dropping every few minutes by disabling power save
+
+`wifi-drops-every-few-minutes-powersave` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `wayland`
+
+**Symptom.** "Every 5 or so minutes, my wifi disconnects, no matter what WiFi I'm on." The connection reassociates by itself after a delay, or needs a manual reconnect. It is worse on battery, and on phone hotspots the drop happens most often while the screen is idle. On a stock Omarchy 4 install this is unlikely to be power save, because Omarchy already ships a NetworkManager drop-in that turns power save off. Reach for this record on plain Arch, or on Omarchy only after checking that something has overridden that drop-in or that a per-connection setting is defeating it.
+
+**Cause.** With no configuration, NetworkManager leaves `wifi.powersave` at `ignore` and the driver default stands, which on most Intel, Realtek and MediaTek parts means 802.11 power save is on. The radio sleeps between beacons, and access points with aggressive client timeouts, phone hotspots especially, age the station out so the driver has to reassociate.
+
+Two things change that picture on Omarchy 4. First, `omarchy-settings` installs `/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf` with `wifi.powersave = 2`, so power save is already off out of the box and this cause is already handled. Second, NetworkManager only consults that global default when the connection profile's own `802-11-wireless.powersave` is `0` (default). A profile saved with `3` (enable) or `1` (ignore) beats the drop-in, which is the remaining way a stock Omarchy 4 machine can still suffer this.
+
+> **Audit corrected this record.** The fix is work Omarchy 4 already does, which the record does not mention. Confirmed on this machine: `/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf` exists, `pacman -Qo` reports it owned by `omarchy-settings 4.0.2-1`, it contains `[connection]` with `wifi.powersave = 2`, and `NetworkManager --print-config` reports `wifi.powersave=2` as the effective value on `networkmanager 1.58.1-1`. It is also in upstream `v4.0.3` at `etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf`, so it is not a local artefact. `/usr/share/omarchy/migrations/1784914435.sh` additionally runs `iw dev <iface> set power_save off` on every wireless interface, and its own comment states why: NetworkManager applies `wifi.powersave` only when a connection activates. That matches what I measured, `iw dev wlo1 get power_save` prints `Power save: on` on this machine despite the drop-in, because `wlo1` is disconnected. The record's verify step would therefore read as a failure on a correctly configured machine.
+
+Load order is wrong in the record and confirmed wrong here. `NetworkManager --print-config` lists its conf.d files as `{20-omarchy-dns.conf, omarchy-wifi-powersave.conf}`, and NetworkManager.conf(5) says later files override earlier ones, so the record's `20-wifi-powersave.conf` is read before the package file and loses to it. Harmless while both set `2`, but the record is teaching a name that cannot win. I also checked `pacman -Qii omarchy-settings`: that conf is not in the backup list, so editing it in place is overwritten on upgrade with no `.pacnew`, which the record's danger field does not cover. A second mechanism the record misses is that nm-settings-nmcli(5) defines `802-11-wireless.powersave` as default (0), ignore (1), disable (2), enable (3), and NetworkManager.conf(5) states a `[connection]` default is only consulted when the per-profile property asks for it, so a profile saved with `3` defeats any drop-in. That is the one way this still bites a stock Omarchy 4 machine, and the record does not mention it.
+
+`wlan0` does not exist on Omarchy 4. Confirmed on this machine, the only wireless interface is `wlo1`, with no `net.ifnames=0` on the kernel cmdline, so both the live test and the verify command as written fail outright. The Intel modprobe advice is half dead. `modinfo -p iwlwifi` on kernel 7.1.9 shows `power_save` with `default: disable`, so `power_save=0` is a no-op, and a GitHub code search of torvalds/linux master finds `iwlwifi_mod_params.power_save` read only in `drivers/net/wireless/intel/iwlwifi/dvm/mac80211.c`, meaning iwldvm 5000 and 6000 series cards only. `options iwlmvm power_scheme=1` is real, confirmed consumed in `mvm/power.c` and `mvm/mac80211.c`, but kernel 7.1.9 also ships `iwlmld` for BE200 class parts, and `modinfo -p iwlmld` reports its own `power_scheme` with values 1-active and 2-balanced. The record names only iwlmvm, so the exact hardware Omarchy's drop-in comment calls out is the hardware it misses.
+
+Both cited GitHub URLs are dead and neither issue supports the cause. `https://github.com/basecamp/omarchy/issues/3882` and `.../2925` both return HTTP 404 to `curl -sL`, because the repo is now `omacom/omarchy`. Read in full with `gh issue view 3882 -R omacom/omarchy --comments`: the body is the record's symptom verbatim on Omarchy 3.2.2, but the thread converges on Portmaster, on NetworkManager and systemd-networkd both running, and on several users saying the problem started when they installed NetworkManager at all. One comment offers `sudo iw dev wlan0 set power_save off` with nobody confirming it, and another user states that disabling power save did not work. Issue 2925 is a different problem entirely, network dead after suspend, with DNS, tailscaled and NordVPN named, and one commenter merely proposing to try power save without ever reporting a result. Both threads are Omarchy 3, which shipped `iwd`, so the record's NetworkManager fix did not even apply to those machines. `iwd` is not installed here and `systemd-networkd` is disabled and inactive. I am keeping 3882 under its `omacom` URL because it is the source of the symptom text and removing both would leave the record with only a man page, and dropping 2925, which supports nothing the record claims.
+
+Frequency drops from `very-common` to `occasional`, because on Omarchy 4 the distribution already applies the fix and only an overriding per-connection value or a removed drop-in can reproduce it. Severity stays `medium`. Not exercised: this workstation has an Intel Wireless-AC 9560 CNVi part (`8086:a370`, subsystem `8086:0034`, driver `iwlwifi`) but `wlo1` is down and the machine runs on `eno2`, and I was told not to change any NetworkManager or radio state, so I did not associate, did not measure any disconnect rate, and did not test any modprobe option or reboot.
+>
+> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Turning Wi-Fi power save off costs idle battery, though the amount is small. Omarchy's own drop-in describes the trade as a fraction of a watt against 20 to 300 ms latency spikes on an idle link.
+
+Two traps matter more than the power. Do not edit `/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf` in place: it belongs to `omarchy-settings` and is not a pacman backup file, so the next upgrade overwrites the edit without producing a `.pacnew` and your change disappears with no warning. And if you add your own drop-in, check where its name sorts. NetworkManager reads `conf.d/*.conf` in filename order with later files winning, so a numeric prefix such as `20-` loses to `omarchy-wifi-powersave.conf` and silently has no effect.
+
+**Fix.**
+
+First check whether the machine already has this handled. On Omarchy 4 it does:
+
+```bash
+cat /etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf
+pacman -Qo /etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf
+NetworkManager --print-config | sed -n '/^\[connection\]/,/^$/p'
+```
+
+If `wifi.powersave=2` is already the effective value, stop. Adding another drop-in changes nothing and the cause is elsewhere.
+
+Find the real interface name. Omarchy 4 uses predictable names such as `wlo1` or `wlp3s0`, and `wlan0` does not exist:
+
+```bash
+for w in /sys/class/net/*/wireless; do basename "$(dirname "$w")"; done
+iw dev | awk '/Interface/ {print $2}'
+```
+
+Use that name everywhere below in place of `wlo1`.
+
+Check the per-connection value, because it overrides the global default unless it is `0`:
+
+```bash
+nmcli -g NAME connection show --active
+nmcli -g 802-11-wireless.powersave connection show "<profile>"
+```
+
+`0` is default (use the global value), `1` is ignore, `2` is disable, `3` is enable. Anything other than `0` is what you need to change:
+
+```bash
+sudo nmcli connection modify "<profile>" 802-11-wireless.powersave 2
+sudo nmcli connection up "<profile>"
+```
+
+**Plain Arch, or Omarchy where the shipped drop-in has been removed.** Add a drop-in whose name sorts after any existing one, because NetworkManager reads `/etc/NetworkManager/conf.d/*.conf` in filename order and later files win. A file called `20-wifi-powersave.conf` sorts before `omarchy-wifi-powersave.conf` and would lose to it:
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/zz-wifi-powersave.conf >/dev/null <<'EOF'
+[connection]
+wifi.powersave = 2
+EOF
+sudo nmcli general reload conf
+```
+
+Do not edit `/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf` itself. It is owned by `omarchy-settings` and is not in that package's backup list, so an upgrade overwrites your edit silently and leaves no `.pacnew` behind.
+
+NetworkManager applies `wifi.powersave` only when a connection activates, so the running session needs one more step. Omarchy's own migration at `/usr/share/omarchy/migrations/1784914435.sh` does exactly this:
+
+```bash
+sudo iw dev wlo1 set power_save off
+```
+
+That is not persistent by itself. It is a live test and a way to settle the current session, not the fix.
+
+**Intel driver level, only if the NetworkManager route did not help.** Identify which Intel driver the card uses first, because the parameter differs and two of the three commonly cited options do nothing:
+
+```bash
+basename "$(readlink -f /sys/class/net/wlo1/device/driver)"
+ls /sys/module | grep -E '^iwl(mvm|mld|dvm)$'
+```
+
+For `iwlmvm` (7260 and newer through AX210):
+
+```bash
+sudo tee /etc/modprobe.d/iwlwifi-power.conf >/dev/null <<'EOF'
+options iwlmvm power_scheme=1
+EOF
+sudo reboot
+```
+
+For `iwlmld`, which kernel 7.1 uses for BE200 class cards, the parameter lives on that module instead and accepts only `1` (active) or `2` (balanced):
+
+```bash
+sudo tee /etc/modprobe.d/iwlwifi-power.conf >/dev/null <<'EOF'
+options iwlmld power_scheme=1
+EOF
+sudo reboot
+```
+
+Do not bother with `options iwlwifi power_save=0`. Its default is already false, and the only in-tree consumer is `drivers/net/wireless/intel/iwlwifi/dvm/mac80211.c`, so it reaches nothing newer than the 5000 and 6000 series cards.
+
+**Verify.** Read the effective NetworkManager value, which does not depend on being connected:
+
+```bash
+NetworkManager --print-config | sed -n '/^\[connection\]/,/^$/p'
+nmcli -g 802-11-wireless.powersave connection show "<profile>"
+```
+
+Then check the radio itself, but only while the link is up, because NetworkManager applies the setting on activation and a disconnected interface still reports the driver default:
+
+```bash
+iw dev wlo1 link          # must show a connected BSS first
+iw dev wlo1 get power_save   # expect: Power save: off
+```
+
+Finally, count the drops over a long idle period rather than grepping for a word that appears in routine log lines:
+
+```bash
+journalctl -u NetworkManager --since '2 hours ago' \
+  | grep -cE 'state change: (activated|ip-config) -> (deactivating|disconnected)'
+```
+
+Sources: <https://man.archlinux.org/man/NetworkManager.conf.5> · <https://github.com/omacom/omarchy/issues/3882> · <https://github.com/omacom/omarchy/blob/v4.0.3/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf> · <https://man.archlinux.org/man/nm-settings-nmcli.5> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/iwl-drv.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/iwl-modparams.h> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/mvm/power.c>
+
+---
+
 ## Stop re-pairing Bluetooth devices every time you switch between Linux and Windows
 
 `bluetooth-pairing-lost-every-windows-dualboot` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -2689,20 +3335,29 @@ Sources: <https://tailscale.com/docs/reference/messages/client/docker-stateful-f
 
 **Cause.** Both installations share one Bluetooth adapter and therefore one adapter MAC address, but each generates its own link key during pairing. The device remembers only the most recent key for that MAC, so whichever OS paired last owns the device and the other is locked out. Nothing is broken; the two key stores have simply diverged.
 
-> ⚠️ **Risk.** Editing files under `/var/lib/bluetooth` while `bluetooth.service` is running will get your changes silently overwritten when the daemon flushes state — always stop the service first. Mounting the Windows partition read-write while Windows Fast Startup or hibernation is active can corrupt the NTFS filesystem; run `powercfg /h off` in Windows and do a full shutdown first, and mount read-only if you only need to read the hive (`sudo mount -o ro ...`). Back up `/var/lib/bluetooth` before editing.
+> **Audit corrected this record.** Checked both cited pages and both resolve and support the record. I fetched the Arch Bluetooth page as raw wikitext and read the whole "Dual boot pairing", "Preparing Bluetooth 5.1 Keys" and "Saving the configuration" sections, plus the "Default transport 3.0 vs 5.x" section, and the Dual boot with Windows page, whose "Bluetooth pairing" section states the shared adapter MAC and divergent link keys exactly as the cause does. Confirmed on this machine at bluez 5.87-2: `/usr/share/doc/bluez/dbus-apis/settings-storage.txt` documents the `/var/lib/bluetooth/<adapter>/<device>/info` layout and the `[LinkKey]`, `[LongTermKey]` and `[PeripheralLongTermKey]` groups, and BlueZ 5.87's own `src/adapter.c` (fetched from kernel.org at tag 5.87) reads `[LinkKey] Key`, `[IdentityResolvingKey] Key`, then `[PeripheralLongTermKey]` with `[SlaveLongTermKey]` as the fallback, so all three stanzas the record names are still live and writing the LTK into both long term key groups is right. `chntpw` is `extra/chntpw 140201-5` (Arch package JSON) and is not installed here, so I extracted the package into `/tmp` and read its `MANUAL.txt`: `-e`, `hex <valuepath>` and the `b : REG_QWORD` type the BLE output shows are all real, and `reged -x` exists too. Confirmed here that `chntpw -e` tries read-write and prints `openHive(...) failed: Permission denied, trying read-only`, which is why the corrected fix copies the hive out and mounts `-o ro` instead of the record's bare read-write `mount`, a command that contradicted the record's own danger field. Confirmed here that `pacman -S --needed chntpw` is not blocked: `/usr/bin/omarchy-update-pacman-guard` aborts only when a sync and a sysupgrade flag both appear. Four real defects, so `corrected`: the fix mounted NTFS read-write, it never mentions that a BitLocker volume cannot be read this way at all (the wiki says so and current Windows enables device encryption on many installs), it says nothing about handling extracted link keys as secrets, and it ignores two Omarchy 4 behaviours I read in `/usr/share/omarchy/bin/omarchy-bluetooth-power`, `install/hardware/bluetooth.sh`, `migrations/1786380259.sh` and `shell/plugins/panels/bluetooth/Panel.qml`, namely that Bluetooth power lives in a persisted rfkill soft block so a restarted `bluetooth.service` can come back with no controller, and that the panel's forget key and `omarchy-bluetooth-device forget` both delete the device directory and the imported key with it. Where it touches the sibling record `bluetooth-panel-turned-off-while-adapter-powered`: that one is the Quickshell panel caching `Powered: false` while BlueZ says true, this one only tells the reader to check the rfkill block after the service restart, and the two do not overlap further. Also confirmed that Omarchy writes `/etc/bluetooth/main.conf` only in that one time `AutoEnable` migration, so the `ControllerMode = bredr` advice is safe, that `[General]` is line 1 of the shipped file with `#ControllerMode = dual` at line 52, that GLib merges duplicate `[General]` groups (tested with the system GLib), that `ntfs3` ships with kernel 7.1.9 while `ntfs-3g` is absent so a bare `mount` is correct, and that `bt-dualboot`, `bt-dualboot-ng` and `bluetooth-dualboot` all still exist, the first two in the AUR. `v4.0.2...v4.0.3` touches no Bluetooth file and `v4.0.3` is the newest tag. NOT exercised: there is no dual-boot Windows install here and no test device, so I never extracted a real key, never mounted an NTFS partition, never edited `/var/lib/bluetooth`, never stopped `bluetooth.service` and never paired or unpaired anything. Severity `low` and frequency `common` are left alone: the consequence is one unusable peripheral with an obvious workaround, and the hazards live in the fix rather than in the problem.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Editing files under `/var/lib/bluetooth` while `bluetooth.service` is running gets the change silently overwritten when the daemon flushes state, so stop the service first and keep a copy (`sudo cp -a /var/lib/bluetooth /var/lib/bluetooth.bak`). Mounting the Windows partition read-write while Fast Startup or hibernation is active can corrupt the NTFS filesystem: run `powercfg /h off` in Windows, do a full shutdown, and mount read only (`sudo mount -o ro ...`), because reading the hive needs nothing more. A wrong, truncated or lower case key leaves the device unusable from Linux, and editing the Windows side instead can leave it unusable from both operating systems, with `bluetoothctl remove <MAC>` and a fresh pairing in each OS as the only way back. The extracted keys are long term secrets that let anything holding them impersonate your adapter to that device, so never paste them into an issue, a paste site or a chat, and delete the hive copy and any `.reg` export when you are done. `bluetoothctl remove`, the Omarchy shell panel's forget key and `omarchy-bluetooth-device forget` all delete the device directory, so one keystroke throws an imported key away.
 
 **Fix.**
 
-Pair the device in **Linux first**, then reboot into Windows and pair it there. Then copy the Windows key back into BlueZ.
+Pair the device in **Linux first**, then reboot into Windows and pair it there. Then copy the Windows key back into BlueZ. Switch the device itself off before extracting anything so it cannot reconnect part way through.
 
-**Extract the key from Linux (no Windows tooling needed).** Mount the Windows system drive and read the registry hive with `chntpw`:
+**Extract the key from Linux (no Windows tooling needed).** Mount the Windows system drive **read only** and work on a copy of the registry hive, so nothing can write to NTFS:
 
 ```bash
 sudo pacman -S --needed chntpw
-sudo mkdir -p /mnt/win && sudo mount /dev/nvme0n1p3 /mnt/win
-cd /mnt/win/Windows/System32/config
-sudo chntpw -e SYSTEM
+lsblk -f                                      # find the NTFS partition holding Windows
+sudo mkdir -p /mnt/win
+sudo mount -o ro /dev/nvme0n1p3 /mnt/win      # in-kernel ntfs3, no -t needed
+sudo cp /mnt/win/Windows/System32/config/SYSTEM ~/SYSTEM.hive
+sudo chown "$USER" ~/SYSTEM.hive
+chntpw -e ~/SYSTEM.hive
 ```
+
+`chntpw -e` opens a hive read-write and only warns (`openHive(...) failed: Permission denied, trying read-only`) before falling back, so handing it a copy is what guarantees the Windows hive is never touched. If Windows is encrypted with BitLocker the hive cannot be read from Linux at all, and the Windows-side route below is the only way.
 
 Inside `chntpw`:
 
@@ -2714,34 +3369,52 @@ Inside `chntpw`:
 > hex <device-mac>         # non-BLE: 16 bytes, this is the link key
 ```
 
-If you see `ControlSet001` instead of `CurrentControlSet`, use that. If instead of a single 16-byte `REG_BINARY` you see a subkey containing `LTK`, `IRK`, `ERand`, `EDIV`, `AuthReq`, the device is Bluetooth 5.1 / BLE and needs the extra transformations documented on the Arch Bluetooth page — read those values with `hex <value_name>`.
+If you see `ControlSet001` instead of `CurrentControlSet`, use that. If instead of a single 16-byte `REG_BINARY` you see a subkey containing `LTK`, `KeyLength`, `ERand`, `EDIV`, `IRK`, `AuthReq`, the device is Bluetooth 5.1 / BLE and needs the extra transformations documented on the Arch Bluetooth page under "Preparing Bluetooth 5.1 Keys". Read those values with `hex <value_name>`.
 
-**Extract from Windows instead**, if you prefer: the `Keys` hive is only readable by SYSTEM, so run regedit under that account with Sysinternals PsExec (`.\PsExec64.exe -s -i regedit.exe`), navigate to `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Keys`, and export the adapter's key as a `.reg` file.
+**Extract from Windows instead**, if you prefer or if BitLocker is in the way: the `Keys` hive is only readable by SYSTEM, so run regedit under that account with Sysinternals PsExec (`.\PsExec64.exe -s -i regedit.exe`), navigate to `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Keys`, and export the adapter's key as a `.reg` file.
 
-**Write the key into BlueZ.** Stop the daemon first so it does not overwrite your edit:
+**Write the key into BlueZ.** Stop the daemon first so it does not overwrite your edit, and back the state directory up:
 
 ```bash
 sudo systemctl stop bluetooth.service
+sudo cp -a /var/lib/bluetooth /var/lib/bluetooth.bak
 sudo nano /var/lib/bluetooth/<ADAPTER-MAC>/<DEVICE-MAC>/info
 ```
 
-For a classic (non-BLE) device, replace the key under `[LinkKey]`:
+For a classic (non-BLE) device, replace the key under `[LinkKey]` and leave the `Type` and `PINLength` lines alone:
 
 ```ini
 [LinkKey]
 Key=0123456789ABCDEF0123456789ABCDEF
 ```
 
-Uppercase hex, no spaces, no separators. For a BLE device, substitute the corresponding values under `[IdentityResolvingKey]`, `[PeripheralLongTermKey]` and `[SlaveLongTermKey]`.
+Uppercase hex, no spaces, no separators. For a BLE device, substitute the corresponding values under `[IdentityResolvingKey]`, `[PeripheralLongTermKey]` and `[SlaveLongTermKey]`. Write the long term key into both of those groups: BlueZ 5.87 reads `[PeripheralLongTermKey]` first and falls back to `[SlaveLongTermKey]`, and it writes both itself.
 
 ```bash
 sudo systemctl start bluetooth.service
 bluetoothctl connect <DEVICE-MAC>
 ```
 
-Some devices — notably the Logitech MX Master line and Logitech Lightspeed receivers — increment the last octet of their own MAC on each new pairing. If so, rename the directory under `/var/lib/bluetooth/<ADAPTER-MAC>/` to the incremented address that Windows recorded before restarting the daemon.
+**On Omarchy 4 the adapter can come back unpowered, which looks like a key failure and is not.** Omarchy keeps the Bluetooth on and off state in the rfkill soft block rather than in BlueZ, and systemd-rfkill restores that block on the next boot, so if Bluetooth was ever switched off from the shell panel BlueZ refuses to power the adapter and `bluetoothctl` reports no default controller:
 
-**If you want to avoid the BLE complications entirely**, force the adapter to classic transport:
+```bash
+omarchy-bluetooth-power is-on || omarchy-bluetooth-power on
+```
+
+Do not reach for `bluetoothctl remove`, the shell panel's `x` key or `omarchy-bluetooth-device forget <MAC>` afterwards. All three delete `/var/lib/bluetooth/<ADAPTER-MAC>/<DEVICE-MAC>/`, taking the key you just imported with it.
+
+**Clean up the key material.** A link key is a long term secret for that device:
+
+```bash
+rm -f ~/SYSTEM.hive ~/bt-keys.reg
+sudo umount /mnt/win
+```
+
+On the btrfs root Omarchy installs, `shred` cannot promise the old blocks are gone, so treat any key that left the machine as burnt and re-pair the device instead.
+
+Some devices, notably the Logitech MX Master line and Logitech Lightspeed receivers, increment the last octet of their own MAC on each new pairing. If so, rename the directory under `/var/lib/bluetooth/<ADAPTER-MAC>/` to the incremented address that Windows recorded before restarting the daemon.
+
+**If you want to avoid the BLE complications entirely**, force the adapter to classic transport. The shipped `/etc/bluetooth/main.conf` already carries the line commented out inside its `[General]` group, so edit it in place:
 
 ```ini
 # /etc/bluetooth/main.conf
@@ -2749,12 +3422,21 @@ Some devices — notably the Logitech MX Master line and Logitech Lightspeed rec
 ControllerMode = bredr
 ```
 
-**To automate the whole thing**, the `bt-dualboot` project scripts the extraction and import (it does not support BLE), and `bluetooth-dualboot` walks you through the commands without editing files itself.
+Omarchy does not manage that file. Its only write is a one time migration that reverts the `AutoEnable=false` line Omarchy used to set, so a `ControllerMode` edit survives an `omarchy update`.
+
+**To automate the whole thing**, `bt-dualboot` (AUR `bt-dualboot`) scripts the extraction and import and does not support BLE, a newer fork is packaged as AUR `bt-dualboot-ng`, and `bluetooth-dualboot` walks you through the commands without editing files itself.
 
 **Between two Linux installs** this is much simpler: just make `/var/lib/bluetooth/<ADAPTER-MAC>/` identical on both, by copying or symlinking.
 
-**Verify.** Reboot into Windows, use the device, reboot back into Linux, and connect without re-pairing. `bluetoothctl info <DEVICE-MAC>` shows `Paired: yes` and `Connected: yes` in both directions across several reboots.
+**Verify.** Reboot into Windows, use the device, reboot back into Linux, and connect without re-pairing. Check the edit actually survived the daemon restart first, because an edit made while `bluetooth.service` was running is the usual failure:
 
-Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://wiki.archlinux.org/title/Dual_boot_with_Windows>
+```bash
+sudo grep -A1 '^\[LinkKey\]' /var/lib/bluetooth/<ADAPTER-MAC>/<DEVICE-MAC>/info
+bluetoothctl info <DEVICE-MAC>
+```
+
+`bluetoothctl info <DEVICE-MAC>` shows `Paired: yes` and `Connected: yes` in both directions across several reboots. On Omarchy, check `omarchy-bluetooth-power is-on` before blaming the key: with the rfkill soft block set, `bluetoothctl` reports no default controller instead.
+
+Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://wiki.archlinux.org/title/Dual_boot_with_Windows> · <https://git.kernel.org/pub/scm/bluetooth/bluez.git/plain/src/adapter.c?h=5.87> · <https://archlinux.org/packages/extra/x86_64/chntpw/json/> · <https://aur.archlinux.org/packages/bt-dualboot> · <https://aur.archlinux.org/packages/bt-dualboot-ng> · <https://github.com/x2es/bt-dualboot> · <https://github.com/nbanks/bluetooth-dualboot>
 
 ---
