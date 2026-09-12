@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -22,13 +22,15 @@ Last updated: 2026-09-11
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 207 records carry that status on one source pass. The first 32 re-audited
->    for that, boot-kernel and pacman-aur records with a `danger`, all needed correcting. Use
->    `audit-existing-workflow.js` for records that exist, and `research/validation/` for
->    the ones a VM can reach. Six ways forward, O1 to O6, are item 8 under "What's
->    left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared `boot-kernel`
->    and `pacman-aur`, and O4 is harvested, reconciled and audited: 36 records banked unmerged as of 2026-09-11, all 36
->    corrected by the audit. The corpus prose has 1,756 dashes across 405 records, item 6
+>    4", and 156 records still carry that status on one source pass. **84 records have now been
+>    re-audited that way and 83 of them needed correcting**, across `boot-kernel` (10),
+>    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23) and `network` (15). The one
+>    that passed is `mt7921e-dead-after-suspend-aspm`. Hand the brief to agents directly, one
+>    per one or two records, which is what the last four batches did, and use
+>    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared five
+>    categories with 69 records left, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,756 dashes across 405 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`

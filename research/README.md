@@ -18,10 +18,16 @@ carries at least one real, fetched source URL, and no two records share a slug.
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
 So all 492 records have been through an adversarial audit. That audit checked each record
-against its cited sources. It did not check it against Omarchy 4 itself, and when thirty-seven
-`ok` records were checked that way on 2026-09-06 and 2026-09-07, all thirty-seven needed
-correcting. See
-"Refreshing the corpus" for the re-audit path. The last
+against its cited sources, which is a weaker claim than it reads as. **84 records have since been
+checked against what Omarchy 4 actually ships, and 83 of them needed correcting**: 10
+`boot-kernel` and 22 `pacman-aur` on 2026-09-06 and 2026-09-07, then 14 `gpu-drivers`, 23
+`apps-services` and 15 `network` on 2026-09-11. The single record that passed is
+`mt7921e-dead-after-suspend-aspm`. The failures were rarely the problem being unreal. They were
+generic Arch advice mis-specialised to this distribution: a fix that rebuilds the initramfs with a
+command that writes nothing here, a kernel parameter written to a file that is regenerated, a
+setting the distribution already ships, or a diagnostic that reports a fault on a healthy machine.
+A separate 36 records harvested from the upstream issue tracker were audited the same day and all 36
+needed correcting. See "Refreshing the corpus" for the re-audit path. The last
 `gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
 schema and `merge_gapfill.py` can produce, but no record currently carries it.
 
@@ -289,8 +295,10 @@ To re-audit records that already carry `ok` against what Omarchy 4 actually ship
 writing a `verdict-<slug>.json`. Assemble the verdicts into a payload with one
 `{"category": ..., "audit": {"verdicts": [...]}}` entry per category, scoped to exactly the
 slugs audited, dry-run `merge_gapfill.py` on a copy, diff the copy against the corpus to
-confirm only those records changed, then run it for real. A verdict may replace `fix`,
-`cause`, `symptom`, `danger` and `verify`, and its `sources` are appended to the record.
+confirm only those records changed, then run it for real. A verdict may replace `fix`, `cause`, `symptom`, `danger`, `verify`, `severity` and
+`frequency`, its `sources` are appended to the record, and its `sources_remove` drops a citation
+that does not resolve or does not say what the record claims. The last four keys were added on
+2026-09-11, after an audit hit their absence and both changes had to be applied by hand.
 
 To build records from the upstream issue tracker rather than the web, see
 [tools/issue-harvest-brief.md](tools/issue-harvest-brief.md) and
