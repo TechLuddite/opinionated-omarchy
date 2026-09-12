@@ -48,6 +48,9 @@
   "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P"
  ],
+ "btrfs-no-space-left-with-free-space": [
+  "sudo-pacman-Syu"
+ ],
  "chrome-sharing-indicator-stuck-center-screen": [
   "hyprland-conf",
   "omarchy3-tree"
@@ -406,6 +409,9 @@
  ],
  "rtw88-rtl8821ce-unstable-disable-aspm": [
   "mkinitcpio-P"
+ ],
+ "scheduled-backup-skipped-and-repo-locked": [
+  "bare-pacman-Sy"
  ],
  "screen-never-wakes-after-dpms-off": [
   "hyprctl-dispatch-bare"

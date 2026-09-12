@@ -8,13 +8,13 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**492 problems across 12 categories**, drawn from 1,213 distinct sources. Every record
+**492 problems across 12 categories**, drawn from 1,281 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 193 | audited and confirmed accurate |
-| `corrected` | 299 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `ok` | 170 | audited and confirmed accurate |
+| `corrected` | 322 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
 So all 492 records have been through an adversarial audit. That audit checked each record
@@ -173,8 +173,9 @@ The 2026-09-01 audit stamped a further **7**, and the 2026-09-06 audit of the la
 unaudited records, the first VM-validated record and ten boot-kernel records re-audited
 for Omarchy 4 stamped **12** more, and the 2026-09-07 re-audit of all 22 `pacman-aur`
 records **14** more, the 2026-09-11 audit of the 36 records harvested from the issue
-tracker **25** more, and the same day's re-audit of the 14 `gpu-drivers` records **11** more, so
-91 records carry `cause_reconciled` across five dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+tracker **25** more, and the same day's re-audits of the 14 `gpu-drivers` records **11** more and
+the 23 `apps-services` records **16** more, so 107 records carry `cause_reconciled` across five
+dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
 whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See

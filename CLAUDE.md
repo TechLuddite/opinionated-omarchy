@@ -493,9 +493,9 @@ an auditor who judged a severity wrong, and one who found a cited issue number t
 is really a discussion, could each say so only in prose, and both changes had to be
 applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 193 `ok` records remain on one source pass, and 106 of them carry a `danger` and
-apply to Omarchy. `gpu-drivers` was cleared on 2026-09-11: all 14 were wrong, 10 of them
-predicted by `lint_corpus.py` months earlier.
+merge. 170 `ok` records remain on one source pass, and 83 of them carry a `danger` and
+apply to Omarchy. `gpu-drivers` and `apps-services` were both cleared on 2026-09-11, 37 records,
+**all 37 wrong**, 10 of them predicted by `lint_corpus.py` months earlier.
 
 A second provenance field, `cause_reconciled` (a date, or absent), exists because the
 first harvest's auditors could rewrite only `fix`. A `corrected` record from that pass
@@ -505,8 +505,9 @@ A further 7 were stamped on 2026-09-01 by an audit of 28 gap-fill records, 12 mo
 2026-09-06 by the audit of the last unaudited records, the first VM-found defect and a
 re-audit of ten boot-kernel records against Omarchy 4, and 14 more on 2026-09-07 by the
 re-audit of all 22 `pacman-aur` records, and on 2026-09-11 25 more by the audit of the 36
-records harvested from the issue tracker and 11 more by the re-audit of the 14 `gpu-drivers`
-records, so **91 records carry the stamp across five dates**. **The disclaimer printed under the audit
+records harvested from the issue tracker, 11 more by the re-audit of the 14 `gpu-drivers`
+records and 16 more by the re-audit of the 23 `apps-services` records, so **107 records carry the
+stamp across five dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
@@ -571,10 +572,14 @@ against primary sources during the research and repeatedly caught stale advice.
   `hl.dispatch(<your text>)`. Correct forms are `hl.dsp.exec_cmd("foo")` and
   `hl.dsp.dpms({ action = "on" })`. To launch a GUI app on a VM's session from ssh it is
   simpler to skip hyprctl entirely and set `WAYLAND_DISPLAY=wayland-1`.
-- **`OMARCHY_PATH` is exported from `~/.bashrc`, so it is unset in a non-interactive ssh.**
-  Every `omarchy` subcommand then fails with `find: '/themes/': No such file or directory`.
-  Anything driving a VM over ssh must use a **login shell** (`bash -lc`). This also catches
-  tmux: a window inherits the tmux *server's* environment, and a server started by a
+- **`OMARCHY_PATH` is unset in a non-interactive ssh**, so every `omarchy` subcommand then
+  fails with `find: '/themes/': No such file or directory`. Anything driving a VM over ssh must
+  use a **login shell** (`bash -lc`). Two sources set it and neither reaches that shell:
+  `~/.bashrc` for interactive shells, and `/usr/share/uwsm/env.d/10-omarchy`, which sources
+  `default/bash/env-bootstrap` for the graphical session, so `systemctl --user show-environment`
+  **does** carry `OMARCHY_PATH` there and user units started by that session see it (checked on
+  4.0.2-1 on 2026-09-11). It is absent in a lingering or ssh-started user manager. This also
+  catches tmux: a window inherits the tmux *server's* environment, and a server started by a
   systemd user unit has no profile sourced at all.
 - **Omarchy 4's lock screen cannot be released headlessly, and it outlives its client.**
   It is an `ext-session-lock` surface drawn by `omarchy-shell` (Quickshell). `hyprlock` is
