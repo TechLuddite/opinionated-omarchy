@@ -31,3 +31,6 @@ in the release notes when it lands.
 
 Checked on omarchy 4.0.2-1 against `/usr/share/omarchy/install/hardware/intel/video-acceleration.sh`
 and `/usr/share/hwdata/pci.ids` (`8086:0416`, `8086:0126`).
+
+Found while auditing a third-party Omarchy troubleshooting corpus against what 4.0.2-1 actually
+ships, with Claude Code on my own machine.
