@@ -47,7 +47,8 @@ research/                the troubleshooting corpus + its tooling
   data/categories.json   category key -> display label
   docs/*.md              DERIVED per-category markdown; tracked, see the rule below
   raw/                   unprocessed workflow output, kept for provenance
-  assets/fonts/          vendored Departure Mono (OFL) for the public site
+  assets/fonts/          vendored Omarchy Font (MIT, Mark Cuda) and Departure Mono (OFL,
+                         Helena Zhang) for the public site; see Crediting below
   tools/                 build/search/ingest scripts + the three workflow scripts
     corpus.py            the record schema + the only corpus reader/writer
     lint_corpus.py       flags shapes known wrong on Omarchy 4; data/lint-baseline.json
@@ -616,7 +617,27 @@ against primary sources during the research and repeatedly caught stale advice.
 
 This repository is **MIT**, © 2026 TechLuddite ([LICENSE](LICENSE)). Third-party content is
 enumerated in [NOTICE](NOTICE): the two vendored skill directories (MIT, © David Heinemeier
-Hansson) and the site's Departure Mono (OFL 1.1, © Helena Zhang).
+Hansson) and the site's two typefaces, Omarchy Font (MIT, © 2026 Mark Cuda) and Departure
+Mono (OFL 1.1, © 2022–2024 Helena Zhang).
+
+**Crediting is a separate obligation from licensing, and it is louder.** A licence file
+beside a binary satisfies the licence. It does not credit anyone: nobody browsing the site
+opens `docs/fonts/`, and nobody reading the README opens `research/assets/fonts/README.md`.
+On 2026-09-13 Mark Cuda's font had been the first thing on every page of the site for ten
+days while his name appeared nowhere a visitor or a README reader would see it. The rule
+now, and the Substrata standard `attribution/crediting-third-party-work` in
+`standards.engineering` is the governing version:
+
+- Every third-party work that is visible in the product is credited **where it is
+  visible**: the site footer names both type designers on every page and the front page
+  carries a card per typeface, and the README's Credits section sits above the fold. Add a
+  new asset and the credit lands in the same commit as the asset, in all of those places.
+- A credit names the **person** and links to **their** upstream, not only the work and its
+  licence. Use the name and link the creator asks for in their own README.
+- Credit the chain: Omarchy Font's own README credits DHH and 37signals for the wordmark
+  and CoSMiC cHiLD for the FIGlet original, so this project repeats those.
+- `pages.yml` greps the built site for both designers' names and fails the build if
+  either is missing. Extend that loop when a creator is added, never trim it.
 
 **`skillbench/skills.yaml` lists bundle files explicitly rather than globbing a directory**,
 which is what let a `LICENSE` be added to `omarchy/` and `diagnose-crash/` without moving a
@@ -657,7 +678,8 @@ Three things are specific to this repo and are the ones that get got wrong:
   pass-through rule covers more here than usual, and altering any of it is either a
   licence breach or a misrepresentation:
   `omarchy/` and `diagnose-crash/` (upstream, and `omarchy/SKILL.md` must stay
-  byte-identical), `research/assets/fonts/DepartureMono-LICENSE.txt` and every copyright
+  byte-identical), `research/assets/fonts/DepartureMono-LICENSE.txt`,
+  `research/assets/fonts/OmarchyFont-LICENSE.txt` and every copyright
   notice quoting it, and the loose Hyprland wiki pages in `research/*.md` / `*.txt`.
   Code, fenced blocks, paths, commands and log output are exempt as usual.
 - **Every number in prose here is checkable against the corpus, so check it.** Record

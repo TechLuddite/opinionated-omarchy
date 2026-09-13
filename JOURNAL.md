@@ -51,6 +51,48 @@ Last updated: 2026-09-13
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
+## Session of 2026-09-13 (third): the type designers were licensed and not credited
+
+Mark Cuda's Omarchy Font has been the first thing on every page of the public site since
+2026-09-03, and until this session his name appeared in four places a visitor would never
+open: `research/assets/fonts/README.md`, `NOTICE`, a CSS comment in `build_site.py` and the
+licence file under `docs/fonts/`. The site footer named only Departure Mono. The root
+`README.md` said "the site's typefaces carry their own licences" and named nobody.
+`CLAUDE.md` and section 4 of the 2026-09-02 entry below still said one font was vendored.
+Every licence obligation was met, and that is exactly the failure: a licence file beside a
+binary is compliance, not credit.
+
+What changed, all in one commit:
+
+- **The site footer** on every page now reads "WORDMARK AND HEADINGS SET IN OMARCHY FONT BY
+  MARK CUDA (MIT) · LABELS SET IN DEPARTURE MONO BY HELENA ZHANG (OFL 1.1)", each name
+  linked to the designer's upstream repository and each licence to the copy shipped in
+  `docs/fonts/`.
+- **The front page** carries a card per typeface beside the GitHub card, naming the
+  designer.
+- **`README.md`** has a Credits section directly under the screenshot, above "What ships
+  today", naming Mark Cuda, Helena Zhang and David Heinemeier Hansson with links, and
+  repeating the chain Mark's own README credits: DHH and 37signals for the wordmark,
+  CoSMiC cHiLD for the *Delta Corps Priest 1* FIGlet font. The Licence paragraph names both
+  designers instead of "their own licences".
+- **`pages.yml`** greps the built front page and the record pages for both designers'
+  names and fails the build if either is gone. The licence-file checks it already had for
+  both fonts stay.
+- **`CLAUDE.md`** names both faces in the layout tree and the Licensing section, lists
+  `OmarchyFont-LICENSE.txt` among the pass-through files, and carries a "Crediting" rule:
+  credit where the work is visible, name the person, link their upstream, credit the chain,
+  land it in the same commit as the asset, and extend the CI loop.
+- **Section 4 of the 2026-09-02 entry** carries a dated correction rather than a rewrite.
+
+One correction to what this session first reported: `pages.yml` was said to test only the
+Departure Mono files. It already tested all four font files; the two Omarchy Font lines were
+beyond the range that was read. The gap that was real was that no test looked for a name.
+
+The governing rule now lives outside this repo, as `attribution/crediting-third-party-work`
+in the `standards.engineering` lane of Substrata, drafted this session from the OFL 1.1 text
+and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
+NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
+
 ## Session of 2026-09-13 (second): O3 clears `hyprland-config`, and all 13 were wrong
 
 13 records, 7 agent batches. **13 corrected, every one at high confidence**, the first category
@@ -2462,6 +2504,14 @@ Mono`), but the real fix is the one the source handoff already mandates: **self-
 woff2**. Left undone deliberately: it is a licensing and binary-assets decision.
 
 ### 4. Departure Mono, vendored: the CRT chrome, and only one third party
+
+> **Corrected 2026-09-13.** True when written, false since 2026-09-03, when commit
+> `5e726ec` vendored a second face: Omarchy Font, MIT, © 2026 Mark Cuda, which took over
+> the wordmark and the group headings. Departure Mono kept only the micro-labels. The
+> section below is left as written because it records why the first face was chosen; the
+> two-face layout and the reason for it are in `research/assets/fonts/README.md`, and the
+> credit for both designers is on every page of the site, on the front page and in the
+> root `README.md` as of the session of 2026-09-13 (third).
 
 The font question from section 3 is resolved, and not by finding a universal face. **One
 font is vendored, not two:** Departure Mono (22 KB woff2) carries the *chrome* (wordmark,

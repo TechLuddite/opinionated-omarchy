@@ -89,6 +89,13 @@ jobs:
           test -f docs/fonts/DepartureMono-LICENSE.txt
           test -f docs/fonts/OmarchyFont.woff2
           test -f docs/fonts/OmarchyFont-LICENSE.txt
+          # Credit is a visible name on the page, not a licence file in a subdirectory.
+          # Both designers are named in the footer of every page and on a front-page
+          # card; if either name goes missing the build fails rather than publishing.
+          for who in "MARK CUDA" "HELENA ZHANG"; do
+            grep -q "$who" docs/index.html || { echo "front page no longer credits $who"; exit 1; }
+            grep -qrl "$who" docs/records/ || { echo "record pages no longer credit $who"; exit 1; }
+          done
 
       - uses: actions/upload-pages-artifact@v3
         with:
