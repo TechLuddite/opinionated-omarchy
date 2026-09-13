@@ -8,21 +8,22 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**492 problems across 12 categories**, drawn from 1,361 distinct sources. Every record
+**492 problems across 12 categories**, drawn from 1,390 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 140 | audited and confirmed accurate |
-| `corrected` | 352 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `ok` | 126 | audited and confirmed accurate |
+| `corrected` | 366 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
 So all 492 records have been through an adversarial audit. That audit checked each record
-against its cited sources, which is a weaker claim than it reads as. **100 records have since been
-checked against what Omarchy 4 actually ships, and 99 of them needed correcting**: 10
+against its cited sources, which is a weaker claim than it reads as. **115 records have since been
+checked against what Omarchy 4 actually ships, and 113 of them needed correcting**: 10
 `boot-kernel` and 22 `pacman-aur` on 2026-09-06 and 2026-09-07, then 14 `gpu-drivers`, 23
-`apps-services` and 15 `network` on 2026-09-11, then 16 `power-suspend` on 2026-09-12. The single
-record that passed is `mt7921e-dead-after-suspend-aspm`. The 100th was a reject, meaning the
+`apps-services` and 15 `network` on 2026-09-11, then 16 `power-suspend` on 2026-09-12 and 15
+`omarchy-theming` on 2026-09-13. Two records passed:
+`mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`. The 100th was a reject, meaning the
 problem it describes does not exist. It was kept rather than retired, because its page is
 published, and rewritten by hand to say so and to warn against the fix that circulates for it. Its
 slug still names the non-defect, which no field can change. The failures were rarely the problem being unreal. They were
@@ -184,8 +185,9 @@ for Omarchy 4 stamped **12** more, and the 2026-09-07 re-audit of all 22 `pacman
 records **14** more, the 2026-09-11 audit of the 36 records harvested from the issue
 tracker **25** more, and the same day's re-audits of the 14 `gpu-drivers` records **11** more and
 the 23 `apps-services` records **16** more and the 15 `network` records **12** more, and the
-2026-09-12 re-audit of the 16 `power-suspend` records **11** more, so 130 records
-carry `cause_reconciled` across six dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+2026-09-12 re-audit of the 16 `power-suspend` records **11** more and the 2026-09-13 re-audit of
+the 15 `omarchy-theming` records **13** more, so 143 records
+carry `cause_reconciled` across seven dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
 whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See

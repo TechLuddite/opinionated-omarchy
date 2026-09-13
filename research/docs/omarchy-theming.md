@@ -4,24 +4,34 @@
 
 ## Stop the whole desktop hard-freezing when the Walker launcher renders
 
-`walker-gtk4-vulkan-renderer-amdgpu-hard-freeze` · severity: **critical** · frequency: **occasional** · applies to: `amd`, `desktop`, `hyprland`, `omarchy`, `omarchy-3`, `wayland`
+`walker-gtk4-vulkan-renderer-amdgpu-hard-freeze` · severity: **critical** · frequency: **rare** · applies to: `amd`, `desktop`, `hyprland`, `omarchy`, `omarchy-3`, `wayland`
 
-**Symptom.** The entire desktop freezes — display frozen, keyboard and mouse dead — but audio keeps playing. Only a hard reset recovers. `journalctl -k` from the previous boot shows `BUG: kernel NULL pointer dereference` at `RIP: ttm_lru_bulk_move_pos_tail+0x4f/0xb0 [ttm]` with `Comm: walker`, preceded by `WARNING: drivers/gpu/drm/ttm/ttm_resource.c:235 at ttm_resource_add_bulk_move`, then `watchdog: BUG: soft lockup - CPU#16 stuck for 495s! [kworker/u97:3]` inside `amdgpu_dm_atomic_commit_tail`.
+**Symptom.** The entire desktop freezes. The display is frozen and keyboard and mouse are dead, but audio keeps playing, because PipeWire never touches the GPU. Only a hard reset recovers. `journalctl -k` from the previous boot shows `BUG: kernel NULL pointer dereference` at `RIP: ttm_lru_bulk_move_pos_tail+0x4f/0xb0 [ttm]` with `Comm: walker`, preceded by `WARNING: drivers/gpu/drm/ttm/ttm_resource.c:235 at ttm_resource_add_bulk_move`, then `watchdog: BUG: soft lockup - CPU#16 stuck for 495s! [kworker/u97:3]` inside `amdgpu_dm_atomic_commit_tail`.
 
-**Cause.** Omarchy's `GSK_RENDERER=cairo` workaround is applied only in `bin/omarchy-launch-walker`, but the resident `walker --gapplication-service` process is normally started by the XDG autostart entry (`~/.config/autostart/walker.desktop`, `Exec=walker --gapplication-service`), which systemd's `systemd-xdg-autostart-generator` turns into `app-walker@autostart.service` with no env override. So walker runs with GTK4's default Vulkan/ngl renderer. The guard `if ! pgrep -f "walker --gapplication-service"` in the launch script is dead code because the service is already running. On amdgpu, walker page-faults on a GEM buffer, the kernel takes a NULL deref inside TTM while holding the LRU spinlock, and every subsequent display atomic commit deadlocks on it — which is why input dies too. The underlying defect is kernel-side TTM/amdgpu; the missing env var is what exposes it.
+This is an Omarchy 3 failure on AMD graphics. Omarchy 4 (Quattro) does not ship Walker, so the Omarchy-specific trigger is gone there. The kernel and GTK4 halves still apply to any GTK4 application on amdgpu, so the same oops can appear with a different `Comm:`.
 
-> ⚠️ **Risk.** Until this is applied, the failure mode is an unrecoverable freeze requiring a hard reset — which risks filesystem damage on btrfs/ext4 with unflushed writes. `~/.config/autostart/walker.desktop` is rewritten by `omarchy-refresh-walker` and by migrations, so re-check the Exec line after any `omarchy update`.
+**Cause.** On Omarchy 3 the `GSK_RENDERER=cairo` workaround is applied only inside `bin/omarchy-launch-walker`, and only in a branch that does not normally run. The resident `walker --gapplication-service` process is started by the XDG autostart entry `~/.config/autostart/walker.desktop`, whose `Exec=walker --gapplication-service` carries no environment override. `systemd-xdg-autostart-generator` turns that entry into `app-walker@autostart.service` and starts it at session start, before any keybind is pressed, so the guard `if ! pgrep -f "walker --gapplication-service"` in the launch script is dead code and the variable is never applied.
+
+Walker therefore runs with GTK4's default renderer. On Wayland that is the Vulkan renderer: `gsk_renderer_new_for_surface_full` walks the display override, then `GSK_RENDERER`, then the backend, then Vulkan, and only then the OpenGL renderer, and Arch's gtk4 is built against `vulkan-icd-loader`. On amdgpu, Walker page-faults on a GEM buffer, the kernel takes a NULL dereference inside TTM while holding the LRU spinlock, and every subsequent display atomic commit deadlocks on that lock, which is why input dies while audio survives. The underlying defect is kernel-side TTM and amdgpu. The missing environment variable is what exposes it.
+
+The workaround used to be session-wide in Omarchy 3's `default/hypr/envs.conf` and was narrowed to the launcher, which is how the gap opened. Omarchy 4 ships neither Walker nor that file. Its Hyprland config is Lua and its session environment comes from `/usr/share/uwsm/env.d/10-omarchy`.
+
+> **Audit corrected this record.** Verified against upstream that the Omarchy 3 mechanism this record describes is accurate. `bin/omarchy-launch-walker` on the `master` branch of `omacom/omarchy` sets `GSK_RENDERER=cairo` only inside the `if ! pgrep -f "walker --gapplication-service"` branch, `default/walker/walker.desktop` carries a bare `Exec=walker --gapplication-service` with no override, and `bin/omarchy-restart-walker` restarts `app-walker@autostart.service`, which confirms the generated unit name the record uses. The cited issue 6443 exists, is titled exactly as the record's cause describes, and its body supports every step of the chain including the `30ddfeda` commit that moved the variable out of `default/hypr/envs.conf`, so the source audit was right. The record's failure is that it was filed as an Omarchy record when it is an Omarchy 3 record. On this Omarchy 4.0.2-1 workstation `pacman -Q walker` fails, `pacman -Ql omarchy` lists no walker path, `/usr/share/omarchy/bin` contains no `omarchy-launch-walker` or `omarchy-refresh-walker`, `~/.config/autostart/` holds only `limine-snapper-notify.desktop`, `org.fcitx.Fcitx5.desktop` and `print-applet.desktop`, and the `quattro` tree contains no path matching walker. dhh closed issue 6443 with "Walker is gone on quattro." I did not reject it because the kernel and GTK4 halves are unchanged and the same oops can hit another GTK4 application on amdgpu, and because Walker is still installable from the AUR at 2.17.0-1. The second real defect is the fix's fallback: `~/.config/hypr/envs.conf` with `env = GSK_RENDERER,cairo` is hyprlang syntax, that file does not exist on Omarchy 4, and Omarchy 4's Hyprland config is Lua using `hl.env`, so the record as written pointed an Omarchy 4 reader at a file nothing reads. I read `/usr/share/uwsm/env.d/10-omarchy`, which names `~/.config/uwsm/env.d/*` as the preferred user override, and `/usr/share/doc/uwsm/README.md` lines 112 and 634 to 654, which confirm uwsm sources `uwsm/env.d/*` from each config dir and that `~/.profile` is only sourced when the session did not start through `uwsm start`. `~/.config/environment.d/` is also live on this box, holding a working `omarchy-firefox-wayland.conf`. On the GTK claim, I read `gsk/gskrenderer.c` at tag 4.22.4: `get_renderer_for_name` still accepts `cairo` at line 496, and the `renderer_possibilities` table still tries Vulkan before the OpenGL renderer on Wayland, so the record's "default Vulkan" claim holds, but its "Vulkan/ngl" phrasing is stale, because line 501 now warns "The new GL renderer has been renamed to gl" and the help text records that the old GL renderer was removed in GTK 4.18. Arch's gtk4 1:4.22.4-1 depends on `vulkan-icd-loader` and `libgtk-4.so.1` links `libvulkan.so.1`, so Vulkan is genuinely compiled in here. I lowered frequency from `occasional` to `rare` because the distribution no longer ships the trigger, and kept severity `critical` because an unrecoverable freeze is still the consequence for anyone affected. Not exercised: this workstation has an NVIDIA card, not amdgpu, so I could not reproduce the TTM oops or confirm whether kernel 7.1.9-arch1-2 still carries the underlying amdgpu defect, and I installed nothing.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Until this is applied, the failure mode is an unrecoverable freeze requiring a hard reset, which risks filesystem damage on btrfs or ext4 with unflushed writes. On Omarchy 3, `~/.config/autostart/walker.desktop` is rewritten by `bin/omarchy-refresh-walker`, by `install/config/walker-elephant.sh` and by migrations, so re-check the `Exec=` line after any `omarchy update`. `GSK_RENDERER=cairo` disables GPU acceleration for that application's rendering, so expect slower redraws and higher CPU use. Set it as narrowly as the problem allows rather than session-wide.
 
 **Fix.**
 
-Confirm the env var is genuinely absent from the running service:
+**On Omarchy 3**, confirm the variable is genuinely absent from the running service:
 
 ```bash
 pgrep -a walker
 tr '\0' '\n' < /proc/$(pgrep -x walker)/environ | grep GSK_RENDERER
 ```
 
-Force the cairo renderer on the autostart entry:
+Force the Cairo renderer on the autostart entry:
 
 ```bash
 sed -i 's|^Exec=walker --gapplication-service|Exec=env GSK_RENDERER=cairo walker --gapplication-service|' \
@@ -30,7 +40,7 @@ systemctl --user daemon-reload
 systemctl --user restart app-walker@autostart.service
 ```
 
-Or set it session-wide in `~/.config/hypr/envs.conf`:
+Or set it session-wide in `~/.config/hypr/envs.conf`, which is Omarchy 3's hyprlang config:
 
 ```conf
 env = GSK_RENDERER,cairo
@@ -38,9 +48,46 @@ env = GSK_RENDERER,cairo
 
 then log out and back in.
 
-**Verify.** `tr '\0' '\n' < /proc/$(pgrep -x walker)/environ | grep GSK_RENDERER` prints `GSK_RENDERER=cairo`. No new `Comm: walker` TTM oopses appear in `journalctl -k -b -1` over subsequent days.
+**On Omarchy 4 (Quattro)** neither Walker nor `~/.config/hypr/envs.conf` exists, so neither step above applies. If you need the Cairo renderer for some other GTK4 application that is oopsing on amdgpu, set it where Omarchy 4 actually reads session environment. `/usr/share/uwsm/env.d/10-omarchy` names `~/.config/uwsm/env.d/*` as the preferred user override, and uwsm sources those files as shell:
 
-Sources: <https://github.com/basecamp/omarchy/issues/6443>
+```bash
+mkdir -p ~/.config/uwsm/env.d
+echo 'export GSK_RENDERER=cairo' > ~/.config/uwsm/env.d/50-gsk-renderer
+```
+
+`~/.config/environment.d/*.conf` also reaches the systemd user manager and the graphical session:
+
+```conf
+GSK_RENDERER=cairo
+```
+
+Log out and back in for either file to take effect. Do not put it in `~/.profile`: uwsm sources a POSIX profile only when the session was not started through `uwsm start`, so on Omarchy 4 that path is unreliable and the variable may never reach the session.
+
+To scope the change to one application rather than the whole session, wrap that application's `Exec=` line with `env GSK_RENDERER=cairo` instead.
+
+Check the value you set is still accepted by your gtk4:
+
+```bash
+GSK_RENDERER=help gtk4-demo 2>&1 | head -20
+```
+
+`cairo` remains valid on gtk4 4.22.4. `ngl` does not: GTK renamed that renderer to `gl`, and `GSK_RENDERER=ngl` now logs `The new GL renderer has been renamed to gl` and selects the OpenGL renderer anyway.
+
+**Verify.** On Omarchy 3, `tr '\0' '\n' < /proc/$(pgrep -x walker)/environ | grep GSK_RENDERER` prints `GSK_RENDERER=cairo`, and no new `Comm: walker` TTM oopses appear in `journalctl -k -b -1` over subsequent days.
+
+On Omarchy 4, confirm the variable reached the session rather than only the shell:
+
+```bash
+systemctl --user show-environment | grep GSK_RENDERER
+```
+
+Then confirm the application picked it up, substituting its process name:
+
+```bash
+tr '\0' '\n' < /proc/$(pgrep -x <app>)/environ | grep GSK_RENDERER
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/6443> · <https://github.com/omacom/omarchy/blob/master/bin/omarchy-launch-walker> · <https://gitlab.gnome.org/GNOME/gtk/-/raw/4.22.4/gsk/gskrenderer.c> · <https://aur.archlinux.org/packages/walker>
 
 ---
 
@@ -120,57 +167,6 @@ Everything else in the record — the geometry/journal probes, `hyprctl reload` 
 **Verify.** `hyprctl layers | grep -c omarchy-bar` equals the number of enabled monitors, and `omarchy-shell shell debugBarGeometry` reports non-zero geometry with `'visible': True` for each. Unplug and replug the external display — the bar comes back on it on its own.
 
 Sources: <https://github.com/basecamp/omarchy/issues/6684> · <https://github.com/basecamp/omarchy/issues/8024> · <https://github.com/basecamp/omarchy/issues/6501> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-restart-shell>
-
----
-
-## Fix the Walker launcher stuck on "Waiting for elephant"
-
-`walker-waiting-for-elephant` · severity: **high** · frequency: **common** · applies to: `hyprland`, `omarchy`, `omarchy-3`, `wayland`
-
-**Symptom.** Pressing `SUPER+SPACE` opens the launcher, but the search box shows the placeholder `Launch...` with a transparent list below it reading `Waiting for elephant`. Nothing is searchable. `coredumpctl` may show `Process <pid> (walker) of user 1000 dumped core` with a stack through `g_application_run` and `libglib-2.0`.
-
-**Cause.** Walker's backend indexer (`elephant`) is not running or has crashed, so Walker has nothing to query. It happens intermittently after an Omarchy update that restarts the services at the wrong moment, and sometimes Walker itself segfaults inside its GLib main loop and takes the pairing down with it. This is Omarchy 3.x only — Omarchy 4 (Quattro) replaced Walker and Elephant with the native Quickshell launcher.
-
-> ⚠️ **Risk.** `omarchy upgrade to quattro` is a major version migration that rewrites config files and can clobber customizations — see the `shell-json-reset-by-quattro-upgrade` record before running it.
-
-**Fix.**
-
-Restart the launcher and its backend:
-
-```bash
-omarchy-restart-walker
-```
-
-If that does not take, restart both services explicitly and check what elephant says:
-
-```bash
-systemctl --user restart elephant.service
-systemctl --user restart walker.service
-systemctl --user status elephant.service
-```
-
-Watch the failure live while reproducing it:
-
-```bash
-journalctl --user -f
-# then press SUPER+SPACE
-```
-
-A reboot clears it for many people; if it recurs constantly, check for crashes:
-
-```bash
-coredumpctl list walker
-```
-
-Upgrading to Omarchy 4 removes the component entirely:
-
-```bash
-omarchy upgrade to quattro
-```
-
-**Verify.** `SUPER+SPACE` shows your applications immediately with no "Waiting for elephant" line, and `systemctl --user is-active elephant.service` prints `active`.
-
-Sources: <https://github.com/basecamp/omarchy/issues/2638>
 
 ---
 
@@ -308,49 +304,6 @@ Sources: <https://github.com/basecamp/omarchy/issues/6971>
 
 ---
 
-## Recover from a custom theme that leaves the terminal unable to start
-
-`installed-theme-without-colors-toml-breaks-foot` · severity: **high** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
-
-**Symptom.** After `omarchy theme install <git-url>` or `omarchy theme set <my-theme>`, new terminal windows refuse to open. Running foot by hand prints: `err: config.c:896: /home/<user>/.config/foot/foot.ini:2: [main].include: ~/.local/state/omarchy/current/theme/foot.ini: failed to open: No such file or directory` and exits 230. `omarchy theme set` itself exited 0 with no warning.
-
-**Cause.** `bin/omarchy-theme-set` accepts any directory under `~/.config/omarchy/themes/` and `omarchy theme install` clones and applies any repo with no validation. The per-app config generator only runs `if [[ -f $COLORS_FILE ]]` (`bin/omarchy-theme-set-templates:371`), so a theme with no `colors.toml` (and no legacy `alacritty.toml` to convert from) produces a `~/.local/state/omarchy/current/theme/` containing no `foot.ini`, `alacritty.toml`, `kitty.conf` or `shell.toml`. `config/foot/foot.ini:2` is an unconditional `include` of that missing file and foot treats a missing include as fatal. Alacritty and kitty include it unconditionally too; only Ghostty is guarded (`config-file = ?"..."`). Already-open terminals keep running, so you only discover it when you open a new one.
-
-> ⚠️ **Risk.** `omarchy theme install <git-url>` clones and applies an arbitrary repository with no validation. Only install themes from a repo you have looked at.
-
-**Fix.**
-
-If you still have a terminal open, just switch back to a stock theme:
-
-```bash
-omarchy theme set tokyo-night
-```
-
-If you have no terminal left, get a shell from a TTY with `Ctrl+Alt+F2`, log in, and run the same command.
-
-To actually keep the broken theme, give it a `colors.toml`. Minimum viable file:
-
-```bash
-cat > ~/.config/omarchy/themes/<my-theme>/colors.toml <<'EOF'
-mode = "dark"
-background = "#1a1b26"
-foreground = "#c0caf5"
-EOF
-omarchy theme set <my-theme>
-```
-
-Before installing any third-party theme, check it first:
-
-```bash
-ls ~/.config/omarchy/themes/<name>/colors.toml || echo "NO colors.toml - will break terminals"
-```
-
-**Verify.** `foot --check-config; echo $?` returns 0, and `ls -A ~/.local/state/omarchy/current/theme` lists `foot.ini`, `alacritty.toml`, `kitty.conf` and `colors.toml` rather than just `hyprland.conf`.
-
-Sources: <https://github.com/basecamp/omarchy/issues/7105> · <https://learn.omacom.io/2/the-omarchy-manual/92/making-your-own-theme>
-
----
-
 ## Make the SDDM login screen match the theme (and fix White's black-on-black greeter)
 
 `sddm-greeter-not-following-theme-white-black-on-black` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `omarchy-4`, `wayland`
@@ -390,52 +343,161 @@ Sources: <https://github.com/basecamp/omarchy/issues/7115> · <https://github.co
 
 `theme-set-hangs-with-brave-origin-running` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `omarchy-4`, `wayland`
 
-**Symptom.** `omarchy theme set <any-theme>` never returns. Or `omarchy update` hangs inside a migration (e.g. `1787481315`, "Re-stage the current theme..."), never writes its marker file, so every later `omarchy update` re-runs it and hangs again. `ps` shows a stray `/usr/bin/brave --refresh-platform-policy --no-startup-window`.
+**Symptom.** `omarchy theme set <any-theme>` never returns. Or `omarchy update` hangs inside a migration, for example `1787481315` ("Re-stage the current theme so an installed theme's code is dropped"), never writes that migration's marker file, so every later `omarchy update` re-runs it and hangs again. `pgrep -af -- '--refresh-platform-policy'` shows a stray browser refresh, most often `/usr/bin/brave --refresh-platform-policy --no-startup-window`.
 
-**Cause.** `bin/omarchy-theme-set-browser` guards its plain-Brave branch with `pgrep -x brave`. brave-origin's processes are all named plain `brave`, so with brave-origin running and Brave not running the guard produces a false positive; the script then launches the *other* binary, `/usr/bin/brave` from `brave-bin`. With `--no-startup-window` that instance has no window to close, never exits, and `run_parallel`'s `wait` in the post-theme command list blocks on it forever. Related hangs exist for other post-theme commands — e.g. `omarchy-theme-set-keyboard-f16` with a Keychron K8 Pro attached.
+**Cause.** `omarchy-theme-set-browser` calls the browser refresh in the foreground with nothing bounding it. Confirmed unchanged in omarchy 4.0.2-1 and on the `quattro` branch, in `/usr/bin/omarchy-theme-set-browser`:
 
-> ⚠️ **Risk.** A migration that hangs never records its marker, so the whole migration queue behind it stays pending. Do not Ctrl+C out of `omarchy update` partway through its `pacman -Syu` — that risks a partial upgrade. Kill the stray browser process instead and let the update continue.
+```bash
+refresh_running_browser() {
+  local process="$1"
+  local command="$2"
+  local pgrep_args="${3:--x}"
+
+  if omarchy-cmd-present "$command" && pgrep $pgrep_args "$process" >/dev/null; then
+    "$command" --refresh-platform-policy --no-startup-window &>/dev/null
+  fi
+}
+```
+
+`omarchy-theme-set` runs that script as one of its 14 `post_theme_commands` through `run_parallel`, whose `wait` has no timeout, so a refresh that does not return holds the theme change open forever.
+
+There are two ways in. The first is a detection mix-up: the plain-Brave branch is guarded by `pgrep -x brave`, and brave-origin's processes are all named plain `brave`, so with brave-origin running and Brave not running the guard passes and the script launches the other binary, `/usr/bin/brave` from `brave-bin`. With `--no-startup-window` that instance has no window to close and never exits. The second is a refresh that is slow even when detection is right, which is not Brave-specific: a correctly detected Chromium was measured at 68 seconds.
+
+`omarchy update` is caught because migration `1787481315` ("Re-stage the current theme so an installed theme's code is dropped") calls `omarchy-theme-refresh`, which calls `omarchy-theme-set`. `omarchy-migrate` writes a migration's marker only once the script exits, so a hung migration stays pending and every later `omarchy update` re-runs it. `omarchy-theme-set-keyboard-f16` fails the same way for a different reason: it calls `qmk_hid` with no bound and blocks on a QMK or VIA keyboard such as a Keychron K8 Pro.
+
+> **Audit corrected this record.** Read `/usr/bin/omarchy-theme-set-browser`, `/usr/bin/omarchy-theme-set`, `/usr/bin/omarchy-theme-refresh`, `/usr/bin/omarchy-migrate`, `/usr/bin/omarchy-update` and `/usr/share/omarchy/migrations/1787481315.sh` on this workstation at omarchy 4.0.2-1, and fetched `bin/omarchy-theme-set-browser` from `omacom/omarchy` at `quattro`. The mechanism holds: `refresh_running_browser brave brave` still guards on `pgrep -x brave`, the refresh call is still in the foreground with no timeout, `run_parallel`'s `wait` still has none, and migration `1787481315` still calls `omarchy-theme-refresh`, so a hang there leaves the marker unwritten. Issue 8158 supports every claim in the record, including the `pgrep -x brave` false positive across brave-origin and the suggested `refresh_running_browser /opt/brave-bin/ brave -f`. Issue 8243 supports the Keychron K8 Pro hang in `omarchy-theme-set-keyboard-f16`, and I confirmed that script calls `qmk_hid` with no bound. Issue 8212, which the record did not use, adds that a correctly detected Chromium took 68 seconds and that a bound needs `timeout -k`, so the defect is wider than the Brave detection mix-up and the cause now says so. Three things were wrong or misleading and are rewritten. The `danger` claimed a Ctrl+C risks a partial upgrade, but `omarchy-update` runs `omarchy-migrate` after `omarchy-update-system-pkgs` has completed the `pacman -Syu` and no pacman hook calls the theme scripts, so at the hang point there is no transaction to interrupt. The recovery command `pkill -f 'brave --refresh-platform-policy --no-startup-window'` is unanchored and matches the command line of the shell it is typed in, which I confirmed here with `pgrep -af`, so it is replaced with an anchored `pgrep` and a kill by PID. Paths are moved to the installed 4.0.2-1 form, and the fix now notes that `/usr/share/omarchy/bin/omarchy-theme-set-browser` is a symlink to `/usr/bin/omarchy-theme-set-browser` and that `sed -i` on the symlink path would replace it. Not exercised: neither `brave-bin` nor `brave-origin-bin` is installed here, so the hanging refresh itself was never reproduced and that part rests on issue 8158. The basecamp URLs redirect but the repository is now `omacom/omarchy`, so the citations are moved to the canonical name.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** A migration that hangs never records its marker, so that migration and every one behind it stay pending and re-run on the next `omarchy update`. `omarchy-update` runs `omarchy-migrate` after `omarchy-update-system-pkgs` has finished its `pacman -Syu`, so interrupting the hang does not risk a partial upgrade, but it does abandon the rest of the update: the `post-update` hook, AUR packages, mise, and the orphan prune. Kill the stray browser process and let the update continue rather than pressing Ctrl+C. Any edit to `/usr/bin/omarchy-theme-set-browser` is reverted by the next `omarchy update`, because that file is owned by the `omarchy` package.
 
 **Fix.**
 
-Unblock the running command:
+Find the stray refresh process and kill it by PID. Anchor the pattern at the start of the command line, because an unanchored `pkill -f` also matches the shell you typed it in and the terminal running the update:
 
 ```bash
-pkill -f 'brave --refresh-platform-policy --no-startup-window'
+pgrep -af -- '^/usr/bin/brave --refresh-platform-policy'
+kill <pid>
 ```
 
 Confirm the false positive:
 
 ```bash
 pgrep -xc brave                    # non-zero
-pgrep -af brave | grep -v origin   # nothing -> real Brave is NOT running
+pgrep -af brave | grep -v origin   # nothing, so real Brave is NOT running
 readlink -f /usr/bin/brave /usr/bin/brave-origin
 ```
 
-Simplest permanent avoidance: quit brave-origin before a theme change or update.
+Simplest permanent avoidance: quit brave-origin before a theme change or an update.
 
 ```bash
-pkill -f /opt/brave-origin-bin/
+pkill -f -- '^/opt/brave-origin-bin/'
 omarchy update
 ```
 
-Or patch the guard to match on binary path the way the brave-origin branch already does — in `bin/omarchy-theme-set-browser`, change:
+Or patch the guard to match on the binary path the way the brave-origin branch already does. The file to edit is `/usr/bin/omarchy-theme-set-browser`. `/usr/share/omarchy/bin/omarchy-theme-set-browser` is only a symlink to it, and `sed -i` on that path would replace the symlink with a regular file instead of patching the script:
 
 ```bash
-refresh_running_browser brave brave
+sudo sed -i 's|^refresh_running_browser brave brave$|refresh_running_browser /opt/brave-bin/ brave -f|' \
+  /usr/bin/omarchy-theme-set-browser
 ```
 
-to:
+That fixes the detection mix-up and nothing else. To bound every browser refresh, including a correctly detected one that is merely slow, change the call inside `refresh_running_browser` to:
 
 ```bash
-refresh_running_browser /opt/brave-bin/ brave -f
+timeout -k 1 10 "$command" --refresh-platform-policy --no-startup-window &>/dev/null
 ```
 
-If the machine is a Keychron K8 Pro and the hang is in `omarchy-theme-set-keyboard-f16` instead, unplug the keyboard and retry.
+The `-k` is what makes it a bound. Plain `timeout` sends SIGTERM and then waits for a child that ignores it. The policy is read at the browser's next launch anyway, so abandoning the live refresh costs nothing.
+
+If the machine has a QMK or VIA keyboard such as a Keychron K8 Pro and the hang is in `omarchy-theme-set-keyboard-f16` instead, unplug the keyboard and retry.
 
 **Verify.** `omarchy theme set tokyo-night` completes in a few seconds. `omarchy update` runs the pending migration through to completion and writes its marker, so a second `omarchy update` does not re-run it.
 
-Sources: <https://github.com/basecamp/omarchy/issues/8158> · <https://github.com/basecamp/omarchy/issues/8212> · <https://github.com/basecamp/omarchy/issues/8243>
+Sources: <https://github.com/omacom/omarchy/issues/8158> · <https://github.com/omacom/omarchy/issues/8212> · <https://github.com/omacom/omarchy/issues/8243>
+
+---
+
+## Fix the Walker launcher stuck on "Waiting for elephant"
+
+`walker-waiting-for-elephant` · severity: **high** · frequency: **rare** · applies to: `hyprland`, `omarchy`, `omarchy-3`, `wayland`
+
+**Symptom.** Pressing `SUPER + SPACE` opens the Walker launcher, but the search box shows the placeholder `Launch...` with a transparent list below it reading `Waiting for elephant...`. Nothing is searchable. A near variant is a launcher that opens and lists nothing at all, which means Elephant is running but has no provider installed. `coredumpctl` may show `Process <pid> (walker) of user 1000 dumped core` with a stack through `g_application_run` and `libglib-2.0`.
+
+This is an Omarchy 3 symptom. Omarchy 3 shipped Walker and Elephant, Omarchy 4 (Quattro) does not install either package, and on Omarchy 4 `SUPER + SPACE` opens the Quickshell menu instead. An Omarchy 4 machine can only show this if Walker was installed from the AUR by hand.
+
+**Cause.** Walker's backend indexer (`elephant`) is not running or has crashed, so Walker has nothing to query and leaves its placeholder row on screen. The string comes from Walker's own default theme, `resources/themes/default/layout.xml`, so it is Walker reporting the backend missing rather than Omarchy reporting anything. It happens intermittently after an update that restarts the two services at the wrong moment, and sometimes Walker itself segfaults inside its GLib main loop and takes the pairing down with it. A separate cause produces an empty list rather than the placeholder: Elephant's data providers are packaged separately from Elephant, so a running Elephant with no `elephant-desktopapplications` installed indexes nothing.
+
+Omarchy 4 replaced the whole pairing with the native Quickshell launcher in `/usr/share/omarchy/shell`, and `SUPER + SPACE` is bound to `omarchy-menu toggle`. Neither `walker` nor `elephant` is installed and no `omarchy-restart-walker` exists. Walker and Elephant are still maintained upstream and are current in the AUR, so the failure remains reachable on Omarchy 4 for anyone who added them themselves.
+
+> **Audit corrected this record.** Checked on this Omarchy 4.0.2-1 workstation that Walker is not part of Omarchy 4 at all: `pacman -Q walker` and `pacman -Q elephant` both fail, `pacman -Ql omarchy` lists no walker or elephant path, and the only matches for either word under `/usr/share/omarchy` are unrelated English prose, a code comment about a TOML walker in `shell/Commons/Color.qml` line 173, a comment in `shell/plugins/agents/Panel.qml` line 415, and the elephant emoji in `shell/plugins/emojis/emojis.json`. `SUPER + SPACE` is bound to `omarchy-menu toggle` in `/usr/share/omarchy/default/hypr/bindings/utilities.lua` line 1, and `omarchy-restart-walker` is not among the 428 scripts in `/usr/share/omarchy/bin`. Against upstream, the `quattro` tree of `omacom/omarchy` contains no path matching walker or elephant, while the Omarchy 3 `master` tree contains `bin/omarchy-restart-walker`, `bin/omarchy-launch-walker`, `default/walker/`, `default/elephant/` and `install/config/walker-elephant.sh`, so this is an Omarchy 3 record that the corpus was presenting as an Omarchy record. The cited issue 2638 is real and does support the symptom, filed against Omarchy v3.1.1 with the exact placeholder text, and dhh closed it with "Closing because Quattro replaces Walker, Elephant, and the old menu surfaces with the native Omarchy shell launcher and menus." I did not reject the record because the problem is still reachable rather than impossible: `walker` 2.17.0-1 and `elephant` 2.22.0-1 are current in the AUR, upstream released both on 2026-07-16, and the string `Waiting for elephant...` still exists verbatim in the Walker v2.17.0 tarball at `resources/themes/default/layout.xml` line 64, so an Omarchy 4 user who installed Walker by hand can hit exactly this. One command in the old fix was wrong rather than merely stale: there is no `walker.service`, because the Walker v2.17.0 tarball ships no systemd unit and Omarchy 3's own `bin/omarchy-restart-walker` restarts `app-walker@autostart.service`, the unit generated from `walker.desktop`. Elephant does ship `assets/elephant.service`, so the elephant half of the old fix was correct. I confirmed `omarchy upgrade to quattro` is the right invocation from the `omarchy:examples` metadata line in `/usr/share/omarchy/bin/omarchy-upgrade-to-quattro`, so that command is kept unchanged, and I added the `elephant-desktopapplications` provider case that the issue thread reports as the fix for the empty-list variant. I lowered frequency from `common` to `rare` because the distribution no longer ships the component, leaving only users who added Walker themselves. Not exercised: I installed nothing and did not reproduce either failure, and `applies_to` still lists `omarchy` unqualified alongside `omarchy-3`, which should be narrowed by hand since the verdict schema has no field for it. I replaced the `basecamp/omarchy` issue URL with the canonical `omacom/omarchy` one, which is the same issue, because the search API does not follow the rename.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `omarchy upgrade to quattro` is a major version migration that rewrites config files and can clobber customizations — see the `shell-json-reset-by-quattro-upgrade` record before running it.
+
+**Fix.**
+
+First establish which Omarchy you are on, because the two cases have different fixes:
+
+```bash
+pacman -Q omarchy walker elephant
+```
+
+If `walker` and `elephant` both report `was not found`, skip to the Omarchy 4 section.
+
+**On Omarchy 3**, restart the launcher and its backend:
+
+```bash
+omarchy-restart-walker
+```
+
+That script restarts `elephant.service` and `app-walker@autostart.service`. If it does not take, drive the two units directly. Note the Walker unit is `app-walker@autostart.service`, which `systemd-xdg-autostart-generator` derives from `~/.config/autostart/walker.desktop`. There is no `walker.service`:
+
+```bash
+systemctl --user restart elephant.service
+systemctl --user restart app-walker@autostart.service
+systemctl --user status elephant.service
+```
+
+Watch the failure live while reproducing it:
+
+```bash
+journalctl --user -f
+# then press SUPER + SPACE
+```
+
+If the launcher opens but lists nothing instead of showing `Waiting for elephant...`, Elephant is running and has no provider. Providers are separate AUR packages:
+
+```bash
+yay -S elephant-desktopapplications
+```
+
+If it recurs constantly, check for crashes:
+
+```bash
+coredumpctl list walker
+```
+
+**On Omarchy 4 (Quattro)** there is nothing to restart. The launcher is the Quickshell shell in `/usr/share/omarchy/shell`, `SUPER + SPACE` runs `omarchy-menu toggle`, and no Walker or Elephant package is installed:
+
+```bash
+grep -rn 'SUPER + SPACE' /usr/share/omarchy/default/hypr/bindings/utilities.lua
+```
+
+If you see this symptom on Omarchy 4 you installed Walker from the AUR yourself and it is yours to manage. Elephant ships its own unit at `assets/elephant.service`, so `systemctl --user restart elephant.service` still applies, but Omarchy will not start Walker for you and `omarchy-restart-walker` does not exist.
+
+**Migrating from Omarchy 3 removes the component entirely:**
+
+```bash
+omarchy upgrade to quattro
+```
+
+**Verify.** On Omarchy 3, `SUPER + SPACE` shows your applications immediately with no `Waiting for elephant...` line, `systemctl --user is-active elephant.service` prints `active`, and `systemctl --user is-active app-walker@autostart.service` prints `active`.
+
+On Omarchy 4, `SUPER + SPACE` opens the Quickshell menu and `pacman -Q walker` reports `error: package 'walker' was not found`. That absence is the expected state, not a fault.
+
+Sources: <https://github.com/omacom/omarchy/issues/2638> · <https://github.com/abenz1267/walker> · <https://aur.archlinux.org/packages/walker> · <https://aur.archlinux.org/packages/elephant> · <https://github.com/omacom/omarchy/blob/master/bin/omarchy-launch-walker>
 
 ---
 
@@ -443,42 +505,62 @@ Sources: <https://github.com/basecamp/omarchy/issues/8158> · <https://github.co
 
 `gtk4-libadwaita-apps-ignore-omarchy-theme` · severity: **medium** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
 
-**Symptom.** Every theme applies to the terminal, bar, launcher and lock screen, but Nautilus, Geary and GNOME Calendar stay in stock Adwaita colors no matter which theme you set. `omarchy theme set <any-theme>` then opening Nautilus shows no color change at all.
+**Symptom.** Every theme applies to the terminal, bar, launcher and lock screen, but Nautilus and other GTK4/libadwaita apps keep stock Adwaita colours. Running `omarchy theme set gruvbox` and then `omarchy theme set tokyo-night` leaves the Nautilus window, header bar and sidebar the same grey both times. Two GTK-visible things do change on every theme set, so this is not "nothing happens": `omarchy-theme-set-gnome` writes `org.gnome.desktop.interface color-scheme` to `prefer-dark` or `prefer-light` from the theme's `mode`, sets `gtk-theme` to `Adwaita` or `Adwaita-dark`, and sets `icon-theme` from the theme's `icons.theme`. What never follows the theme is the palette.
 
-**Cause.** libadwaita ignores the `gtk-theme` setting by design. The only user-level lever it honors is `@define-color` overrides in `~/.config/gtk-4.0/gtk.css`, and stock Omarchy never writes that file — the only themed GTK CSS shipped anywhere in the tree is for the Hyprland share-picker. Compounding it, libadwaita reads the user stylesheet only at process startup, and these apps run as `--gapplication-service` daemons that survive window close, so they keep painting a days-old theme even after you rewrite the CSS.
+**Cause.** Nothing in Omarchy writes a GTK palette. The only themed GTK CSS template in the whole tree is `/usr/share/omarchy/default/themed/hyprland-preview-share-picker.css.tpl`, for the Hyprland share picker, and no theme under `/usr/share/omarchy/themes/` ships a GTK file. What `omarchy-theme-set` does run is `omarchy-theme-set-gnome`, and that only flips `org.gnome.desktop.interface` between `color-scheme prefer-dark` with `gtk-theme Adwaita-dark` and the light pair, plus `icon-theme` from the theme's `icons.theme`. libadwaita ignores `gtk-theme` by design, so even the theme name is inert for these apps and only the light or dark preference lands.
 
-> ⚠️ **Risk.** The hook overwrites `~/.config/gtk-4.0/gtk.css` on every theme change. If you already hand-maintain that file, back it up first or make the hook append to a separate `@import`ed file instead.
+The user-level lever that does work is the GTK user stylesheet, `~/.config/gtk-4.0/gtk.css`. GTK4 adds it at `GTK_STYLE_PROVIDER_PRIORITY_USER` and libadwaita registers its own stylesheet at `GTK_STYLE_PROVIDER_PRIORITY_THEME`, so rules in the user file win. On libadwaita 1.9.3 the documented way to override a colour is a CSS custom property on `:root`, for example `--window-bg-color`. The older `@define-color window_bg_color` form still works, because libadwaita's compiled stylesheet declares the legacy names and maps each one forward, but GTK deprecated `@define-color` in 4.16 in favour of custom properties, `:root` and `var()`.
+
+Compounding it, GTK4 loads that file exactly once per process. `gtk_settings` builds a single static `GtkCssProvider`, calls `gtk_css_provider_load_from_path` on it if the file exists, and installs no file monitor. Apps that run as `--gapplication-service` daemons survive their last window closing, so they keep painting a days-old palette after you rewrite the CSS.
+
+> **Audit corrected this record.** Checked on this workstation (omarchy 4.0.2-1, gtk4 1:4.22.4-1, libadwaita 1:1.9.3-1, nautilus 50.2.2-1). Three claims held and three did not. Held, and confirmed on this machine: nothing in the Omarchy tree writes a GTK palette, because the only GTK CSS template under /usr/share/omarchy/default/themed is hyprland-preview-share-picker.css.tpl and no theme directory ships a GTK file. Held: the hook path is real, since omarchy-theme-set calls `omarchy-hook theme-set "$THEME_NAME"` and omarchy-hook runs every file in ~/.config/omarchy/hooks/theme-set.d/. Held, and confirmed from GTK source rather than locally: gtk_settings builds one static GtkCssProvider, calls gtk_css_provider_load_from_path on ~/.config/gtk-4.0/gtk.css and registers no file monitor, so the file is read once per process, and nautilus is D-Bus activated as `/usr/bin/nautilus --gapplication-service`. Wrong, confirmed on this machine: the symptom said no colour change at all, but /usr/share/omarchy/bin/omarchy-theme-set-gnome sets color-scheme, gtk-theme and icon-theme from the theme, and with the gruvbox theme active `gsettings get org.gnome.desktop.interface icon-theme` returns Yaru-olive, exactly the content of /usr/share/omarchy/themes/gruvbox/icons.theme, so light or dark and the icon set do follow the theme. Wrong, from sources: the cause called `@define-color` the only lever, but libadwaita 1.9.3 documents CSS custom properties on `:root` as the override mechanism, and GTK 4 documentation states that define-color is deprecated and that custom properties, the :root selector and var() should be used instead, supported since 4.16. The old form still works only because libadwaita's compiled stylesheet declares the legacy names and maps each one forward as `--window-bg-color: @window_bg_color`, which I read out of the installed /usr/lib/libadwaita-1.so.0. Wrong, from source: the GTK3 note blamed provider scoping, but gtk_style_cascade_get_color in both gtk-3-24 and gtk4 main walks providers from the highest priority down, and the user stylesheet sits at GTK_STYLE_PROVIDER_PRIORITY_USER above libadwaita's GTK_STYLE_PROVIDER_PRIORITY_THEME, so an override does reach the theme. The real obstacle is that GTK3's compiled Adwaita declares 163 named colours and then references only @theme_text_color five times and @selected_bg_color three times, counted in the installed /usr/lib/libgtk-3.so.0, so there is almost nothing for an override to reach. I also replaced the sed reader with omarchy-theme-color, the supported colors.toml reader that omarchy-theme-set-gnome and omarchy-theme-set-templates both use, and confirmed `omarchy-theme-color --file ~/.local/state/omarchy/current/theme/colors.toml background` returns #282828 here. Both cited issues were read in full and both support the record, although 7557 is an open feature request whose prose the record reproduced including the two errors above, and 8380 is a separate transparency report about a user's own broken hook. NOT exercised: I did not write gtk.css, install the hook, change the theme, restart any app or render anything, so the visual result of the corrected CSS is unverified on this machine and rests on the libadwaita documentation.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** The hook overwrites `~/.config/gtk-4.0/gtk.css` on every theme change. Omarchy itself never writes that file, so nothing but this hook will clobber it, but if you already hand-maintain it, back it up first or have the hook write a separate file and `@import` it. The hook also sends SIGTERM to GTK4 daemons. All of them are D-Bus activatable and respawn on demand, but an unsaved dialog in one of them is lost.
 
 **Fix.**
 
-Write the libadwaita overrides yourself and re-apply them on every theme change. Create the hook:
+Write the libadwaita overrides yourself and re-apply them on every theme change. Omarchy never writes `~/.config/gtk-4.0/gtk.css`, so nothing else competes for that file and nothing overwrites your copy except this hook.
 
 ```bash
 mkdir -p ~/.config/omarchy/hooks/theme-set.d
 cat > ~/.config/omarchy/hooks/theme-set.d/20-gtk4-colors.sh <<'EOF'
 #!/bin/bash
-set -euo pipefail
-colors=~/.local/state/omarchy/current/theme/colors.toml
+set -uo pipefail
+
+colors="$HOME/.local/state/omarchy/current/theme/colors.toml"
 [[ -f $colors ]] || exit 0
-val() { sed -n "s/^$1[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$colors" | head -1; }
-bg=$(val background); fg=$(val foreground)
+
+# omarchy-theme-color is the supported reader for colors.toml. It resolves
+# legacy colorN names and derived shades that a raw sed over the file misses.
+bg=$(omarchy-theme-color --file "$colors" background || true)
+fg=$(omarchy-theme-color --file "$colors" foreground || true)
 [[ -n $bg && -n $fg ]] || exit 0
-mkdir -p ~/.config/gtk-4.0
-cat > ~/.config/gtk-4.0/gtk.css <<CSS
-@define-color window_bg_color $bg;
-@define-color window_fg_color $fg;
-@define-color view_bg_color $bg;
-@define-color view_fg_color $fg;
-@define-color headerbar_bg_color $bg;
-@define-color headerbar_fg_color $fg;
-@define-color sidebar_bg_color $bg;
-@define-color sidebar_fg_color $fg;
-@define-color card_bg_color $bg;
-@define-color card_fg_color $fg;
-@define-color popover_bg_color $bg;
-@define-color popover_fg_color $fg;
+
+mkdir -p "$HOME/.config/gtk-4.0"
+cat > "$HOME/.config/gtk-4.0/gtk.css" <<CSS
+:root {
+  --window-bg-color: $bg;
+  --window-fg-color: $fg;
+  --view-bg-color: $bg;
+  --view-fg-color: $fg;
+  --headerbar-bg-color: $bg;
+  --headerbar-fg-color: $fg;
+  --sidebar-bg-color: $bg;
+  --sidebar-fg-color: $fg;
+  --secondary-sidebar-bg-color: $bg;
+  --secondary-sidebar-fg-color: $fg;
+  --dialog-bg-color: $bg;
+  --dialog-fg-color: $fg;
+  --popover-bg-color: $bg;
+  --popover-fg-color: $fg;
+}
 CSS
-# libadwaita reads the stylesheet only at startup; these are D-Bus activatable
+
+# GTK4 loads ~/.config/gtk-4.0/gtk.css once per process and sets up no file
+# monitor on it, so a D-Bus activated daemon keeps painting the palette it
+# started with. Every name below respawns on demand, so SIGTERM is safe.
 pkill -f 'nautilus --gapplication-service' || true
 pkill -x geary || true
 pkill -x gnome-calendar || true
@@ -487,60 +569,28 @@ chmod +x ~/.config/omarchy/hooks/theme-set.d/20-gtk4-colors.sh
 omarchy theme refresh
 ```
 
-Note that GTK3 cannot be recolored this way at all — `@define-color` in the user stylesheet is provider-scoped and never reaches the Adwaita theme's own rules. GTK3 apps still need an approximate binary theme selected via `gtk-theme`.
+`omarchy-theme-set` calls `omarchy-hook theme-set "$THEME_NAME"` after it swaps the theme in, and `omarchy-hook` runs every file in `~/.config/omarchy/hooks/theme-set.d/`, so the hook fires on every `omarchy theme set`.
 
-**Verify.** `cat ~/.config/gtk-4.0/gtk.css` shows real hex values (not `#;`), and opening Nautilus after `omarchy theme set gruvbox` then `omarchy theme set tokyo-night` shows two visibly different window backgrounds.
+Two deliberate omissions. `--accent-bg-color` is left alone because libadwaita derives `--accent-color` from it in the Oklab space, and overriding one without the other gives you accent text with no contrast guarantee. `--card-bg-color` is left alone because Adwaita defines it as a translucent white overlay (`RGB(255 255 255 / 8%)` in the dark style), so pinning it to the opaque window background makes every card disappear into the window.
 
-Sources: <https://github.com/basecamp/omarchy/issues/7557> · <https://github.com/basecamp/omarchy/issues/8380>
+Omarchy 4 versus plain Arch:
 
----
+- On Omarchy 4 the hook above is the mechanism, because `~/.config/omarchy/hooks/theme-set.d/` and `omarchy-theme-color` both exist and a theme change is what needs to trigger the rewrite.
+- On plain Arch there is no theme-set event. Write the same `:root` block into `~/.config/gtk-4.0/gtk.css` once by hand and restart the affected apps.
 
-## Restore bar widgets and plugins wiped by the Quattro upgrade
+Syntax note. `@define-color window_bg_color <hex>;` in the same file still works on libadwaita 1.9.3, because its compiled stylesheet still declares the old names and maps them forward with `--window-bg-color: @window_bg_color;`. It is the older form: GTK deprecated `@define-color` in 4.16 and its own documentation says to use custom properties, the `:root` selector and `var()` instead. Prefer the `:root` block.
 
-`shell-json-reset-by-quattro-upgrade` · severity: **medium** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
+GTK3 apps cannot be recoloured this way, but not for the reason usually given. A user `@define-color` does reach the theme: GTK3 and GTK4 both resolve a named colour by walking the style cascade from the highest priority provider down, and the user stylesheet sits at `GTK_STYLE_PROVIDER_PRIORITY_USER` above the theme. The real obstacle is that GTK3's compiled Adwaita declares 163 named colours and then almost never refers to them, so there is nothing for an override to reach. GTK3 apps still need an approximate binary theme selected through `gtk-theme`.
 
-**Symptom.** After `omarchy upgrade to quattro`, every bar customization is gone: extra bar widgets, the enabled-plugins list, `transparent: true`, and custom idle timers are all back to stock defaults. The plugin directories under `~/.config/omarchy/plugins/` are all still there, untouched — only the config was reset, with no warning.
-
-**Cause.** `omarchy-upgrade-to-quattro` lists `omarchy/shell.json` in `always_copy_config_files` (around line 1641) and unconditionally installs the stock Quattro default over it, regardless of whether the existing file was valid and customized. `backup_config_file()` does save the old one first (suffix from `date +%Y%m%d%H%M%S`), but nothing tells you it happened. The schema is actually unchanged across the upgrade (`bar`, `idle`, `plugins`, `version` — no new required keys), so a straight restore works.
-
-> ⚠️ **Risk.** Restoring a pre-Quattro `shell.json` wholesale can reintroduce keys the new shell does not expect — keep `shell.json.quattro-default` so you can fall back. Do not delete the `.bak` files until you have confirmed the restore works.
-
-**Fix.**
-
-Find the backup:
+**Verify.** Check the file was written with real values and that the apps picked it up:
 
 ```bash
-ls -la ~/.config/omarchy/shell.json*
+cat ~/.config/gtk-4.0/gtk.css
 ```
 
-Keep the new default aside, then restore:
+Every line must carry a six-digit hex value. An empty `#` or a bare `$bg` means `omarchy-theme-color` returned nothing and the guard did not catch it. Then run `omarchy theme set gruvbox`, open Nautilus, run `omarchy theme set tokyo-night`, open Nautilus again, and confirm the window background is visibly different between the two. Opening it twice matters because the daemon has to have been restarted in between.
 
-```bash
-cp ~/.config/omarchy/shell.json ~/.config/omarchy/shell.json.quattro-default
-cp ~/.config/omarchy/shell.json.omarchy-upgrade-to-quattro.<timestamp>.bak \
-   ~/.config/omarchy/shell.json
-omarchy restart shell
-```
-
-If you would rather merge only the parts you care about onto the new default:
-
-```bash
-jq -s '.[0] * {bar: .[1].bar, plugins: .[1].plugins, idle: .[1].idle}' \
-  ~/.config/omarchy/shell.json.quattro-default \
-  ~/.config/omarchy/shell.json.omarchy-upgrade-to-quattro.<timestamp>.bak \
-  > ~/.config/omarchy/shell.json
-omarchy restart shell
-```
-
-Before running the upgrade in the first place, take your own copy:
-
-```bash
-cp ~/.config/omarchy/shell.json ~/shell.json.pre-quattro
-```
-
-**Verify.** `jq '.bar.layout, .plugins, .bar.transparent' ~/.config/omarchy/shell.json` shows your customizations back, and after `omarchy restart shell` the extra widgets are visible in the bar again.
-
-Sources: <https://github.com/basecamp/omarchy/issues/8357>
+Sources: <https://github.com/omacom/omarchy/issues/7557> · <https://github.com/omacom/omarchy/issues/8380> · <https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1.9/css-variables.html> · <https://docs.gtk.org/gtk4/css-properties.html> · <https://wiki.archlinux.org/title/GTK> · <https://raw.githubusercontent.com/GNOME/gtk/main/gtk/gtksettings.c> · <https://raw.githubusercontent.com/GNOME/gtk/main/gtk/gtkstylecascade.c> · <https://raw.githubusercontent.com/GNOME/gtk/gtk-3-24/gtk/gtkstylecascade.c> · <https://raw.githubusercontent.com/GNOME/libadwaita/libadwaita-1-9/src/adw-style-manager.c>
 
 ---
 
@@ -612,9 +662,13 @@ Sources: <https://github.com/basecamp/omarchy/issues/7317> · <https://learn.oma
 
 `installed-theme-hyprland-lua-stripped-borders` · severity: **medium** · frequency: **common** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
 
-**Symptom.** You install a theme with `omarchy theme install <git-url>` and the bar, terminal and shell all retint, but the Hyprland window borders keep the same cyan-to-green gradient for every theme, and the theme's rounding/shadow/blur never appear. Running the switch from a terminal instead of the menu prints `Ignored in /home/<user>/.config/omarchy/themes/<name>: hyprland.lua` and `A theme installed from a git repo cannot supply Lua, a terminal config, or vscode.json.` on stderr; from the Style > Theme menu you see nothing at all. `hyprctl getoption general:col.active_border` still reports the stock `rgba(33ccffee) rgba(00ff99ee) 45deg`.
+**Symptom.** You install a theme with `omarchy theme install <git-url>` and the bar, terminal and shell all retint, but the theme's own Hyprland look never arrives. Its rounding, shadow and blur are missing entirely, and the window border comes out as a flat version of the theme's `accent` colour instead of the gradient or the exact colour the author wrote. In the rarer case where the cloned theme ships no `colors.toml` and no `alacritty.toml` to derive one from, the borders instead stay on Omarchy's stock cyan-to-green gradient for every theme you switch to. Running the switch from a terminal instead of the menu prints `Ignored in /home/<user>/.config/omarchy/themes/<name>: hyprland.lua` and `A theme installed from a git repo cannot supply Lua, a terminal config, or vscode.json.` on stderr. From the Style > Theme menu you see nothing at all. `hyprctl getoption general:col.active_border` reports a single-stop gradient such as `gradient data: ff7daea3 0deg`, which is the accent rather than the border the theme author asked for.
 
 **Cause.** `bin/omarchy-theme-set` treats any theme directory that contains a `.git` directory as "came from a stranger" (`theme_came_from_a_repo`) and refuses to stage anything that can run code. `is_denied_installed_file` drops every `*.lua` unconditionally, plus `alacritty.toml`, `foot.ini`, `ghostty.conf`, `kitty.conf` and `vscode.json` (`INSTALLED_THEME_DENIED`) — Hyprland `require`s a theme's `hyprland.lua` and `gum_env.lua` at login, so that is deliberate policy, not a bug. What gets staged instead is generated from `default/themed/hyprland.lua.tpl`, which carries only `general.col.active_border` / `inactive_border` and the matching `group.col` keys, resolved from `hyprland_active_border` / `hyprland_inactive_border` in `colors.toml` with `accent` and `rgba(595959aa)` as fallbacks. Rounding, shadow and blur have no `colors.toml` channel at all, so a theme that expressed its identity in `hyprland.lua` half-works. The refusal is announced only on stderr, which the menu discards (issue #8393). Separately, even a correct `hyprland.lua` does not repaint until `omarchy-restart-hyprctl` (`hyprctl reload`) has run — it is one of the `post_theme_commands`, so a theme change that died partway leaves stale borders.
+
+> **Audit corrected this record.** Re-audited on this workstation at omarchy 4.0.2-1, omarchy-settings 4.0.2-1, Hyprland 0.56.2-1, and against bin/omarchy-theme-set and default/themed/hyprland.lua.tpl on the quattro branch. The premise holds and is Lua, not hyprlang: 5 of the 22 themes in /usr/share/omarchy/themes (kanagawa, last-horizon, lumon, retro-82, solitude) ship a real `hyprland.lua` using `hl.config({ general = { col = { active_border = ... } } })`, default/hypr/omarchy.lua ends with `require_optional.module("omarchy.current.theme.hyprland")`, and default/hypr/envs.lua requires `omarchy.current.theme.gum_env`. The mechanism in the cause is correct line for line on the installed script: `INSTALLED_THEME_DENIED=(alacritty.toml foot.ini ghostty.conf kitty.conf vscode.json)`, `is_denied_installed_file` returns 0 for every `*.lua`, `theme_came_from_a_repo` is `[[ ! -L $source && -d $source/.git ]]`, `report_ignored_theme_files` emits the two quoted stderr lines byte for byte, and `omarchy-restart-hyprctl` is literally `hyprctl reload` and sits in `post_theme_commands`. The fix is correct and its paths are Omarchy 4, not Omarchy 3: `~/.config/hypr/looknfeel.lua` exists and ships as an all-comment file, `config/hypr/hyprland.lua` requires `hypr.looknfeel` after `default.hypr.omarchy`, `omarchy theme refresh` is a real subcommand that re-runs `omarchy-theme-set` with `OMARCHY_THEME_SKIP_BACKGROUND=1`, `omarchy-theme-color` accepts an arbitrary `hyprland_active_border` key whose value charset covers `rgba(33ccffee) rgba(00ff99ee) 45deg`, and docs/theming.md on quattro documents that exact TOML line and the `hypr_gradient` helper. The danger is right too: `omarchy-theme-extras` selects on `-d $theme/.git`, so removing `.git` really does drop the theme out of `omarchy theme update`. What was wrong is the symptom, and it is wrong in the common case rather than an edge case. The template resolves `hyprland_active_border` with `accent` as its fallback, so any cloned theme with a `colors.toml` does repaint the border. Confirmed live on this machine: the current theme is gruvbox, the staged /home/techluddite/.local/state/omarchy/current/theme/hyprland.lua reads `local active_border_color = "#7daea3"` which is gruvbox's accent, and `hyprctl getoption general:col.active_border` returns `gradient data: ff7daea3 0deg`, not the stock `rgba(33ccffee) rgba(00ff99ee) 45deg` the record quotes. The record also quotes hyprctl as printing rgba() notation, which it does not. Symptom and verify are rewritten for both points. Issue 8393 was read in full and supports the claim exactly, including that the menu discards stderr and that rounding, shadow and blur go missing. Issue 7884 is the merged change that introduced the policy and supports the cause. Not exercised: no theme was installed, set, removed or refreshed on this machine, and no cloned theme was staged, so the stderr lines and the `rm -rf .git` promotion path were read from the script rather than triggered.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 > ⚠️ **Risk.** Deleting `.git` from a theme directory promotes the whole tree to a hand-written theme, so Omarchy stages **every** file the stranger's repo shipped — including `hyprland.lua` and `gum_env.lua`, which Hyprland executes at login, and `neovim.lua`, which Neovim executes at startup. A bad or hostile file there can leave you with a session that will not start. Read them before you do this, and note that it also breaks `omarchy theme update` for that theme, since there is no longer a repo to pull from.
 
@@ -676,9 +730,9 @@ rm -rf ~/.config/omarchy/themes/<name>/.git
 omarchy theme set <name>
 ```
 
-**Verify.** `grep active_border_color ~/.local/state/omarchy/current/theme/hyprland.lua` shows your theme's colours rather than the stock gradient, and `hyprctl getoption general:col.active_border` matches. Switching between two themes visibly changes the focused window's border.
+**Verify.** `grep active_border_color ~/.local/state/omarchy/current/theme/hyprland.lua` names the colour you put in `colors.toml` rather than the theme's bare `accent` or Omarchy's stock `rgba(33ccffee)`. `hyprctl getoption general:col.active_border` prints the stops as `gradient data: <aarrggbb> [<aarrggbb> ...] <n>deg` followed by `set: true`, so an accent of `#7daea3` reads back as `gradient data: ff7daea3 0deg` and a two-stop gradient reads back as two colour words and a non-zero angle. Switching between two themes visibly changes the focused window's border.
 
-Sources: <https://github.com/basecamp/omarchy/issues/8393> · <https://github.com/basecamp/omarchy/issues/7884> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-set> · <https://github.com/basecamp/omarchy/blob/quattro/docs/theming.md> · <https://github.com/basecamp/omarchy/blob/quattro/manual/43-making-your-own-theme.md>
+Sources: <https://github.com/basecamp/omarchy/issues/8393> · <https://github.com/basecamp/omarchy/issues/7884> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-set> · <https://github.com/basecamp/omarchy/blob/quattro/docs/theming.md> · <https://github.com/basecamp/omarchy/blob/quattro/manual/43-making-your-own-theme.md> · <https://github.com/omacom/omarchy/issues/8393> · <https://github.com/omacom/omarchy/issues/7884> · <https://github.com/omacom/omarchy/blob/quattro/default/themed/hyprland.lua.tpl> · <https://github.com/omacom/omarchy/blob/quattro/docs/theming.md>
 
 ---
 
@@ -839,7 +893,20 @@ Sources: <https://github.com/basecamp/omarchy/issues/7117> · <https://github.co
 
 **Symptom.** `omarchy theme install <url>` fails in one of several ways. It prints `omarchy-git-url-check: '<url>' names the 'sftp' transport, which Omarchy does not clone from.` or `omarchy-git-url-check: '<url>' names a git option or transport helper, not a repository.` and stops. Or it prints `Error: '<url>' does not give a usable theme name.` Or git runs and fails with `fatal: repository '<url>' not found` followed by `Error: Failed to clone theme repo.` Or — the worst one — it just sits there forever with no output, because git is waiting on `Username for 'https://github.com':` or an SSH host-key prompt you cannot see when the install was launched from the Omarchy menu.
 
-**Cause.** `bin/omarchy-theme-install` pre-screens the URL with `bin/omarchy-git-url-check` before cloning. That refuses anything starting with `-`, anything matching `<helper>::<address>` (git's transport-helper shape — `ext::` runs a shell command), and any `<scheme>://` whose scheme is not on the allowlist `ssh git git+ssh ssh+git http https ftp ftps file`. It then derives the theme name from the URL: strip an `scp`-style `user@host:` prefix, `basename ... .git`, strip a leading `omarchy-` and a trailing `-theme`, lowercase — and refuses a name that is empty, starts with a dot, or contains a slash. Anything that survives goes to a plain `git clone`, with the terminal's stdin: a private repo over HTTPS prompts for credentials, and a first-time SSH host prompts for the host key, so the command blocks. A URL pointing at a GitHub *page* (`.../tree/main`) or a tarball is not a repository and git rejects it. And critically, the existing `~/.config/omarchy/themes/<derived-name>` is `rm -rf`'d **before** the clone runs, so a failed install destroys whatever was already there.
+**Cause.** `bin/omarchy-theme-install` pre-screens the URL with `bin/omarchy-git-url-check` before cloning. That refuses anything starting with `-`, anything matching `<helper>::<address>` (git's transport-helper shape, and `ext::` runs a shell command), and any `<scheme>://` whose scheme is not on the allowlist `ssh git git+ssh ssh+git http https ftp ftps file`. It then derives the theme name from the URL: strip an scp-style `user@host:` prefix when the URL holds no `://` and the part before the first colon holds no slash, then `basename -- ... .git`, strip a leading `omarchy-` and a trailing `-theme`, and lowercase. The derived name is then held to a positive allowlist under a pinned locale rather than to a short list of bad shapes:
+
+```bash
+if ! (LC_ALL=C; [[ $THEME_NAME =~ ^[a-z0-9_][a-z0-9._+-]*$ ]]); then
+  echo "Error: '$REPO_URL' does not give a usable theme name."
+  exit 1
+fi
+```
+
+So the name must start with a lowercase ASCII letter, a digit or an underscore, and may then contain only those plus `.`, `+` and `-`. A basename carrying a space, `@`, `~`, a second colon, a slash or a non-ASCII letter is refused, and so is an empty name, one starting with `.` or `-`, and one that reduces to `..`. The locale is pinned because a bare `[a-z]` range follows collation and would otherwise let `é` through. That strictness is deliberate: the name is joined into a path that is about to be `rm -rf`'d, and is later passed around by name into menu command lines. Anything that survives goes to `git clone -- "$REPO_URL" "$THEME_PATH"`, where the `--` is what stops a dash-leading URL being read as a git option. That clone inherits the terminal's stdin, sets no `GIT_TERMINAL_PROMPT=0` and has no timeout, so a private repo over HTTPS prompts for credentials and a first-time SSH host prompts for the host key, and the command blocks forever when it was launched from the Omarchy menu where nothing can answer the prompt. A URL pointing at a GitHub page (`.../tree/main`) or a tarball is not a repository and git rejects it. And critically, the existing `~/.config/omarchy/themes/<derived-name>` is `rm -rf`'d **before** the clone runs, so a failed install destroys whatever was already there. git itself deletes the destination it created when a clone fails, so there is no half-clone left to tidy up, but the directory that was removed first does not come back.
+
+> **Audit corrected this record.** Re-audited against /usr/share/omarchy/bin/omarchy-theme-install and /usr/share/omarchy/bin/omarchy-git-url-check on this workstation at omarchy 4.0.2-1, and against bin/omarchy-theme-install on the quattro branch, which is byte-identical to the installed copy. Most of the record holds. Both refusal strings are exact (`names the '$scheme' transport, which Omarchy does not clone from.` and `names a git option or transport helper, not a repository.`), `TRANSPORTS=(ssh git git+ssh ssh+git http https ftp ftps file)` is exact with `ext` and `fd` deliberately excluded, `Error: '<url>' does not give a usable theme name.` and `Error: Failed to clone theme repo.` are exact, the `rm -rf "$THEME_PATH"` really does run before `git clone`, and the clone has no timeout, no `GIT_TERMINAL_PROMPT=0` and inherited stdin, so the hang story holds as read from the script. Every path is Omarchy 4: `~/.config/omarchy/themes`, and `~/.local/state/omarchy/current/theme.name` which `omarchy-theme-set` really writes. Nothing points at `~/.local/share/omarchy`. `omarchy-theme-remove` takes an optional name and otherwise shows an `omarchy-menu-select` picker, `omarchy theme refresh` and the other subcommands are all present in the dispatcher, and tokyo-night is one of the 22 themes in /usr/share/omarchy/themes. One claim is out of date and is the reason for the correction. The record says the derived name is refused when it is empty, starts with a dot, or contains a slash. That was the rule described in the merged issue 7884, but the shipping script now applies a positive allowlist under a pinned locale, `LC_ALL=C` with `^[a-z0-9_][a-z0-9._+-]*$`, which also refuses a leading `-`, a space, `@`, `~` and any non-ASCII letter. A reader hitting the name error on a repo like `omarchy-Solarized Light-theme` would not be explained by the record's rule, and the fix offered no way to predict the name at all. The cause is rewritten with the real regex and the fix gains a pre-flight block that derives the name and tests it. Current behaviour is better than the record describes in two places, and both are now stated: the name check is stricter and safer, and a failed clone leaves nothing behind. That second point was exercised here rather than assumed, with `GIT_TERMINAL_PROMPT=0 git clone -- https://github.com/omacom/definitely-not-a-real-repo-o3.git /tmp/o3clonetest`, which exited 128 and left no `/tmp/o3clonetest`. The destructive pre-clone `rm -rf` of an existing theme is therefore still the only real loss, and the record's danger already says so correctly. Not exercised: `omarchy theme install` was never run on this machine, so the refusals, the hang and the theme-name error were read from the script rather than triggered, and no credential or host-key prompt was provoked.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** `omarchy theme install` does `rm -rf "$THEME_PATH"` before it clones, so a clone that then fails leaves you with **no** theme at that name. The name is derived from the URL with `omarchy-` and `-theme` stripped, so two unrelated repos can collide on it and quietly replace each other — back up any hand-edited theme first: `cp -a ~/.config/omarchy/themes/<name> ~/theme-backup-<name>`. A cloned theme is also arbitrary content from a stranger; Omarchy drops the files that can run code but everything else is applied as-is.
 
@@ -851,15 +918,23 @@ Run installs from a terminal, never from the Style > Theme menu, so git's prompt
 omarchy theme install https://github.com/<owner>/omarchy-<name>-theme.git
 ```
 
-Pre-flight the URL before you let it near your themes directory:
+Pre-flight the URL **and** the theme name it derives, before you let either near your themes directory:
 
 ```bash
 URL='https://github.com/<owner>/omarchy-<name>-theme.git'
 omarchy-git-url-check "$URL" && echo 'url shape accepted'
 git ls-remote "$URL" >/dev/null && echo 'repo reachable'
+
+# the name Omarchy will derive, and the rule that name has to pass
+P="$URL"
+[[ $P != *"://"* && $P == *:* && ${P%%:*} != */* ]] && P="${P#*:}"
+NAME=$(basename -- "$P" .git | sed -E 's/^omarchy-//; s/-theme$//' | tr '[:upper:]' '[:lower:]')
+echo "theme name: $NAME"
+(LC_ALL=C; [[ $NAME =~ ^[a-z0-9_][a-z0-9._+-]*$ ]]) && echo 'name accepted' || echo 'name refused'
+[[ -d ~/.config/omarchy/themes/$NAME ]] && echo "WARNING: install deletes ~/.config/omarchy/themes/$NAME first"
 ```
 
-Accepted forms are `https://`, `http://`, `ssh://`, `git://`, `git+ssh://`, `ssh+git://`, `ftp://`, `ftps://`, `file://`, and scp-style `git@host:org/repo.git`. Copy the repo's **clone** URL, not the page URL — a `/tree/main` or `/releases/download/...` link is not a repository.
+Accepted URL forms are `https://`, `http://`, `ssh://`, `git://`, `git+ssh://`, `ssh+git://`, `ftp://`, `ftps://`, `file://`, and scp-style `git@host:org/repo.git`. Copy the repo's **clone** URL, not the page URL. A `/tree/main` or `/releases/download/...` link is not a repository. If the name check is what refused you, rename the repo or clone it yourself into `~/.config/omarchy/themes/<a-name-that-passes>` and run `omarchy theme set <that-name>`.
 
 For a private repo, get the credentials working outside Omarchy first:
 
@@ -884,7 +959,7 @@ rm -rf ~/.config/omarchy/themes/<name>
 
 **Verify.** `ls ~/.config/omarchy/themes/<name>/colors.toml` exists, `cat ~/.local/state/omarchy/current/theme.name` names the new theme, and `grep -rn '{{' ~/.local/state/omarchy/current/theme/` returns nothing.
 
-Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-install> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-git-url-check> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-remove> · <https://github.com/basecamp/omarchy/blob/quattro/manual/43-making-your-own-theme.md>
+Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-install> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-git-url-check> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-remove> · <https://github.com/basecamp/omarchy/blob/quattro/manual/43-making-your-own-theme.md> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-theme-install> · <https://github.com/omacom/omarchy/issues/7884>
 
 ---
 
@@ -947,6 +1022,68 @@ Sources: <https://github.com/basecamp/omarchy/issues/8262>
 
 ---
 
+## Recover from a custom theme that leaves the terminal unable to start
+
+`installed-theme-without-colors-toml-breaks-foot` · severity: **medium** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
+
+**Symptom.** After `omarchy theme install <git-url>` or `omarchy theme set <my-theme>`, new terminal windows refuse to open. Running foot by hand prints: `err: config.c:896: /home/<user>/.config/foot/foot.ini:2: [main].include: ~/.local/state/omarchy/current/theme/foot.ini: failed to open: No such file or directory` and exits 230. `omarchy theme set` itself exited 0 with no warning.
+
+**Cause.** `bin/omarchy-theme-set` applies any directory under `~/.config/omarchy/themes/` whose name passes its regex, and the template generator only runs `if [[ -f $COLORS_FILE ]]` (`/usr/share/omarchy/bin/omarchy-theme-set-templates:371`). A theme with no `colors.toml`, and no legacy `alacritty.toml` to convert from, therefore produces a `~/.local/state/omarchy/current/theme/` with none of the generated files: no `foot.ini`, `alacritty.toml`, `kitty.conf`, `ghostty.conf`, `shell.toml` or `hyprland.lua`. `/usr/share/omarchy/config/foot/foot.ini:2` is an unconditional `include` of that missing `foot.ini` and foot treats a missing include as fatal. Alacritty (`general.import`) and kitty (`include`) are unconditional too, and only Ghostty is guarded, with `config-file = ?"..."`. The Hyprland session is not affected, because the theme's `hyprland.lua` and `gum_env.lua` are loaded through `require_optional` (`default/hypr/omarchy.lua:22`, `default/hypr/envs.lua:5`), and already-open terminal windows keep running because `omarchy-restart-terminal` has no foot action. You only discover it when you open a new window, and `omarchy theme set` exited 0 with no warning. On Omarchy 4.0.2 a theme installed from a git repo is staged rather than copied wholesale, and `foot.ini` is on the refused list, so such a theme cannot ship its own `foot.ini` to cover the gap. Only a `colors.toml` closes it.
+
+> **Audit corrected this record.** Checked on this workstation at omarchy 4.0.2-1, omarchy-settings 4.0.2-1, foot 1.27.0-2, with alacritty, kitty and ghostty not installed. The core mechanism holds exactly: `/usr/share/omarchy/bin/omarchy-theme-set-templates:371` is `if [[ -f $COLORS_FILE ]]`, `/usr/share/omarchy/config/foot/foot.ini:2` is an unconditional `include`, alacritty and kitty include unconditionally and only ghostty uses the guarded `config-file = ?"..."` form, `omarchy-restart-terminal` has no foot action so open windows survive, `default/xdg-terminal-exec` names only `foot.desktop`, and all 22 directories under `/usr/share/omarchy/themes` ship a `colors.toml`. I reproduced the symptom text exactly: `foot --check-config` against a config whose include is missing prints `err: config.c:896: ... failed to open: No such file or directory` and exits 230. Four things are wrong. First and worst, the fix does not work: I ran `omarchy-theme-set-templates` in a sandboxed HOME against the record's own three-key `colors.toml` and `omarchy-theme-color --all` returns empty strings for red, green, yellow, blue, magenta and cyan, so the generated `foot.ini` carries `regular1=` with no value and foot still refuses, now with `err: config.c:3268: [colors-dark].regular1: syntax error: key/value pair has no value` and exit 230. Repeating the same sandbox with the six hues added gave a `foot.ini` that `foot --check-config` accepts with exit 0, so the corrected fix carries nine keys and points at a shipped palette as the easier route. Second, the recovery path assumed a terminal or a TTY and missed the terminal-free one: `default/hypr/bindings/utilities.lua:18` binds SUPER + SHIFT + CTRL + SPACE to `omarchy-menu toggle theme`, and `default/omarchy/omarchy-menu.jsonc` key `style.theme` runs `omarchy-theme-switcher` then `omarchy-theme-set`. Third, the cause and danger claim `omarchy theme install` applies a repo with no validation, which was true at the commit in issue 7105 but is false on 4.0.2: `omarchy-theme-install` calls `omarchy-git-url-check`, holds the theme name to `^[a-z0-9_][a-z0-9._+-]*$`, and `omarchy-theme-set` stages a cloned theme through `stage_installed_theme`, refusing symlinks at any depth and dropping `INSTALLED_THEME_DENIED=(alacritty.toml foot.ini ghostty.conf kitty.conf vscode.json)` plus every `.lua`, naming them on stderr. That change makes the failure stricter for the clone path, because a cloned theme can no longer ship its own `foot.ini` to cover the gap. Fourth, the verify field's `hyprland.conf` is Omarchy 3 wording taken from the issue's own reproduction. Omarchy 4 generates `hyprland.lua` from `default/themed/hyprland.lua.tpl`, and my sandbox run produced 18 files including `shell.toml` and `hyprland.lua`. I dropped severity from high to medium because the blast radius is narrower than the record implies: the theme's `hyprland.lua` and `gum_env.lua` are loaded with `require_optional` (`default/hypr/omarchy.lua:22`, `default/hypr/envs.lua:5`), so a missing one does not break the Hyprland session, open terminals keep running, and recovery is one keybinding away with no terminal at all. Issue 7105 is open on omacom/omarchy, I read it in full, and it supports the record including its own appended correction that only new foot launches break. The cited omacom manual page returns 200 and does say `colors.toml` is the file to tweak, but its app list is Omarchy 3 era (Hyprlock, Mako, SwayOSD, Walker, Waybar) and it never mentions foot, so it backs the palette claim only. NOT exercised: I did not install a theme, run `omarchy-theme-set`, or change the live theme on this machine, so every claim about the applied result comes from reading the scripts plus the sandboxed template run under a throwaway HOME. I also did not test whether Ctrl+Alt+F2 reaches a getty on this install.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `omarchy theme install <git-url>` clones a repository into `~/.config/omarchy/themes/` and applies it immediately. On Omarchy 4.0.2 the URL is checked by `omarchy-git-url-check`, the theme name is held to `^[a-z0-9_][a-z0-9._+-]*$`, symlinks are refused at any depth, and `alacritty.toml`, `foot.ini`, `ghostty.conf`, `kitty.conf`, `vscode.json` and every `.lua` are dropped and named on stderr, so a cloned theme cannot run code at login. Nothing checks that the theme has a `colors.toml`, so a repo you have not read can still leave you unable to open a new terminal. Look at the repo before installing it.
+
+**Fix.**
+
+You do not need a terminal to get out of this. Press **Super+Shift+Ctrl+Space** for the Theme menu, or **Super+Space** and pick Style then Theme, then choose a stock theme. That menu entry runs `omarchy-theme-switcher` and `omarchy-theme-set` directly, so it works with every terminal on the machine broken.
+
+If a terminal window is still open it keeps working, so you can switch back there instead:
+
+```bash
+omarchy theme set tokyo-night
+```
+
+If the graphical session is gone as well, get a shell from a TTY with `Ctrl+Alt+F2`, log in, and run the same command.
+
+To keep the broken theme, give it a `colors.toml`. A three-key file is not enough: `omarchy-theme-color` returns an empty string for every hue it cannot derive, so the generated `foot.ini` gets `regular1=` with no value and foot still refuses to start, this time with `err: config.c:3268: [colors-dark].regular1: syntax error: key/value pair has no value` and exit 230. The smallest file that produces a config foot accepts carries the six hues too:
+
+```bash
+cat > ~/.config/omarchy/themes/<my-theme>/colors.toml <<'EOF'
+mode       = "dark"
+background = "#1a1b26"
+foreground = "#c0caf5"
+red        = "#f7768e"
+green      = "#9ece6a"
+yellow     = "#e0af68"
+blue       = "#7aa2f7"
+magenta    = "#ad8ee6"
+cyan       = "#449dab"
+EOF
+omarchy theme set <my-theme>
+```
+
+Copying a shipped palette and editing the values is easier and fills in every optional key, including the bright and background shades the templates otherwise derive:
+
+```bash
+cp /usr/share/omarchy/themes/tokyo-night/colors.toml ~/.config/omarchy/themes/<my-theme>/colors.toml
+omarchy theme set <my-theme>
+```
+
+Before installing any third-party theme, check it first:
+
+```bash
+ls ~/.config/omarchy/themes/<name>/colors.toml || echo "NO colors.toml - new terminal windows will not open"
+```
+
+**Verify.** `foot --check-config; echo $?` returns 0, and `ls -A ~/.local/state/omarchy/current/theme` lists the generated files as well as whatever the theme shipped: `colors.toml`, `foot.ini`, `alacritty.toml`, `kitty.conf`, `ghostty.conf`, `shell.toml` and `hyprland.lua` are all present. If the directory holds only the theme's own images, `icons.theme` and similar, the template pass did not run.
+
+Sources: <https://learn.omacom.io/2/the-omarchy-manual/92/making-your-own-theme> · <https://github.com/omacom/omarchy/issues/7105> · <https://github.com/omacom/omarchy/blob/quattro/docs/theming.md>
+
+---
+
 ## Bisect a theme switch that hangs, or that kills btop with SIGABRT
 
 `post-theme-retint-hangs-or-kills-btop` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `omarchy-4`, `wayland`
@@ -981,6 +1118,91 @@ If a GPU box is also in `shown_boxes`, drop it there too (e.g. `shown_boxes = "c
 **Verify.** `time omarchy theme set tokyo-night` completes in a couple of seconds, and `coredumpctl list btop` records no new dump after switching themes with btop running.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8711> · <https://github.com/aristocratos/btop/issues/860> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-set> · <https://github.com/basecamp/omarchy/blob/quattro/docs/theming.md>
+
+---
+
+## Restore bar widgets and plugins wiped by the Quattro upgrade
+
+`shell-json-reset-by-quattro-upgrade` · severity: **medium** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
+
+**Symptom.** After running `omarchy upgrade to quattro` on a machine that already had a `~/.config/omarchy/shell.json`, every bar customization is gone: extra bar widgets, the enabled-plugins list, `transparent: true`, and custom idle timers are all back to stock defaults. The plugin directories under `~/.config/omarchy/plugins/` are all still there, untouched. Only the config was reset, and nothing on screen says a backup was written.
+
+A genuine first upgrade from Omarchy 3.x does not hit this, because 3.x has no `shell.json` to lose. What hits it is a second run of the upgrade script, which its own abort banner recommends after any failure.
+
+**Cause.** `omarchy-upgrade-to-quattro` lists `omarchy/shell.json` in `always_copy_config_files` (line 1670 of the script shipped with omarchy 4.0.2-1, line 1641 in the Omarchy 3 `master` tree the issue was filed against). `copy_always_config_defaults` (line 1918) calls `copy_config_default`, which installs the stock Quattro default over the existing file unless the two are byte-identical. `backup_config_file()` does save the old one first, to `~/.config/omarchy/shell.json.omarchy-upgrade-to-quattro.<timestamp>.bak`, where the timestamp is one per run from `backup_suffix=$(date +%Y%m%d%H%M%S)` at line 387. Nothing in the script ever prints that a `.bak` was written, for any of the places it writes one.
+
+Two things narrow and widen that. It cannot bite a genuine first upgrade from Omarchy 3.x, because 3.x has no `~/.config/omarchy/shell.json` at all and configures the bar through `~/.config/waybar/config.jsonc`. With the file absent, `copy_config_default` just installs the default and writes no backup. The machines that lose a config are ones where the script runs against a `shell.json` that already exists, which means a re-run, and the script's own abort banner at line 374 says "Re-running is safe and resumes the remaining steps".
+
+A re-run also cannot be skipped by the byte-identical guard. Every upgrade run finishes with `run_as_user_omarchy omarchy-bar defaults` at line 2372, which writes through `omarchy-shell-config`'s `commit` helper. That serialises with `jq -S`, so the file comes back key-sorted while the shipped `/usr/share/omarchy/config/omarchy/shell.json` is not (confirmed on this workstation: `jq -S .` of the shipped file is byte-different from the shipped file). The `cmp -s` guard in `copy_config_default` therefore never fires again on a machine that has completed the upgrade once.
+
+`omarchy-bar defaults` is a second, independent reset. Its `commit` program starts `.bar = $defaults[0].bar`, replacing the whole `bar` subtree, so layout, `position`, `transparent` and per-widget settings go regardless of what the copy step did. It leaves `plugins` and `idle` alone, so the copy step is what accounts for those two.
+
+The list is wider than `shell.json`. `always_copy_config_files` also carries `hypr/hyprland.lua`, `hypr/bindings.lua`, `hypr/monitors.lua`, `hypr/input.lua`, `hypr/looknfeel.lua`, `hypr/autostart.lua`, `hypr/.luarc.json`, `omarchy/extensions/omarchy-menu.jsonc` and `omarchy/hooks/pre-refresh-pacman.d/add-custom-repo.sample`. A re-run resets a monitor layout and a keybinding set the same way it resets a bar, and backs each one up under the same suffix.
+
+The `shell.json` schema itself is unchanged across the copy (`version`, `idle`, `bar`, `plugins`, with no new required keys), so a straight restore of the `.bak` parses and loads.
+
+> **Audit corrected this record.** Checked the shipped `/usr/share/omarchy/bin/omarchy-upgrade-to-quattro` on this workstation (omarchy 4.0.2-1) rather than the issue text. The mechanism holds: `omarchy/shell.json` is in `always_copy_config_files` at line 1670, `copy_always_config_defaults` runs it at line 1918, `copy_config_default` backs up via `backup_config_file` to `<file>.omarchy-upgrade-to-quattro.<timestamp>.bak`, and `backup_suffix=$(date +%Y%m%d%H%M%S)` is at line 387. Confirmed no `log`, `warn` or `echo` in the script mentions a `.bak`. Confirmed on this machine that `shell.json`, not `shell.toml`, is the file the record is about: `/usr/share/omarchy/bin/omarchy-shell-config` declares itself "Shared helpers for editing ~/.config/omarchy/shell.json", while `shell.toml` is theme styling generated from `/usr/share/omarchy/default/themed/shell.toml.tpl` and read by the Quickshell QML. Neither supersedes the other, so the record points at the right file.
+
+Three things were wrong or missing. First, the record presents this as what a Quattro upgrade does to any customized install. It cannot happen on a genuine first upgrade from Omarchy 3.x, which has no `~/.config/omarchy/shell.json` and configures the bar through waybar, so the precondition is that the script runs against a file that already exists, which in practice means a re-run. Second, the record misses that the `cmp -s` skip in `copy_config_default` can never fire again after one completed upgrade: `omarchy-bar defaults` writes through `commit`, which serialises with `jq -S`, and I confirmed locally that `jq -S .` of `/usr/share/omarchy/config/omarchy/shell.json` is byte-different from the shipped file. Third, the record misses a second independent reset. `run_as_user_omarchy omarchy-bar defaults` at line 2372 runs a `commit` program beginning `.bar = $defaults[0].bar`, replacing the whole bar subtree, which means the record's restore is incomplete advice for anyone re-running the script. `always_copy_config_files` also covers seven `hypr/` files and `omarchy/extensions/omarchy-menu.jsonc`, which the fix now names.
+
+The cited source URL was wrong. `https://github.com/basecamp/omarchy/issues/8357` returns 404 (the issue was created 2026-08-26, after the repo rename), while `https://github.com/omacom/omarchy/issues/8357` returns 200. Read the issue in full: it is OPEN, it supports the record's mechanism, and its own collaborator comment supplies the three corrections above. Frequency is dropped from very-common to occasional because the precondition is a re-run rather than an upgrade. Severity stays medium: the data is backed up and recoverable.
+
+Not exercised: I did not run `omarchy-upgrade-to-quattro`, did not run `omarchy bar defaults`, and did not restore any file on this machine. The line numbers, the `jq -S` byte difference and the migration done-marker directory were all read or computed locally. Whether the restore then breaks a specific plugin was not tested.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Restoring a pre-Quattro `shell.json` wholesale reinstates whatever that file said, and update-time migrations do not re-run to correct it. They are marked done per user under `~/.local/state/omarchy/migrations/`, so a restore can permanently bring back a widget or a format a migration removed, for example `1785189600.sh` (removes the tmux alert bar indicator), `1784989000.sh` (moves the bar indicators left of the clock) and `1786099804.sh` (renames the model usage widget to agents). Keep `shell.json.quattro-default` so you can fall back, and do not delete the `.bak` files until you have confirmed the restore works.
+
+**Fix.**
+
+Find the backup. There is one per upgrade run, and the same suffix is on every other file the script replaced:
+
+```bash
+ls -la ~/.config/omarchy/shell.json*
+ls -la ~/.config/hypr/*.omarchy-upgrade-to-quattro.*.bak
+```
+
+Keep the new default aside, then restore:
+
+```bash
+cp ~/.config/omarchy/shell.json ~/.config/omarchy/shell.json.quattro-default
+cp ~/.config/omarchy/shell.json.omarchy-upgrade-to-quattro.<timestamp>.bak \
+   ~/.config/omarchy/shell.json
+omarchy restart shell
+```
+
+If you would rather merge only the parts you care about onto the new default:
+
+```bash
+jq -s '.[0] * {bar: .[1].bar, plugins: .[1].plugins, idle: .[1].idle}' \
+  ~/.config/omarchy/shell.json.quattro-default \
+  ~/.config/omarchy/shell.json.omarchy-upgrade-to-quattro.<timestamp>.bak \
+  > ~/.config/omarchy/shell.json
+omarchy restart shell
+```
+
+Check what else the same run replaced, and restore any of those you had customized:
+
+```bash
+for f in ~/.config/hypr/hyprland.lua ~/.config/hypr/bindings.lua \
+         ~/.config/hypr/monitors.lua ~/.config/hypr/input.lua \
+         ~/.config/hypr/looknfeel.lua ~/.config/hypr/autostart.lua \
+         ~/.config/omarchy/extensions/omarchy-menu.jsonc; do
+  ls "$f".omarchy-upgrade-to-quattro.*.bak 2>/dev/null
+done
+```
+
+Before running the upgrade in the first place, take your own copy:
+
+```bash
+cp ~/.config/omarchy/shell.json ~/shell.json.pre-quattro
+```
+
+The restore survives ordinary `omarchy update` runs. Update-time migrations edit `shell.json` with targeted `jq` changes and never replace it, so nothing puts the default back. It does not survive another run of `omarchy-upgrade-to-quattro`: that run replaces the file again and, at line 2372, also runs `omarchy bar defaults`, which resets the whole `bar` subtree on its own. If you re-run the script, expect to restore again, and note that restoring the `.bak` does not undo the `omarchy bar defaults` step, so do the restore after the script has finished rather than in the middle of it.
+
+**Verify.** `jq '.bar.layout, .plugins, .bar.transparent' ~/.config/omarchy/shell.json` shows your customizations back, `jq . ~/.config/omarchy/shell.json` parses, and after `omarchy restart shell` the extra widgets are visible in the bar again.
+
+Sources: <https://github.com/omacom/omarchy/issues/8357>
 
 ---
 
@@ -1128,48 +1350,66 @@ Sources: <https://github.com/basecamp/omarchy/issues/7183>
 
 **Symptom.** Newly installed applications (Firefox, Chrome, GIMP, Brave, Calibre — often AUR packages) appear in the launcher and start correctly, but with a blank or generic icon. Reinstalling the package sometimes fixes it, which makes it look random.
 
-**Cause.** The hicolor icon cache under `/usr/share/icons/hicolor` is stale, so the icon lookup finds nothing for the new `Icon=` name even though the icon file is on disk. Some AUR packages install icons without triggering a cache update. A separate but related failure is a `.desktop` file with no `Icon=` line at all.
+**Cause.** On Omarchy 4 the launcher and the Apps menu are drawn by the Quickshell shell under `/usr/share/omarchy/shell`, not by Walker. `walker` and `elephant` are not installed at all, so any advice aimed at Walker describes Omarchy 3. Icon lookup lives in `/usr/share/omarchy/shell/services/AppLibrary.qml`. Its `iconSource()` resolves, in order: the value itself when it starts with `file://`, `image://` or `/`, then the shell's own icon index, then Qt's themed lookup through `Quickshell.iconPath()`, then `application-x-executable`. That index is built by `iconIndexScanCommand()`, which shells out to `find` over `$HOME/.icons`, `$HOME/.local/share/icons` and every `$XDG_DATA_DIRS` entry's `icons` directory for files under an `apps` or `devices` path, plus `/usr/share/pixmaps` at depth 1. It is a filesystem scan. Nothing in that path reads GTK's binary cache at `/usr/share/icons/hicolor/icon-theme.cache`, so a stale GTK cache is not the cause of a blank icon in the Omarchy 4 launcher. The index is also rebuilt whenever the desktop entry list changes, debounced by 750 ms, and again on every menu open through `refreshIcons()`, so a newly installed app normally shows its icon the next time the menu is opened with no command run at all. What does still produce a blank icon on Omarchy 4: the `.desktop` file has no `Icon=` line, the name in `Icon=` matches no file, or the package installed its icon somewhere the scan does not reach, such as a `status` or `mimetypes` subdirectory of a theme or a subdirectory below `/usr/share/pixmaps`. On plain Arch with a GTK based launcher, panel or file chooser, a stale `hicolor` cache is a genuine cause and `gtk-update-icon-cache` is the right tool for that layer.
+
+> **Audit corrected this record.** The fix was aimed at the wrong layer for Omarchy 4. I read the launcher source on this machine at /usr/share/omarchy/shell/services/AppLibrary.qml and confirmed it byte for byte against the upstream quattro branch: iconSource() resolves an absolute or file:// value directly, then consults the shell's own icon index, then Qt's Quickshell.iconPath(). That index is a find over $HOME/.icons, $HOME/.local/share/icons, every $XDG_DATA_DIRS icons directory restricted to */apps/* and */devices/*, and /usr/share/pixmaps at depth 1. It never reads GTK's /usr/share/icons/hicolor/icon-theme.cache, so `sudo gtk-update-icon-cache -f /usr/share/icons/hicolor` cannot be what fixes this on Omarchy 4. Confirmed on this workstation that walker and elephant are not installed (pacman -Q fails for both), and that the cited issue 2547 is titled 'Walker not showing icons for newly installed apps Omarchy 3.1', body says Omarchy 3.1, state CLOSED, so the source supports the record only for Omarchy 3. I also confirmed the shell rebuilds the index on every menu open via refreshIcons() in plugins/menu/Menu.qml and on desktop entry changes debounced by 750 ms, which is why a newly installed app usually needs no command at all. `omarchy restart shell` is a real route (/usr/share/omarchy/bin/omarchy-restart-shell carries omarchy:examples=omarchy restart shell) and `omarchy-restart-walker` did exist on the Omarchy 3 master tree, so both commands in the old fix are real even though the first two steps were not. The record's applies_to still lists omarchy-3 and omarchy-4 together and the corrected fix now labels the two branches rather than blending them. I left severity low and frequency very-common unchanged: the symptom stays common on plain Arch GTK desktops, and it is the mechanism rather than the prevalence that was wrong. NOT exercised: I did not install a package or restart the shell on this workstation, and I did not reproduce a blank icon, so the corrected fix is read from source rather than run.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Editing files under `/usr/share/applications` directly means your change is lost on the next package upgrade — use the `~/.local/share/applications/` copy shown above instead.
 
 **Fix.**
 
-Rebuild the system icon cache:
+On Omarchy 4, check the two things that actually decide the icon, then reopen the menu.
 
-```bash
-sudo gtk-update-icon-cache -f /usr/share/icons/hicolor
-```
-
-Check the desktop entry actually names an icon:
+**1. Does the desktop entry name an icon?**
 
 ```bash
 grep -n '^Icon=' /usr/share/applications/firefox.desktop
 ```
 
-If the line is missing, copy the entry to your user directory and add it there rather than editing the packaged file:
+If the line is missing, copy the entry into your own directory and add it there rather than editing the packaged file:
 
 ```bash
 cp /usr/share/applications/firefox.desktop ~/.local/share/applications/
 sed -i '/^\[Desktop Entry\]/a Icon=firefox' ~/.local/share/applications/firefox.desktop
 ```
 
-Confirm the icon file exists:
+**2. Is the icon file somewhere the shell's index looks?**
+
+The Omarchy 4 shell indexes only files under an `apps` or `devices` directory inside `$HOME/.icons`, `$HOME/.local/share/icons` or any `$XDG_DATA_DIRS` entry's `icons` directory, plus `/usr/share/pixmaps` at depth 1. Search all of those for the name in `Icon=`:
 
 ```bash
-ls /usr/share/icons/hicolor/scalable/apps/ | grep -i firefox
+find /usr/share/icons ~/.local/share/icons ~/.icons \
+     \( -path '*/apps/*' -o -path '*/devices/*' \) -iname 'firefox.*' 2>/dev/null
+find /usr/share/pixmaps -maxdepth 1 -iname 'firefox.*' 2>/dev/null
 ```
 
-Then refresh the launcher index:
+Nothing found means the package did not install an icon under a name matching `Icon=`, and no cache rebuild will help. Find what it did install with `pacman -Ql <pkg> | grep -E 'icons|pixmaps'` and set `Icon=` to that name, or to the absolute path of the file.
+
+**3. Reopen the menu.**
+
+Press Super+Space, then Apps. The shell rebuilds its icon index on every menu open, and again about 750 ms after the desktop entry list changes, so a newly installed app picks up its icon with no command. Only if it is still blank after reopening:
 
 ```bash
-update-desktop-database ~/.local/share/applications
-omarchy restart shell     # Omarchy 4
-# omarchy-restart-walker  # Omarchy 3.x
+omarchy restart shell
 ```
 
-**Verify.** The app shows its real icon in the launcher, and `gtk-update-icon-cache` reports the cache was rewritten rather than up to date.
+`omarchy restart shell` refuses to run while the session is locked.
 
-Sources: <https://github.com/basecamp/omarchy/issues/2547>
+**Plain Arch, and GTK applications on Omarchy:** GTK's own menus and file choosers do read the binary cache at `/usr/share/icons/hicolor/icon-theme.cache`, and a package that installed icons without triggering a cache update leaves it stale. Rebuild it there:
+
+```bash
+sudo gtk-update-icon-cache -f /usr/share/icons/hicolor
+```
+
+That has no effect on the Omarchy 4 launcher, which never reads that file.
+
+**Omarchy 3.x only:** the launcher was Walker, and the restart command was `omarchy-restart-walker`.
+
+**Verify.** Open the Omarchy menu with Super+Space, go to Apps, and the application shows its real icon. If it does not, `find` in step 2 prints the icon file whose basename matches the `Icon=` value, and `journalctl --user -b` shows no `QML QQuickImage ... Cannot open` line naming it. On plain Arch or for GTK applications, `gtk-update-icon-cache -f` exits 0 and the GTK application menu picks the icon up.
+
+Sources: <https://github.com/omacom/omarchy/issues/2547> · <https://github.com/omacom/omarchy/blob/quattro/shell/services/AppLibrary.qml> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/menu/Menu.qml>
 
 ---
 
@@ -1228,44 +1468,73 @@ Sources: <https://github.com/basecamp/omarchy/issues/6620>
 
 **Symptom.** After upgrading from Omarchy 3 to Quattro, custom launchers in the Apps menu have broken icons, and there is a dead Alacritty entry with a generic gear icon that launches nothing (even though alacritty is not installed). `journalctl --user` shows `QML QQuickImage ... Cannot open: file:///home/<user>/.local/share/applications/icons/GitHub.png`.
 
-**Cause.** The Quattro upgrade moves the legacy icon directory aside — `mv -f "$legacy_icons_dir/$icon" "$legacy_icons_backup/"`, where the backup is `~/.local/share/applications/icons.omarchy-upgrade-to-quattro.<timestamp>.bak`. Your custom `.desktop` files survive, so their absolute `Icon=` paths into the old directory become dangling. Separately, the upgrade copies `Alacritty.desktop` into `~/.local/share/applications/` guarded only on the file not already existing, never on whether `alacritty` is actually installed — so the Quickshell Apps menu shows it despite its `TryExec=alacritty`.
+**Cause.** `omarchy-upgrade-to-quattro` does not move the legacy icon directory aside. It moves twenty *named* stock PNGs out of `~/.local/share/applications/icons` into `~/.local/share/applications/icons.omarchy-upgrade-to-quattro.<timestamp>.bak` with `mv -f "$legacy_icons_dir/$icon" "$legacy_icons_backup/"`, then runs `rmdir` on both directories, which succeeds only if they are empty. Any PNG you put there yourself is left exactly where it was. Custom `.desktop` files survive the upgrade, so an entry whose `Icon=` is an absolute path to one of those twenty names is now dangling, and the Quickshell shell logs `QML QQuickImage ... Cannot open: file:///home/<user>/.local/share/applications/icons/GitHub.png`. The Alacritty entry is a second defect in the same script. The upgrade first deletes `~/.local/share/applications/Alacritty.desktop` as part of a list of stale Omarchy 3 entries, then copies `default/alacritty/Alacritty.desktop` back guarded only on `[[ ! -f $HOME/.local/share/applications/Alacritty.desktop ]]`, a test on the file it has just removed, so the guard always passes. There is no check that `alacritty` is installed, unlike `omarchy-refresh-applications`, which does guard on `omarchy-cmd-present alacritty`. The Apps menu lists the entry regardless of its `TryExec=alacritty`, and selecting it launches nothing.
 
-> ⚠️ **Risk.** Do not delete the `icons.omarchy-upgrade-to-quattro.*.bak` directory until you have confirmed every referenced icon has been restored from it — it is the only copy.
+> **Audit corrected this record.** Both defects are still present in omarchy 4.0.2-1 on this workstation. I read /usr/share/omarchy/bin/omarchy-upgrade-to-quattro lines 2169 to 2224 and confirmed the same content on the upstream quattro branch. The record's cause was imprecise in one way that changes the fix: the script does not move the legacy icon directory aside, it moves twenty specifically named stock PNGs out of it and then rmdirs the directory only if that emptied it, so a user's own PNGs are untouched and a dangling path can only be one of those twenty names. I also found a detail the record missed that strengthens it: the same script deletes ~/.local/share/applications/Alacritty.desktop in an earlier cleanup loop and then copies it back guarded on `! -f` of the file it just deleted, so the guard always passes and the ghost entry is created on every upgrade rather than only sometimes. Cited issue 6883 was read in full, is OPEN, and supports every claim the record makes including the exact mv line and the QQuickImage log text. The larger correction is to the fix. omarchy-settings 4.0.2-1 ships 18 of the 20 legacy icons as themed icons under /usr/share/icons/hicolor/*/apps/, which I verified by find plus pacman -Qo (windows.png, basecamp.png, chatgpt.png and others are owned by omarchy-settings 4.0.2-1), so rewriting the entry to the icon name is durable while restoring PNGs into a directory Omarchy no longer maintains is not. Only GitHub.png and Battle.net.png have no packaged equivalent, which is also the correct scope for the danger note. I corrected the danger accordingly, since the old text claimed the backup was the only copy of everything. NOT exercised: this workstation has no icons.omarchy-upgrade-to-quattro.*.bak directory and no Alacritty.desktop, alacritty is not in PATH, and the dangling scan from the record prints nothing here, so this machine was never upgraded through that path and the symptom was not reproduced live. I did not run the upgrade script. Severity low and frequency common were left alone: the consequence is cosmetic plus one dead menu entry, and it hits anyone who upgraded rather than installed fresh.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `GitHub.png` and `Battle.net.png` exist nowhere else on Omarchy 4, so `icons.omarchy-upgrade-to-quattro.*.bak` is the only copy of those two. Do not delete that directory until every entry that referenced them has been restored or rewritten. The other eighteen names are shipped by `omarchy-settings` and can be recovered with `pacman -S omarchy-settings` at any time.
 
 **Fix.**
 
-Restore the icons your surviving launchers still reference:
-
-```bash
-ls -d ~/.local/share/applications/icons.omarchy-upgrade-to-quattro.*.bak
-mkdir -p ~/.local/share/applications/icons
-cp ~/.local/share/applications/icons.omarchy-upgrade-to-quattro.*.bak/*.png \
-   ~/.local/share/applications/icons/
-```
-
-Find any remaining dangling absolute icon paths:
+**1. Find the dangling absolute icon paths.**
 
 ```bash
 grep -h '^Icon=/' ~/.local/share/applications/*.desktop | sed 's/^Icon=//' \
   | while read -r p; do [[ -e $p ]] || echo "MISSING: $p"; done
 ```
 
-Remove the ghost launcher if alacritty is not installed:
+**2. Point the entry at the packaged icon name, not at a restored file.**
+
+`omarchy-settings` ships 18 of those 20 legacy icons as themed icons under `/usr/share/icons/hicolor/*/apps/`, lowercased with spaces turned into hyphens: `basecamp`, `chatgpt`, `cliamp`, `disk-usage`, `docker`, `google-contacts`, `google-maps`, `google-messages`, `google-photos`, `hey`, `imv`, `retro-gaming`, `whatsapp`, `windows`, `x`, `youtube`, `zoom`, and `omarchy-discord` for Discord. Rewriting the entry to the name survives future upgrades, because `~/.local/share/applications/icons` is no longer a directory Omarchy maintains:
+
+```bash
+sed -i 's|^Icon=.*/applications/icons/windows\.png$|Icon=windows|' \
+  ~/.local/share/applications/windows-vm.desktop
+```
+
+Confirm the name resolves before trusting it:
+
+```bash
+find /usr/share/icons -path '*/apps/*' -iname 'windows.*'
+```
+
+**3. Restore from the backup only for the two with no packaged equivalent.**
+
+`GitHub.png` and `Battle.net.png` ship nowhere on Omarchy 4, so the `.bak` directory is the only copy of those:
+
+```bash
+ls -d ~/.local/share/applications/icons.omarchy-upgrade-to-quattro.*.bak
+mkdir -p ~/.local/share/applications/icons
+cp ~/.local/share/applications/icons.omarchy-upgrade-to-quattro.*.bak/GitHub.png \
+   ~/.local/share/applications/icons/
+```
+
+If no `.bak` directory exists, the upgrade found none of the twenty names to move and your dangling path points at something you added yourself, which the upgrade never touched.
+
+**4. Remove the ghost Alacritty entry.**
 
 ```bash
 command -v alacritty >/dev/null || rm -f ~/.local/share/applications/Alacritty.desktop
+update-desktop-database ~/.local/share/applications
 ```
 
-Rebuild the desktop database and refresh the menu:
+The Apps menu's own remove action runs `omarchy-remove-launcher-entry Alacritty Alacritty`, which does the same delete plus the database refresh for a user owned entry.
+
+**5. Refresh the menu.**
+
+The shell watches `~/.local/share/applications`, so the removed entry disappears and the icon index rebuilds on the next menu open with no restart. Only if an icon is still stale after reopening the menu:
 
 ```bash
-update-desktop-database ~/.local/share/applications
 omarchy restart shell
 ```
 
-**Verify.** The check loop above prints no `MISSING:` lines, the Apps menu shows real icons for your custom launchers, and there is no Alacritty entry. Reopening the menu adds no new `QQuickImage Cannot open` lines to `journalctl --user -f`.
+`omarchy restart shell` refuses to run while the session is locked.
 
-Sources: <https://github.com/basecamp/omarchy/issues/6883>
+**Verify.** The loop in step 1 prints no `MISSING:` lines. The Apps menu under Super+Space shows real icons for your custom launchers and no Alacritty entry. Reopening the menu adds no new `QQuickImage Cannot open` lines to `journalctl --user -f`.
+
+Sources: <https://github.com/omacom/omarchy/issues/6883> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-upgrade-to-quattro> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-refresh-applications>
 
 ---
 
@@ -1294,56 +1563,6 @@ sed -n '/^\[bar\]/,/^\[/p' ~/.local/state/omarchy/current/theme/shell.toml
 **Verify.** `fc-match monospace` names your chosen family, and the bar renders in it after `omarchy restart shell`. `omarchy display text size` reports the new px value, and the bar's height and type change without a restart.
 
 Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-font-set> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-display-text-size> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-restart-shell> · <https://github.com/basecamp/omarchy/blob/quattro/default/themed/shell.toml.tpl> · <https://github.com/basecamp/omarchy/issues/6587>
-
----
-
-## Fix top-bar icons rendering at roughly half size after changing the system font
-
-`bar-icons-half-size-with-iosevka-nerd-font-mono` · severity: **low** · frequency: **common** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
-
-**Symptom.** After `omarchy font set "Iosevka Nerd Font Mono"`, the top-bar icons (Wi-Fi, volume, Bluetooth, power, monitor) render at roughly half the size they did with JetBrainsMono Nerd Font. Text in the bar is fine; only the icons look shrunken.
-
-**Cause.** The bar draws each icon as a single Nerd Font glyph at a fixed pixel size (`Style.bar.iconFont`, default 13px, scaled by `[font] base-size` in `~/.config/omarchy/shell.toml`). The *painted* size depends entirely on how each font patches the icon inside its em box. Iosevka Nerd Font Mono patches icon glyphs at about 50% of the em box (measured 500x398 units for U+F0928 Wi-Fi) while Iosevka Nerd Font Propo and JetBrainsMono Nerd Font use 75-97% (970x772 for the same codepoint). At a fixed 13px that is roughly 6.5px painted versus 12.6px. There is no config knob to compensate: `Style.qml`'s `applyShellValues` only reads `size-horizontal`, `size-vertical` and `scale-with-font` from the `[bar]` section, so the `icon-font` / `icon-canvas` / `icon-slot` tokens are not parsed from `shell.toml`.
-
-> ⚠️ **Risk.** Raising `[font] base-size` scales text everywhere in the shell, not just the bar icons.
-
-**Fix.**
-
-Switch to the proportional or non-Mono Iosevka variant, which patches icons at full size:
-
-```bash
-omarchy font set "Iosevka Nerd Font Propo"
-# or
-omarchy font set "Iosevka Nerd Font"
-omarchy restart shell
-```
-
-If you must keep the Mono variant, raise the whole bar font so the icons scale with it, in `~/.config/omarchy/shell.toml`:
-
-```toml
-[font]
-base-size = 18
-
-[bar]
-scale-with-font = true
-```
-
-then:
-
-```bash
-omarchy restart shell
-```
-
-You can confirm which font file each variant resolves to:
-
-```bash
-fc-match "Iosevka Nerd Font Mono" file
-fc-match "Iosevka Nerd Font Propo" file
-```
-
-**Verify.** The Wi-Fi, volume and Bluetooth icons in the bar are the same optical size as they were on JetBrainsMono Nerd Font. Toggling between `omarchy font set "Iosevka Nerd Font Mono"` and `"Iosevka Nerd Font Propo"` shows a visible size jump, confirming which font is responsible.
-
-Sources: <https://github.com/basecamp/omarchy/issues/8608> · <https://github.com/basecamp/omarchy/issues/7305>
 
 ---
 
@@ -1613,53 +1832,6 @@ Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-set
 
 ---
 
-## Fix Neovim erroring with "could not load your colorscheme" after a theme change
-
-`nvim-colorscheme-error-after-theme-change` · severity: **low** · frequency: **common** · applies to: `arch`, `omarchy`, `omarchy-4`
-
-**Symptom.** After selecting a theme (catppuccin is the common trigger), every nvim launch fails with LazyVim's "could not load your colorscheme" error and falls back to an unthemed editor.
-
-**Cause.** `omarchy theme set` copies the theme's `neovim.lua` into your nvim config, and it names a colorscheme your installed plugin version does not register. For catppuccin specifically, upstream renamed the colorscheme to `catppuccin-nvim` in v2.0.0 (catppuccin/nvim PR #977) because Neovim 0.12 ships its own bundled `catppuccin`. Omarchy ships no `lazy-lock.json` and has no `:Lazy sync` hook, so your lock file is entirely yours — an install from a few months ago is still on v1, where `colors/catppuccin-nvim.vim` does not exist and the colorscheme genuinely is missing.
-
-> ⚠️ **Risk.** `:Lazy sync` updates every plugin, not just catppuccin, and rewrites `lazy-lock.json`. Prefer `:Lazy update catppuccin` for a minimal change, and commit your lock file first if you version your dotfiles.
-
-**Fix.**
-
-Update the plugin so the renamed colorscheme exists:
-
-```
-nvim
-:Lazy update catppuccin
-```
-
-Check what your lock file is pinned to:
-
-```bash
-jq '.catppuccin' ~/.config/nvim/lazy-lock.json
-```
-
-Confirm the colorscheme file is present after updating:
-
-```bash
-ls ~/.local/share/nvim/lazy/catppuccin/colors/
-# expect: catppuccin-frappe.lua catppuccin-latte.lua catppuccin-macchiato.lua
-#         catppuccin-mocha.lua catppuccin-nvim.vim catppuccin.lua
-```
-
-If you need it working right now without updating, override the name in `~/.config/nvim/lua/plugins/theme.lua`:
-
-```lua
-return {
-  { "LazyVim/LazyVim", opts = { colorscheme = "catppuccin-mocha" } },
-}
-```
-
-**Verify.** nvim opens with no error and `:echo g:colors_name` prints e.g. `catppuccin-mocha`.
-
-Sources: <https://github.com/basecamp/omarchy/issues/6648>
-
----
-
 ## Fix a theme that applies from the CLI but never appears in the theme picker
 
 `theme-missing-from-picker-no-preview-image` · severity: **low** · frequency: **common** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
@@ -1756,20 +1928,36 @@ Sources: <https://github.com/basecamp/omarchy/issues/7668>
 
 **Symptom.** You pick a custom unlock screen via Style > Unlock and it applies. After the next `omarchy update`, the boot splash (including the LUKS password prompt) and the SDDM logout screen are back to the default green/yellow Omarchy design. `omarchy plymouth current` now reports `default`.
 
-**Cause.** `omarchy-plymouth-set` writes the recolored assets straight into package-owned directories — `/usr/share/plymouth/themes/omarchy/` and `/usr/share/sddm/themes/omarchy/`, both owned by the `omarchy-settings` package. `omarchy update` runs `pacman -Syu`, which upgrades `omarchy-settings` and restores those files to the shipped defaults. Unlike `omarchy theme set`, the plymouth setter persists no state anywhere, so nothing knows to re-apply it — neither `omarchy-migrate` nor the `post-update` hooks touch plymouth or sddm.
+**Cause.** `omarchy-plymouth-set` writes the recolored assets straight into package-owned directories, `/usr/share/plymouth/themes/omarchy/` and `/usr/share/sddm/themes/omarchy/`, both owned by the `omarchy-settings` package. `omarchy update` runs `omarchy-update-system-pkgs`, which is `sudo pacman -Syu --noconfirm --overwrite '/usr/share/omarchy/*'`, and that upgrades `omarchy-settings` and restores those files to the shipped defaults. Neither directory is in the package's `backup` array, so pacman overwrites without leaving a `.pacnew`.
 
-> ⚠️ **Risk.** `omarchy plymouth set-by-theme` rewrites files inside the initramfs-consumed Plymouth theme directory. If a regeneration is interrupted, the boot splash and the LUKS password prompt can end up unreadable — you can still type the passphrase blind, but keep a bootable USB around before experimenting on a LUKS-encrypted machine.
+Unlike `omarchy theme set`, the plymouth setter persists no state anywhere. `omarchy-plymouth-current` works it out after the fact by byte-comparing the installed `/usr/share/plymouth/themes/omarchy/logo.png` against each theme's `unlock.png`, which is exactly why the reverted state reads back as `default`. Nothing re-applies the selection: `omarchy-update` calls `omarchy-update-system-pkgs`, then `omarchy-migrate`, then `omarchy-hook post-update`, and none of the shipped migrations or hooks restore a plymouth or sddm theme.
+
+This is Omarchy 4's boot splash and SDDM greeter, not the session lock screen. The session lock on Omarchy 4 is an `ext-session-lock` surface drawn by `omarchy-shell` (Quickshell) and is styled by `~/.config/omarchy/shell.toml`, and `hyprlock` is not installed. SDDM is installed, enabled and active on Omarchy 4, so the SDDM half of this is real and not a leftover from another distro.
+
+> **Audit corrected this record.** Checked every claim against the shipped scripts on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, sddm 0.21.0-7, plymouth 26.134.222-2) rather than against the issue text. Confirmed locally: `omarchy-plymouth-set` publishes into `/usr/share/plymouth/themes/omarchy` and `/usr/share/sddm/themes/omarchy`, `pacman -Qo` names `omarchy-settings 4.0.2-1` as the owner of both `logo.png` and `Main.qml`, and `pacman -Qii omarchy-settings` lists six backup files, none of them under those two directories, so pacman overwrites them silently on upgrade. Confirmed `omarchy-update` runs `omarchy-update-system-pkgs` (which is `sudo pacman -Syu --noconfirm --overwrite '/usr/share/omarchy/*'`), then `omarchy-migrate`, then `omarchy-hook post-update`, in that order, so a post-update hook is the right place and runs after the package that reverts the theme. Confirmed nothing re-applies it: the only two migrations mentioning plymouth are `1784917531.sh` (adds `initramfs_async=0`) and `1788025225.sh` (removes a retired `omarchy-plymouth-shutdown.service`), and neither restores a theme. Confirmed `omarchy-plymouth-current` holds no state and derives the answer by byte-comparing `logo.png`, which is why it reports `default` after a revert.
+
+Confirmed the record is describing the right system, which the brief flagged as the risk. It does not name `hyprlock`, and the Omarchy 4 session lock is a separate thing: an `ext-session-lock` surface drawn by `omarchy-shell`. SDDM is genuinely installed, enabled and active here (`/etc/systemd/system/display-manager.service` points at `/usr/lib/systemd/system/sddm.service`), and `/usr/share/sddm/themes/omarchy` exists, so naming SDDM is correct rather than borrowed from another distro. The "Style > Unlock" path is real: `style.unlock` in `/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc` runs `omarchy-plymouth-switcher` and then `omarchy-plymouth-set-by-theme`. `vantablack` is one of the 23 names `omarchy-plymouth-list` returns here.
+
+Two defects in the fix. It re-applies unconditionally on every `omarchy update`, and `omarchy-plymouth-set` ends with `sudo limine-mkinitcpio`, so as written it adds a full initramfs and UKI rebuild to every update including ones where `omarchy-settings` was never upgraded. The corrected hook guards on `omarchy plymouth current`. It also never says the hook needs sudo: `omarchy-plymouth-set` carries `omarchy:requires-sudo=true`, refuses to run when `EUID` is 0, and calls `sudo` itself, so it can prompt for a password in the middle of an update and will do so under `omarchy update -y`. The `danger` field understated the consequence: on Omarchy 4 an interrupted rebuild is `limine-mkinitcpio` regenerating the UKI at `/boot/EFI/Linux/omarchy_linux.efi`, which risks an unbootable machine rather than an unreadable splash. Read issue 6864 in full: it is OPEN, created 2026-08-14 against 4.0.0rc5-1, and it supports every claim the record's cause makes.
+
+Two smaller points left alone because the verdict schema has no field for them. `applies_to` carries `systemd-boot` and `grub`, and Omarchy 4 boots a UKI through Limine, so those two tags do not apply on Omarchy 4. The symptom says the revert follows "the next `omarchy update`" when it in fact follows the next update that upgrades `omarchy-settings`, which the `verify` field already states correctly, so `verify` carries the precise version. Severity `low` and frequency `common` both stand: the loss is cosmetic and recoverable, and it recurs on every `omarchy-settings` upgrade for anyone who set a custom unlock screen.
+
+Not exercised: I did not run `omarchy update`, did not run `omarchy plymouth set-by-theme`, did not rebuild any initramfs, and did not install the hook. Everything above was read from the shipped scripts, `pacman -Q` output and the upstream issue. Whether the guarded hook completes without a password prompt inside a real update depends on the sudo timestamp surviving the pacman step, and that was not measured.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `omarchy plymouth set-by-theme` rewrites files inside the Plymouth theme directory and then rebuilds the initramfs. On Omarchy 4 that is `sudo limine-mkinitcpio`, which regenerates the UKI at `/boot/EFI/Linux/omarchy_linux.efi`, so an interrupted rebuild risks a machine that does not boot, not just an ugly splash. On a LUKS-encrypted machine the same rebuild is what carries the Plymouth password prompt, so keep a bootable USB around before experimenting. Do not run this concurrently with `omarchy update`, which is already holding `omarchy-update-lock` and may be rebuilding the initramfs itself, and do not add an unguarded re-apply to `post-update.d`, because that puts an initramfs rebuild into every update whether or not anything reverted.
 
 **Fix.**
 
-Record your choice and re-apply it after every update. Save the selection:
+Record your choice and re-apply it after an update that reverted it. Save the selection:
 
 ```bash
 mkdir -p ~/.local/state/omarchy
 echo vantablack > ~/.local/state/omarchy/unlock.name
 ```
 
-Add a post-update hook that restores it:
+Add a post-update hook. `omarchy-hook` runs every non-`.sample` file in the directory with `bash`, so the name and the executable bit do not matter, but the guard does: `omarchy plymouth set-by-theme` rebuilds the initramfs, so re-applying blindly adds a `limine-mkinitcpio` run to every single update:
 
 ```bash
 mkdir -p ~/.config/omarchy/hooks/post-update.d
@@ -1777,16 +1965,28 @@ cat > ~/.config/omarchy/hooks/post-update.d/50-replymouth.sh <<'EOF'
 #!/bin/bash
 name_file=~/.local/state/omarchy/unlock.name
 [[ -f $name_file ]] || exit 0
-omarchy plymouth set-by-theme "$(cat "$name_file")"
+want=$(cat "$name_file")
+[[ -n $want ]] || exit 0
+# Only re-apply when the package upgrade actually reverted it.
+[[ "$(omarchy plymouth current)" == "$want" ]] && exit 0
+omarchy plymouth set-by-theme "$want"
 EOF
-chmod +x ~/.config/omarchy/hooks/post-update.d/50-replymouth.sh
 ```
+
+`omarchy plymouth set-by-theme` calls `omarchy-plymouth-set`, which is marked `requires-sudo` and runs `sudo plymouth-set-default-theme omarchy` plus `sudo limine-mkinitcpio` itself. It refuses to run under `sudo`, so leave the hook unprivileged. It can prompt for a password inside the update. If you run `omarchy update -y` unattended, expect that prompt, or re-apply by hand instead.
 
 Manual re-apply any time:
 
 ```bash
 omarchy plymouth set-by-theme vantablack
 omarchy plymouth current
+```
+
+List what you can pick from, and reset to stock:
+
+```bash
+omarchy plymouth list
+omarchy plymouth reset
 ```
 
 Confirm what pacman owns, to see why it keeps reverting:
@@ -1797,9 +1997,11 @@ pacman -Qo /usr/share/sddm/themes/omarchy/Main.qml
 grep 'omarchy-settings' /var/log/pacman.log | tail -3
 ```
 
-**Verify.** `omarchy plymouth current` reports your theme immediately after an `omarchy update` that upgraded `omarchy-settings`, and the LUKS prompt at boot shows the custom splash.
+The hook itself survives updates: `~/.config/omarchy/hooks/post-update.d/` is user-owned and no package replaces it. The plymouth theme does not, which is the whole point of the hook. Upstream issue #8357's `always_copy_config_files` list does not cover `hooks/post-update.d`, so only a re-run of `omarchy-upgrade-to-quattro` would go near it. This is a workaround for an open upstream bug, not a setting, so drop the hook once upstream persists the selection itself.
 
-Sources: <https://github.com/basecamp/omarchy/issues/6864>
+**Verify.** `omarchy plymouth current` reports your theme immediately after an `omarchy update` that upgraded `omarchy-settings`, and `pacman -Qo /usr/share/plymouth/themes/omarchy/logo.png` still names `omarchy-settings` while the file's mtime is later than the upgrade line in `/var/log/pacman.log`. At the next boot the LUKS prompt shows the custom splash.
+
+Sources: <https://github.com/omacom/omarchy/issues/6864>
 
 ---
 
@@ -1809,21 +2011,31 @@ Sources: <https://github.com/basecamp/omarchy/issues/6864>
 
 **Symptom.** `omarchy theme bg next` sets the first wallpaper and then does nothing on every subsequent press. `omarchy theme bg current` reports the same file every time. Only happens when `~/.config/omarchy/backgrounds/<theme>/` is a symlink into a dotfiles repo (stow, chezmoi).
 
-**Cause.** A path-canonicalisation mismatch between two scripts. `bin/omarchy-theme-bg-set:12` stores the current background with `realpath "$1"` — symlink *resolved* (`/home/u/dotfiles/.../foo.jpg`). `bin/omarchy-theme-bg-next` builds its candidate list with `find -L "$HOME/.config/omarchy/backgrounds/$THEME_NAME/"`, which yields *unresolved* paths, then string-compares them against `readlink` of the state symlink. The strings never match, `INDEX` stays `-1`, and the script falls through to `BACKGROUNDS[0]` every time. Stock theme backgrounds are unaffected because `current/theme/backgrounds/` is a real copied directory. There is also no `bg prev` command at all, so you cannot step backwards.
+**Cause.** A path-canonicalisation mismatch between two scripts, both confirmed unchanged in omarchy 4.0.2-1 and on the `quattro` branch. `/usr/bin/omarchy-theme-bg-set` line 12 stores the chosen background as `BACKGROUND="$(realpath "$1")"`, so the state symlink `~/.local/state/omarchy/current/background` points at the resolved path, such as `/home/u/dotfiles/walls/foo.jpg`. `/usr/bin/omarchy-theme-bg-next` builds its candidate list with `find -L "$HOME/.config/omarchy/backgrounds/$THEME_NAME/" ...`, which prints the path it walked rather than the resolved one, then string-compares each entry against a plain `readlink` of that state symlink. The strings never match, `INDEX` stays `-1`, and the script falls through to `BACKGROUNDS[0]` on every press.
 
-> ⚠️ **Risk.** `bin/omarchy-theme-bg-next` is package-owned; a manual patch is reverted on the next `omarchy update`.
+The list is `sort -z`ed as one set and `~/.config` sorts before `~/.local`, so entry 0 is always a user background whenever that directory holds images. That is why the result is the same file every time rather than an alternation between two.
+
+The same mismatch appears when the directory is real but the image files inside it are symlinks, which is what `stow` leaves when the tree is not folded. Stock theme backgrounds are unaffected because `~/.local/state/omarchy/current/theme/backgrounds/` is a real copied directory, so `realpath` of a stock background equals the path `find` prints and the lookup succeeds. `choose_theme_background` in `/usr/bin/omarchy-theme-set` has the identical comparison and the identical defect. There is no `omarchy-theme-bg-prev` on 4.0.2-1 or on `quattro`, so stepping backwards means picking a wallpaper directly.
+
+> **Audit corrected this record.** Read `/usr/bin/omarchy-theme-bg-next`, `-bg-set`, `-bg-current`, `-bg-cache`, `-bg-switcher` and `/usr/bin/omarchy-theme-set` on this workstation at omarchy 4.0.2-1, and fetched `bin/omarchy-theme-bg-next` and the `quattro` file tree from `omacom/omarchy`. Every mechanical claim held. `omarchy-theme-bg-set` line 12 is still `BACKGROUND="$(realpath "$1")"`, `omarchy-theme-bg-next` still builds its list with `find -L` over `~/.config/omarchy/backgrounds/$THEME_NAME/` and `~/.local/state/omarchy/current/theme/backgrounds/` and still compares against a bare `readlink`, and `choose_theme_background` in `omarchy-theme-set` repeats it. I confirmed the asymmetry directly in a scratch directory under `/tmp`, with no omarchy command run: `find -L` printed the walked path and `realpath` printed the resolved one, both for a symlinked directory and for a symlinked file inside a real directory, so the defect is wider than the record said and the cause now covers both. I confirmed on this machine that the stock case is safe, because `realpath` of `~/.local/state/omarchy/current/theme/backgrounds/1-the-backwater.jpg` equals the path `find` prints and equals the current `readlink` of the state symlink. I also checked the sort order, since `sort -z` puts `~/.config` paths before `~/.local` ones in both `en_US.UTF-8` and `LC_ALL=C`, which is what makes entry 0 always a user background and the symptom a stuck file rather than an alternation. Issue 8594 supports the record almost verbatim, including the suggested patch, and issue 8508 supports the missing `prev` command, whose only comment points at unmerged pull requests. Corrections: the record said "you cannot step backwards", but `omarchy-theme-bg-switcher` and `omarchy-theme-bg-set <path>` both reach any wallpaper, so only the keybinding cycle is one-way. Paths are moved to the installed 4.0.2-1 form, the `cp` in the workaround gains `-L` so it cannot recreate the bug, and the danger names the symlink that `sed -i` would replace. Not exercised: no background command was run on this workstation, by instruction, so the end-to-end cycle was not reproduced here. Severity stays `low` and frequency stays `occasional`, since this needs a symlinked user background directory and loses no data.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `/usr/bin/omarchy-theme-bg-next` and `/usr/bin/omarchy-theme-set` are owned by the `omarchy` package, so a manual patch is reverted by the next `omarchy update`. `/usr/share/omarchy/bin/omarchy-theme-bg-next` is a symlink to the `/usr/bin` file, and `sed -i` without `--follow-symlinks` replaces that symlink with a regular file, which leaves two divergent copies of the script on disk.
 
 **Fix.**
 
-Simplest workaround — use a real directory instead of a symlink:
+Simplest workaround, use a real directory instead of a symlink. `rm` removes only the link, not the dotfiles it points at:
 
 ```bash
 rm ~/.config/omarchy/backgrounds/<theme>
 mkdir -p ~/.config/omarchy/backgrounds/<theme>
-cp ~/dotfiles/walls/* ~/.config/omarchy/backgrounds/<theme>/
+cp -L ~/dotfiles/walls/* ~/.config/omarchy/backgrounds/<theme>/
 ```
 
-Or patch the comparison to canonicalise both sides. In `bin/omarchy-theme-bg-next`, change the current-background read and the loop comparison to:
+`-L` matters when the source entries are themselves symlinks, because copying a symlink reproduces the bug inside the new directory.
+
+Or patch the comparison to canonicalise both sides. The file to edit is `/usr/bin/omarchy-theme-bg-next`. `/usr/share/omarchy/bin/omarchy-theme-bg-next` is only a symlink to it. Change the current-background read and the loop comparison to:
 
 ```bash
 CURRENT_BACKGROUND=$(readlink -f "$CURRENT_BACKGROUND_LINK")
@@ -1831,11 +2043,82 @@ CURRENT_BACKGROUND=$(readlink -f "$CURRENT_BACKGROUND_LINK")
 if [[ $(realpath "${BACKGROUNDS[$i]}") == "$CURRENT_BACKGROUND" ]]; then
 ```
 
-The same fix applies to `choose_theme_background` in `bin/omarchy-theme-set`.
+The same change applies to `choose_theme_background` in `/usr/bin/omarchy-theme-set`.
+
+There is no `prev` command, so to reach a specific wallpaper pick it directly:
+
+```bash
+omarchy-theme-bg-switcher                       # image picker, any wallpaper for this theme
+omarchy-theme-bg-set ~/dotfiles/walls/foo.jpg   # explicit path
+```
 
 **Verify.** Pressing the background-next binding four times cycles `a.jpg -> b.jpg -> c.jpg -> a.jpg`; `omarchy theme bg current` changes on each press.
 
-Sources: <https://github.com/basecamp/omarchy/issues/8594> · <https://github.com/basecamp/omarchy/issues/8508>
+Sources: <https://github.com/omacom/omarchy/issues/8594> · <https://github.com/omacom/omarchy/issues/8508>
+
+---
+
+## Fix top-bar icons rendering at roughly half size after changing the system font
+
+`bar-icons-half-size-with-iosevka-nerd-font-mono` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `wayland`
+
+**Symptom.** After `omarchy font set "Iosevka Nerd Font Mono"`, the top-bar icons (Wi-Fi, volume, Bluetooth, power, monitor) render at roughly half the size they did with JetBrainsMono Nerd Font. Bar text also reads a little smaller, because Iosevka is a narrow face drawn at the same pixel size, but the icons are the striking part and the only thing that changes by a factor of two.
+
+**Cause.** The bar draws each icon as a single Nerd Font glyph at a fixed pixel size. `shell/Ui/BarIconButton.qml` sets `fontSize: Style.bar.iconFont`, `shell/Ui/OpticalGlyph.qml` renders that straight into `font.pixelSize` and corrects only the horizontal centring, and `Style.bar.iconFont` is `barToken("icon-font", 13)`, so 13px by default, multiplied by `fontScale`, which is `[font] base-size` divided by 12. Nothing measures the glyph, so the painted size is whatever the font draws inside that box.
+
+Nerd Fonts patches each family in three widths, and the variant is the whole story. Upstream's patcher documents `--single-width-glyphs` as "generate the glyphs as single-width not double-width (default is double-width)" and names that build Nerd Font Mono, while `--variable-width-glyphs`, "do not adjust advance width", is Nerd Font Propo. So the Mono variant squeezes every icon into one character cell. Iosevka's cell is unusually narrow: in the measurements on omacom/omarchy#8608, every icon under Iosevka Nerd Font Mono is exactly 500 units wide on a 1000-unit em, which is that single-cell advance, against 750 to 970 units for the same codepoints in Iosevka Nerd Font, Iosevka Nerd Font Propo and JetBrainsMono Nerd Font. At a fixed 13px that is roughly 6.5px painted against 12.6px.
+
+There is no per-icon config knob. `Style.qml`'s `applyShellValues` reads only `size-horizontal`, `size-vertical` and `scale-with-font` out of the `[bar]` section, so `icon-font`, `icon-canvas`, `icon-slot` and `status-slot` are not settable from `shell.toml` at all. The only lever that moves them is `[font] base-size`, which scales the whole shell.
+
+> **Audit corrected this record.** Read the shipped Quickshell shell on this workstation (omarchy 4.0.2-1, quickshell 0.3.1-1, Hyprland 0.56.2-1) and every mechanical claim about the shell held exactly. Confirmed locally in /usr/share/omarchy/shell/Commons/Style.qml: `Style.bar.iconFont` is `barToken("icon-font", 13)`, `barToken` multiplies by `fontScale`, which is `fontBaseSize / 12`, `barScaleWithFont` defaults to true, and `applyShellValues` parses only `scale-with-font`, `size-horizontal` and `size-vertical` from the `[bar]` section, so `icon-font`, `icon-canvas`, `icon-slot` and `status-slot` really are unreachable from shell.toml. Also confirmed locally: /usr/share/omarchy/shell/Ui/BarIconButton.qml sets `fontSize: Style.bar.iconFont`, OpticalGlyph.qml renders that into `font.pixelSize` and corrects only the horizontal centre, and Color.qml reads `~/.config/omarchy/shell.toml` with `watchChanges: true` and merges it over the theme with user keys winning. Both cited issues were read in full and both support the record, with 8608 carrying the glyph measurement table the cause paraphrases and 7305 being a weaker corroborating report. Four things were wrong or missing. The symptom claimed bar text is fine and only icons shrink, which contradicts the record's own second source, 7305, whose title is that text and icons are both very small, so I made the symptom honest about the narrow face. The cause stated the 50 percent figure as a property of how Iosevka patches glyphs, without the reason, so I added the Nerd Fonts variant mechanism from upstream's own patcher documentation, where `--single-width-glyphs` is documented as "generate the glyphs as single-width not double-width (default is double-width)" and named as Nerd Font Mono, and `--variable-width-glyphs` as Nerd Font Propo, which is what makes every Mono row in 8608's table exactly 500 units on a 1000-unit em. The fix told the user to run `omarchy restart shell` after `omarchy font set`, which is redundant because omarchy-font-set already calls omarchy-restart-shell, and to set `[bar] scale-with-font = true`, which is already the default, and it missed `omarchy display text size`, the supported CLI that writes `[font] base-size` and accepts 9 to 20. The danger covered only shell text and missed that `omarchy-font-set` rewrites the fontconfig monospace alias and the alacritty, kitty, ghostty and foot font families, so abandoning the Mono variant changes icon cell width in the terminal too. I dropped frequency from common to occasional because the fault needs a specific non-default font variant to be chosen, and there are two open issues rather than a broad pattern. NOT exercised, and this is the main gap: Iosevka is not installed on this machine, `fc-list` here reports only JetBrainsMono Nerd Font, and the pacman files database is not synced, so I could not re-measure any glyph bounding box or confirm the exact family names `ttf-iosevka-nerd` 3.5.1-2 installs. Those numbers and names come from issue 8608 and are consistent with the upstream patcher documentation, not from a local measurement. I also changed no font, no theme and no setting on this machine.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Two costs. `omarchy display text size` deliberately moves GTK apps and terminal font size along with the shell, and editing `[font] base-size` by hand scales every piece of shell text rather than only the bar icons. And `omarchy font set` rewrites the fontconfig `monospace` alias and the alacritty, kitty, ghostty and foot font families, so leaving the Mono variant also changes how icons occupy cells in your terminal. The plain `Iosevka Nerd Font` draws icon glyphs double-width, which can misalign a TUI prompt or status line that assumed one cell.
+
+**Fix.**
+
+Switch to a variant that does not force icons into a single cell:
+
+```bash
+omarchy font set "Iosevka Nerd Font"
+```
+
+`omarchy-font-set` calls `omarchy-restart-shell` itself, so no separate restart is needed. Check first what the `ttf-iosevka-nerd` package actually gave you, because the variant names are what `fc-list` reports and nothing else:
+
+```bash
+fc-list : family | tr ',' '\n' | grep -i iosevka | sort -u
+```
+
+`omarchy font list` will not necessarily show every variant. It runs `fc-list :spacing=100`, which lists only fonts fontconfig considers monospaced, so a `Propo` build can be missing from that list even though `omarchy font set` accepts it, since `omarchy-font-set` only tests `fc-list | grep -Fqi`.
+
+If you want to keep the Mono variant, the only knob that moves the icons is the shell base font size. The supported command is:
+
+```bash
+omarchy display text size 16
+```
+
+It accepts 9 to 20, writes `[font] base-size` into `~/.config/omarchy/shell.toml`, and moves GTK's `text-scaling-factor` and the terminal point size in lockstep with it. To move the shell alone, edit the same file by hand:
+
+```toml
+[font]
+base-size = 18
+```
+
+The shell watches `~/.config/omarchy/shell.toml` and re-reads it on change, so this takes effect live with no restart, and a user key there wins over the theme's own `shell.toml`. Do not bother setting `[bar] scale-with-font`: it is already `true` by default, which is what makes `base-size` reach the icons at all.
+
+Omarchy 4 versus plain Arch: all of the above is Omarchy-specific, because the bar is the Omarchy Quickshell shell. On plain Arch with another bar, the same Nerd Font Mono single-width behaviour applies, but the fix is whatever font size that bar exposes.
+
+**Verify.** Confirm which font the shell resolved and compare the two variants:
+
+```bash
+omarchy font current
+fc-match monospace -f '%{family[0]}\n'
+```
+
+Then set `"Iosevka Nerd Font Mono"` and `"Iosevka Nerd Font"` in turn and look at the Wi-Fi, volume and Bluetooth icons. Under the non-Mono variant they should be the same optical size they were on JetBrainsMono Nerd Font, and the jump between the two settings should be obvious rather than subtle.
+
+Sources: <https://github.com/omacom/omarchy/issues/8608> · <https://github.com/omacom/omarchy/issues/7305> · <https://raw.githubusercontent.com/ryanoasis/nerd-fonts/master/readme.md>
 
 ---
 
@@ -1895,6 +2178,114 @@ chmod +x ~/.config/omarchy/hooks/theme-set.d/30-chromium-seed.sh
 **Verify.** Reopen Chromium under the tufte theme — the tab strip is a warm off-white/grey rather than `#ffde5a`. `chrome://policy` shows the `BrowserThemeColor` value you set.
 
 Sources: <https://github.com/basecamp/omarchy/issues/7624>
+
+---
+
+## Fix Neovim erroring with "could not load your colorscheme" after a theme change
+
+`nvim-colorscheme-error-after-theme-change` · severity: **low** · frequency: **occasional** · applies to: `arch`, `omarchy`, `omarchy-4`
+
+**Symptom.** After a theme change, every nvim launch shows LazyVim's `Could not load your colorscheme` error and the editor opens in Neovim's builtin `habamax` with none of the theme's colours.
+
+**Cause.** Omarchy 4 ships its own Neovim config as the `omarchy-nvim` package (`2026.8.13-1` here), seeded from `/etc/skel/.config/nvim` when the account is created, with the reference copy kept at `/usr/share/omarchy-nvim/config`. It is LazyVim, and `~/.config/nvim/lua/plugins/theme.lua` is a **symlink** to `~/.local/state/omarchy/current/theme/neovim.lua`, not a copy:
+
+```
+lrwxrwxrwx theme.lua -> ../../../../.local/state/omarchy/current/theme/neovim.lua
+```
+
+`omarchy theme set` rebuilds that staged theme directory (`rm -rf "$CURRENT_THEME_PATH"` then `mv` of `next-theme`), so the file behind the symlink changes and the next Neovim start reads the new spec. The staged `neovim.lua` comes from one of two places. 15 of the 22 shipped themes carry their own `neovim.lua`. For the other 7 (`ethereal`, `last-horizon`, `lupine`, `miasma`, `ristretto`, `vantablack`, `white`) `omarchy-theme-set-templates` generates one from `$OMARCHY_PATH/default/themed/neovim.lua.tpl`, which uses `bjarneo/aether.nvim` and asks for `colorscheme = "aether"`. A theme cloned by `omarchy theme install` always gets the generated one, because staging drops every `*.lua` a cloned theme ships.
+
+The error is LazyVim's, raised in `lua/lazyvim/config/init.lua` when `vim.cmd.colorscheme()` throws, and its `on_error` falls back to Neovim's builtin `habamax`:
+
+```lua
+  }, {
+    msg = "Could not load your colorscheme",
+    on_error = function(msg)
+      LazyVim.error(msg)
+      vim.cmd.colorscheme("habamax")
+    end,
+  })
+```
+
+So the failure means the plugin checkout under `~/.local/share/nvim/lazy/` does not register the name the staged `neovim.lua` asked for. That is a plugin pin problem, not a theme bug. For catppuccin, upstream renamed the colorscheme to `catppuccin-nvim` in catppuccin/nvim PR #977, released in v2.0.0 on 2026-04-02, because Neovim 0.12 ships its own builtin `catppuccin` at `/usr/share/nvim/runtime/colors/catppuccin.vim`. A checkout from before v2.0.0 has no `colors/catppuccin-nvim.vim`, so the name genuinely is missing.
+
+Omarchy 4 does ship a `lazy-lock.json`, contrary to the cited issue thread, and its catppuccin pin (`edefef779ab08ce1a4a404713e3012b0d202bd35`) is already past the rename, so a fresh 4.0.2 install does not hit the catppuccin case. What still hits it is a lock that predates the current one, because `omarchy update` never rewrites an existing account's `~/.config/nvim/lazy-lock.json`. The same applies to `aether`, which an older lock does not carry at all, so on such an install every theme with no shipped `neovim.lua`, and every theme installed from a git repo, asks for a colorscheme that is not on disk.
+
+> **Audit corrected this record.** Checked on this workstation at omarchy 4.0.2-1, omarchy-nvim 2026.8.13-1, neovim 0.12.5-1. The record's mechanism is wrong: `omarchy-theme-set` does not copy a `neovim.lua` into the nvim config, it rebuilds `~/.local/state/omarchy/current/theme/` and `~/.config/nvim/lua/plugins/theme.lua` is a symlink into that directory, shipped as a symlink by `omarchy-nvim` in `/etc/skel/.config/nvim/lua/plugins/theme.lua` and confirmed unaltered by `pacman -Qkk omarchy-nvim`. That makes the record's last fix step actively harmful, because it tells the reader to edit a file that `omarchy-theme-set` deletes with `rm -rf "$CURRENT_THEME_PATH"` on the next theme change. The cause's claim that "Omarchy ships no lazy-lock.json" is false on Omarchy 4: `pacman -Ql omarchy-nvim` lists `/etc/skel/.config/nvim/lazy-lock.json`, the reference copy is `/usr/share/omarchy-nvim/config/lazy-lock.json`, and its catppuccin pin `edefef779ab08ce1a4a404713e3012b0d202bd35` already registers `catppuccin-nvim`, verified by listing `~/.local/share/nvim/lazy/catppuccin/colors/` on this machine. That sentence was copied verbatim from the cited issue comment, which I read in full at https://github.com/omacom/omarchy/issues/6648: the comment is otherwise correct and the rename claim holds, since catppuccin/nvim PR #977 merged 2026-03-13 and shipped in v2.0.0 on 2026-04-02, and Neovim 0.12.5 does carry `/usr/share/nvim/runtime/colors/catppuccin.vim`. The error string is LazyVim's, from `lua/lazyvim/config/init.lua`, and it falls back to `habamax` rather than to an unthemed editor, so the symptom was rewritten too. The fix now covers the case the record missed entirely: 7 of the 22 shipped themes carry no `neovim.lua`, and `omarchy-theme-set` drops every `*.lua` from a theme cloned by `omarchy theme install`, so both get a spec generated from `$OMARCHY_PATH/default/themed/neovim.lua.tpl` asking for `aether`, which is what a lock older than that template lacks. Frequency lowered to `occasional` because the shipped lock now carries the post-rename catppuccin pin, so a current install does not reproduce the catppuccin case and only a drifted or pre-aether lock does. NOT exercised: I changed no theme, installed no third-party theme and did not start Neovim, so every claim here comes from reading the scripts, the package file list, the on-disk plugin checkouts and the cited sources rather than from reproducing the failure.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `:Lazy restore` and `:Lazy sync` move every plugin, not only the colorscheme, and rewrite `~/.config/nvim/lazy-lock.json`. Copy the lock aside first, as the fix does, and commit it if you version your dotfiles. Do not edit `~/.config/nvim/lua/plugins/theme.lua`: it is a symlink into `~/.local/state/omarchy/current/theme/`, which `omarchy-theme-set` removes with `rm -rf` on the next theme change, so the edit is lost and the staged theme carries your override until then.
+
+**Fix.**
+
+First find out what Omarchy asked for and what your Neovim actually has. Both are read-only.
+
+```bash
+# what the current theme asks LazyVim to load
+grep colorscheme ~/.local/state/omarchy/current/theme/neovim.lua
+
+# every colorscheme name this Neovim can resolve
+ls ~/.local/share/nvim/lazy/*/colors/*.lua ~/.local/share/nvim/lazy/*/colors/*.vim \
+   /usr/share/nvim/runtime/colors/*.vim /usr/share/nvim/runtime/colors/*.lua 2>/dev/null \
+  | xargs -n1 basename | sed 's/\.\(lua\|vim\)$//' | sort -u
+```
+
+If the name from the first command is in the second list, the colorscheme is not the problem and you are looking at a different plugin error. If it is missing, read on.
+
+**Case 1: your lock file has drifted from the one Omarchy ships.** This is the usual cause on an install that has been upgraded rather than freshly installed.
+
+```bash
+diff /usr/share/omarchy-nvim/config/lazy-lock.json ~/.config/nvim/lazy-lock.json
+```
+
+If they differ, take Omarchy's pins back:
+
+```bash
+cp ~/.config/nvim/lazy-lock.json ~/.config/nvim/lazy-lock.json.bak
+cp /usr/share/omarchy-nvim/config/lazy-lock.json ~/.config/nvim/lazy-lock.json
+nvim
+```
+
+then in Neovim run `:Lazy restore`, wait for it to finish, quit and reopen. For catppuccin specifically the shipped pin is `edefef779ab08ce1a4a404713e3012b0d202bd35`, which does register `catppuccin-nvim`:
+
+```bash
+ls ~/.local/share/nvim/lazy/catppuccin/colors/
+# catppuccin-frappe.lua  catppuccin-latte.lua  catppuccin.lua
+# catppuccin-macchiato.lua  catppuccin-mocha.lua  catppuccin-nvim.vim
+```
+
+**Case 2: the locks match but the plugin was never fetched.** Open `nvim` and run `:Lazy install`, or `:Lazy update <plugin>` for one plugin, for example `:Lazy update catppuccin`.
+
+**Case 3: a theme you installed yourself, or a shipped theme with no Neovim fragment.** Staging drops every `*.lua` from a theme cloned by `omarchy theme install`, and 7 shipped themes ship no `neovim.lua`, so in both cases Omarchy generates the spec from its own template and asks for `aether`:
+
+```bash
+grep -n 'aether\|colorscheme' ~/.local/state/omarchy/current/theme/neovim.lua
+ls ~/.local/share/nvim/lazy/aether/colors/
+```
+
+If `~/.local/share/nvim/lazy/aether` is absent, the plugin is simply not installed. Fix it the same way as case 1 or case 2. There is no per-theme colorscheme to hunt for, because a third-party theme is never allowed to supply one.
+
+**Do not edit `~/.config/nvim/lua/plugins/theme.lua`.** It is a symlink into the staged theme directory, so an edit there writes into `~/.local/state/omarchy/current/theme/neovim.lua` and the next `omarchy theme set` deletes it:
+
+```bash
+ls -l ~/.config/nvim/lua/plugins/theme.lua
+```
+
+If you want a colorscheme of your own that survives theme changes, put it in a separate spec file whose name sorts after `theme`:
+
+```lua
+-- ~/.config/nvim/lua/plugins/zz-colorscheme.lua
+return {
+  { "LazyVim/LazyVim", opts = { colorscheme = "catppuccin-mocha" } },
+}
+```
+
+lazy.nvim imports a plugins directory in alphabetical order of module name (`table.sort` on `modname` in `lua/lazy/core/plugin.lua`), so the later file's `opts.colorscheme` wins and Omarchy's theme switching leaves it alone.
+
+**Verify.** `nvim` opens with no error banner, and `:echo g:colors_name` prints the same name that `grep colorscheme ~/.local/state/omarchy/current/theme/neovim.lua` reports. `:Lazy` shows the theme plugin as installed rather than pending.
+
+Sources: <https://github.com/omacom/omarchy/issues/6648> · <https://github.com/catppuccin/nvim/pull/977> · <https://github.com/catppuccin/nvim/releases/tag/v2.0.0> · <https://github.com/omacom/omarchy/blob/quattro/themes/catppuccin/neovim.lua> · <https://github.com/omacom/omarchy/blob/quattro/manual/16-neovim.md>
 
 ---
 
@@ -2023,7 +2414,7 @@ omarchy system lock       # check it
 
 **Verify.** `sed -n '/^\[lock\]/,/^\[/p' ~/.local/state/omarchy/current/theme/shell.toml` shows your values, and `omarchy system lock` displays the restyled password input.
 
-Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-theme-set-templates> · <https://github.com/basecamp/omarchy/blob/quattro/default/themed/shell.toml.tpl> · <https://github.com/basecamp/omarchy/blob/quattro/docs/theming.md>
+Sources: <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-theme-set-templates> · <https://github.com/omacom/omarchy/blob/quattro/default/themed/shell.toml.tpl> · <https://github.com/omacom/omarchy/blob/quattro/docs/theming.md>
 
 ---
 

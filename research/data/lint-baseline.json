@@ -192,9 +192,6 @@
   "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P"
  ],
- "installed-theme-without-colors-toml-breaks-foot": [
-  "hyprland-conf"
- ],
  "installer-mounting-the-esp-failed-squashfs-superblock": [
   "boot-limine-conf"
  ],
@@ -466,6 +463,9 @@
  "touchpad-kernel-panic-on-resume-intel-lpss": [
   "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P"
+ ],
+ "unlock-screen-theme-reverts-after-omarchy-update": [
+  "sudo-pacman-Syu"
  ],
  "vaapi-init-failed-screen-recording": [
   "bare-pacman-Sy",
