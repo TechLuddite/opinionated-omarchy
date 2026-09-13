@@ -14,7 +14,7 @@ have been doing all the work:
 
 - **A troubleshooting corpus.** 492 real Omarchy and Arch desktop problems with verified,
   copy-pasteable fixes, drawn from 1,361 sources, searchable by symptom. Every record says how
-  much scrutiny it survived: 141 passed an adversarial audit clean and 351 had their fix,
+  much scrutiny it survived: 140 passed an adversarial audit clean and 352 had their fix,
   cause or danger rewritten by the auditor. Browse it at
   <https://techluddite.github.io/opinionated-omarchy/> or search it from a clone:
 

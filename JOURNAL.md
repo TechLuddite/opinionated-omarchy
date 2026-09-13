@@ -22,16 +22,16 @@ Last updated: 2026-09-12
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 141 records still carry that status on one source pass. **100 records have now been
->    re-audited that way and 98 of them needed correcting**, across `boot-kernel` (10),
+>    4", and 140 records still carry that status on one source pass. **100 records have now been
+>    re-audited that way and 99 of them needed correcting**, across `boot-kernel` (10),
 >    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15) and
 >    `power-suspend` (16). The one that passed is `mt7921e-dead-after-suspend-aspm`. The
->    hundredth was rejected as a problem that does not exist, and retiring it is an open
->    decision at the top of the 2026-09-12 session. Hand the brief to agents directly, one
+>    hundredth was rejected as a problem that does not exist, and was kept and rewritten by hand
+>    to say so rather than retired. Hand the brief to agents directly, one
 >    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
 >    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared six
->    categories with 54 records left, and O4 is finished, its 36 records audited and merged on
+>    categories with 53 records left, and O4 is finished, its 36 records audited and merged on
 >    2026-09-11. The corpus prose has 1,556 dashes across 369 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
@@ -50,13 +50,13 @@ Last updated: 2026-09-12
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
 
-## Session of 2026-09-12: O3 clears `power-suspend`, and one record is a non-problem
+## Session of 2026-09-12/13: O3 clears `power-suspend`, and one record is a non-problem
 
 16 records, 8 agent batches. **15 corrected, 1 rejected.** 13 verdicts at high confidence, 2 at
-medium. The corpus is 492 records, `ok` 141 / `corrected` 351, from 1,361 distinct sources, with
-129 `cause_reconciled` stamps. 8 citations removed.
+medium. The corpus is 492 records, `ok` 140 / `corrected` 352, from 1,361 distinct sources, with
+130 `cause_reconciled` stamps. 8 citations removed.
 
-### The reject is a decision, not a merge, and it is NOT done
+### The reject was kept and rewritten, not retired
 
 `omarchy-resume-hook-appended-after-filesystems` says Omarchy's `HOOKS+=(resume)` drop-in lands
 after `filesystems` and breaks hibernation. The drop-in mechanics in it are right. The defect is
@@ -75,9 +75,16 @@ reinstates the `kms` hook that `omarchy_hooks.conf` strips on NVIDIA-only machin
 nouveau and about 100 MB of GSP firmware back into the initramfs.
 
 A reject deletes a record and 404s a published page, which is the same shape as the mDNS merge and
-belongs to the operator. So the verdict is banked and not applied: the record still carries `ok`
-and its own fix is still published. That is the one thing in this session that is worse left
-alone than acted on, and it is the first item to settle.
+belongs to the operator. The operator's call was to keep the URL and rewrite the record, so it was
+hand-written rather than merged: the title now says the hook landing last is not the bug, the fix
+tells the reader to change nothing and points at the four records that hold the real causes, and
+the `danger` carries the three ways the circulating fix damages a machine. The auditor's verdict is
+reproduced verbatim in the `audit_note` beneath a line saying the record was a reject that was kept.
+`audit_status` is `corrected`, so corpus counts move by one: `ok` 140 / `corrected` 352.
+
+**The slug still names the non-defect**, and no field can change that. It is the same wall the mDNS
+record hit on 2026-09-11, where the answer was a merge. Anyone reaching this record by its URL or
+its slug arrives expecting the fix it no longer gives.
 
 ### The category was full of Omarchy 3
 
@@ -164,17 +171,16 @@ instead, as the mDNS record showed.
 
 ### Where to pick this up
 
-1. **The reject.** Retire `omarchy-resume-hook-appended-after-filesystems`, or keep it and rewrite
-   it to say the ordering is not a defect. Retiring it is the recommendation, because the slug
-   itself asserts the disproved claim. Its genuine half is already covered by
-   `hibernate-resume-hook-missing-or-misordered`.
-2. O3 continues, 54 records left: `omarchy-theming` 15, `hyprland-config` 12, `wayland-compat` 9,
-   `audio-input` 9, `display-monitors` 5, `omarchy-core` 2, `network` 1, `power-suspend` 1. The
-   last two are `mt7921e-dead-after-suspend-aspm` and the rejected record, both already through a
-   second pass.
-3. Still owed, and carried from 2026-09-11: the enterprise Wi-Fi upstream report, and a new corpus
+1. O3 continues, 53 records left: `omarchy-theming` 15, `hyprland-config` 12, `wayland-compat` 9,
+   `audio-input` 9, `display-monitors` 5, `omarchy-core` 2, `network` 1. That last one is
+   `mt7921e-dead-after-suspend-aspm`, already re-audited and confirmed.
+2. Still owed, and carried from 2026-09-11: the enterprise Wi-Fi upstream report, and a new corpus
    record for the Intel video-acceleration installer matching graphics by marketing name. The
    Haswell comment itself was posted on omacom/omarchy#7866 on 2026-09-11.
+3. A third upstream report is now owed, and it is the cheapest of the three: `omacom/omarchy` 8471,
+   8888 and 10375 all assert the resume hook ordering defect that this session disproved, and 8888
+   is an open pull request that would move the hook. The evidence is in this session's
+   `audit_note` and in `raw/o3-power-suspend-audit.json`.
 
 ## Session of 2026-09-11 (fifth): the mDNS merge, one record removed and one split out
 
@@ -3284,10 +3290,10 @@ again.
 - **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
   brief. STARTED 2026-09-06. Six categories are complete: `boot-kernel` and `pacman-aur` on
   2026-09-06 and 2026-09-07, `gpu-drivers`, `apps-services` and `network` on 2026-09-11, and
-  `power-suspend` on 2026-09-12. 54 remain across the rest: `omarchy-theming` 15,
+  `power-suspend` on 2026-09-12. 53 remain across the rest: `omarchy-theming` 15,
   `hyprland-config` 12, `wayland-compat` 9, `audio-input` 9, `display-monitors` 5,
-  `omarchy-core` 2, `network` 1, `power-suspend` 1, and the last two are records that have
-  already been through a second pass and keep `ok` by definition. About 750k to 900k tokens per
+  `omarchy-core` 2, `network` 1, and that last one is a record that has already been through a
+  second pass and keeps `ok` by definition. About 750k to 900k tokens per
   ten records, one agent per two records, through `merge_gapfill.py` with the
   dry-run-then-diff discipline.
 - **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused

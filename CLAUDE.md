@@ -493,10 +493,10 @@ an auditor who judged a severity wrong, and one who found a cited issue number t
 is really a discussion, could each say so only in prose, and both changes had to be
 applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 141 `ok` records remain on one source pass, and 54 of them carry a `danger` and
+merge. 140 `ok` records remain on one source pass, and 53 of them carry a `danger` and
 apply to Omarchy. `gpu-drivers`, `apps-services` and `network` were all cleared on 2026-09-11,
 52 records, of which **51 were wrong**, and `power-suspend` on 2026-09-12, 16 records, of which
-15 were wrong and 1 was rejected as a problem that does not exist. The one that passed, `mt7921e-dead-after-suspend-aspm`,
+15 were wrong and 1 was rejected as a problem that does not exist and rewritten by hand to say so. The one that passed, `mt7921e-dead-after-suspend-aspm`,
 still counts in that 69, because the backlog is defined by `audit_status: ok` and a record
 re-audited and confirmed keeps it: the count will never reach zero, and the journal names which
 records have actually been through the second pass.
@@ -512,7 +512,8 @@ re-audit of all 22 `pacman-aur` records, and on 2026-09-11 25 more by the audit 
 records harvested from the issue tracker, 11 more by the re-audit of the 14 `gpu-drivers`
 records, 16 more by the re-audit of the 23 `apps-services` records and 12 more by the re-audit of
 the 15 `network` records, and 10 more on 2026-09-12 by the re-audit of the 16 `power-suspend`
-records, so **129 records carry the stamp across six dates**. **The disclaimer printed under the audit
+records and 1 by the hand-written rewrite of the rejected record, so **130 records carry the
+stamp across six dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".

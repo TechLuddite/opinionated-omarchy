@@ -518,48 +518,6 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 ---
 
-## Fix Omarchy's resume hook always landing after `filesystems`
-
-`omarchy-resume-hook-appended-after-filesystems` · severity: **high** · frequency: **common** · applies to: `btrfs`, `laptop`, `limine`, `mkinitcpio`, `omarchy`
-
-**Symptom.** On Omarchy I ran the hibernation setup, it reported success, hibernation powers the machine off — but it never resumes. `grep -h '^HOOKS' /etc/mkinitcpio.conf.d/*.conf` shows `resume` sitting at the very end of the array, after `filesystems` and `fsck`.
-
-**Cause.** Two mkinitcpio drop-ins fight each other. `omarchy_hooks.conf` (shipped by `omarchy-settings`) *assigns* the array with `HOOKS=(...)`, and `omarchy_resume.conf` (written by `omarchy-hibernation-setup`) *appends* with `HOOKS+=(resume)`. Drop-ins are read in alphabetical order, so the append always runs last and `resume` can never be positioned before `filesystems`.
-
-> ⚠️ **Risk.** You are hand-writing the full HOOKS array — omitting `encrypt`, `btrfs-overlayfs` or `filesystems` makes the machine unbootable. Copy the existing line verbatim and move only `resume`. Take an Omarchy system snapshot first.
-
-**Fix.**
-
-Replace the append with an explicit, correctly ordered array in a drop-in that sorts last. First print the current array:
-
-```bash
-grep -h '^HOOKS' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf
-```
-
-Take that line, delete the trailing `resume`, and reinsert `resume` immediately after `encrypt` (or after `udev`/`block` if the disk is not encrypted) — everything before `filesystems`. Then:
-
-```bash
-sudo rm /etc/mkinitcpio.conf.d/omarchy_resume.conf
-sudo tee /etc/mkinitcpio.conf.d/zz_resume.conf <<'EOF'
-# full array copied from above, with resume moved before filesystems
-HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt resume filesystems fsck btrfs-overlayfs)
-EOF
-sudo limine-mkinitcpio
-```
-
-Double-check the resume target survived:
-
-```bash
-cat /etc/limine-entry-tool.d/resume.conf
-cat /proc/cmdline | tr ' ' '\n' | grep resume
-```
-
-**Verify.** `grep -h '^HOOKS' /etc/mkinitcpio.conf.d/*.conf` shows `resume` before `filesystems`, and a hibernate/power-on cycle restores the running session.
-
-Sources: <https://github.com/basecamp/omarchy/issues/8471> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-hibernation-setup> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate>
-
----
-
 ## Recover a Hyprland screen that never comes back after DPMS off
 
 `screen-never-wakes-after-dpms-off` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
@@ -1957,6 +1915,62 @@ journalctl -b -u fprintd.service | grep 'on client request'
 Check the last command first, because a hook in the wrong directory or without the executable bit fails silently. When the hook fires, systemd logs `fprintd.service: Sent signal SIGKILL to main process <pid> on client request`. One reporter running this form out of `/usr/lib/systemd/system-sleep/` recorded that line landing between `System returned from sleep operation 'suspend'` and `Successfully thawed unit 'user.slice'`, the hook taking 28ms, and the finger accepted three seconds later. Two other reporters proved the negative case: with the hook in `/etc/systemd/system-sleep/` it never executed and fprintd carried the same PID straight through the suspend.
 
 Sources: <https://github.com/omacom/omarchy/issues/7229> · <https://github.com/omacom/omarchy/pull/7158> · <https://github.com/omacom/omarchy/pull/9868> · <https://github.com/omacom/omarchy/pull/9919> · <https://github.com/omacom/omarchy/issues/7172> · <https://github.com/omacom/omarchy/issues/7176> · <https://github.com/omacom/omarchy/issues/10252> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://github.com/omacom/omarchy/compare/v4.0.2...v4.0.3> · <https://github.com/omacom/omarchy/blob/v4.0.3/migrations/1788662350.sh> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-apply-lock> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-setup-security-fingerprint> · <https://gitlab.freedesktop.org/libfprint/fprintd/-/blob/master/data/fprintd.service.in>
+
+---
+
+## Omarchy's resume hook lands last in `HOOKS`, and that is not the bug
+
+`omarchy-resume-hook-appended-after-filesystems` · severity: **medium** · frequency: **common** · applies to: `btrfs`, `desktop`, `laptop`, `limine`, `mkinitcpio`, `omarchy`
+
+**Symptom.** Hibernation was set up on Omarchy, it reported success, the machine powers off and then boots a fresh session instead of resuming. Looking for the reason, `grep -h '^HOOKS' /etc/mkinitcpio.conf.d/*.conf` shows `resume` at the very end of the array, after `filesystems` and `fsck`, which looks wrong against every ordering guide. Three upstream issues say it is wrong. It is not, and the fix circulating for it will damage the machine.
+
+**Cause.** The array really does end that way, and the mechanism is exactly as reported. `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, owned by `omarchy-settings`, assigns the array with `HOOKS=(...)`, and `/etc/mkinitcpio.conf.d/omarchy_resume.conf`, written by `omarchy-hibernation-setup`, appends with `HOOKS+=(resume)`. `/usr/bin/mkinitcpio` collects the drop-ins with `sort -zVu` and concatenates them onto `/etc/mkinitcpio.conf` in that order, so the append always lands last and `resume` sits at position 15.
+
+What does not follow is the failure. Hook position does not decide when root is mounted. `/usr/lib/initcpio/init` runs `run_hookfunctions 'run_hook' 'hook' $HOOKS` and only afterwards calls `fsck_root` and the mount handler, so every `run_hook` in the array, including the last one, runs before root is mounted. `filesystems` and `fsck` contribute nothing at that stage in any case: `/usr/lib/initcpio/install/filesystems` has only a `build()` function, and there is no `/usr/lib/initcpio/hooks/filesystems` and no `/usr/lib/initcpio/hooks/fsck` to run. `btrfs-overlayfs` is a `run_latehook` and runs after the mount whatever the array says.
+
+The one ordering rule that does exist is that `resume` must follow `udev` and must follow `encrypt` or `lvm2`, and landing last satisfies it. The Arch wiki's own example array, cited by this record before it was re-audited, puts `resume` after `filesystems`.
+
+> **Audit corrected this record.** Re-audited 2026-09-12 and returned as a reject, meaning the problem does not exist. The record was kept and rewritten by hand instead of retired, because its URL is published and its warning is worth keeping, but note that the slug still names the non-defect. The auditor's verdict follows verbatim, and it is the evidence for every claim above.
+
+The mechanics this record describes are real, the defect it infers from them is not, and its fix would damage a working machine. Confirmed on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, mkinitcpio 41.1-1, limine-mkinitcpio-hook 1.37.1-1, kernel 7.1.9-arch1-2): `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, owned by `omarchy-settings`, assigns `HOOKS=(base udev plymouth keyboard autodetect microcode modconf kms keymap consolefont block encrypt filesystems fsck btrfs-overlayfs)`, and `/etc/mkinitcpio.conf.d/omarchy_resume.conf`, written by `omarchy-hibernation-setup` and owned by no package, contains `HOOKS+=(resume)`. `/usr/bin/mkinitcpio` line 1121 collects the drop-ins with `LC_ALL=C.UTF-8 find ... | LC_ALL=C.UTF-8 sort -zVu` and `cat`s them onto `/etc/mkinitcpio.conf` in that order, so the append does land last and `resume` is position 15. That much is right. The consequence is wrong. `/usr/lib/initcpio/install/filesystems` has only a `build()` function that adds filesystem modules and `mount.FSTYPE` helpers, and there is no `/usr/lib/initcpio/hooks/filesystems` and no `/usr/lib/initcpio/hooks/fsck`, so neither contributes anything at runtime. `/usr/lib/initcpio/init` calls `run_hookfunctions 'run_hook' 'hook' $HOOKS` and only afterwards `fsck_root` and `"$mount_handler" /new_root`. Root is mounted after every `run_hook`, regardless of array position, so `resume` at the end still runs before root is mounted. `btrfs-overlayfs` is a `run_latehook` and runs after the mount in any case. The only ordering requirement, that `resume` follow `udev` and follow `encrypt`, is satisfied precisely because the append lands last. Live evidence on this machine: `/sys/power/resume` reads `253:0` and `/dev/mapper/root` is major 253 minor 0, so the resume hook ran from last position, resolved the encrypted device and wrote it. The kernel could not have done that itself from `resume=/dev/mapper/root`, since that device does not exist at cmdline parse time. The record's own Arch wiki source contradicts it as well: its example is `HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block filesystems resume fsck)`, with `resume` after `filesystems`, and it asks only that `resume` follow `udev` and follow `encrypt` or `lvm2`. It never says `resume` must precede `filesystems`. The cited issue does not support the record either. `omacom/omarchy` 8471 is open with zero comments and its author states he has not been able to demonstrate a resume failure attributable to the ordering, and that hibernation is separately unavailable on his machine. Issues 8888 (an open, unmerged, AI-worded pull request) and 10375 repeat the same wrong mechanism and are also unconfirmed. The fix is actively harmful. `sudo rm /etc/mkinitcpio.conf.d/omarchy_resume.conf` breaks `omarchy-hibernation-available` and `omarchy-hibernation-remove`, which both test that exact path for `^HOOKS+=(resume)$`, so the menu reports hibernation unavailable and the user can never remove it cleanly. Re-running `omarchy-hibernation-setup` then recreates the file and the array carries `resume` twice. Worse, `grep -h '^HOOKS'` prints the literal line from `omarchy_hooks.conf`, which always contains `kms`, while that file strips `kms` at build time on machines where NVIDIA drives every display. Copying the grep output into a `zz_resume.conf` assignment reinstates `kms` and drags nouveau and roughly 100 MB of GSP firmware back into the initramfs. The sample array in the fix also omits `plymouth`, which Omarchy 4 ships and needs for the themed LUKS prompt. The symptom a user arrives with, hibernate powering off and boot coming up clean, is real and belongs under `hibernate-resume-hook-missing-or-misordered`, which I corrected in the same batch. This record should be retired rather than merged, because its slug and its whole content name a non-defect. That is the operator's call. NOT exercised: I did not run a hibernate and power-on cycle, did not rebuild an initramfs, and could not read `/boot`, which needs root.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** **Do not apply the fix that circulates for this.** Deleting `/etc/mkinitcpio.conf.d/omarchy_resume.conf` and hand-writing a full `HOOKS=` array breaks a working machine in three ways. `omarchy-hibernation-available` and `omarchy-hibernation-remove` both test that exact path for `^HOOKS+=(resume)$`, so the menu reports hibernation unavailable and it can never be removed cleanly, and re-running `omarchy-hibernation-setup` recreates the file so the array then carries `resume` twice. Copying the output of `grep -h '^HOOKS'` into that array reinstates `kms`, because the printed line always contains it while `omarchy_hooks.conf` strips it at build time on machines where NVIDIA drives every display, which drags nouveau and roughly 100 MB of GSP firmware back into the initramfs. And the array published in those issues omits `plymouth`, which Omarchy 4 ships and needs for the themed LUKS prompt.
+
+**Fix.**
+
+Change nothing about the hook order. Confirm it is working, then go and find the real fault.
+
+Confirm the resume hook ran and resolved the device:
+
+```bash
+cat /sys/power/resume
+lsblk -o NAME,MAJ:MIN,MOUNTPOINTS
+```
+
+`/sys/power/resume` holds a `major:minor` pair. If it matches the device holding the swap, the hook did its job from last position. On an encrypted root it reads something like `253:0` against `/dev/mapper/root`, and the kernel could not have written that from `resume=/dev/mapper/root` on its own, because that device does not exist when the cmdline is parsed. A reading of `0:0` means the hook did not resolve anything, which is a real fault and a different record.
+
+Check that the pieces are present at all:
+
+```bash
+cat /etc/mkinitcpio.conf.d/omarchy_resume.conf
+cat /etc/limine-entry-tool.d/resume.conf
+tr ' ' '\n' < /proc/cmdline | grep -E 'resume|hibernate'
+omarchy-hibernation-available; echo "exit $?"
+```
+
+If hibernation powers off and comes back to a fresh session, the causes worth checking are in `hibernate-resume-hook-missing-or-misordered` (the hook or the `resume=` parameter genuinely absent), `hibernate-not-enough-free-swap` (the image does not fit), `hibernate-blocked-by-zram-only-swap` (the only swap is zram) and `hibernate-does-not-power-off-hibernatemode-shutdown` (the image never gets written). None of them are about hook order.
+
+Rebuild only if you changed something, and use the Omarchy command rather than `mkinitcpio -P`, which finds no preset here and reports success having written nothing:
+
+```bash
+sudo limine-mkinitcpio
+```
+
+**Verify.** `cat /sys/power/resume` prints the `major:minor` of the device holding swap rather than `0:0`, and `omarchy-hibernation-available` exits 0. A hibernate and power-on cycle restores the running session, which is the only end-to-end proof.
+
+Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://github.com/omacom/omarchy/issues/8471> · <https://github.com/omacom/omarchy/issues/10375> · <https://github.com/omacom/omarchy/issues/8888> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-hibernation-setup>
 
 ---
 
