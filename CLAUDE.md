@@ -48,7 +48,7 @@ research/                the troubleshooting corpus + its tooling
   docs/*.md              DERIVED per-category markdown; tracked, see the rule below
   raw/                   unprocessed workflow output, kept for provenance
   assets/fonts/          vendored Omarchy Font (MIT, Mark Cuda) and Departure Mono (OFL,
-                         Helena Zhang) for the public site; see Crediting below
+                         Helena Zhang) for the public site. See Crediting below
   tools/                 build/search/ingest scripts + the three workflow scripts
     corpus.py            the record schema + the only corpus reader/writer
     lint_corpus.py       flags shapes known wrong on Omarchy 4; data/lint-baseline.json

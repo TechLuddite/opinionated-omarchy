@@ -85,7 +85,7 @@ What changed, all in one commit:
 - **Section 4 of the 2026-09-02 entry** carries a dated correction rather than a rewrite.
 
 One correction to what this session first reported: `pages.yml` was said to test only the
-Departure Mono files. It already tested all four font files; the two Omarchy Font lines were
+Departure Mono files. It already tested all four font files. The two Omarchy Font lines were
 beyond the range that was read. The gap that was real was that no test looked for a name.
 
 The governing rule now lives outside this repo, as `attribution/crediting-third-party-work`
@@ -2508,7 +2508,7 @@ woff2**. Left undone deliberately: it is a licensing and binary-assets decision.
 > **Corrected 2026-09-13.** True when written, false since 2026-09-03, when commit
 > `5e726ec` vendored a second face: Omarchy Font, MIT, © 2026 Mark Cuda, which took over
 > the wordmark and the group headings. Departure Mono kept only the micro-labels. The
-> section below is left as written because it records why the first face was chosen; the
+> section below is left as written because it records why the first face was chosen. The
 > two-face layout and the reason for it are in `research/assets/fonts/README.md`, and the
 > credit for both designers is on every page of the site, on the front page and in the
 > root `README.md` as of the session of 2026-09-13 (third).

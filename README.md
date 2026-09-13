@@ -15,7 +15,7 @@ first.
 - **[Omarchy Font](https://github.com/markcuda/Omarchy-Font) by [Mark Cuda](https://github.com/markcuda)**,
   MIT. The Omarchy wordmark as a real typeface. It is the first thing on every page of the
   site: the wordmark at the top and every group heading are set in it. Mark built it as a
-  fan project, and you can [try it in the browser](https://tinker.markcuda.com/omarchy-font/);
+  fan project, and you can [try it in the browser](https://tinker.markcuda.com/omarchy-font/).
   Omarchy itself is by DHH and 37signals, and the *Delta Corps Priest 1* FIGlet font the
   wordmark grew out of is by CoSMiC cHiLD.
 - **[Departure Mono](https://github.com/rektdeckard/departure-mono) by
@@ -101,7 +101,7 @@ documented empty directory on GitHub.
 MIT, © 2026 TechLuddite. The two vendored upstream skills, [omarchy/](omarchy/) and
 [diagnose-crash/](diagnose-crash/), are MIT © David Heinemeier Hansson and redistributed
 unmodified. Omarchy Font is MIT © 2026 Mark Cuda and Departure Mono is SIL OFL 1.1
-© 2022–2024 Helena Zhang; both are named under Credits above. All of it is in
+© 2022–2024 Helena Zhang. Both are named under Credits above. All of it is in
 [NOTICE](NOTICE).
 
 The corpus is research, not a warranty. Anything touching pacman, the bootloader, initramfs
