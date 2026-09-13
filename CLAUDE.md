@@ -493,9 +493,10 @@ an auditor who judged a severity wrong, and one who found a cited issue number t
 is really a discussion, could each say so only in prose, and both changes had to be
 applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 156 `ok` records remain on one source pass, and 69 of them carry a `danger` and
+merge. 140 `ok` records remain on one source pass, and 53 of them carry a `danger` and
 apply to Omarchy. `gpu-drivers`, `apps-services` and `network` were all cleared on 2026-09-11,
-52 records, of which **51 were wrong**. The one that passed, `mt7921e-dead-after-suspend-aspm`,
+52 records, of which **51 were wrong**, and `power-suspend` on 2026-09-12, 16 records, of which
+15 were wrong and 1 was rejected as a problem that does not exist and rewritten by hand to say so. The one that passed, `mt7921e-dead-after-suspend-aspm`,
 still counts in that 69, because the backlog is defined by `audit_status: ok` and a record
 re-audited and confirmed keeps it: the count will never reach zero, and the journal names which
 records have actually been through the second pass.
@@ -510,7 +511,9 @@ re-audit of ten boot-kernel records against Omarchy 4, and 14 more on 2026-09-07
 re-audit of all 22 `pacman-aur` records, and on 2026-09-11 25 more by the audit of the 36
 records harvested from the issue tracker, 11 more by the re-audit of the 14 `gpu-drivers`
 records, 16 more by the re-audit of the 23 `apps-services` records and 12 more by the re-audit of
-the 15 `network` records, so **119 records carry the stamp across five dates**. **The disclaimer printed under the audit
+the 15 `network` records, and 10 more on 2026-09-12 by the re-audit of the 16 `power-suspend`
+records and 1 by the hand-written rewrite of the rejected record, so **130 records carry the
+stamp across six dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
@@ -662,10 +665,9 @@ Three things are specific to this repo and are the ones that get got wrong:
   description, a bullet list of three introduced as "two ways", and a `README` recipe
   naming the workflow that does the opposite of what it claimed.
 
-**`research/data/problems.jsonl` is deliberately excluded for now.** 1,756 em and en dashes
-sit across 405 of its 492 records as of 2026-09-11 (the thirty-seven records rewritten by
-the re-audits carry none, and neither do the 36 merged from the issue harvest, which is where
-the denominator moved), and cleaning them means rewriting the source of truth
+**`research/data/problems.jsonl` is deliberately excluded for now.** 1,556 em and en dashes
+sit across 369 of its 492 records as of 2026-09-12 (the records rewritten by the re-audits carry
+none, and neither do the 36 merged from the issue harvest, which is where the denominator moved), and cleaning them means rewriting the source of truth
 and regenerating `research/docs/` in the same commit. Tracked in
 [JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose
 piecemeal: a partial pass makes the remaining records look like a deliberate choice.

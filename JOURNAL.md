@@ -22,15 +22,17 @@ Last updated: 2026-09-12
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 156 records still carry that status on one source pass. **84 records have now been
->    re-audited that way and 83 of them needed correcting**, across `boot-kernel` (10),
->    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23) and `network` (15). The one
->    that passed is `mt7921e-dead-after-suspend-aspm`. Hand the brief to agents directly, one
->    per one or two records, which is what the last four batches did, and use
+>    4", and 140 records still carry that status on one source pass. **100 records have now been
+>    re-audited that way and 99 of them needed correcting**, across `boot-kernel` (10),
+>    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15) and
+>    `power-suspend` (16). The one that passed is `mt7921e-dead-after-suspend-aspm`. The
+>    hundredth was rejected as a problem that does not exist, and was kept and rewritten by hand
+>    to say so rather than retired. Hand the brief to agents directly, one
+>    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
->    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared five
->    categories with 69 records left, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,756 dashes across 405 records, item 6
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared six
+>    categories with 53 records left, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,556 dashes across 369 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -47,6 +49,138 @@ Last updated: 2026-09-12
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-12/13: O3 clears `power-suspend`, and one record is a non-problem
+
+16 records, 8 agent batches. **15 corrected, 1 rejected.** 13 verdicts at high confidence, 2 at
+medium. The corpus is 492 records, `ok` 140 / `corrected` 352, from 1,361 distinct sources, with
+130 `cause_reconciled` stamps. 8 citations removed.
+
+### The reject was kept and rewritten, not retired
+
+`omarchy-resume-hook-appended-after-filesystems` says Omarchy's `HOOKS+=(resume)` drop-in lands
+after `filesystems` and breaks hibernation. The drop-in mechanics in it are right. The defect is
+not real. `sort -zVu` concatenation does put `resume` last at position 15, and last still runs
+before root is mounted, and it still lands after `encrypt`, which is the only ordering the Arch
+wiki requires. The wiki's own example, cited by this record, puts `resume` after `filesystems`.
+Disproved live on this workstation: `/sys/power/resume` reads `253:0`, matching
+`/dev/mapper/root`, so the hook resolved the LUKS device from last position. Issue 8471's author
+says outright he could not demonstrate a failure from the ordering, and 8888 and 10375 repeat the
+same mechanism with nothing confirmed.
+
+Worse, the record's own fix is destructive twice over. Deleting `omarchy_resume.conf` breaks
+`omarchy-hibernation-available` and `omarchy-hibernation-remove`, both of which grep that exact
+path for `^HOOKS+=(resume)$`. And copying the `grep -h '^HOOKS'` output into a hand-written array
+reinstates the `kms` hook that `omarchy_hooks.conf` strips on NVIDIA-only machines, which pulls
+nouveau and about 100 MB of GSP firmware back into the initramfs.
+
+A reject deletes a record and 404s a published page, which is the same shape as the mDNS merge and
+belongs to the operator. The operator's call was to keep the URL and rewrite the record, so it was
+hand-written rather than merged: the title now says the hook landing last is not the bug, the fix
+tells the reader to change nothing and points at the four records that hold the real causes, and
+the `danger` carries the three ways the circulating fix damages a machine. The auditor's verdict is
+reproduced verbatim in the `audit_note` beneath a line saying the record was a reject that was kept.
+`audit_status` is `corrected`, so corpus counts move by one: `ok` 140 / `corrected` 352.
+
+**The slug still names the non-defect**, and no field can change that. It is the same wall the mDNS
+record hit on 2026-09-11, where the answer was a merge. Anyone reaching this record by its URL or
+its slug arrives expecting the fix it no longer gives.
+
+### The category was full of Omarchy 3
+
+Two records described a mechanism that does not exist on this distribution any more.
+`omarchy-hypridle-timeouts-too-aggressive` is built entirely on `hypridle` and
+`~/.config/hypr/hypridle.conf`. `hypridle` is not installed, nothing owns `/usr/bin/hypridle`, and
+the `quattro` tree has no hypridle path at all. Omarchy 4 does idle in a Quickshell service,
+`/usr/share/omarchy/shell/plugins/services/idle/Service.qml`, reading `idle.screensaver` and
+`idle.lock` from `~/.config/omarchy/shell.json` with defaults of 150 and 300 seconds. The record
+said 152 for the lock. `suspend-blocked-by-inhibitor-lock` had the same problem from the other
+end: every systemd claim in it held on systemd 261.2-1, and every Omarchy claim in it was
+Omarchy 3. Its two cited `basecamp/omarchy/master` raw URLs still serve the Omarchy 3 files, which
+is where the error came from, and that is worth recognising as a source trap rather than an
+auditor's slip: a raw URL against `master` returns content, so nothing looks broken.
+
+This is the gap the O4 issue-tracker audit named on 2026-09-11 and could not fix, a record sending
+readers to a hypridle config file that does not exist on Omarchy 4. It is now fixed.
+
+### Three fixes that break the thing they promise to protect
+
+- **`tlp-power-profiles-daemon-conflict` told the reader to install `tlp-pd` so the power UI keeps
+  working.** `tlp-pd` 1.10.2 declares `conflicts=power-profiles-daemon` and
+  `provides=power-profiles-daemon`, so pacman removes `power-profiles-daemon` to install it, and
+  `/usr/bin/powerprofilesctl` goes with it. `tlp-pd` ships `tlp-pd`, `tlpctl` and two D-Bus service
+  files and nothing else. Omarchy's menu and both `omarchy-powerprofiles-*` scripts shell out to
+  `powerprofilesctl` by name, so the branch sold as the one that preserves the menu is the branch
+  that empties it. The record also read as though TLP were an Omarchy default. It is not: Omarchy
+  installs and enables `power-profiles-daemon` and never installs TLP.
+- **`amdgpu-black-screen-on-resume-from-suspend` said a kernel parameter typed at the Limine menu
+  has nothing to undo.** `omarchy-uki.conf` sets `ENABLE_UKI=yes`, and systemd-stub uses an
+  invocation command line *instead of* the embedded one rather than alongside it. A `cmdline:`
+  holding only `amdgpu.dcdebugmask=0x10` therefore drops `root=`, `cryptdevice=` and `rootflags=`
+  and boots to an emergency shell. The rewrite prints the real string with
+  `limine-entry-tool --get-cmdline linux` first.
+- **`find-which-device-fails-suspend` told the reader to run `sudo systemctl suspend` on a machine
+  they may be reaching over ssh.** On Omarchy 4 that fires the sleep-lock inhibitor and locks the
+  session, and that lock has no `unlock()` IPC and outlives its client. The recipe can strand a
+  remote machine. It now opens with `omarchy-toggle-idle stay-awake` and
+  `omarchy-hyprland-session-locked`.
+
+### Hibernation on Omarchy 4 is opt-in, and two records assumed otherwise
+
+`omarchy-hibernation-setup` is referenced in three places in the `quattro` tree and in no installer
+script, so a stock install has no hibernation and the path in is `omarchy hibernation setup`.
+On top of that, `omarchy-hibernation-available` requires `/etc/mkinitcpio.conf.d/omarchy_resume.conf`
+to exist **as well as** the non-zram swap sum exceeding `/sys/power/image_size`, so a reader who
+grows swap by hand never sees the Hibernate entry appear and has no way to tell why. Neither
+record said so. `hibernate-blocked-by-zram-only-swap` also pointed at
+`/etc/systemd/zram-generator.conf`, which is the lowest-precedence file of the three, loses to
+Omarchy's own `90-omarchy.conf` drop-in, and is deleted outright by migration `1785013000.sh` on
+the next `omarchy update`.
+
+### Smaller things worth keeping
+
+- **`mkinitcpio -P` is a no-op here and two records still ran it.** `/etc/mkinitcpio.d/` is empty
+  because `limine-mkinitcpio-hook` overrides the stock pacman hook that would generate presets, so
+  `-P` finds nothing and reports success. Both records now branch, labelled, with
+  `limine-mkinitcpio` on the Omarchy side. Both keep a `mkinitcpio -P` lint hit inside the labelled
+  plain Arch branch, which is what the baseline is for.
+- **A danger that told the reader to keep a boot entry Omarchy never builds.** `MKINITCPIO_FALLBACK`
+  is unset and `limine-mkinitcpio-install` deletes fallback UKIs when it is, so the recovery route
+  is a Snapper entry.
+- **The lint baseline gains one record**, `tlp-power-profiles-daemon-conflict`, for a
+  `bare-pacman-Sy` hit inside a sentence telling the reader never to write `pacman -Sy <pkg>`. Same
+  false-positive shape as `mt7921e-dead-after-suspend-aspm` naming `boot-limine-conf` only to warn
+  against editing it.
+- **Two records were dated rather than wrong and are now narrower.** `suspend-fn-key-does-nothing`
+  rested on systemd not tagging keyboards as `power-switch`, which it has done since v251, so its
+  frequency drops to `rare`. Its symptom also claimed the power button works fine, which is false
+  on Omarchy: `omarchy-settings` ships `/etc/systemd/logind.conf.d/10-ignore-power-button.conf`.
+  `touchpad-kernel-panic-on-resume-intel-lpss` cites a 2017 thread titled "Stuck during resume from
+  hibernation", so its suspend framing was never supported.
+
+### A field no verdict can correct, again
+
+`hibernate-blocked-by-zram-only-swap` carries `laptop` in `applies_to` and not `desktop`, and the
+problem applies equally on a desktop. There is no `corrected_applies_to`, so the auditor could say
+so only in prose. This is the third time the verdict schema has been short of a field that an
+auditor needed, after `corrected_severity` and `corrected_frequency` on 2026-09-11 and
+`sources_remove` the same day. The pattern is clear enough now to act on rather than to keep
+recording: any reader-facing field the auditor can disprove needs a verdict key. `applies_to`,
+`tags` and `title` are the remaining three, and `title` and `slug` are the ones that force a merge
+instead, as the mDNS record showed.
+
+### Where to pick this up
+
+1. O3 continues, 53 records left: `omarchy-theming` 15, `hyprland-config` 12, `wayland-compat` 9,
+   `audio-input` 9, `display-monitors` 5, `omarchy-core` 2, `network` 1. That last one is
+   `mt7921e-dead-after-suspend-aspm`, already re-audited and confirmed.
+2. Still owed, and carried from 2026-09-11: the enterprise Wi-Fi upstream report, and a new corpus
+   record for the Intel video-acceleration installer matching graphics by marketing name. The
+   Haswell comment itself was posted on omacom/omarchy#7866 on 2026-09-11.
+3. A third upstream report is now owed, and it is the cheapest of the three: `omacom/omarchy` 8471,
+   8888 and 10375 all assert the resume hook ordering defect that this session disproved, and 8888
+   is an open pull request that would move the hook. The evidence is in this session's
+   `audit_note` and in `raw/o3-power-suspend-audit.json`.
 
 ## Session of 2026-09-11 (fifth): the mDNS merge, one record removed and one split out
 
@@ -3154,12 +3288,14 @@ again.
   gained the same keys. None of the three has been run since; the change is verified by
   evaluating each script's prompt section under node, not by a workflow run.
 - **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
-  brief. STARTED 2026-09-06. `pacman-aur` is complete as of 2026-09-07: all 22 records
-  corrected (see the 2026-09-07 session). Paused there on the operator's instruction.
-  120 remain across the other categories: `apps-services` 23, `power-suspend` 16,
-  `omarchy-theming` 15, `network` 15, `gpu-drivers` 14, `hyprland-config` 12,
-  `wayland-compat` 9, `audio-input` 9, `display-monitors` 5, `omarchy-core` 2. About 750k to 900k tokens per ten records, one agent per two records, through
-  `merge_gapfill.py` with the dry-run-then-diff discipline.
+  brief. STARTED 2026-09-06. Six categories are complete: `boot-kernel` and `pacman-aur` on
+  2026-09-06 and 2026-09-07, `gpu-drivers`, `apps-services` and `network` on 2026-09-11, and
+  `power-suspend` on 2026-09-12. 53 remain across the rest: `omarchy-theming` 15,
+  `hyprland-config` 12, `wayland-compat` 9, `audio-input` 9, `display-monitors` 5,
+  `omarchy-core` 2, `network` 1, and that last one is a record that has already been through a
+  second pass and keeps `ok` by definition. About 750k to 900k tokens per
+  ten records, one agent per two records, through `merge_gapfill.py` with the
+  dry-run-then-diff discipline.
 - **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused
   2026-09-07 on the weekly token limit. The selector (`tools/issue_candidates.py`) and the
   harvester brief (`tools/issue-harvest-brief.md`) are built and committed. Ten of eleven
