@@ -399,8 +399,11 @@ def page(title, body, depth=0, subtitle=""):
 {body}
 <footer>OPINIONATED OMARCHY &middot; CORPUS IS RESEARCH, NOT A WARRANTY &middot;
 <a href="https://github.com/TechLuddite/opinionated-omarchy">SOURCE</a> &middot;
-<a href="https://github.com/TechLuddite/opinionated-omarchy/blob/HEAD/LICENSE">MIT</a> &middot;
-SET IN <a href="{up}fonts/DepartureMono-LICENSE.txt">DEPARTURE MONO</a></footer>
+<a href="https://github.com/TechLuddite/opinionated-omarchy/blob/HEAD/LICENSE">MIT</a><br>
+WORDMARK AND HEADINGS SET IN <a href="https://github.com/markcuda/Omarchy-Font">OMARCHY FONT</a>
+BY MARK CUDA (<a href="{up}fonts/OmarchyFont-LICENSE.txt">MIT</a>) &middot;
+LABELS SET IN <a href="https://github.com/rektdeckard/departure-mono">DEPARTURE MONO</a>
+BY HELENA ZHANG (<a href="{up}fonts/DepartureMono-LICENSE.txt">OFL 1.1</a>)</footer>
 </body></html>
 """
 
@@ -574,6 +577,12 @@ def index_page(recs, cats):
       <a class="card" href="{gh}">
         <div class="c-head"><span class="c-name">Source, licence and how to rebuild all of this</span></div>
         <div class="c-meta"><span class="c-lab">GITHUB</span></div></a>
+      <a class="card" href="https://github.com/markcuda/Omarchy-Font">
+        <div class="c-head"><span class="c-name">The wordmark and headings are Omarchy Font, by Mark Cuda</span></div>
+        <div class="c-meta"><span class="c-lab">TYPE &middot; MIT</span></div></a>
+      <a class="card" href="https://github.com/rektdeckard/departure-mono">
+        <div class="c-head"><span class="c-name">The labels are Departure Mono, by Helena Zhang</span></div>
+        <div class="c-meta"><span class="c-lab">TYPE &middot; OFL 1.1</span></div></a>
     </div>
   </section>
   <div class="searchbar">

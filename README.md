@@ -7,6 +7,28 @@ Release date: soon. It has been soon since August.
 
 [![The public corpus site](assets/readme/site.png)](https://techluddite.github.io/opinionated-omarchy/)
 
+## Credits
+
+The one part of this project that is not vaporware is other people's work, so it goes
+first.
+
+- **[Omarchy Font](https://github.com/markcuda/Omarchy-Font) by [Mark Cuda](https://github.com/markcuda)**,
+  MIT. The Omarchy wordmark as a real typeface. It is the first thing on every page of the
+  site: the wordmark at the top and every group heading are set in it. Mark built it as a
+  fan project, and you can [try it in the browser](https://tinker.markcuda.com/omarchy-font/).
+  Omarchy itself is by DHH and 37signals, and the *Delta Corps Priest 1* FIGlet font the
+  wordmark grew out of is by CoSMiC cHiLD.
+- **[Departure Mono](https://github.com/rektdeckard/departure-mono) by
+  [Helena Zhang](https://www.helenazhang.com)**, SIL OFL 1.1. The pixel face behind every
+  status chip, section label, tag and footer on the site.
+- **[omarchy/](omarchy/) and [diagnose-crash/](diagnose-crash/) by David Heinemeier
+  Hansson**, MIT. The upstream Omarchy agent skills, redistributed unmodified from
+  [omacom/omarchy](https://github.com/omacom/omarchy). The +29.3 pt baseline the bench
+  measures against is his skill, byte for byte.
+
+Each licence ships beside the file it covers and CI fails the build if a licence or a
+name goes missing from the published site. The full list is [NOTICE](NOTICE).
+
 ## What ships today
 
 The skill is vaporware. Everything around it is real, and honestly the surrounding parts
@@ -78,7 +100,8 @@ documented empty directory on GitHub.
 
 MIT, © 2026 TechLuddite. The two vendored upstream skills, [omarchy/](omarchy/) and
 [diagnose-crash/](diagnose-crash/), are MIT © David Heinemeier Hansson and redistributed
-unmodified. The site's typefaces carry their own licences. All of it is in
+unmodified. Omarchy Font is MIT © 2026 Mark Cuda and Departure Mono is SIL OFL 1.1
+© 2022–2024 Helena Zhang. Both are named under Credits above. All of it is in
 [NOTICE](NOTICE).
 
 The corpus is research, not a warranty. Anything touching pacman, the bootloader, initramfs
