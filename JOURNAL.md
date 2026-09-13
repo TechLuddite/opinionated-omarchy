@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -22,17 +22,18 @@ Last updated: 2026-09-12
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 140 records still carry that status on one source pass. **100 records have now been
->    re-audited that way and 99 of them needed correcting**, across `boot-kernel` (10),
->    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15) and
->    `power-suspend` (16). The one that passed is `mt7921e-dead-after-suspend-aspm`. The
->    hundredth was rejected as a problem that does not exist, and was kept and rewritten by hand
+>    4", and 126 records still carry that status on one source pass. **115 records have now been
+>    re-audited that way and 113 of them needed correcting**, across `boot-kernel` (10),
+>    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15),
+>    `power-suspend` (16) and `omarchy-theming` (15). Two passed:
+>    `mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`.
+>    One was rejected as a problem that does not exist, and was kept and rewritten by hand
 >    to say so rather than retired. Hand the brief to agents directly, one
 >    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
->    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared six
->    categories with 53 records left, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,556 dashes across 369 records, item 6
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared seven
+>    categories with 38 records left, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,522 dashes across 360 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -49,6 +50,107 @@ Last updated: 2026-09-12
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-13: O3 clears `omarchy-theming`, and a second record passes
+
+15 records, 8 agent batches. **14 corrected, 1 `ok`**, every verdict at high confidence. The corpus
+is 492 records, `ok` 126 / `corrected` 366, from 1,390 distinct sources, with 143
+`cause_reconciled` stamps. 20 citations removed, the most of any run, almost all of them
+`basecamp/omarchy` URLs that the rename left pointing at the Omarchy 3 tree.
+
+### The second record to survive the audit
+
+`shell-section-override-ignored-without-colors-toml` came back `ok` with nothing rewritten but its
+source URLs. Every mechanical claim holds at the exact line numbers it cites, `shell.lock.toml` is a
+real shipped file, the 13-section list matches the generated `shell.toml` on this machine exactly,
+and the behaviour is now documented upstream in `docs/theming.md` on `quattro`, which the record
+predates. That is two clean passes in 115 records.
+
+### An auditor reproduced a failure and found the record's own fix still broken
+
+`installed-theme-without-colors-toml-breaks-foot` says a theme with no `colors.toml` leaves the
+terminal unable to start, and gives a three-key `colors.toml` as the repair. The auditor built that
+exact file in a sandboxed `HOME`, ran the template generator, and foot still refused, because
+`omarchy-theme-color --all` returns empty strings for the six hues and the generated `foot.ini`
+carries `regular1=` with no value. Nine keys are needed. This is the first verdict in the whole
+programme where the auditor exercised the record's own fix rather than reading it, and the fix
+failed. It is worth repeating deliberately where a fix is cheap to run in a scratch `HOME`.
+
+The same record was also missing the recovery that matters. A reader whose terminal will not start
+cannot follow a fix that assumes a terminal, and Omarchy binds `SUPER+SHIFT+CTRL+SPACE` to the
+theme menu, which needs no terminal at all.
+
+### Walker is gone from Omarchy 4, and the answer was not to delete the records
+
+Two records are about the Walker launcher. `walker` and `elephant` are not installed, nothing in
+the `quattro` tree mentions either, and `SUPER+SPACE` is `omarchy-menu toggle`. DHH closed issue
+6443 with "Walker is gone on quattro". The obvious move was a reject each, and the auditor declined
+it on evidence: walker 2.17.0-1 and elephant 2.22.0-1 are current in the AUR, both released
+2026-07-16, and `Waiting for elephant...` is still in Walker's own theme XML, so a user who installs
+it themselves on Omarchy 4 can still hit both problems. Both records now label Walker as something
+the user added and say what Omarchy 4 uses instead. That is the right shape for the `hypridle` case
+too, and it is a better default than retiring a record because the distribution moved on.
+
+### A fix that reached nothing, and one that reached too much
+
+- **`env = GSK_RENDERER,cairo` in `~/.config/hypr/envs.conf` is hyprlang**, which Omarchy 4 does
+  not read, so that workaround has never applied on this distribution. Corrected to
+  `~/.config/uwsm/env.d/`, which `/usr/share/uwsm/env.d/10-omarchy` names as the override point,
+  with `~/.profile` called out as the trap, since uwsm sources it only when the session did not
+  start through `uwsm start`.
+- **`unlock-screen-theme-reverts-after-omarchy-update` re-applied the Plymouth theme on every
+  update**, and `omarchy-plymouth-set` ends in `sudo limine-mkinitcpio`. As written the fix added a
+  full UKI rebuild to updates that never touched `omarchy-settings`. The corrected hook guards on
+  `omarchy plymouth current`, and the danger now names the real consequence, which is an
+  interrupted rebuild of `/boot/EFI/Linux/omarchy_linux.efi` rather than an ugly splash screen.
+
+### Two recovery commands that would have hit the wrong target
+
+`theme-set-hangs-with-brave-origin-running` told the reader to run
+`pkill -f 'brave --refresh-platform-policy --no-startup-window'`. That pattern is unanchored and
+matches the shell the reader types it into, which the auditor reproduced with `pgrep -af`. It is now
+an anchored `pgrep` and a kill by PID. And `app-menu-broken-icons-after-quattro-upgrade` told the
+reader to restore PNGs into a directory Omarchy no longer maintains, when `omarchy-settings 4.0.2-1`
+ships 18 of those 20 icons as themed icons under `/usr/share/icons/hicolor/*/apps/`, so rewriting
+`Icon=` to the name is the durable repair. Only `GitHub.png` and `Battle.net.png` have no packaged
+equivalent.
+
+### What the category was actually full of
+
+- **Records that blame the wrong layer.** The launcher icon record tells the reader to run
+  `gtk-update-icon-cache`, and Omarchy 4's `AppLibrary.qml` never reads GTK's icon cache. It builds
+  its own index and rebuilds it on every menu open, so the usual case needs no command at all.
+- **Claims that were true when written.** `@define-color` is deprecated as of GTK 4.16 and
+  libadwaita 1.9.3 documents `:root { --window-bg-color: ... }`. Walker's Omarchy 3 restart command
+  named a `walker.service` that never existed, even on Omarchy 3, where the real unit is
+  `app-walker@autostart.service`.
+- **A premise that was false in the common case.** `shell-json-reset-by-quattro-upgrade` describes
+  a first upgrade losing the bar config. Omarchy 3 has no `~/.config/omarchy/shell.json` at all,
+  because it configures the bar through waybar, so a genuine first upgrade loses nothing. The
+  precondition is a re-run, which the script's own abort banner recommends.
+- **A backup path no record named.** The Quattro upgrade writes
+  `~/.config/omarchy/shell.json.omarchy-upgrade-to-quattro.<timestamp>.bak`, and covers seven
+  `hypr/*.lua` files and `omarchy-menu.jsonc` under the same suffix.
+
+### The lint's false-positive rate is now worth naming
+
+Three of this session's four baseline additions are records that name a dangerous command in order
+to warn against it, or quote what an Omarchy script itself runs. `bare-pacman-Sy` inside "never turn
+one of them into `pacman -Sy <pkg>`", `mkinitcpio-P` inside "do not use `sudo mkinitcpio -P` here",
+and `sudo-pacman-Syu` inside a cause quoting `omarchy-update-system-pkgs` verbatim. The lint is
+doing its job, since a regex cannot read intent, and the baseline is the designed place for this.
+It is worth knowing that a better-written record trips it more often, not less.
+
+### Where to pick this up
+
+1. O3 continues, 38 records left: `hyprland-config` 13, `wayland-compat` 9, `audio-input` 9,
+   `omarchy-core` 8, `display-monitors` 5, `gpu-drivers` 4, `boot-kernel` 2, `omarchy-theming` 1,
+   `network` 1. The last four categories are records already through a second pass, or records the
+   earlier passes judged not Omarchy-specific, so the real remaining work is the first five.
+2. Three upstream reports are owed, none written: the enterprise Wi-Fi profile with no certificate
+   validation, the Intel video-acceleration installer matching graphics by marketing name, and the
+   resume hook ordering that issues 8471, 8888 and 10375 all assert and this corpus disproved.
+3. The Haswell gap still owes the corpus a new record.
 
 ## Session of 2026-09-12/13: O3 clears `power-suspend`, and one record is a non-problem
 
@@ -3290,10 +3392,11 @@ again.
 - **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
   brief. STARTED 2026-09-06. Six categories are complete: `boot-kernel` and `pacman-aur` on
   2026-09-06 and 2026-09-07, `gpu-drivers`, `apps-services` and `network` on 2026-09-11, and
-  `power-suspend` on 2026-09-12. 53 remain across the rest: `omarchy-theming` 15,
-  `hyprland-config` 12, `wayland-compat` 9, `audio-input` 9, `display-monitors` 5,
-  `omarchy-core` 2, `network` 1, and that last one is a record that has already been through a
-  second pass and keeps `ok` by definition. About 750k to 900k tokens per
+  `power-suspend` on 2026-09-12 and `omarchy-theming` on 2026-09-13. 38 remain across the rest:
+  `hyprland-config` 13, `wayland-compat` 9, `audio-input` 9, `omarchy-core` 8,
+  `display-monitors` 5, `gpu-drivers` 4, `boot-kernel` 2, `omarchy-theming` 1, `network` 1. The
+  last four are records already through a second pass, or ones an earlier pass judged not
+  Omarchy-specific, so the real remaining work is the first five categories. About 750k to 900k tokens per
   ten records, one agent per two records, through `merge_gapfill.py` with the
   dry-run-then-diff discipline.
 - **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused
