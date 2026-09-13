@@ -13,8 +13,8 @@ The skill is vaporware. Everything around it is real, and honestly the surroundi
 have been doing all the work:
 
 - **A troubleshooting corpus.** 492 real Omarchy and Arch desktop problems with verified,
-  copy-pasteable fixes, drawn from 1,390 sources, searchable by symptom. Every record says how
-  much scrutiny it survived: 126 passed an adversarial audit clean and 366 had their fix,
+  copy-pasteable fixes, drawn from 1,436 sources, searchable by symptom. Every record says how
+  much scrutiny it survived: 113 passed an adversarial audit clean and 379 had their fix,
   cause or danger rewritten by the auditor. Browse it at
   <https://techluddite.github.io/opinionated-omarchy/> or search it from a clone:
 
