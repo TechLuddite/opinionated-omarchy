@@ -63,6 +63,9 @@
  "clipboard-lost-when-source-app-closes": [
   "hyprland-conf"
  ],
+ "config-error-bar-covers-screen": [
+  "hyprland-conf"
+ ],
  "conflicting-files-exists-in-filesystem": [
   "sudo-pacman-Syu"
  ],
@@ -185,6 +188,9 @@
  "hyprlock-hypridle-conf-not-lua": [
   "hyprland-conf"
  ],
+ "hyprpm-plugins-broken-after-hyprland-update": [
+  "hyprland-conf"
+ ],
  "ignorepkg-holdpkg-blocking-upgrade": [
   "sudo-pacman-Syu"
  ],
@@ -302,6 +308,7 @@
   "mkinitcpio-P"
  ],
  "nvidia-hyprland-modeset-cursors-mgpu": [
+  "bare-pacman-Sy",
   "mkinitcpio-P"
  ],
  "nvidia-modules-missing-from-initramfs-black-screen": [

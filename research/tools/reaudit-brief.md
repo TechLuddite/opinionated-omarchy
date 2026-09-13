@@ -43,7 +43,15 @@ session, libvirt VMs other work depends on, and a lock screen that cannot be rel
 headlessly. Everything an audit needs is readable unprivileged. Change nothing: no install, no
 unit started or stopped, no network or firewall change, no kernel module, no initramfs, no
 bootloader, and nothing that locks the session. Where a check genuinely needs root, say in the
-reason that you could not run it rather than running it. Useful: `ls /usr/share/omarchy/bin | grep <topic>` and reading
+reason that you could not run it rather than running it.
+
+**Probing a command is running it.** On 2026-09-13 an auditor ran `hyprctl reload badarg` to see how
+arguments were handled. `hyprctl` ignores the junk argument and performs the action, so that was a
+real reload of the operator's session. Never run a command to find out what it does. Read its source,
+read its `--help` output where that is genuinely read-only, or say you could not check. The ones that
+have caught people here are `hyprctl reload`, `hyprctl keyword`, `hyprctl dispatch` (which evaluates
+its input as Lua on 0.56), `omarchy-theme-set` and anything under `hyprpm`. If you do slip, say so at
+the top of your reply: an auditor who hides a breach is worse than one who commits it. Useful: `ls /usr/share/omarchy/bin | grep <topic>` and reading
 the scripts there, `pacman -Ql limine-mkinitcpio-hook`, `cat /etc/limine-entry-tool.d/*`,
 `ls /etc/mkinitcpio.conf.d/`, `cat /usr/share/omarchy/default/...`.
 

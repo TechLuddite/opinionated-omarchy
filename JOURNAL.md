@@ -22,18 +22,18 @@ Last updated: 2026-09-13
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 126 records still carry that status on one source pass. **115 records have now been
->    re-audited that way and 113 of them needed correcting**, across `boot-kernel` (10),
+>    4", and 113 records still carry that status on one source pass. **128 records have now been
+>    re-audited that way and 126 of them needed correcting**, across `boot-kernel` (10),
 >    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15),
->    `power-suspend` (16) and `omarchy-theming` (15). Two passed:
+>    `power-suspend` (16), `omarchy-theming` (15) and `hyprland-config` (13). Two passed:
 >    `mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`.
 >    One was rejected as a problem that does not exist, and was kept and rewritten by hand
 >    to say so rather than retired. Hand the brief to agents directly, one
 >    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
->    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared seven
->    categories with 38 records left, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,522 dashes across 360 records, item 6
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared eight
+>    categories with 39 records left, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,471 dashes across 354 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -50,6 +50,116 @@ Last updated: 2026-09-13
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-13 (second): O3 clears `hyprland-config`, and all 13 were wrong
+
+13 records, 7 agent batches. **13 corrected, every one at high confidence**, the first category
+where nothing survived and nothing was hedged. The corpus is 492 records, `ok` 113 /
+`corrected` 379, from 1,436 distinct sources, with 154 `cause_reconciled` stamps. 14 citations
+removed.
+
+### An auditor ran a command on the live desktop, and the brief is now stricter
+
+While probing how `hyprctl` handles arguments, one auditor ran `hyprctl reload badarg`. `hyprctl`
+ignores the junk argument and performs the action, so that was a real reload of the operator's
+running session. The config was unchanged, so it re-read the same files and nothing moved, and the
+auditor reported it unprompted at the top of its reply rather than burying it.
+
+The brief already said to change nothing and named the lock screen. What it did not say is that
+**probing a command is running it**, which is the assumption that produced this. `reaudit-brief.md`
+now says so, and names `hyprctl reload`, `hyprctl keyword` and `hyprctl dispatch` explicitly, since
+the corpus's own domain facts already record that `hyprctl dispatch` evaluates its input as Lua.
+Self-reporting is the behaviour to keep: an auditor who hides a breach is worse than one who commits
+it.
+
+### A record that can take the machine down, found by reproducing it
+
+`lua-config-getters-infinite-loop-at-load` was rated `medium` and describes a Lua getter hanging the
+keybindings menu. The auditor lifted the stub out of `omarchy-menu-keybindings`, ran it in isolation
+on Lua 5.5.1, and watched it pass a million `ipairs` iterations with `#stub` at zero. The compositor
+survives only because config evaluation is watchdogged at `LUA_TIMEOUT_CONFIG_RELOAD_MS = 1500`. The
+menu is not, and every unanswered SUPER+K leaks another unbounded `lua` process, which walks to a
+kernel OOM. The record named three getters. There are more than twenty `hl.get_*` functions and they
+all do it. Severity raised to `high`.
+
+### Two records were backwards, not merely stale
+
+- **`hyprpm-plugin-permission-popup-every-time` had the polarity inverted.** Both entry points in
+  `DynamicPermissionManager.cpp` return ALLOW before any rule walk when `ecosystem:enforce_permissions`
+  is 0, and Omarchy 4 ships it off, confirmed live. So on a stock install there is no popup at all,
+  which means the symptom as written cannot occur, and the record's fix told the reader to turn
+  enforcement **on**, which starts ASK prompts for screencopy, cursorpos and input capture across the
+  whole system. A record that creates the class of problem it claims to solve is the worst shape
+  this audit has found so far.
+- **`hyprlang-deprecated-lua-config-not-loading` told an Omarchy reader to move `hyprland.lua`
+  aside** so the hyprlang config would load. Omarchy 4 ships no `hyprland.conf`, so Hyprland writes a
+  stock default over the top and the desktop is gone. The diagnosis was `ls`, when
+  `hyprctl systeminfo` reports `configProvider: lua` outright.
+
+### Four fixes aimed at a version that has moved
+
+`nvidia-hyprland-modeset-cursors-mgpu` was the worst of them and every defect was a drift, not an
+error at the time of writing. `/sys/module/nvidia_drm/parameters/modeset` is mode 0400, so the
+symptom, the fix and the verify all hand the reader a command that returns `Permission denied`
+unprivileged. The in-driver default is now `true`, so the modeset headline is largely obsolete.
+`NVreg_PreserveVideoMemoryAllocations` was superseded by `NVreg_UseKernelSuspendNotifiers=1` on 595+,
+and the three nvidia sleep services are `disabled` here by upstream design, so the record's "must be
+enabled" would be a regression. And `cursor:use_cpu_buffer` already auto-enables on NVIDIA, so that
+step was a no-op.
+
+Same shape elsewhere: `hyprpm`'s state moved to `/var/cache/hyprpm/<username>`, so the record's
+`rm -rf ~/.local/share/hyprpm ~/.cache/hyprpm` deletes nothing, and `hyprpm purge-cache` is the
+current command. `debug:error_limit = 5` is already the default, so the config-error record's advice
+to cap it was a no-op. And `hl.env()` takes a third boolean on 0.56.2 that makes Hyprland run
+`systemctl --user import-environment` itself, which the record never mentions while recommending the
+manual commands instead.
+
+### Work the distribution already does, again
+
+This is the fourth category in a row where records told readers to do something Omarchy ships.
+`/usr/share/omarchy/default/hypr/autostart.lua` already runs
+`systemctl --user import-environment $(env | cut -d'=' -f 1)` on `hyprland.start`, and measured here,
+`systemctl --user show-environment` carries nine variables that `hl.env()` set and that are not in
+Hyprland's seven-name allowlist. So the symptom is usually absent on a stock install and the record
+told Omarchy readers to add a command Omarchy already runs. Likewise `omarchy-hyprland-reload-guard
+pause|resume` supersedes the `hyprctl eval` pause pair, and Omarchy's own
+`omarchy.keyboard-layout` bar widget answers the keyboard record's problem with a click.
+
+### The share picker record was right about the mechanism and wrong about the software
+
+`selection -1` is `SSelectionData.type` cast to int with `TYPE_INVALID = -1`, and the cited issue
+supports the record line for line. But the qt6-wayland diagnosis is attached to the wrong picker:
+Omarchy configures `hyprland-preview-share-picker`, which is GTK4 plus gtk4-layer-shell and links no
+Qt at all, while the Qt6 dependency belongs to the stock `hyprland-share-picker`. And
+`pacman -S hyprland-preview-share-picker` works only on Omarchy, where it comes from the `[omarchy]`
+repo, so the record's claim that the fix applies on four other distributions is false.
+
+### The lint baseline is drifting towards meaning "checked", not "known bad"
+
+Seven records were added to the baseline across this session's three categories, and **every one of
+them is a record the audit improved**. They trip the lint because a better-written fix names the
+dangerous command in order to warn against it, quotes what an Omarchy script itself runs, or labels
+a plain-Arch branch that legitimately uses hyprlang. A regex cannot read intent, so this is the
+lint working as designed and the baseline is where it belongs.
+
+It is still worth naming, because the baseline now carries 157 records and its meaning has shifted.
+A cheap improvement, not done here: skip a line whose sentence contains a negation near the pattern,
+or that sits under a `**Plain Arch` label, and count the remainder. That would cut the false
+positives without weakening the check. Recorded as O7 under "What's left".
+
+### Where to pick this up
+
+1. O3 continues, 39 records left: `wayland-compat` 9, `audio-input` 9, `omarchy-core` 8,
+   `display-monitors` 5, `gpu-drivers` 4, `boot-kernel` 2, `omarchy-theming` 1, `network` 1. The
+   last four are records already through a second pass, or ones an earlier pass judged not
+   Omarchy-specific, so the real work is the first four categories, 31 records.
+2. Three upstream reports are owed, none written: the enterprise Wi-Fi profile with no certificate
+   validation, the Intel video-acceleration installer matching graphics by marketing name, and the
+   resume hook ordering asserted by issues 8471, 8888 and 10375. A fourth is now arguable:
+   `hyprpm-plugin-permission-popup-every-time` found that Omarchy ships
+   `ecosystem:enforce_permissions` off, which is a deliberate choice worth confirming rather than a
+   defect worth reporting, so read it before writing anything.
+3. The Haswell gap still owes the corpus a new record.
 
 ## Session of 2026-09-13: O3 clears `omarchy-theming`, and a second record passes
 
@@ -143,7 +253,7 @@ It is worth knowing that a better-written record trips it more often, not less.
 
 ### Where to pick this up
 
-1. O3 continues, 38 records left: `hyprland-config` 13, `wayland-compat` 9, `audio-input` 9,
+1. O3 continues, 52 records left: `hyprland-config` 13, `wayland-compat` 9, `audio-input` 9,
    `omarchy-core` 8, `display-monitors` 5, `gpu-drivers` 4, `boot-kernel` 2, `omarchy-theming` 1,
    `network` 1. The last four categories are records already through a second pass, or records the
    earlier passes judged not Omarchy-specific, so the real remaining work is the first five.
@@ -3392,11 +3502,11 @@ again.
 - **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
   brief. STARTED 2026-09-06. Six categories are complete: `boot-kernel` and `pacman-aur` on
   2026-09-06 and 2026-09-07, `gpu-drivers`, `apps-services` and `network` on 2026-09-11, and
-  `power-suspend` on 2026-09-12 and `omarchy-theming` on 2026-09-13. 38 remain across the rest:
-  `hyprland-config` 13, `wayland-compat` 9, `audio-input` 9, `omarchy-core` 8,
+  `power-suspend` on 2026-09-12, and `omarchy-theming` and `hyprland-config` on 2026-09-13. 39
+  remain across the rest: `wayland-compat` 9, `audio-input` 9, `omarchy-core` 8,
   `display-monitors` 5, `gpu-drivers` 4, `boot-kernel` 2, `omarchy-theming` 1, `network` 1. The
   last four are records already through a second pass, or ones an earlier pass judged not
-  Omarchy-specific, so the real remaining work is the first five categories. About 750k to 900k tokens per
+  Omarchy-specific, so the real remaining work is the first four categories. About 750k to 900k tokens per
   ten records, one agent per two records, through `merge_gapfill.py` with the
   dry-run-then-diff discipline.
 - **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused
@@ -3419,6 +3529,15 @@ again.
   `cause_reconciled` stamp. Route it through the merge path with slug-collision
   suffixing before any full harvest runs again. Not started, and a precondition for
   item 1 of START HERE.
+
+- **O7. Teach the lint to skip a warning and a labelled branch.** Added 2026-09-13. Seven records
+  joined the baseline across that day's three categories and every one of them is a record the audit
+  improved: a fix that names `pacman -Sy` in order to say never to use it, a cause quoting
+  `omarchy-update-system-pkgs` verbatim, a `hyprland.conf` inside a branch explicitly labelled plain
+  Arch. The baseline now holds 157 records and reads more like "checked" than "known bad". The cheap
+  fix is to skip a line whose sentence carries a negation near the pattern, or that sits under a
+  `**Plain Arch` or `**On plain Arch` label, and count the remainder. Not started, and not urgent:
+  the check still fails loudly on anything new, which is what it is for.
 
 ### 9. Backlog: Omarchy plug-ins as corpus content
 
