@@ -457,6 +457,9 @@
  "third-party-repo-keyring-untrusted": [
   "sudo-pacman-Syu"
  ],
+ "tlp-power-profiles-daemon-conflict": [
+  "bare-pacman-Sy"
+ ],
  "touchpad-kernel-panic-on-resume-intel-lpss": [
   "boot-vmlinuz-or-initramfs",
   "mkinitcpio-P"
