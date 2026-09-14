@@ -22,18 +22,19 @@ Last updated: 2026-09-13
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 113 records still carry that status on one source pass. **128 records have now been
->    re-audited that way and 126 of them needed correcting**, across `boot-kernel` (10),
+>    4", and 95 records still carry that status on one source pass. **146 records have now been
+>    re-audited that way and 144 of them needed correcting**, across `boot-kernel` (10),
 >    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15),
->    `power-suspend` (16), `omarchy-theming` (15) and `hyprland-config` (13). Two passed:
+>    `power-suspend` (16), `omarchy-theming` (15), `hyprland-config` (13), `wayland-compat` (9)
+>    and `audio-input` (9). Two passed:
 >    `mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`.
 >    One was rejected as a problem that does not exist, and was kept and rewritten by hand
 >    to say so rather than retired. Hand the brief to agents directly, one
 >    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
->    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared eight
->    categories with 39 records left, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,471 dashes across 354 records, item 6
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared ten
+>    categories with 21 records left, only 7 of them new work, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,405 dashes across 345 records, item 6
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -92,6 +93,129 @@ The governing rule now lives outside this repo, as `attribution/crediting-third-
 in the `standards.engineering` lane of Substrata, drafted this session from the OFL 1.1 text
 and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
 NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
+
+## Session of 2026-09-13 (third): O3 clears `wayland-compat` and `audio-input`, all 18 wrong
+
+18 records, 9 agent batches, two categories in one run. **18 corrected**, 16 at high confidence and
+2 at medium. The corpus is 492 records, `ok` 95 / `corrected` 397, from 1,474 distinct sources, with
+167 `cause_reconciled` stamps. 8 citations removed.
+
+That closes the four categories that held real work. The O3 backlog is 21, and 14 of those are
+records an earlier pass judged not Omarchy-specific or that have already been through a second pass.
+
+### A file nobody loads
+
+`xwayland-apps-blurry-hidpi` told the reader to put `hl.env()` lines in `~/.config/hypr/envs.lua`.
+That file is never loaded. Both the shipped `/usr/share/omarchy/config/hypr/hyprland.lua` and the
+live user copy require exactly five user modules, `hypr.monitors`, `hypr.input`, `hypr.bindings`,
+`hypr.looknfeel` and `hypr.autostart`, and `hypr.envs` is not among them. Worth carrying forward as
+a check on any future record that writes Hyprland environment variables: name the file that requires
+it, or the edit does nothing.
+
+Four of the five variables in that block are shipped by Omarchy anyway and live in
+`systemctl --user show-environment`, so the headline fix was a no-op twice over. Only
+`SDL_VIDEODRIVER` was missing.
+
+### Two fixes that would have destroyed a working file
+
+- **`electron-chromium-ime-no-wayland-text-input` used `>` truncation** on
+  `~/.config/chromium-flags.conf`. Omarchy manages that file, seeded from
+  `/usr/share/omarchy/config/chromium-flags.conf` with `--password-store=gnome-libsecret` and a
+  `--load-extension` line, so the record's fix silently discarded both, plus this machine's own
+  `spotify-flags.conf`. Its central claim was also dead: Chromium has had `kWaylandTextInputV3`
+  enabled by default since Chromium 136, so `--enable-wayland-ime` is unnecessary, and the record's
+  advice to add `GTK_IM_MODULE=fcitx` is a regression against a variable `omarchy-settings`
+  deliberately omits.
+- **`system-wide-key-remap-wayland-keyd` recommended `capslock = overload(control, esc)`.** Omarchy 4
+  sets `kb_options = "compose:caps,shift:both_capslock_cancel"`, so consuming Caps Lock kills
+  Compose, `~/.XCompose` and the point of `omarchy-fcitx5.service`. Its danger was worse than its
+  fix: it offered a spare USB keyboard, which `[ids] *` grabs too, and `systemctl stop keyd`, which
+  needs the keyboard you just lost, while omitting keyd's actual escape hatch,
+  `backspace+escape+enter`.
+
+### A record that sends the reader to a bootloader the machine does not have
+
+`bluetoothctl-no-default-controller` told the reader to edit `/boot/loader/entries/*.conf` or
+`/etc/default/grub`. Omarchy 4 has neither: no grub package, no systemd-boot, no
+`/etc/default/grub`. It boots a UKI through Limine with cmdline drop-ins in
+`/etc/limine-entry-tool.d/`. The corrected fix uses `/etc/modprobe.d/btusb-autosuspend.conf`
+instead, which removes the unbootable-machine danger entirely rather than relocating it.
+
+The same record missed Omarchy's design: the rfkill soft block **is** how Omarchy stores the
+Bluetooth on and off state, through `omarchy-bluetooth-power`, called from the shell panel, and
+`bluetoothctl power on` fails outright while it is set. So the recovery is
+`omarchy-bluetooth-power on`, and a reader following the old record would conclude their adapter was
+broken.
+
+### Guessed causes stated as fact
+
+`chromium-xwayland-nvidia-gpu-crash` names a GPU cause and recommends an X11 workaround. The cited
+issue is still open with no root cause, and its only reproduction comment gets the same SIGTRAP
+under `--ozone-platform=x11` and with extensions disabled, which points at the `--oauth2-client-*`
+lines that `omarchy-install-chromium-google-account` appends rather than at the GPU. On Omarchy the
+flags file already carries `--ozone-platform=wayland`, so appending the X11 switch leaves two
+contradictory ones.
+
+`wine-proton-native-wayland-driver` was exactly right about Wine, confirmed against wine 11.16
+source rather than the wiki, and wrong about Proton: `PROTON_ENABLE_WAYLAND` appears nowhere in
+Valve's Proton. It is a GE-Proton option, also read by proton-cachyos, so the record's
+"Proton 10 or Experimental" version floor described a setting stock Proton silently ignores.
+
+### What held, which is worth recording too
+
+Not everything drifted. The PipeWire config paths did not move: WirePlumber 0.5.15 ships the
+crackling record's exact stanza at `/usr/share/wireplumber/wireplumber.conf.d/alsa-vm.conf`, both
+`api.alsa.period-size` and `api.alsa.headroom` are present in the installed
+`libspa-alsa.so`, and `~/.local/state/wireplumber/` holds the four state files the record names.
+The echo-cancellation record's four `webrtc.*` keys, the rnnoise label and three control names all
+verified against the shipped libraries. OBS 32 has not replaced v4l2loopback either: `linux-v4l2.so`
+still gates on `modinfo v4l2loopback` and still carries the `exclusive_caps=1` autoload line.
+
+The recurring correction in this pair of categories was not staleness. It was that Omarchy already
+does the work: `omarchy restart audio` does the three-service restart plus stuck-USB recovery,
+`omarchy-capture-screenshot` already handles multi-monitor by dividing by `scale` and swapping for
+`transform`, `bluetooth-a2dp-autoconnect.conf` is already installed into the directory one record
+says to create, and `gtk-primary-paste.sh` already sets the GTK key another record prescribes.
+
+### Two operator decisions, banked and not acted on
+
+Neither can be carried by a verdict field, which is the same wall as the resume-hook slug.
+
+1. **`xwayland-apps-blurry-hidpi` duplicates `xwayland-blurry-on-fractional-scale`** in
+   `hyprland-config`: same symptom, mechanism, primary fix, danger and three shared sources. Its one
+   distinct contribution is a make-it-native-Wayland branch that is mostly already default. The
+   auditor recommends merging it into the sibling, carrying that branch and the `SDL_VIDEODRIVER`
+   gap. Its own companion, `gdk-scale-mismatch-oversized-xwayland`, is **not** a duplicate: inverse
+   symptom, Omarchy-specific cause, and it holds the Flatpak override, the Steam launch options and
+   three upstream issues the sibling lacks.
+2. **`hyprland-055-lua-config-input-ignored` is filed under `audio-input`** and is not about audio.
+   It is Hyprland input configuration, like its sibling `keyboard-layout-not-applied-hyprland` in
+   `hyprland-config`. The auditor calls the split a filing error rather than a distinction, and says
+   the two overlap without duplicating: this one uniquely holds the Lua migration itself, the
+   `require` and split-file mechanics and the 0.54-and-older branch.
+
+### One agent died on a session rate limit, after doing the work
+
+The ninth batch was killed by a 429 while composing its reply, so it reported nothing. Its two
+verdict files were already written, timestamped after every other batch's, with 4,900 and 5,600
+character reasons and full corrected fields. They were read and merged on their contents rather than
+on a summary, which is the right order anyway. Worth knowing for the next long run: a dead agent is
+not necessarily lost work, so check the output directory before re-running a batch and paying for it
+twice.
+
+### Where to pick this up
+
+1. O3 has 21 records left and only 7 of them are new work: `omarchy-core` 8 minus the 6 already
+   through a second pass, plus `display-monitors` 5. The rest are `gpu-drivers` 4, `boot-kernel` 2,
+   `omarchy-theming` 1 and `network` 1, all previously audited or judged not Omarchy-specific. O3 is
+   effectively done after `display-monitors` and the `omarchy-core` remainder.
+2. Three operator decisions are now banked: the resume-hook slug, the XWayland duplicate and the
+   `audio-input` filing error. All three want a merge or a rename, and the mDNS precedent on
+   2026-09-11 is the shape to copy.
+3. Three upstream reports are still owed and none is written: the enterprise Wi-Fi profile with no
+   certificate validation, the Intel video-acceleration installer matching graphics by marketing
+   name, and the resume hook ordering asserted by issues 8471, 8888 and 10375.
+4. The Haswell gap still owes the corpus a new record.
 
 ## Session of 2026-09-13 (second): O3 clears `hyprland-config`, and all 13 were wrong
 
@@ -3552,11 +3676,12 @@ again.
 - **O3. Re-audit the `ok` records with a `danger` that apply to Omarchy**, using the
   brief. STARTED 2026-09-06. Six categories are complete: `boot-kernel` and `pacman-aur` on
   2026-09-06 and 2026-09-07, `gpu-drivers`, `apps-services` and `network` on 2026-09-11, and
-  `power-suspend` on 2026-09-12, and `omarchy-theming` and `hyprland-config` on 2026-09-13. 39
-  remain across the rest: `wayland-compat` 9, `audio-input` 9, `omarchy-core` 8,
-  `display-monitors` 5, `gpu-drivers` 4, `boot-kernel` 2, `omarchy-theming` 1, `network` 1. The
-  last four are records already through a second pass, or ones an earlier pass judged not
-  Omarchy-specific, so the real remaining work is the first four categories. About 750k to 900k tokens per
+  `power-suspend` on 2026-09-12, and `omarchy-theming`, `hyprland-config`, `wayland-compat` and
+  `audio-input` on 2026-09-13. 21 remain: `omarchy-core` 8, `display-monitors` 5, `gpu-drivers` 4,
+  `boot-kernel` 2, `omarchy-theming` 1, `network` 1. Only about 7 of those are new work, since the
+  last four groups are records already through a second pass or ones an earlier pass judged not
+  Omarchy-specific. O3 is effectively done after `display-monitors` and the `omarchy-core`
+  remainder. About 750k to 900k tokens per
   ten records, one agent per two records, through `merge_gapfill.py` with the
   dry-run-then-diff discipline.
 - **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused

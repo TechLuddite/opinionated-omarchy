@@ -15,6 +15,9 @@
   "bare-pacman-Sy",
   "sudo-pacman-Syu"
  ],
+ "audio-crackling-underruns-multiple-streams": [
+  "bare-pacman-Sy"
+ ],
  "audio-pop-crack-when-playback-starts": [
   "mkinitcpio-P"
  ],
@@ -140,9 +143,6 @@
  "gdk-scale-apps-too-large-hyprland": [
   "hyprland-conf"
  ],
- "gdk-scale-mismatch-oversized-xwayland": [
-  "omarchy3-tree"
- ],
  "gestures-workspace-swipe-does-not-exist-051": [
   "omarchy3-tree"
  ],
@@ -251,6 +251,9 @@
   "mkinitcpio-P"
  ],
  "makepkg-as-root-not-allowed": [
+  "bare-pacman-Sy"
+ ],
+ "mic-noise-suppression-echo-cancellation-pipewire": [
   "bare-pacman-Sy"
  ],
  "microcode-hook-migration-mkinitcpio-38": [
@@ -433,6 +436,9 @@
  "screenshare-black-screen-no-portal": [
   "hyprland-conf"
  ],
+ "screenshot-tool-broken-multimonitor": [
+  "hyprland-conf"
+ ],
  "sddm-greeter-not-following-theme-white-black-on-black": [
   "mkinitcpio-P"
  ],
@@ -448,6 +454,9 @@
  ],
  "snapshot-restore-does-not-restore-home": [
   "omarchy3-tree"
+ ],
+ "snd-hda-intel-model-quirk-speakers-mic-jack": [
+  "mkinitcpio-P"
  ],
  "steam-games-xwayland-fullscreen-flicker": [
   "hyprland-conf"
