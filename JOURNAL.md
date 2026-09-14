@@ -12,7 +12,7 @@ Last updated: 2026-09-13
 >
 > **What "back on track" means, in the order the dependencies run:**
 >
-> 1. **Expand the corpus.** 492 records across 12 categories: one interrupted harvest, one
+> 1. **Expand the corpus.** 489 records across 12 categories: one interrupted harvest, one
 >    gap-fill pass, and the O4 issue-tracker harvest merged on 2026-09-11. `CLAUDE.md` "Regenerating the corpus"
 >    names the three workflow scripts, what each does, and that `harvest-workflow.js`
 >    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
@@ -35,7 +35,7 @@ Last updated: 2026-09-13
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
 >    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 is
 >    finished across twelve categories, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,367 dashes across 336 records, item 6, and is now the next corpus job
+>    2026-09-11. The corpus prose has 1,366 dashes across 335 records, item 6, and is now the next corpus job
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -48,6 +48,11 @@ Last updated: 2026-09-13
 > The recipe is in the 2026-09-05 fourth session. `omarchy-agentic-published-wrong` is not
 > calibrated. The chat-lane result (+22.6 to +28.8 pt on four models, controls flat) and
 > the n=31 agentic null (DiD +0.2, p=0.98) stand.
+>
+> **Four merges landed on 2026-09-13** and the corpus is 489 records, not 492: three retirements
+> (`omarchy-resume-hook-appended-after-filesystems`, `xwayland-apps-blurry-hidpi`,
+> `nvidia-black-screen-external-after-suspend`) and one category move. Three published pages 404 as a
+> result. See the fifth session of 2026-09-13.
 >
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
@@ -94,6 +99,93 @@ The governing rule now lives outside this repo, as `attribution/crediting-third-
 in the `standards.engineering` lane of Substrata, drafted this session from the OFL 1.1 text
 and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
 NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
+
+## Session of 2026-09-13 (fifth): the four merges O3 left behind
+
+Four decisions the re-audit could not take for itself, because a slug and a category are identity
+rather than content and no verdict field reaches them. **Corpus 492 to 489**, `ok` 82 /
+`corrected` 407, from 1,507 distinct sources, with 175 `cause_reconciled` stamps. Three published
+pages now 404, which is the price of each retirement and was weighed one at a time.
+
+### 1. `omarchy-resume-hook-appended-after-filesystems` retired
+
+Re-audited on 2026-09-12 and returned `reject`: Omarchy's `HOOKS+=(resume)` drop-in landing last does
+not break resume, disproved live here where `/sys/power/resume` reads `253:0` against
+`/dev/mapper/root`. It was kept and rewritten that day on the operator's call, to preserve the URL.
+It is now merged into `hibernate-resume-hook-missing-or-misordered`, because its slug and title state
+the disproved claim and a reader arriving by that slug was told the wrong thing before reading a
+word. **This reverses the 2026-09-12 keep decision**, on the operator's instruction, and the URL dies
+with it.
+
+The survivor already carried the ordering rule in its `cause`. What moved is the part that only the
+retired record held: a `danger` naming the three ways the fix circulating in issues 8471, 8888 and
+10375 breaks a working machine, and those three issues as sources.
+
+### 2. `xwayland-apps-blurry-hidpi` retired
+
+Its 2026-09-13 re-audit found it near-identical to `xwayland-blurry-on-fractional-scale`: same
+symptom, mechanism, primary fix, danger, three shared sources. Three things it held that the survivor
+did not are now in the survivor's `fix`, ahead of the force-zero-scaling recipe:
+
+- the make-it-native-Wayland branch, with the five variables Omarchy ships in `envs.lua`,
+- the `SDL_VIDEODRIVER` gap, the one variable of the usual set Omarchy does not ship,
+- the finding that `~/.config/hypr/envs.lua` is never loaded, since `hyprland.lua` requires exactly
+  five user modules and `hypr.envs` is not one, so the retired record's own Omarchy fix was a no-op.
+
+**A third record pointed at the retired slug.** `gtk-file-chooser-does-nothing-xwayland` sent readers
+to it for the toolkit environment variables. It now names the survivor. That is the check worth
+running on every retirement and it is mechanical: scan `symptom`, `cause`, `fix`, `verify`, `danger`
+and `title` across the whole corpus for the dead slug before committing.
+
+### 3. `hyprland-055-lua-config-input-ignored` moved, not merged
+
+Filed under `audio-input` and about Hyprland input configuration, which its auditor called a filing
+error rather than a distinction. Moved to `hyprland-config`. **Its slug and URL are unchanged, so
+nothing 404s**, which is what makes a category move the cheap decision of the four.
+
+Not merged into `keyboard-layout-not-applied-hyprland`, now its sibling in that category, because the
+audit found them overlapping and not duplicated: this record holds the Lua migration itself, the
+`require` and split-file mechanics, the gesture syntax move and the 0.54-and-older branch, while the
+sibling holds the layout specifics. A cross-reference was added instead.
+
+`audio-input` 35 to 34, `hyprland-config` 39 to 40.
+
+### 4. `nvidia-black-screen-external-after-suspend` retired, and this one is a consolidation
+
+Worth recording honestly, because the premise changed under the decision. The auditor found it the
+same problem as `nvidia-suspend-resume-black-screen-vram` and that record strictly better, then
+**rewrote it** into display-side triage that deferred to the sibling for the memory question. After
+that rewrite it was no longer a duplicate, so retiring it removes no redundancy. It consolidates: its
+triage is now the first section of the survivor's `fix`, ahead of the driver checks, because those
+steps are cheaper and settle the commonest case, a panel in DPMS off or a monitor re-enumerated at
+0x0.
+
+One defect goes with it rather than being fixed: it carried `systemd-boot` and `grub` in
+`applies_to`, wrong for the Omarchy branch, and no verdict field reaches `applies_to`. The survivor's
+list is already correct.
+
+### What this says about the schema
+
+Four decisions, and the reason all four needed a human is the same: `slug`, `title`, `category` and
+`applies_to` are the fields an auditor can disprove and cannot touch. `corrected_severity`,
+`corrected_frequency` and `sources_remove` were added on 2026-09-11 for exactly this reason, and the
+remaining four are the ones that force a merge instead of a verdict. Two of them, `slug` and
+`category`, arguably should stay that way: changing a slug is a URL retirement whatever else it is,
+and that is a decision rather than a correction. `title` and `applies_to` are not, and a future
+verdict schema could carry both.
+
+### Where to pick this up
+
+1. **The dashes**, item 6: 1,366 em and en dashes across 335 of 489 records. The next corpus job, and
+   the 150-title pass of 2026-09-03 is the precedent.
+2. Three upstream reports are owed and none is written: the enterprise Wi-Fi profile with no
+   certificate validation, the Intel video-acceleration installer matching graphics by marketing
+   name, and the resume hook ordering asserted by issues 8471, 8888 and 10375. The third is now
+   better evidenced than it was, because the record asserting it has been retired for being wrong.
+3. The Haswell gap still owes the corpus a new record.
+4. `pacman-file-exists-in-filesystem-omarchy` expires at the next Omarchy release: upstream commit
+   f5194e3f replaces the inline pacman call with a `bin/omarchy-update-pacman` wrapper run under
+   `systemd-run --scope`, absent from 4.0.2-1.
 
 ## Session of 2026-09-13 (fourth): O3 finishes, and the last 13 were wrong too
 
@@ -203,7 +295,7 @@ positives all session also caught the one thing seven auditors' worth of prose g
 ### Where to pick this up
 
 1. **O3 is done. The next corpus job is item 6, the dashes**: 1,367 em and en dashes across 336 of
-   492 records. It edits the source of truth and must regenerate `research/docs/` in the same
+   489 records. It edits the source of truth and must regenerate `research/docs/` in the same
    commit, and the 150-title pass of 2026-09-03 is the precedent to copy.
 2. **Four operator decisions are banked**, none carryable by a verdict field, all wanting a merge or
    a rename on the mDNS precedent: the resume-hook slug that names a non-defect,

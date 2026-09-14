@@ -1,6 +1,6 @@
 # Wayland app compatibility
 
-38 problems. Sorted by severity, then by how often users hit it.
+37 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix screen share showing a black rectangle or no picker at all
 
@@ -1377,120 +1377,6 @@ Sources: <https://github.com/hyprwm/Hyprland/discussions/13083> · <https://gith
 
 ---
 
-## Sharpen blurry XWayland apps on a HiDPI display
-
-`xwayland-apps-blurry-hidpi` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`, `xwayland`
-
-**Symptom.** Some apps look soft, fuzzy or blocky compared to the rest of the desktop, with visible fringing or stair-stepping on text. Typically Steam, older Electron builds, Java IDEs, Wine apps, VS Code launched in X11 mode, or anything launched before the toolkit environment variables were set. Native GTK and Qt apps on Wayland look fine.
-
-**Cause.** The app is running under XWayland. Xorg has no per-output scale, so the compositor renders the X client at 1x and then scales that bitmap up to the monitor's scale factor. At a fractional scale such as 1.5 the resampling shows as soft, fuzzy text. On Hyprland 0.56.2 `xwayland:use_nearest_neighbor` defaults to true, confirmed live with `hyprctl getoption`, so the upscale is nearest neighbour and the result usually reads as blocky and pixelated rather than soft. Either way no detail is added, because the client was only ever asked to draw at 1x.
-
-> **Audit corrected this record.** Re-checked on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, hyprland 0.56.2-1, quickshell 0.3.1-1, kernel 7.1.9, NVIDIA) against local files and the current upstream wikis. The mechanism holds and the danger holds, but the Omarchy 4 half of the fix is wrong in a way that makes it a no-op.
-
-The hard defect: the record tells an Omarchy 4 user to put `hl.env()` lines in `~/.config/hypr/envs.lua`. That file does not exist and is never loaded. Read on this machine, the packaged template `/usr/share/omarchy/config/hypr/hyprland.lua` and the live `~/.config/hypr/hyprland.lua` both load `default.hypr.omarchy` and then require exactly five user modules: `hypr.monitors`, `hypr.input`, `hypr.bindings`, `hypr.looknfeel`, `hypr.autostart`. There is no `hypr.envs` and `default/hypr/require_all.lua` is not pointed at `~/.config/hypr`, so a user following the record creates a file that is never read and concludes the fix does not work. Replaced with the files Omarchy actually loads, plus the option of adding the require line yourself.
-
-The second defect: on Omarchy 4 that whole first block is already shipped. `/usr/share/omarchy/default/hypr/envs.lua` on this machine sets `GDK_BACKEND`, `QT_QPA_PLATFORM`, `MOZ_ENABLE_WAYLAND`, `ELECTRON_OZONE_PLATFORM_HINT` and `OZONE_PLATFORM`, and `systemctl --user show-environment` reports all five live. `SDL_VIDEODRIVER` is the only one of the set Omarchy does not ship, and it is absent from `env` here. So the record's headline fix is generic Arch advice presented as an Omarchy action, and following it changes nothing. Rewritten to say what is already set and what is missing.
-
-The cause was wrong on 0.56.2. It says the result is blurry rather than pixelated. `hyprctl getoption xwayland:use_nearest_neighbor` reads `bool: true, set: false` here, so the default upscale is nearest neighbour and pixelation is the normal presentation. Rewritten to cover both and to drop the false dichotomy.
-
-Smaller items. `xlsclients` is not installed on this machine and `pacman -Qo /usr/bin/xlsclients` reports no owner, so the record should name `xorg-xlsclients`. The two full hyprlang blocks for Hyprland 0.54 and older were a copy-paste hazard in a corpus about Omarchy 4, where `env =` and an `xwayland { }` block are both wrong; compressed to one labelled sentence. Added the `force_zero_scaling` reading and the `select(.xwayland)` jq filter to verify, since the old verify never checked the option.
-
-What held. The plain-Hyprland Lua block is verbatim correct against `content/configuring/extra/xwayland.md` in `hyprwm/hyprland-wiki`, including `scale = "2"` as a string, `GDK_SCALE` at 2 and `XCURSOR_SIZE` at 32, and that page still carries the warning that XWayland HiDPI patches are no longer supported, so the record's `danger` is right as written and was not touched. `force_zero_scaling = true` is in the `hl.config()` block at the end of `/usr/share/omarchy/default/hypr/envs.lua`, read here, and `hyprctl getoption xwayland:force_zero_scaling` returns `bool: true, set: true`. All five cited URLs return 200.
-
-Duplication. This record duplicates `xwayland-blurry-on-fractional-scale` in `hyprland-config` almost completely: same symptom, same mechanism, same primary fix, same danger, three shared sources. The only thing it held that the sibling does not was the make-it-native-Wayland branch, and on Omarchy 4 four of those five variables are already set by default, so that branch is nearly empty on the distro this corpus is about. The sibling is the fuller record: it covers Qt, Java, Electron flag files, `Xft.dpi`, the `omarchy-hyprland-monitor-scaling` helper and the GDK_SCALE mismatch, and it has been re-audited against Omarchy 4. I recommend the operator merge this record into `xwayland-blurry-on-fractional-scale`, carrying over only the native-Wayland branch and the `SDL_VIDEODRIVER` gap. I have corrected it in place rather than rejecting it, because the problem is real and the decision is not mine.
-
-Not exercised. Nothing was written, no config changed, no reload, no `hyprctl keyword` or `dispatch`, because this is the operator's daily workstation driving a real 1440p panel and libvirt VMs. No app was relaunched, so the visual outcome is from the wiki and not observed here. I did not prove that a user `hl.env()` overrides Omarchy's default for the same variable; that is reasoned from the load order in `hyprland.lua`, and the live `GDK_SCALE=1` only proves a variable Omarchy's `envs.lua` never sets.
->
-> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
-
-> ⚠️ **Risk.** Do not install "XWayland HiDPI patches" — the Hyprland wiki explicitly states they are no longer supported and must not be used.
-
-**Fix.**
-
-First confirm the app really is on XWayland:
-
-```bash
-hyprctl clients -j | jq -r '.[] | select(.xwayland) | "\(.class)\t\(.title)"'
-```
-
-`xlsclients -l` also works but is not installed by default on Omarchy 4 or Arch; it needs `xorg-xlsclients`. Do not use `hyprctl clients | grep xwayland`, because `xwayland: 0` is itself the matched line and never tells you which window it belongs to.
-
-**Best fix: make the app native Wayland.**
-
-On Omarchy 4 this is already done for you. `/usr/share/omarchy/default/hypr/envs.lua` ships:
-
-```lua
-hl.env("GDK_BACKEND", "wayland,x11,*")
-hl.env("QT_QPA_PLATFORM", "wayland;xcb")
-hl.env("MOZ_ENABLE_WAYLAND", "1")
-hl.env("ELECTRON_OZONE_PLATFORM_HINT", "wayland")
-hl.env("OZONE_PLATFORM", "wayland")
-```
-
-The only one of the usual set Omarchy does not ship is `SDL_VIDEODRIVER`. An app still on XWayland with those set either has no Wayland backend at all (Steam, Wine, most Java Swing) or was started from a shell that predates the setting.
-
-On plain Arch with Hyprland 0.55 or newer, put the same lines in `~/.config/hypr/hyprland.lua`, plus:
-
-```lua
-hl.env("SDL_VIDEODRIVER", "wayland")
-```
-
-**Where these lines go on Omarchy 4.** There is no `~/.config/hypr/envs.lua`, and creating one does nothing: the stock `~/.config/hypr/hyprland.lua` loads Omarchy's defaults and then requires exactly five user files, `hypr.monitors`, `hypr.input`, `hypr.bindings`, `hypr.looknfeel` and `hypr.autostart`. Add your `hl.env()` lines to one of those, or add a `require("hypr.envs")` line to `~/.config/hypr/hyprland.lua` yourself. User files load after Omarchy's defaults, so a value you set there is the last one applied.
-
-**For apps that genuinely cannot do Wayland**, stop the compositor scaling them and let the toolkit scale instead. This is the Hyprland wiki's recipe, for plain Hyprland 0.55 or newer:
-
-```lua
-hl.monitor({ output = "", mode = "highres", position = "auto", scale = "2" })
-
-hl.config({
-  xwayland = {
-    force_zero_scaling = true,
-  },
-})
-
-hl.env("GDK_SCALE", "2")
-hl.env("XCURSOR_SIZE", "32")
-```
-
-**Omarchy 4 already ships the compositor half.** `force_zero_scaling = true` is in the `hl.config()` block at the end of `/usr/share/omarchy/default/hypr/envs.lua`, and `XCURSOR_SIZE` and `HYPRCURSOR_SIZE` are set to 24 in the same file. `GDK_SCALE` is set near the top of `~/.config/hypr/monitors.lua`, from a local variable, above the catch-all monitor rule. Edit that file rather than adding a second `hl.env("GDK_SCALE", ...)` somewhere else:
-
-```lua
--- ~/.config/hypr/monitors.lua
-local omarchy_gdk_scale = 2
-local omarchy_monitor_scale = "auto"
-
-hl.env("GDK_SCALE", tostring(omarchy_gdk_scale))
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
-```
-
-or let Omarchy write both numbers together:
-
-```bash
-omarchy-hyprland-monitor-scaling 2
-```
-
-`GDK_SCALE` must stay the nearest integer to the monitor scale. Setting it higher makes GTK, XWayland and Java apps draw at double size, which is the opposite complaint. See `gdk-scale-mismatch-oversized-xwayland`, and `xwayland-blurry-on-fractional-scale` for the fuller version of this same fix including Qt, Java, Electron and `Xft.dpi`.
-
-Hyprland 0.54 and older used hyprlang rather than Lua, so the equivalent lines were `env = GDK_SCALE,2` and an `xwayland { force_zero_scaling = true }` block in `~/.config/hypr/hyprland.conf`. Nothing current on Arch or Omarchy 4 uses that syntax.
-
-Environment changes only reach apps started after the config is re-read. Hyprland re-runs every `hl.env()` line on reload, so `hyprctl reload` and then relaunching the app from a keybind or the Omarchy menu is enough. A terminal that was already open keeps the old value and passes it to anything started from it, and the systemd user environment is only guaranteed to match after logging out and back in.
-
-**Verify.** Relaunch the app, then check both halves:
-
-```bash
-hyprctl getoption xwayland:force_zero_scaling
-# bool: true
-# set: true
-
-hyprctl clients -j | jq -r '.[] | select(.xwayland) | "\(.class)\t\(.title)"'
-```
-
-`getoption` prints `bool: true` on two lines, never `1`. If the app no longer appears in the second command it went native Wayland and the problem is gone. If it still appears but `force_zero_scaling` is on, its text should now be crisp rather than blocky. It may look small, which is the toolkit-scaling half of the job and is fixed with `GDK_SCALE`, not by turning `force_zero_scaling` back off.
-
-Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/> · <https://wiki.hypr.land/0.54.0/Configuring/XWayland/> · <https://wiki.hypr.land/0.54.0/FAQ/> · <https://wiki.archlinux.org/title/Wayland> · <https://wiki.archlinux.org/title/HiDPI> · <https://wiki.hypr.land/configuring/extra/xwayland/> · <https://wiki.hypr.land/configuring/core/environment-variables/> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/envs.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/monitors.lua>
-
----
-
 ## Fix apps taking 20 to 30 seconds to open with several portals installed
 
 `apps-slow-to-launch-multiple-portals` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
@@ -1838,7 +1724,7 @@ Sources: <https://wiki.archlinux.org/title/Firefox> · <https://wiki.archlinux.o
 
 **Cause.** xdg-desktop-portal-hyprland implements no file picker at all, so `xdg-desktop-portal-gtk` has to be installed alongside it; with nothing claiming `org.freedesktop.impl.portal.FileChooser` the call blocks for the 25-second D-Bus timeout and then gives up. Note that portal results are returned to the caller over D-Bus via the `Response` signal - they do not travel over the X connection - so a missing `DISPLAY` in the portal user service's environment does not break the result path. At most it stops the GTK dialog being made transient-for an X11 parent window.
 
-> **Audit corrected this record.** The first half is correct and useful — XDPH genuinely does not implement a file picker (the wiki carries an explicit warning to install xdg-desktop-portal-gtk alongside it), the 25-second figure is the real D-Bus timeout, and the Steam 'Add Library Folder' note is right. The DISPLAY drop-in is the problem. Portal results are returned to the caller over D-Bus via the Response signal; they do not travel over the X connection, so 'can show the dialog but cannot hand the result back to an XWayland client' is not a real mechanism. At most a DISPLAY lets the GTK portal make the dialog transient-for an X11 parent window. And hardcoding DISPLAY=:0 is a guess — Hyprland's XWayland can land on :1 or higher when another X server is present, in which case the drop-in points the portal at the wrong display. Telling a user to write a persistent systemd override on a false premise is the part worth removing.
+> **Audit corrected this record.** The first half is correct and useful — XDPH genuinely does not implement a file picker (the wiki carries an explicit warning to install xdg-desktop-portal-gtk alongside it), the 25-second figure is the real D-Bus timeout, and the Steam 'Add Library Folder' note is right. The DISPLAY drop-in is the problem. Portal results are returned to the caller over D-Bus via the Response signal; they do not travel over the X connection, so 'can show the dialog but cannot hand the result back to an XWayland client' is not a real mechanism. At most a DISPLAY lets the GTK portal make the dialog transient-for an X11 parent window. And hardcoding DISPLAY=:0 is a guess — Hyprland's XWayland can land on :1 or higher when another X server is present, in which case the drop-in points the portal at the wrong display. Telling a user to write a persistent systemd override on a false premise is the part worth removing.Updated on 2026-09-13: this record pointed readers at `xwayland-apps-blurry-hidpi`, which was retired that day into `xwayland-blurry-on-fractional-scale`. The pointer now names the surviving record, which carries the toolkit environment variables this one sends the reader for.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
@@ -1874,7 +1760,7 @@ systemctl --user import-environment DISPLAY
 systemctl --user restart xdg-desktop-portal-gtk.service
 ```
 
-Better still, move the app off XWayland so the problem cannot occur — see the `xwayland-apps-blurry-hidpi` record for the toolkit env vars.
+Better still, move the app off XWayland so the problem cannot occur — see the `xwayland-blurry-on-fractional-scale` record for the toolkit env vars.
 
 Steam has its own broken internal picker; installing `xdg-desktop-portal-gtk` is exactly what makes "Add Library Folder" work.
 

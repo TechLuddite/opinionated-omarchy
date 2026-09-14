@@ -529,14 +529,55 @@ nvidia-modeset: WARNING: GPU:0: Unable to read EDID for display device ... (DP-0
 **Cause.** The NVIDIA driver saves and restores only essential video memory across a suspend cycle by default. The rest is lost, the userspace driver cannot always reconstruct it, and the result is rendering corruption, dead outputs and `Xid 13` errors from whatever was drawing. Full preservation is reached two different ways depending on the driver branch. The open kernel modules from 595 onward do it themselves when `NVreg_UseKernelSuspendNotifiers=1`, which is what Arch ships in `/usr/lib/modprobe.d/nvidia-sleep.conf`. The 430 to 590 branch, which includes the `nvidia-580xx` driver Omarchy installs on Maxwell, Pascal and Volta, needs `NVreg_PreserveVideoMemoryAllocations=1` plus the `nvidia-suspend`, `nvidia-hibernate` and `nvidia-resume` services, because under that parameter NVIDIA requires the save and restore to be driven through `/proc/driver/nvidia/suspend`. On Omarchy 4 the two paths get crossed: `gpu-screen-recorder` is in the base package set and its `/usr/lib/modprobe.d/gsr-nvidia.conf` turns `PreserveVideoMemoryAllocations` on for every NVIDIA machine, while the installer never enables the services that parameter then requires.
 
 > **Audit corrected this record.** Checked on this workstation, which is Omarchy 4.0.2-1, kernel 7.1.9, `nvidia-open-dkms` and `nvidia-utils` 610.57.04-1 on an RTX 3090, and against the cited pages plus NVIDIA's own 610.57.04 power management README. The symptom and the cause are real. Confirmed from the NVIDIA README that video memory preservation "is handled automatically" on the open modules when `NVreg_UseKernelSuspendNotifiers=1`, and that `/proc/driver/nvidia/suspend` "is required when using" `PreserveVideoMemoryAllocations=1`. Confirmed from the Arch wiki that Arch sets these for supported drivers so preserve works out of the box, which makes the record's hand-written `/etc/modprobe.d/nvidia-power.conf` redundant on Arch and Omarchy alike. Four things are wrong on Omarchy 4. First, `sudo mkinitcpio -P` does nothing here: confirmed on this machine that `/etc/mkinitcpio.d/` holds zero files and that neither `linux` nor `mkinitcpio` installs a preset into it, so the command processes no presets and never rebuilds the UKI that Limine boots. The Omarchy 4 command is `sudo limine-mkinitcpio`, which is what every Omarchy migration under `/usr/share/omarchy/migrations/` calls. Second, the advice to leave the sleep services off on 595 and newer is wrong on Omarchy specifically: confirmed on this machine that `gpu-screen-recorder` 6.0.1-1 owns `/usr/lib/modprobe.d/gsr-nvidia.conf` setting `NVreg_PreserveVideoMemoryAllocations=1`, that the package is line 47 of `/usr/share/omarchy/install/omarchy-base.packages`, that `/proc/driver/nvidia/params` therefore reports `PreserveVideoMemoryAllocations: 1` on this box, and that `systemctl is-enabled` reports all three sleep units disabled with no `nvidia-suspend` string anywhere under `/usr/share/omarchy`. Upstream `quattro`'s `install/hardware/nvidia.sh`, retrieved today, still does not enable them, so omacom/omarchy PR 8127 is unmerged and the gap is live on 4.0.3. Reading `/usr/lib/systemd/system-sleep/nvidia` on this machine confirms it only handles the `post` resume case for a plain suspend, so the save never runs while the restore is attempted. Third, the danger field missed the sharpest consequence: with `Preserve=1` on Omarchy's early-KMS layout, hibernate resume fails and the image is discarded, which omacom/omarchy issue 8126 documents with a kernel trace and the Hyprland wiki warns about in general form. Omarchy ships `HOOKS+=(resume)`, confirmed in `/etc/mkinitcpio.conf.d/omarchy_resume.conf`, so hibernation is configured by default and this is a real data-loss path. Fourth, "`/var/tmp` must be on a real filesystem (ext4/XFS, not tmpfs)" is too narrow: Omarchy's default root is btrfs and `/var/tmp` lives on it here, and the real requirement per NVIDIA is unnamed temporary file support plus capacity. Two smaller points: `sort /proc/driver/nvidia/params` needs no `sudo`, confirmed by reading it as an unprivileged user, and the record names three sleep units where four exist. On sources: both cited GitHub issues fail to support the record. Read in full, issue 2635 is an Omarchy 3.0 to 3.8 display-wake bug reported on AMD, Intel Iris and NVIDIA alike, whose stated workaround is `systemctl restart sddm`, and it never mentions video memory preservation or `Xid 13`. Issue 2112 is the same family on Omarchy 3, with `hypridle.conf` as the workaround. Neither names a parameter this record sets, so both go in `sources_remove` and are replaced with the NVIDIA README, omacom/omarchy issue 8126 and PR 8127, and the upstream driver install script. Severity `high` and frequency `very-common` both stand and are left alone: the misconfiguration ships by default to every Omarchy NVIDIA machine. NOT exercised: a suspend cycle. This workstation cannot be suspended for this audit, so option A and option B are argued from the driver README, the shipped unit files and the tracker report, not from a resume I watched. The claim that option B is also needed on some open-driver machines comes from one user's A/B in issue 8126 and is reported, not confirmed here.
+
+Merged on 2026-09-13: `nvidia-black-screen-external-after-suspend` was retired into this record and
+its page now 404s. Its 2026-09-13 re-audit found it the same problem as this one and this one
+strictly better, knowing the gpu-screen-recorder trap, splitting the open and 580xx branches and
+carrying the hibernate data-loss danger, while that record's own fix was a regression on 595 and
+newer because it told the reader to enable the three nvidia sleep services that upstream disables.
+The auditor rewrote it to display-side triage that deferred here for the memory decision, which left
+it no longer a duplicate, so this merge consolidates rather than removing redundancy: its triage
+steps are now the first section of the fix above, ahead of the driver checks, because they are
+cheaper and they settle the commonest case. It also carried `systemd-boot` and `grub` in
+`applies_to`, wrong for the Omarchy branch, and that defect goes with it. Its full text is in the git
+history and in `raw/o3-core-display-audit.json`.
 >
-> *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Under `PreserveVideoMemoryAllocations=1` the driver demands the `/proc/driver/nvidia/suspend` handshake at every power transition. Omarchy early-loads the NVIDIA modules, so on a hibernate resume the initramfs kernel already has nvidia bound and there is no systemd to drive that handshake. The image loads and is then discarded, with `PM: hibernation: Failed to load image, recovering` in the log, followed by a cold boot, and every unsaved thing that was open is gone. Omarchy also ships `HOOKS+=(resume)` in `/etc/mkinitcpio.conf.d/omarchy_resume.conf`, so hibernation is configured out of the box. Suspend and hibernate are mutually exclusive under this configuration, so decide which one you want before changing anything. The Hyprland wiki carries the same warning in general form: loading the NVIDIA modules early may stop resume from hibernation working, and the machine just boots instead. Separately, `/var/tmp` has to hold a full copy of video memory plus about 5 percent, so a short root filesystem makes suspend fail or hang. Any change under `/etc/modprobe.d` needs the initramfs rebuilt because of early KMS, and an interrupted `limine-mkinitcpio` leaves an unbootable UKI, so do not power-cycle while it runs.
 
 **Fix.**
 
-First read what the driver is actually doing. This needs no root:
+**Rule out the display side first.** A dark output after a wake is often not a memory problem, and
+these checks are free. From another machine over ssh, or from a TTY:
+
+```bash
+hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate) dpms=\(.dpmsStatus) disabled=\(.disabled)"'
+```
+
+- Nothing answers and the machine is unreachable: the driver or the kernel is gone. Carry on below.
+- A monitor is listed with `dpms=false`: the panel is asleep, not broken. Wake it. On Hyprland 0.56
+  `hyprctl dispatch` evaluates its argument as Lua, so a bare dispatcher name fails with a parse
+  error:
+
+  ```bash
+  hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
+  ```
+
+- A monitor is listed at `0x0`: it came back with an EDID carrying no modes. Omarchy ships a check
+  for exactly that state:
+
+  ```bash
+  omarchy-hyprland-monitor-modeless; echo $?   # 0 means an enabled monitor has no modes
+  ```
+
+  Power cycle the monitor or replug the cable, because Hyprland re-reads the EDID on hotplug. If an
+  external head never reappears on a hybrid machine it is wired to a GPU the compositor did not
+  pick, which is an `AQ_DRM_DEVICES` problem rather than a suspend one.
+- Everything reads correctly and the screen is still black or garbled: it is the driver side. Carry
+  on below.
+
+Then read what the driver is actually doing. This needs no root:
 
 ```bash
 sort /proc/driver/nvidia/params | grep -E 'PreserveVideoMemoryAllocations|UseKernelSuspendNotifiers|TemporaryFilePath'
@@ -596,6 +637,19 @@ sudo limine-mkinitcpio
 ```
 
 On plain Arch, where `/etc/mkinitcpio.d/linux.preset` exists, `sudo mkinitcpio -P` is still the right command.
+
+**Reading the journal from the right boot.** Use `journalctl -b -k` while the session is still up,
+and `journalctl -b -1 -k` only when the machine had to be power cycled:
+
+```bash
+journalctl -b -k | grep -iE 'Xid \(PCI|nvidia-modeset: ERROR|Failed detecting connected display'
+```
+
+**On Omarchy 4 there is no GRUB and no systemd-boot.** It boots a unified kernel image through
+Limine. Kernel command line changes go in a drop-in under `/etc/limine-entry-tool.d/`,
+`/etc/default/grub` does not exist, and `sudo mkinitcpio -P` aborts because `/etc/mkinitcpio.d/`
+holds no presets. The rebuild command is `sudo limine-mkinitcpio`. On plain Arch with systemd-boot
+or GRUB the older instructions apply and `sudo mkinitcpio -P` is correct there.
 
 **Verify.** Read the parameters back, no root needed, and confirm they agree with the option you chose:
 
