@@ -711,12 +711,27 @@ Three things are specific to this repo and are the ones that get got wrong:
   description, a bullet list of three introduced as "two ways", and a `README` recipe
   naming the workflow that does the opposite of what it claimed.
 
-**`research/data/problems.jsonl` is deliberately excluded for now.** 1,366 em and en dashes
-sit across 335 of its 489 records as of 2026-09-13 (the records rewritten by the re-audits carry
-none, and neither do the 36 merged from the issue harvest, which is where the denominator moved), and cleaning them means rewriting the source of truth
-and regenerating `research/docs/` in the same commit. Tracked in
-[JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose
-piecemeal: a partial pass makes the remaining records look like a deliberate choice.
+**`research/data/problems.jsonl` has now been through the standard** (2026-09-13). It was the last
+body of prose in the repo that had not been, and it took two passes: 1,366 em and en dashes across
+335 records, then 613 semicolons and 183 spaced hyphens across 273. Both were done by agents in
+batches with a mechanical verifier that refuses a batch unless every fenced block and inline code
+span is byte-identical, no banned replacement was introduced, no significant token vanished and the
+length did not swing. Every change went through `corpus.write_jsonl`, and `research/docs/` was
+regenerated in the same commit.
+
+**28 occurrences deliberately survive, and they are the pass-through rule working**, not misses:
+6 dashes, 12 semicolons and 10 spaced hyphens. Each sits inside quoted source material (a GitHub
+issue title, an Arch wiki or man page sentence, kernel documentation, a DMI string from
+`rtw_pci_quirks[]`, the boot error `"UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY"`) or inside
+unbackticked syntax where the character is not punctuation (`COLORFGBG=15;0`, the portal list
+`Screenshot;ScreenCast;GlobalShortcuts;InputCapture`, a Lua `package.path`, the sentence
+`modprobe treats - and _ interchangeably`, the GitHub category `Bugs - DRM`). Reproducing a source
+accurately outranks the punctuation rule. **Do not "finish the job" by rewriting these**, and if a
+count ever reads zero, something has edited a quotation.
+
+Two dashes also remain inside fenced code blocks, in shell comments. Code is exempt, so a future
+pass over comments inside fences would be the only way to reach them, and it is not obviously worth
+doing.
 
 The skill's own checker, `scripts/check-writing.ps1`, needs PowerShell, which is not
 installed on this machine. Until something replaces it, this is the mechanical check over

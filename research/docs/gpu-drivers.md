@@ -88,11 +88,11 @@ Sources: <https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support> · <ht
 
 `nvidia-drm-modeset-disabled-black-screen-hyprland` · severity: **critical** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** After installing the NVIDIA driver, Hyprland does not start on Wayland — the screen goes black at boot or right after login, or Hyprland exits back to the TTY. The log shows `backend failed to start`. Switching to a TTY may still work. `cat /sys/module/nvidia_drm/parameters/modeset` prints `N`.
+**Symptom.** After installing the NVIDIA driver, Hyprland does not start on Wayland. The screen goes black at boot or right after login, or Hyprland exits back to the TTY. The log shows `backend failed to start`. Switching to a TTY may still work. `cat /sys/module/nvidia_drm/parameters/modeset` prints `N`.
 
 **Cause.** Wayland compositors require DRM kernel mode setting on the NVIDIA driver. Without `nvidia_drm.modeset=1`, aquamarine (Hyprland's backend) cannot get a DRM master / usable framebuffer, so the compositor never brings up an output. Since nvidia-utils 560.35.03-5 Arch enables modeset by default, so this mostly bites users on older/legacy AUR driver branches (nvidia-580xx, nvidia-470xx, nvidia-390xx), on custom kernels, or on systems where somebody put `nvidia_drm.modeset=0` on the kernel command line.
 
-> **Audit corrected this record.** Diagnosis and the modeset=1 fix are correct and match upstream (Hyprland wiki 'Early KMS, modeset and fbdev'; Arch NVIDIA#DRM kernel mode setting), and the Omarchy nvidia.sh quoted really does write those two files (verified against master). But the record hands the user early KMS as if it were part of the fix. Arch wiki states plainly: 'For basic functionality, just adding the kernel parameter should suffice' and 'Early loading the modules will break hibernation, as video memory preservation is enabled by default' — so this record creates the exact problem that record [4] then tells them to undo. Also `printf ... | sudo tee /etc/modprobe.d/nvidia.conf` silently clobbers an existing file of that name (Omarchy's own), and fbdev only needs setting on legacy branches.
+> **Audit corrected this record.** Diagnosis and the modeset=1 fix are correct and match upstream (Hyprland wiki 'Early KMS, modeset and fbdev', and Arch NVIDIA#DRM kernel mode setting), and the Omarchy nvidia.sh quoted really does write those two files (verified against master). But the record hands the user early KMS as if it were part of the fix. Arch wiki states plainly: 'For basic functionality, just adding the kernel parameter should suffice' and 'Early loading the modules will break hibernation, as video memory preservation is enabled by default', so this record creates the exact problem that record [4] then tells them to undo. Also `printf ... | sudo tee /etc/modprobe.d/nvidia.conf` silently clobbers an existing file of that name (Omarchy's own), and fbdev only needs setting on legacy branches.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -124,7 +124,7 @@ EOF
 sudo mkinitcpio -P
 ```
 
-(That second file is what Omarchy's `install/config/hardware/nvidia.sh` writes — remove it if you hibernate.)
+(That second file is what Omarchy's `install/config/hardware/nvidia.sh` writes. Remove it if you hibernate.)
 
 Then check nothing on the kernel command line forces it off:
 
@@ -132,7 +132,7 @@ Then check nothing on the kernel command line forces it off:
 cat /proc/cmdline    # look for nvidia_drm.modeset=0
 ```
 
-Remove it in your bootloader (systemd-boot: `options` in `/boot/loader/entries/*.conf`; Limine: `cmdline:` in `/boot/limine.conf`; GRUB: `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` + `sudo grub-mkconfig -o /boot/grub/grub.cfg`). Reboot.
+Remove it in your bootloader (systemd-boot uses `options` in `/boot/loader/entries/*.conf`, Limine uses `cmdline:` in `/boot/limine.conf`, and GRUB uses `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` + `sudo grub-mkconfig -o /boot/grub/grub.cfg`). Reboot.
 
 **Verify.** `cat /sys/module/nvidia_drm/parameters/modeset` returns `Y`, and Hyprland starts and shows a desktop. `hyprctl monitors` lists your outputs.
 
@@ -144,7 +144,7 @@ Sources: <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.hypr.land/Nv
 
 `nvrm-api-mismatch-partial-upgrade` · severity: **critical** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `nvidia`, `omarchy-4`
 
-**Symptom.** After an update the desktop never comes back — black screen, or you get dumped at a TTY. `nvidia-smi` says:
+**Symptom.** After an update the desktop never comes back. You get a black screen, or you get dumped at a TTY. `nvidia-smi` says:
 
 ```
 NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running.
@@ -173,9 +173,9 @@ modprobe: FATAL: Module nvidia not found in directory /lib/modules/6.18.4-arch1-
 
 A third, rarer variant: a stale DKMS build from an older driver version still sitting in `/usr/lib/modules/<kernel>/updates/dkms/` shadowing the correctly-versioned packaged module.
 
-This is distinct from a DKMS *build failure* — here the build succeeded, the versions just do not line up.
+This is distinct from a DKMS *build failure*. Here the build succeeded, the versions just do not line up.
 
-> ⚠️ **Risk.** Do NOT "fix" a partial upgrade by symlinking library sonames — the Arch wiki warns explicitly against this; sonames are bumped precisely because they are incompatible. If the `-Syu` that follows the bad `-Sy` fails halfway, you are now in a genuine partial-upgrade state and must resolve the error and finish the transaction before running any other pacman operation. Booting with `nomodeset` gives you a low-resolution text console only — do not leave it in the permanent command line. `dkms remove --all` deletes built modules for every kernel; if you remove the wrong version you lose the working module too, so read `dkms status` first.
+> ⚠️ **Risk.** Do NOT "fix" a partial upgrade by symlinking library sonames. The Arch wiki warns explicitly against this. Sonames are bumped precisely because they are incompatible. If the `-Syu` that follows the bad `-Sy` fails halfway, you are now in a genuine partial-upgrade state and must resolve the error and finish the transaction before running any other pacman operation. Booting with `nomodeset` gives you a low-resolution text console only. Do not leave it in the permanent command line. `dkms remove --all` deletes built modules for every kernel. If you remove the wrong version you lose the working module too, so read `dkms status` first.
 
 **Fix.**
 
@@ -191,7 +191,7 @@ dkms status
 
 If `/proc/driver/nvidia/version` and `pacman -Q nvidia-utils` disagree, it is a version skew. If `modinfo` says "module not found", the running kernel lost its modules.
 
-**2. Complete the upgrade properly — never `pacman -Sy <pkg>`.**
+**2. Complete the upgrade properly, never `pacman -Sy <pkg>`.**
 
 ```bash
 # Omarchy 4:
@@ -201,7 +201,7 @@ omarchy update
 sudo pacman -Syu
 ```
 
-If you are stuck on a black screen with no shell: press `Ctrl+Alt+F2` for a TTY, or at the Limine menu select the entry and add `nomodeset` to the command line (Limine's editor; see the key hints on the menu's help line) to get a text console, then run the upgrade there.
+If you are stuck on a black screen with no shell: press `Ctrl+Alt+F2` for a TTY, or at the Limine menu select the entry and add `nomodeset` to the command line (Limine's editor, with the key hints on the menu's help line) to get a text console, then run the upgrade there.
 
 **3. Clear a stale DKMS build if one is shadowing the packaged module.**
 
@@ -232,7 +232,7 @@ sudo reboot
 sudo pacman -S kernel-modules-hook
 ```
 
-**Verify.** After reboot: `nvidia-smi` prints the device table; `cat /proc/driver/nvidia/version` reports the same version as `pacman -Q nvidia-utils`; `cat /sys/module/nvidia_drm/parameters/modeset` returns `Y`; `dmesg | grep -i 'API mismatch'` returns nothing.
+**Verify.** After reboot: `nvidia-smi` prints the device table, `cat /proc/driver/nvidia/version` reports the same version as `pacman -Q nvidia-utils`, `cat /sys/module/nvidia_drm/parameters/modeset` returns `Y`, and `dmesg | grep -i 'API mismatch'` returns nothing.
 
 Sources: <https://wiki.archlinux.org/title/System_maintenance> · <https://wiki.archlinux.org/title/General_troubleshooting> · <https://bbs.archlinux.org/viewtopic.php?id=291394> · <https://bbs.archlinux.org/viewtopic.php?id=261042> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update-pacman-guard> · <https://wiki.archlinux.org/title/NVIDIA>
 
@@ -263,26 +263,26 @@ Older builds and other wlroots compositors phrase the same thing as `Couldn't op
 
 **Cause.** Three separate failures produce nearly the same message, and the log line above tells you which:
 
-1. **No seat.** Hyprland takes DRM master through libseat, which needs either a valid systemd-logind session or a running seatd. `libseat: failed to open a seat` means neither was available — launching over SSH, from inside tmux, with `sudo Hyprland`, from a display manager that never created a proper session, or on a system with no polkit package and seatd.service not enabled. The Arch Hyprland page is explicit: install a polkit package *or* enable seatd.service, otherwise Hyprland fails to start.
-2. **No GPU visible.** `drm: No gpus in scanGPUs` / `Found no gpus to use` means udev enumerated nothing with KMS. Causes: `nomodeset` on the kernel command line, the DRM driver blacklisted or not built for this hardware (see the i915/xe force_probe case), a VM with 3D acceleration disabled, or an `AQ_DRM_DEVICES` value naming a device node that does not exist or is not in the enumerated set. Note that a *symlink* is fine: aquamarine canonicalises both the paths you give it and each enumerated device path before comparing them, so /dev/dri/by-path/... resolves correctly — and the Hyprland Multi-GPU wiki actively recommends the by-path name, because /dev/dri/cardN numbering is assigned dynamically at boot and changes. If aquamarine logs `drm: Explicit device <path> not found`, the path is wrong or the card really is absent, not merely symlinked.
+1. **No seat.** Hyprland takes DRM master through libseat, which needs either a valid systemd-logind session or a running seatd. `libseat: failed to open a seat` means neither was available: launching over SSH, from inside tmux, with `sudo Hyprland`, from a display manager that never created a proper session, or on a system with no polkit package and seatd.service not enabled. The Arch Hyprland page is explicit: install a polkit package *or* enable seatd.service, otherwise Hyprland fails to start.
+2. **No GPU visible.** `drm: No gpus in scanGPUs` / `Found no gpus to use` means udev enumerated nothing with KMS. Causes: `nomodeset` on the kernel command line, the DRM driver blacklisted or not built for this hardware (see the i915/xe force_probe case), a VM with 3D acceleration disabled, or an `AQ_DRM_DEVICES` value naming a device node that does not exist or is not in the enumerated set. Note that a *symlink* is fine: aquamarine canonicalises both the paths you give it and each enumerated device path before comparing them, so /dev/dri/by-path/... resolves correctly, and the Hyprland Multi-GPU wiki actively recommends the by-path name, because /dev/dri/cardN numbering is assigned dynamically at boot and changes. If aquamarine logs `drm: Explicit device <path> not found`, the path is wrong or the card really is absent, not merely symlinked.
 3. **Wrong context.** Launching Hyprland from inside an existing X11 or Wayland session, which the error message calls out directly.
 
-> **Audit corrected this record.** The three-way split of an ambiguous error is the right structure, and the seat half is solid: Arch Hyprland wiki line 19 says verbatim "Make sure to install the Polkit package, or start and enable seatd.service. As the lack thereof will cause Hyprland to fail to start", the seatd PKGBUILD comment confirms the `seat` group ('Allow users in the "seat" group to access seatd'), hyprpolkitagent is real (extra 0.1.3), the log path and `lspci -k -d ::03xx` are both correct, and 'never sudo Hyprland' is right. But the AQ_DRM_DEVICES advice is backwards on both counts. I read aquamarine src/backend/drm/DRM.cpp:194-236: it splits AQ_DRM_DEVICES on ':' and then calls std::filesystem::canonical() on *both* the values you gave it *and* each enumerated device path before comparing. Canonicalisation is exactly what makes a /dev/dri/by-path/... symlink work — it is not 'a known way to make it see nothing'. And the Multi-GPU wiki says the opposite of the record's fix: "Do not use the card1 symlink indicated here. It is dynamically assigned at boot and is subject to frequent change, making it unsuitable as a marker for GPU selection" — i.e. prefer the stable by-path name over /dev/dri/cardN. Following the record's step 3 replaces a stable path with an unstable one. Second defect, Omarchy-specific: that same wiki page ends with "uwsm users are advised to export the AQ_DRM_DEVICES variable inside ~/.config/uwsm/env-hyprland, instead" — Omarchy starts Hyprland under uwsm, so `hl.env("AQ_DRM_DEVICES", ...)` in hyprland.lua is the wrong place there. Third, minor: `pacman -S drm_info` fails; the package is drm-info.
+> **Audit corrected this record.** The three-way split of an ambiguous error is the right structure, and the seat half is solid: Arch Hyprland wiki line 19 says verbatim "Make sure to install the Polkit package, or start and enable seatd.service. As the lack thereof will cause Hyprland to fail to start", the seatd PKGBUILD comment confirms the `seat` group ('Allow users in the "seat" group to access seatd'), hyprpolkitagent is real (extra 0.1.3), the log path and `lspci -k -d ::03xx` are both correct, and 'never sudo Hyprland' is right. But the AQ_DRM_DEVICES advice is backwards on both counts. I read aquamarine src/backend/drm/DRM.cpp:194-236: it splits AQ_DRM_DEVICES on ':' and then calls std::filesystem::canonical() on *both* the values you gave it *and* each enumerated device path before comparing. Canonicalisation is exactly what makes a /dev/dri/by-path/... symlink work. It is not 'a known way to make it see nothing'. And the Multi-GPU wiki says the opposite of the record's fix: "Do not use the card1 symlink indicated here. It is dynamically assigned at boot and is subject to frequent change, making it unsuitable as a marker for GPU selection", i.e. prefer the stable by-path name over /dev/dri/cardN. Following the record's step 3 replaces a stable path with an unstable one. Second defect, Omarchy-specific: that same wiki page ends with "uwsm users are advised to export the AQ_DRM_DEVICES variable inside ~/.config/uwsm/env-hyprland, instead". Omarchy starts Hyprland under uwsm, so `hl.env("AQ_DRM_DEVICES", ...)` in hyprland.lua is the wrong place there. Third, minor: `pacman -S drm_info` fails. The package is drm-info.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Adding your user to `input` grants read access to every input device on the machine — that is a keylogging surface; only do it if you actually need the seatd backend (logind users do not). Do not remove polkit to "test" the seatd path: polkit is what lets your session authenticate for mounts, network changes and reboots. Do not run `sudo Hyprland` as a workaround — it creates root-owned files in your `$XDG_RUNTIME_DIR` and in `~/.cache`, which then break the normal session in ways that are tedious to unpick.
+> ⚠️ **Risk.** Adding your user to `input` grants read access to every input device on the machine. That is a keylogging surface. Only do it if you actually need the seatd backend (logind users do not). Do not remove polkit to "test" the seatd path: polkit is what lets your session authenticate for mounts, network changes and reboots. Do not run `sudo Hyprland` as a workaround. It creates root-owned files in your `$XDG_RUNTIME_DIR` and in `~/.cache`, which then break the normal session in ways that are tedious to unpick.
 
 **Fix.**
 
-**1. Read the log first — the specific error decides the path.**
+**1. Read the log first. The specific error decides the path.**
 
 ```bash
 cat "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log" 2>/dev/null \
   || cat ~/.local/share/hyprland/hyprland.log
 ```
 
-**2. `libseat: failed to open a seat` — fix the session.**
+**2. `libseat: failed to open a seat`. Fix the session.**
 
 ```bash
 loginctl
@@ -302,7 +302,7 @@ sudo usermod -aG seat,video,input "$USER"      # seatd's own group, created by t
 
 Then launch from a real virtual console: Ctrl+Alt+F3, log in, and run `Hyprland` (or `uwsm start hyprland.desktop`). Never `sudo Hyprland`.
 
-**3. `Found no gpus to use` — fix the GPU side.**
+**3. `Found no gpus to use`. Fix the GPU side.**
 
 ```bash
 ls -l /dev/dri/                       # expect cardN and renderD128
@@ -313,9 +313,9 @@ echo "AQ_DRM_DEVICES=$AQ_DRM_DEVICES" # if set, must be a ':'-separated list of 
 grep -i 'Explicit device' "$XDG_RUNTIME_DIR/hypr/"*/hyprland.log
 ```
 
-If /dev/dri/ is empty, the kernel driver never bound — a driver problem, not a Hyprland problem (blacklisted module, `nomodeset`, or hardware needing force_probe).
+If /dev/dri/ is empty, the kernel driver never bound: a driver problem, not a Hyprland problem (blacklisted module, `nomodeset`, or hardware needing force_probe).
 
-If the log says `drm: Explicit device <path> not found`, your AQ_DRM_DEVICES entry is simply wrong. Do **not** "fix" it by swapping a by-path symlink for /dev/dri/cardN — aquamarine canonicalises both sides, so symlinks work, and the Multi-GPU wiki warns that cardN numbering changes at boot. Use the stable by-path name:
+If the log says `drm: Explicit device <path> not found`, your AQ_DRM_DEVICES entry is simply wrong. Do **not** "fix" it by swapping a by-path symlink for /dev/dri/cardN. Aquamarine canonicalises both sides, so symlinks work, and the Multi-GPU wiki warns that cardN numbering changes at boot. Use the stable by-path name:
 
 ```bash
 ls -l /dev/dri/by-path/            # match the PCI address from lspci
@@ -335,7 +335,7 @@ Only if you are *not* using uwsm does the config form apply:
 hl.env("AQ_DRM_DEVICES", "/dev/dri/by-path/pci-0000:06:00.0-card")
 ```
 
-**4. Prove the stack works independently of Hyprland.** The package is `drm-info`; the binary is `drm_info`:
+**4. Prove the stack works independently of Hyprland.** The package is `drm-info`. The binary is `drm_info`:
 
 ```bash
 sudo pacman -S drm-info && drm_info | head -30
@@ -448,7 +448,7 @@ Sources: <https://archlinux.org/news/nvidia-590-driver-drops-pascal-support-main
 
 `limine-kernel-parameters-not-applying-omarchy` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `laptop`, `limine`, `omarchy-4`, `uki`
 
-**Symptom.** Every GPU fix you find says "add `amdgpu.dcdebugmask=0x10` (or `nvidia_drm.modeset=1`, `i915.force_probe=…`, `nomodeset`) to your kernel command line", but Omarchy has no `/etc/default/grub`. You edit `/boot/limine.conf`, reboot, and `cat /proc/cmdline` does not show the parameter — or it works once and is silently reverted by the next `omarchy update` or kernel upgrade.
+**Symptom.** Every GPU fix you find says "add `amdgpu.dcdebugmask=0x10` (or `nvidia_drm.modeset=1`, `i915.force_probe=…`, `nomodeset`) to your kernel command line", but Omarchy has no `/etc/default/grub`. You edit `/boot/limine.conf`, reboot, and `cat /proc/cmdline` does not show the parameter, or it works once and is silently reverted by the next `omarchy update` or kernel upgrade.
 
 **Cause.** Omarchy 4 does not hand-maintain `/boot/limine.conf`. It boots a **Unified Kernel Image** at `/boot/EFI/Linux/omarchy*.efi`, built by `limine-mkinitcpio` and registered by `limine-entry-tool`. `/boot/limine.conf` holds only theming and menu options and is regenerated from configuration on every kernel/limine transaction, so anything you type into it is discarded. Worse, with a UKI the command line is *baked into the .efi image*, so even a correct `limine.conf` edit could not change it.
 
@@ -460,7 +460,7 @@ The real sources of the command line, in increasing priority:
 
 Omarchy ships its own drop-in, `/etc/limine-entry-tool.d/omarchy-defaults.conf`, containing `quiet splash loglevel=0 systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0` plus `initramfs_async=0`. That file is package-owned: editing it means your changes turn into `.pacnew` conflicts on the next update.
 
-> ⚠️ **Risk.** A bad kernel parameter is a failure to boot — test it in the Limine editor before writing a drop-in. Using `KERNEL_CMDLINE[default]=` instead of `+=`, or naming your file so it sorts *before* `omarchy-defaults.conf`, silently drops Omarchy's `initramfs_async=0`, which the packaged comment says is what keeps Plymouth alive at the LUKS prompt — an encrypted machine then falls back to an unthemed text prompt or hangs. `limine-mkinitcpio` rewrites the UKI on the ESP: run `df -h /boot` first, because a full ESP produces a truncated, unbootable image. If you enabled Secure Boot with `ENABLE_ENROLL_LIMINE_CONFIG=yes`, modifying `limine.conf` without re-enrolling the checksum makes the machine refuse to boot even after you disable Secure Boot — keep an unsigned fallback loader. Recovery for all of the above is the Limine snapshot entry, so do not enable Direct Boot until you are done experimenting.
+> ⚠️ **Risk.** A bad kernel parameter is a failure to boot. Test it in the Limine editor before writing a drop-in. Using `KERNEL_CMDLINE[default]=` instead of `+=`, or naming your file so it sorts *before* `omarchy-defaults.conf`, silently drops Omarchy's `initramfs_async=0`, which the packaged comment says is what keeps Plymouth alive at the LUKS prompt. An encrypted machine then falls back to an unthemed text prompt or hangs. `limine-mkinitcpio` rewrites the UKI on the ESP: run `df -h /boot` first, because a full ESP produces a truncated, unbootable image. If you enabled Secure Boot with `ENABLE_ENROLL_LIMINE_CONFIG=yes`, modifying `limine.conf` without re-enrolling the checksum makes the machine refuse to boot even after you disable Secure Boot. Keep an unsigned fallback loader. Recovery for all of the above is the Limine snapshot entry, so do not enable Direct Boot until you are done experimenting.
 
 **Fix.**
 
@@ -496,7 +496,7 @@ KERNEL_CMDLINE[linux-lts]+=" nvidia_drm.modeset=1"
 KERNEL_CMDLINE[fallback]+=" nomodeset"
 ```
 
-**Test a parameter once, without persisting anything:** at the Limine boot menu select the entry and open Limine's editor (the key hints are printed in the menu's help line; `editor_enabled` defaults to `yes`), edit the command line, and boot. Nothing is written to disk. If Omarchy's *Direct Boot* is enabled (`omarchy-setup-direct-boot` adds an `Omarchy` EFI entry that jumps straight to the UKI), the Limine menu is bypassed entirely — pick Limine from the firmware boot menu (usually F12/F8/Esc) to get it back.
+**Test a parameter once, without persisting anything:** at the Limine boot menu select the entry and open Limine's editor (the key hints are printed in the menu's help line, and `editor_enabled` defaults to `yes`), edit the command line, and boot. Nothing is written to disk. If Omarchy's *Direct Boot* is enabled (`omarchy-setup-direct-boot` adds an `Omarchy` EFI entry that jumps straight to the UKI), the Limine menu is bypassed entirely. Pick Limine from the firmware boot menu (usually F12/F8/Esc) to get it back.
 
 **If you already clobbered `/boot/limine.conf`,** restore the packaged one:
 
@@ -506,7 +506,7 @@ omarchy-refresh-limine
 # then runs `limine-update` and `limine-snapper-sync`
 ```
 
-**On other Arch-based distros using Limine (e.g. CachyOS):** the same mechanism applies — `/etc/default/limine` and `/etc/limine-entry-tool.d/`, then `limine-mkinitcpio` (or `limine-dracut`) and `limine-update`. On GRUB systems it is `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` plus `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
+**On other Arch-based distros using Limine (e.g. CachyOS):** the same mechanism applies: `/etc/default/limine` and `/etc/limine-entry-tool.d/`, then `limine-mkinitcpio` (or `limine-dracut`) and `limine-update`. On GRUB systems it is `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` plus `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
 
 **Verify.** `cat /proc/cmdline` contains both your parameter and Omarchy's defaults (`quiet splash loglevel=0 … initramfs_async=0`). `sudo limine-list` shows the entries. For a module parameter, `cat /sys/module/<module>/parameters/<param>` reflects the new value.
 
@@ -518,7 +518,7 @@ Sources: <https://wiki.archlinux.org/title/Limine> · <https://github.com/baseca
 
 `nvidia-suspend-resume-black-screen-vram` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** The laptop or desktop suspends fine, but on wake the monitors stay black or show 'No Signal' — the machine is still running (you can SSH in, or Ctrl+Alt+F2 to a TTY and back sometimes helps), or the desktop comes back visibly corrupted. `journalctl -b -1` contains lines like:
+**Symptom.** The laptop or desktop suspends fine, but on wake the monitors stay black or show 'No Signal', with the machine still running (you can SSH in, or Ctrl+Alt+F2 to a TTY and back sometimes helps), or the desktop comes back visibly corrupted. `journalctl -b -1` contains lines like:
 
 ```
 NVRM: Xid (PCI:0000:08:00): 13, pid='<unknown>', name=<unknown>, Graphi>
@@ -698,21 +698,21 @@ X Error of failed request:  GLXBadContext
 Major opcode of failed request:  151
 ```
 
-Proton titles add `wine: failed to initialize vulkan` or complain about no DRI3/Vulkan support. Native 64-bit apps and `vkcube` are fine — only 32-bit ones break.
+Proton titles add `wine: failed to initialize vulkan` or complain about no DRI3/Vulkan support. Native 64-bit apps and `vkcube` are fine. Only 32-bit ones break.
 
-**Cause.** Steam's client is 32-bit and most Proton/Wine prefixes still load a 32-bit graphics path, so they need `/usr/lib32/` copies of the whole stack: the Mesa DRI drivers, the Vulkan loader, and the vendor Vulkan ICD. Those live in the `multilib` repository, which is **not enabled by default on plain Arch** (it *is* pre-enabled in Omarchy's shipped `pacman.conf`). Even with multilib on, `pacman -S steam` only pulls a generic `lib32-vulkan-driver` provider — and the Arch wiki warns that pacman picks alphabetically, offering `lib32-nvidia-utils` first even on an AMD or Intel machine, which leaves you with no working 32-bit Vulkan at all.
+**Cause.** Steam's client is 32-bit and most Proton/Wine prefixes still load a 32-bit graphics path, so they need `/usr/lib32/` copies of the whole stack: the Mesa DRI drivers, the Vulkan loader, and the vendor Vulkan ICD. Those live in the `multilib` repository, which is **not enabled by default on plain Arch** (it *is* pre-enabled in Omarchy's shipped `pacman.conf`). Even with multilib on, `pacman -S steam` only pulls a generic `lib32-vulkan-driver` provider, and the Arch wiki warns that pacman picks alphabetically, offering `lib32-nvidia-utils` first even on an AMD or Intel machine, which leaves you with no working 32-bit Vulkan at all.
 
 The NVIDIA `GLXBadContext` variant is a version skew: `nvidia-utils` and `lib32-nvidia-utils` must be the *same* version, and they drift apart if you installed one of them via a partial upgrade or from a lagging mirror.
 
-> **Audit corrected this record.** The diagnosis is right and the Omarchy-specific claims all hold up. Arch Steam wiki line 28 is the source for the provider warning almost verbatim: "By default, pacman alphabetically chooses lib32-nvidia-utils, which can introduce issues such as being unable to use Vulkan at all due to the driver not corresponding to your GPU vendor." Omarchy's shipped default/pacman/pacman-stable.conf does contain an uncommented `[multilib]` block, so 'skip on Omarchy' is correct. bin/omarchy-install-gaming-gpu-lib32 is real on quattro and does exactly what the record says — lspci-detects Intel/AMD and adds lib32-vulkan-intel/lib32-vulkan-radeon, plus lib32-nvidia-utils or lib32-nvidia-580xx-utils. lib32-vulkan-icd-loader, lib32-mesa, lib32-vulkan-radeon, lib32-vulkan-intel, lib32-nvidia-utils, lib32-libnm, lib32-systemd and lib32-pipewire all exist in multilib. Three fixable problems. (1) `lib32-libva-mesa-driver` is no longer a package — Mesa's VA-API driver was merged into mesa, and lib32-mesa now only *provides* the name (provides: lib32-libva-driver, lib32-libva-mesa-driver=1:26.2.1-1). It resolves via provides rather than hard-failing, but it is a stale name that will confuse anyone who searches for it. (2) `lib32-libva-intel-driver` is the legacy i965 driver for pre-Broadwell only; for anything Broadwell-or-newer the VA-API driver is intel-media-driver, and there is no lib32 build of it in the repos — so the Intel line silently gives a modern laptop the wrong VA-API driver. (3) Step 4's order is backwards: `pacman -Rns lib32-nvidia-utils` before installing a replacement will be refused, because steam depends on the lib32-vulkan-driver provision that lib32-nvidia-utils is currently satisfying. Install the correct ICD first, then remove.
+> **Audit corrected this record.** The diagnosis is right and the Omarchy-specific claims all hold up. Arch Steam wiki line 28 is the source for the provider warning almost verbatim: "By default, pacman alphabetically chooses lib32-nvidia-utils, which can introduce issues such as being unable to use Vulkan at all due to the driver not corresponding to your GPU vendor." Omarchy's shipped default/pacman/pacman-stable.conf does contain an uncommented `[multilib]` block, so 'skip on Omarchy' is correct. bin/omarchy-install-gaming-gpu-lib32 is real on quattro and does exactly what the record says: lspci-detects Intel/AMD and adds lib32-vulkan-intel/lib32-vulkan-radeon, plus lib32-nvidia-utils or lib32-nvidia-580xx-utils. lib32-vulkan-icd-loader, lib32-mesa, lib32-vulkan-radeon, lib32-vulkan-intel, lib32-nvidia-utils, lib32-libnm, lib32-systemd and lib32-pipewire all exist in multilib. Three fixable problems. (1) `lib32-libva-mesa-driver` is no longer a package. Mesa's VA-API driver was merged into mesa, and lib32-mesa now only *provides* the name (provides: lib32-libva-driver, lib32-libva-mesa-driver=1:26.2.1-1). It resolves via provides rather than hard-failing, but it is a stale name that will confuse anyone who searches for it. (2) `lib32-libva-intel-driver` is the legacy i965 driver for pre-Broadwell only. For anything Broadwell-or-newer the VA-API driver is intel-media-driver, and there is no lib32 build of it in the repos, so the Intel line silently gives a modern laptop the wrong VA-API driver. (3) Step 4's order is backwards: `pacman -Rns lib32-nvidia-utils` before installing a replacement will be refused, because steam depends on the lib32-vulkan-driver provision that lib32-nvidia-utils is currently satisfying. Install the correct ICD first, then remove.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Never install a single lib32 package with `pacman -Sy lib32-nvidia-utils` — that is a partial upgrade and is exactly what produces the `GLXBadContext`/NVRM version skew this record is trying to fix. Use `pacman -Syu`. `lib32-vulkan-intel` and the NVIDIA Vulkan ICD are mutually exclusive per the Arch wiki; installing both on one machine breaks Vulkan for everything. Enabling multilib pulls a full second architecture's worth of libraries — expect a few hundred MB and a longer upgrade every time.
+> ⚠️ **Risk.** Never install a single lib32 package with `pacman -Sy lib32-nvidia-utils`. That is a partial upgrade and is exactly what produces the `GLXBadContext`/NVRM version skew this record is trying to fix. Use `pacman -Syu`. `lib32-vulkan-intel` and the NVIDIA Vulkan ICD are mutually exclusive per the Arch wiki. Installing both on one machine breaks Vulkan for everything. Enabling multilib pulls a full second architecture's worth of libraries, so expect a few hundred MB and a longer upgrade every time.
 
 **Fix.**
 
-**1. Enable multilib (skip on Omarchy — already enabled in its shipped pacman.conf).**
+**1. Enable multilib (skip on Omarchy, already enabled in its shipped pacman.conf).**
 
 ```bash
 grep -A1 '^\[multilib\]' /etc/pacman.conf
@@ -726,7 +726,7 @@ sudo pacman -Syu
 omarchy-install-gaming-gpu-lib32
 ```
 
-**3. Manual equivalent — install the lib32 packages matching your actual vendor.**
+**3. Manual equivalent: install the lib32 packages matching your actual vendor.**
 
 ```bash
 # always:
@@ -875,27 +875,27 @@ amdgpu 0000:03:00.0: amdgpu: GPU reset begin!
 amdgpu 0000:03:00.0: amdgpu: GPU reset(1) succeeded!
 ```
 
-When the reset does not work you get `GPU reset(1) failed with error -110` and a hard lock — no SysRq, only the power button. The milder variant just logs `ring gfx_0.0.0 timeout, but soft recovered` and the game stutters.
+When the reset does not work you get `GPU reset(1) failed with error -110` and a hard lock: no SysRq, only the power button. The milder variant just logs `ring gfx_0.0.0 timeout, but soft recovered` and the game stutters.
 
-**Cause.** A command submitted to the graphics ring did not signal its completion fence within the scheduler's watchdog window (2000 ms by default, per amdgpu's own `lockup_timeout` module parameter description), so the driver declared the ring hung and attempted a reset. That is a *symptom*, not a diagnosis — the actual culprit is almost always one of three things, in rough order of frequency on RDNA2/RDNA3 desktops:
+**Cause.** A command submitted to the graphics ring did not signal its completion fence within the scheduler's watchdog window (2000 ms by default, per amdgpu's own `lockup_timeout` module parameter description), so the driver declared the ring hung and attempted a reset. That is a *symptom*, not a diagnosis. The actual culprit is almost always one of three things, in rough order of frequency on RDNA2/RDNA3 desktops:
 
 1. **An unstable overclock or undervolt.** DDR5 EXPO/DOCP profiles, PBO/Curve Optimizer, and LACT/CoreCtrl undervolt profiles are the single most common cause of gfx ring timeouts on desktop Radeon cards.
 2. **A Mesa/RADV shader bug.** A specific shader compiles to something the hardware chokes on. Reproduces with one game and never with another.
 3. **A genuine driver/firmware bug** for that ASIC and kernel combination, or marginal power delivery.
 
-Note that GPU reset is already *enabled* by default on this hardware: amdgpu's `gpu_recovery` defaults to `-1` (auto), and amdgpu_device_should_recover_gpu() returns true under auto for every ASIC except a legacy list (SI, CIK, Carrizo, Stoney, Cyan Skillfish). So on RDNA2/RDNA3 the "GPU reset begin!" you are seeing IS the auto path working; a failed reset is a firmware/hardware problem, not a missing kernel parameter.
+Note that GPU reset is already *enabled* by default on this hardware: amdgpu's `gpu_recovery` defaults to `-1` (auto), and amdgpu_device_should_recover_gpu() returns true under auto for every ASIC except a legacy list (SI, CIK, Carrizo, Stoney, Cyan Skillfish). So on RDNA2/RDNA3 the "GPU reset begin!" you are seeing IS the auto path working. A failed reset is a firmware/hardware problem, not a missing kernel parameter.
 
-This is a different failure from `flip_done timed out` (display pipeline, fixed with amdgpu.dcdebugmask) and from idle GFXOFF lockups — those hang while doing nothing, this one hangs under load.
+This is a different failure from `flip_done timed out` (display pipeline, fixed with amdgpu.dcdebugmask) and from idle GFXOFF lockups. Those hang while doing nothing, this one hangs under load.
 
-> **Audit corrected this record.** The diagnosis and the triage order (evidence, then update, then RADV, then overclock, only then kernel params) are excellent, and most specifics verify exactly. The 2000 ms watchdog is right: amdgpu_drv.c:365 reads "GPU lockup timeout in ms (default: 2000...), format: [single value for all] or [GFX,Compute,SDMA,Video]". The RADV_DEBUG strings are verbatim from docs.mesa3d.org/envvars.html, including hang's "$HOME/radv_dumps_<pid>_<time>". noretry's "(0 = retry enabled, 1 = retry disabled, -1 auto (default))" is verbatim from amdgpu_drv.c:715. The devcoredump path is valid — devcoredump.c:421 creates a `devcoredump` symlink on the failing device, so /sys/class/drm/card1/device/devcoredump/data resolves. Two factual errors. (1) The `amdgpu.gpu_recovery=1` bullet is wrong, and wrong in the direction that wastes the reader's reboot: amdgpu_device_should_recover_gpu() (amdgpu_device.c:4878) returns true under the -1 auto default for everything except a short legacy list (SI, CIK, Carrizo, Stoney, Cyan Skillfish). Recovery is NOT "disabled outside SR-IOV" — on the RDNA2/RDNA3 hardware this record targets, auto already enables it and `gpu_recovery=1` is a no-op. (2) The devcoredump does not survive until "the next boot": include/linux/devcoredump.h:16 is `#define DEVCD_TIMEOUT (HZ * 60 * 5)` with the comment "if data isn't read by userspace after 5 minutes then delete it". A reader who thinks they can grab it tomorrow will find it gone. Also, the `sudo tee` in step 5 truncates zz-local.conf, silently discarding any parameter the reader added from a sibling record.
+> **Audit corrected this record.** The diagnosis and the triage order (evidence, then update, then RADV, then overclock, only then kernel params) are excellent, and most specifics verify exactly. The 2000 ms watchdog is right: amdgpu_drv.c:365 reads "GPU lockup timeout in ms (default: 2000...), format: [single value for all] or [GFX,Compute,SDMA,Video]". The RADV_DEBUG strings are verbatim from docs.mesa3d.org/envvars.html, including hang's "$HOME/radv_dumps_<pid>_<time>". noretry's "(0 = retry enabled, 1 = retry disabled, -1 auto (default))" is verbatim from amdgpu_drv.c:715. The devcoredump path is valid: devcoredump.c:421 creates a `devcoredump` symlink on the failing device, so /sys/class/drm/card1/device/devcoredump/data resolves. Two factual errors. (1) The `amdgpu.gpu_recovery=1` bullet is wrong, and wrong in the direction that wastes the reader's reboot: amdgpu_device_should_recover_gpu() (amdgpu_device.c:4878) returns true under the -1 auto default for everything except a short legacy list (SI, CIK, Carrizo, Stoney, Cyan Skillfish). Recovery is NOT "disabled outside SR-IOV". On the RDNA2/RDNA3 hardware this record targets, auto already enables it and `gpu_recovery=1` is a no-op. (2) The devcoredump does not survive until "the next boot": include/linux/devcoredump.h:16 is `#define DEVCD_TIMEOUT (HZ * 60 * 5)` with the comment "if data isn't read by userspace after 5 minutes then delete it". A reader who thinks they can grab it tomorrow will find it gone. Also, the `sudo tee` in step 5 truncates zz-local.conf, silently discarding any parameter the reader added from a sibling record.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** `gpu_recovery` is declared with `module_param_named_unsafe` in the kernel — setting it taints the kernel, and a *failed* reset can wedge the machine harder than the original hang would have, so save your work before testing. Setting `lockup_timeout` too high converts a recoverable ring hang into a multi-second (or permanent) full-desktop freeze. Disabling EXPO/DOCP drops your RAM to JEDEC base speed until you re-enable it. Never leave `RADV_DEBUG=hang` on permanently — it forces synchronisation and costs significant performance.
+> ⚠️ **Risk.** `gpu_recovery` is declared with `module_param_named_unsafe` in the kernel: setting it taints the kernel, and a *failed* reset can wedge the machine harder than the original hang would have, so save your work before testing. Setting `lockup_timeout` too high converts a recoverable ring hang into a multi-second (or permanent) full-desktop freeze. Disabling EXPO/DOCP drops your RAM to JEDEC base speed until you re-enable it. Never leave `RADV_DEBUG=hang` on permanently, because it forces synchronisation and costs significant performance.
 
 **Fix.**
 
-**1. Collect the evidence while it is still there — the crash dump self-deletes after FIVE MINUTES.**
+**1. Collect the evidence while it is still there: the crash dump self-deletes after FIVE MINUTES.**
 
 The kernel's devcoredump has a hard 5-minute expiry (`DEVCD_TIMEOUT (HZ * 60 * 5)`), so grab it in the same session as the hang, not after a reboot:
 
@@ -908,7 +908,7 @@ ls /sys/class/drm/card*/device/devcoredump/ 2>/dev/null
 sudo cat /sys/class/drm/card1/device/devcoredump/data > ~/amdgpu-coredump.txt
 ```
 
-**2. Update first.** Ring timeouts are fixed upstream constantly; a stale Mesa or kernel is the cheapest thing to rule out.
+**2. Update first.** Ring timeouts are fixed upstream constantly. A stale Mesa or kernel is the cheapest thing to rule out.
 
 ```bash
 omarchy update        # Omarchy 4
@@ -923,7 +923,7 @@ RADV_DEBUG=nongg %command%     # disables NGG on GFX10/10.3
 RADV_DEBUG=zerovram %command%  # zero-init VRAM allocations
 ```
 
-If the hang stops under `hang` or `nongg`, it is a Mesa bug — file the dump at gitlab.freedesktop.org/mesa/mesa and stay on the workaround. If it hangs identically under all of them, go to step 4.
+If the hang stops under `hang` or `nongg`, it is a Mesa bug. File the dump at gitlab.freedesktop.org/mesa/mesa and stay on the workaround. If it hangs identically under all of them, go to step 4.
 
 **4. Take the overclock out of the picture.** Reboot into firmware setup and disable EXPO/DOCP (RAM back to JEDEC) and PBO/Curve Optimizer, and remove any GPU undervolt:
 
@@ -935,7 +935,7 @@ cat /sys/class/drm/card1/device/pp_od_clk_voltage 2>/dev/null
 
 Run the game for an hour. If it is now stable, reintroduce one setting at a time.
 
-**5. Only then reach for kernel parameters.** On Omarchy 4 add them as a drop-in that sorts after Omarchy's own defaults. Use `tee -a` — a bare `tee` truncates the file and would discard any parameter you added earlier from another record:
+**5. Only then reach for kernel parameters.** On Omarchy 4 add them as a drop-in that sorts after Omarchy's own defaults. Use `tee -a`, because a bare `tee` truncates the file and would discard any parameter you added earlier from another record:
 
 ```bash
 sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
@@ -947,9 +947,9 @@ sudo limine-mkinitcpio && sudo limine-update && sudo reboot
 
 Useful values, per amdgpu's own module documentation:
 
-- `amdgpu.lockup_timeout=10000` — watchdog in ms (default 2000); format is a single value or `GFX,Compute,SDMA,Video`. Use only if a legitimately long compute/shader job is being killed.
-- `amdgpu.noretry=0` — re-enable XNACK retry faults (`0 = retry enabled, 1 = retry disabled, -1 = auto`). Worth a try on GFX9/Vega where a VM fault escalates into a ring hang.
-- `amdgpu.gpu_recovery=1` — **only useful on legacy ASICs.** The `-1` auto default already enables recovery on everything except SI, CIK, Carrizo, Stoney and Cyan Skillfish, so on RDNA2/RDNA3 this parameter changes nothing. If your reset is failing with `error -110`, that is a firmware/hardware problem and this will not fix it.
+- `amdgpu.lockup_timeout=10000`: watchdog in ms (default 2000). Format is a single value or `GFX,Compute,SDMA,Video`. Use only if a legitimately long compute/shader job is being killed.
+- `amdgpu.noretry=0`: re-enable XNACK retry faults (`0 = retry enabled, 1 = retry disabled, -1 = auto`). Worth a try on GFX9/Vega where a VM fault escalates into a ring hang.
+- `amdgpu.gpu_recovery=1`: **only useful on legacy ASICs.** The `-1` auto default already enables recovery on everything except SI, CIK, Carrizo, Stoney and Cyan Skillfish, so on RDNA2/RDNA3 this parameter changes nothing. If your reset is failing with `error -110`, that is a firmware/hardware problem and this will not fix it.
 
 On GRUB systems put the same parameters in `GRUB_CMDLINE_LINUX_DEFAULT` in /etc/default/grub and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
 
@@ -973,7 +973,7 @@ ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:404] Share
 
 **Cause.** Cross-GPU buffer sharing. The compositor renders on one GPU (often the NVIDIA dGPU) while Chromium's ANGLE/EGL path imports DMA-BUFs allocated on the other (the Intel iGPU). The two do not agree on format modifiers, so `eglCreateImage` fails and every video frame is dropped.
 
-> **Audit corrected this record.** The symptom, the eglCreateImage 0x3009 / OzoneImageBacking log trio and the cross-GPU DMA-BUF modifier explanation are real and match Omarchy issues 3891 and 4901 (both exist, titled 'Videos not playing after recent update' and 'Hybrid Intel+NVIDIA: Chromium hardware acceleration requires manual workarounds'). Two flags are wrong: `--use-gl=desktop` was removed from Chromium years ago (Linux is ANGLE-only now; the value is ignored/errors and the modern equivalent is `--use-angle=gl`), and `--disable-gpu-compositing` is offered as a routine step when it turns off GPU compositing browser-wide — a last-resort sledgehammer that costs performance everywhere.
+> **Audit corrected this record.** The symptom, the eglCreateImage 0x3009 / OzoneImageBacking log trio and the cross-GPU DMA-BUF modifier explanation are real and match Omarchy issues 3891 and 4901 (both exist, titled 'Videos not playing after recent update' and 'Hybrid Intel+NVIDIA: Chromium hardware acceleration requires manual workarounds'). Two flags are wrong: `--use-gl=desktop` was removed from Chromium years ago (Linux is ANGLE-only now. The value is ignored/errors and the modern equivalent is `--use-angle=gl`), and `--disable-gpu-compositing` is offered as a routine step when it turns off GPU compositing browser-wide. It is a last-resort sledgehammer that costs performance everywhere.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -998,7 +998,7 @@ Then `~/.config/chromium-flags.conf` (or `brave-flags.conf` / `chrome-flags.conf
 --ignore-gpu-blocklist
 ```
 
-Fully restart the browser (`pkill chromium`) and check `chrome://gpu` — 'Video Decode: Hardware accelerated' and no ANGLE/EGL errors.
+Fully restart the browser (`pkill chromium`) and check `chrome://gpu` for 'Video Decode: Hardware accelerated' and no ANGLE/EGL errors.
 
 If video is still black, escalate in this order:
 
@@ -1012,9 +1012,9 @@ and only as a last resort:
 --disable-gpu-compositing   # disables GPU compositing for the whole browser
 ```
 
-Do not use `--use-gl=desktop` (removed from Chromium; silently ignored) and do not use `--use-angle=vulkan` on this setup (reported to render the window transparent).
+Do not use `--use-gl=desktop` (removed from Chromium, silently ignored) and do not use `--use-angle=vulkan` on this setup (reported to render the window transparent).
 
-**Verify.** `chrome://gpu` shows 'Video Decode: Hardware accelerated' and no `eglCreateImage` errors on stderr; a 1080p YouTube video plays smoothly and `intel_gpu_top` shows the Video engine above 0%.
+**Verify.** `chrome://gpu` shows 'Video Decode: Hardware accelerated' and no `eglCreateImage` errors on stderr. A 1080p YouTube video plays smoothly and `intel_gpu_top` shows the Video engine above 0%.
 
 Sources: <https://github.com/basecamp/omarchy/issues/4901> · <https://github.com/basecamp/omarchy/issues/3891> · <https://github.com/basecamp/omarchy/issues/3899> · <https://wiki.archlinux.org/title/Hardware_video_acceleration>
 
@@ -1196,27 +1196,27 @@ Sources: <https://github.com/omacom/omarchy/issues/7045> · <https://github.com/
 
 **Symptom.** Two mirror-image complaints.
 
-Direction A — "I installed the NVIDIA driver but nothing uses it": `lspci -k` says `Kernel driver in use: nouveau`, `nvidia-smi` fails, and `glxinfo -B` reports a Mesa/NVK/llvmpipe renderer. Games run at single-digit FPS.
+Direction A is "I installed the NVIDIA driver but nothing uses it": `lspci -k` says `Kernel driver in use: nouveau`, `nvidia-smi` fails, and `glxinfo -B` reports a Mesa/NVK/llvmpipe renderer. Games run at single-digit FPS.
 
-Direction B — the reverse: `nvidia-smi` fails with `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`, and `journalctl -b` shows the module was refused:
+Direction B is the reverse: `nvidia-smi` fails with `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`, and `journalctl -b` shows the module was refused:
 
 ```
 modprobe: ERROR: could not insert 'nvidia': Operation not permitted
 ```
 
-or `sudo modprobe -v nvidia` prints `install /bin/false` / reports the module is blacklisted — while `/etc/modprobe.d/` looks empty to you.
+or `sudo modprobe -v nvidia` prints `install /bin/false` / reports the module is blacklisted, while `/etc/modprobe.d/` looks empty to you.
 
-**Cause.** nouveau and nvidia both claim the same PCI device; whichever binds first wins. The blacklist that separates them ships with nvidia-utils at /usr/lib/modprobe.d/nvidia-utils.conf, which currently contains `blacklist nouveau`, `blacklist nova_core`, `blacklist nova_drm`, `softdep nvidia post: nvidia-uvm nvidia-drm`, plus two `options nvidia NVreg_*` lines.
+**Cause.** nouveau and nvidia both claim the same PCI device. Whichever binds first wins. The blacklist that separates them ships with nvidia-utils at /usr/lib/modprobe.d/nvidia-utils.conf, which currently contains `blacklist nouveau`, `blacklist nova_core`, `blacklist nova_drm`, `softdep nvidia post: nvidia-uvm nvidia-drm`, plus two `options nvidia NVreg_*` lines.
 
 Direction A (nouveau wins) happens when nvidia-utils is not installed (you installed only nvidia-dkms), or the initramfs was built before it was and the `kms` hook still pulls nouveau in during early boot, or the NVIDIA module failed to build for the running kernel.
 
-Direction B (nvidia refused) is where the original cause overreached. A plain `blacklist nvidia` line only suppresses automatic, alias-driven loading — it does not block an explicit `modprobe nvidia`, and it never produces `Operation not permitted`. That EPERM refusal comes from one of: an `install nvidia /bin/false` line in /etc/modprobe.d/ (the form old "disable the dGPU" howtos actually use, and the only modprobe.d form that defeats explicit loading), `/proc/sys/kernel/modules_disabled=1`, or kernel lockdown/module-signature enforcement. A `module_blacklist=`/`modprobe.blacklist=` kernel parameter likewise only blocks autoload and is invisible to modprobe.d inspection. So on Direction B, check for `install ... /bin/false` and for enforcement — not just for a blacklist line — because /etc/modprobe.d/ genuinely can look empty of relevant blacklists while nvidia is still being refused.
+Direction B (nvidia refused) is where the original cause overreached. A plain `blacklist nvidia` line only suppresses automatic, alias-driven loading. It does not block an explicit `modprobe nvidia`, and it never produces `Operation not permitted`. That EPERM refusal comes from one of: an `install nvidia /bin/false` line in /etc/modprobe.d/ (the form old "disable the dGPU" howtos actually use, and the only modprobe.d form that defeats explicit loading), `/proc/sys/kernel/modules_disabled=1`, or kernel lockdown/module-signature enforcement. A `module_blacklist=`/`modprobe.blacklist=` kernel parameter likewise only blocks autoload and is invisible to modprobe.d inspection. So on Direction B, check for `install ... /bin/false` and for enforcement, not just for a blacklist line, because /etc/modprobe.d/ genuinely can look empty of relevant blacklists while nvidia is still being refused.
 
-> **Audit corrected this record.** The core is right and the diagnostics are unusually good — `lspci -k -d ::03xx` is valid (pciutils lib/filter.c parse_hex_field accepts 'x' wildcards for the class field, and the Hyprland Multi-GPU wiki uses the identical form), /etc/modprobe.d overriding /usr/lib/modprobe.d is correct, and `systemd-analyze cat-config modprobe.d` is the right merged view. Three defects. (1) Direction B's headline symptom is misattributed: `blacklist nvidia` does NOT stop an explicit `modprobe nvidia` — blacklist only suppresses alias-driven autoload. `could not insert 'nvidia': Operation not permitted` (EPERM) comes from an `install nvidia /bin/false` line, /proc/sys/kernel/modules_disabled, or lockdown — not from a blacklist entry. A reader hunting for a bare blacklist line on that error will find nothing. (2) The quoted /usr/lib/modprobe.d/nvidia-utils.conf is stale: the current file (nvidia-utils 610.57.04) also carries `options nvidia NVreg_UseKernelSuspendNotifiers=1` and `options nvidia NVreg_TemporaryFilePath=/var/tmp`. The blacklist/softdep half quoted is verbatim correct. (3) `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -S nvidia-utils` is cargo-cult: I read the guard, and it only trips when both a sync and a sysupgrade flag are present, so a plain `pacman -S` never needed the escape hatch.
+> **Audit corrected this record.** The core is right and the diagnostics are unusually good: `lspci -k -d ::03xx` is valid (pciutils lib/filter.c parse_hex_field accepts 'x' wildcards for the class field, and the Hyprland Multi-GPU wiki uses the identical form), /etc/modprobe.d overriding /usr/lib/modprobe.d is correct, and `systemd-analyze cat-config modprobe.d` is the right merged view. Three defects. (1) Direction B's headline symptom is misattributed: `blacklist nvidia` does NOT stop an explicit `modprobe nvidia`: blacklist only suppresses alias-driven autoload. `could not insert 'nvidia': Operation not permitted` (EPERM) comes from an `install nvidia /bin/false` line, /proc/sys/kernel/modules_disabled, or lockdown, not from a blacklist entry. A reader hunting for a bare blacklist line on that error will find nothing. (2) The quoted /usr/lib/modprobe.d/nvidia-utils.conf is stale: the current file (nvidia-utils 610.57.04) also carries `options nvidia NVreg_UseKernelSuspendNotifiers=1` and `options nvidia NVreg_TemporaryFilePath=/var/tmp`. The blacklist/softdep half quoted is verbatim correct. (3) `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -S nvidia-utils` is cargo-cult: I read the guard, and it only trips when both a sync and a sysupgrade flag are present, so a plain `pacman -S` never needed the escape hatch.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Adding the NVIDIA modules to `MODULES=` (early KMS) is documented by both Arch and the Hyprland wiki to break resume-from-hibernation — the machine cold-boots instead of restoring. If you hibernate, skip that step. Removing `kms` from `HOOKS` costs you the early framebuffer and a themed Plymouth/LUKS prompt. Always rebuild the initramfs *and* regenerate the boot entries before rebooting; a UKI built from a half-edited mkinitcpio.conf boots to a black screen, and on Omarchy 4 you then need the Limine snapshot entry to get back.
+> ⚠️ **Risk.** Adding the NVIDIA modules to `MODULES=` (early KMS) is documented by both Arch and the Hyprland wiki to break resume-from-hibernation. The machine cold-boots instead of restoring. If you hibernate, skip that step. Removing `kms` from `HOOKS` costs you the early framebuffer and a themed Plymouth/LUKS prompt. Always rebuild the initramfs *and* regenerate the boot entries before rebooting. A UKI built from a half-edited mkinitcpio.conf boots to a black screen, and on Omarchy 4 you then need the Limine snapshot entry to get back.
 
 **Fix.**
 
@@ -1236,7 +1236,7 @@ grep -oE 'module_blacklist=[^ ]*|modprobe\.blacklist=[^ ]*|nomodeset' /proc/cmdl
 sudo modprobe -v nvidia                  # shows exactly what modprobe would do
 ```
 
-If `modprobe nvidia` fails with `Operation not permitted`, that is NOT a plain blacklist — check these three instead:
+If `modprobe nvidia` fails with `Operation not permitted`, that is NOT a plain blacklist. Check these three instead:
 
 ```bash
 cat /proc/sys/kernel/modules_disabled     # want: 0
@@ -1244,7 +1244,7 @@ cat /sys/kernel/security/lockdown         # want: [none] integrity confidentiali
 cat /sys/module/module/parameters/sig_enforce   # want: N
 ```
 
-**Direction A - nouveau is winning.** Install the package that owns the blacklist, then rebuild the initramfs:
+**Direction A: nouveau is winning.** Install the package that owns the blacklist, then rebuild the initramfs:
 
 ```bash
 # Omarchy 4 (idiomatic; the update guard only blocks -Syu, so plain -S is fine either way):
@@ -1263,9 +1263,9 @@ sudo mkinitcpio -P
 sudo reboot
 ```
 
-If you would rather not use early KMS, you can instead keep nouveau out of the image by removing `kms` from the `HOOKS` array in /etc/mkinitcpio.conf and rebuilding - the alternative the Arch NVIDIA page documents.
+If you would rather not use early KMS, you can instead keep nouveau out of the image by removing `kms` from the `HOOKS` array in /etc/mkinitcpio.conf and rebuilding, the alternative the Arch NVIDIA page documents.
 
-**Direction B - something is stopping nvidia.** Remove whatever the greps above named:
+**Direction B: something is stopping nvidia.** Remove whatever the greps above named:
 
 ```bash
 # a blacklist/install fragment (use the real filename you found):
@@ -1278,9 +1278,9 @@ sudo limine-mkinitcpio && sudo limine-update
 sudo reboot
 ```
 
-If instead `modules_disabled` was 1, or lockdown/sig_enforce was enforcing, this is not a blacklist problem at all - see the Secure Boot / module-signature record.
+If instead `modules_disabled` was 1, or lockdown/sig_enforce was enforcing, this is not a blacklist problem at all. See the Secure Boot / module-signature record.
 
-**Verify.** `lspci -k -d ::03xx` shows `Kernel driver in use: nvidia`; `cat /sys/module/nvidia_drm/parameters/modeset` returns `Y`; `nvidia-smi` prints the device table; `lsmod | grep nouveau` is empty.
+**Verify.** `lspci -k -d ::03xx` shows `Kernel driver in use: nvidia`. `cat /sys/module/nvidia_drm/parameters/modeset` returns `Y`. `nvidia-smi` prints the device table. `lsmod | grep nouveau` is empty.
 
 Sources: <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.archlinux.org/title/Kernel_module> · <https://gitlab.archlinux.org/archlinux/packaging/packages/nvidia-utils/-/raw/main/nvidia-utils.conf> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Nvidia/_index.md> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-update-pacman-guard>
 
@@ -1436,13 +1436,13 @@ nvidia: module verification failed: signature and/or required key missing - tain
 
 Same thing happens with `nvidia-open-dkms`, `virtualbox-host-dkms`, `zfs-dkms`, `v4l2loopback-dkms`.
 
-**Cause.** First, separate the two messages. `module verification failed: signature and/or required key missing - tainting kernel` on its own is **harmless and normal** on every Arch box that uses DKMS — the module still loads, the kernel just marks itself tainted. Only `Key was rejected by service` (or `Loading of unsigned module is rejected`) is an actual refusal.
+**Cause.** First, separate the two messages. `module verification failed: signature and/or required key missing - tainting kernel` on its own is **harmless and normal** on every Arch box that uses DKMS. The module still loads, and the kernel just marks itself tainted. Only `Key was rejected by service` (or `Loading of unsigned module is rejected`) is an actual refusal.
 
 A refusal means the kernel is *enforcing* module signatures. That is not the Arch default. The Arch Security wiki states that all officially supported kernels initialize the lockdown LSM but **none of them enforce any lockdown mode**, and notes that the `kernel_lockdown(7)` claim that lockdown is auto-enabled by Secure Boot is not true of upstream or of Arch's packaged kernels. So if you are seeing a rejection, enforcement was turned on by something: `module.sig_enforce=1` or `lockdown=integrity` in the kernel command line, `linux-hardened`, a shim-based boot chain, or a non-Arch kernel.
 
-The second half of the problem is that the standard "enroll a MOK" answer does not apply to a typical Arch/Omarchy machine. MOK is a shim feature. Arch and Omarchy boot Limine/UKI via efistub with your own PK/KEK/db keys (sbctl), with no shim in the chain, so there is no MokList for `mokutil` to write into — enrolling through MokManager appears to succeed and `modprobe` still fails.
+The second half of the problem is that the standard "enroll a MOK" answer does not apply to a typical Arch/Omarchy machine. MOK is a shim feature. Arch and Omarchy boot Limine/UKI via efistub with your own PK/KEK/db keys (sbctl), with no shim in the chain, so there is no MokList for `mokutil` to write into. Enrolling through MokManager appears to succeed and `modprobe` still fails.
 
-> ⚠️ **Risk.** Turning Secure Boot off in firmware invalidates TPM-sealed secrets. If this machine dual-boots Windows with BitLocker, or uses a TPM-sealed LUKS key (systemd-cryptenroll --tpm2-device with PCR 7), it will demand a recovery key or password on the next boot — have that recovery key in hand before you touch the firmware setting. Enrolling a MOK requires you to complete the MokManager prompt at the very next boot; if you miss it the request expires and the module stays unloadable. `dkms generate_mok` overwrites `/var/lib/dkms/mok.key`/`mok.pub` if either file is missing — regenerating invalidates any previously enrolled DKMS key, so every DKMS module must be rebuilt and the new key re-enrolled.
+> ⚠️ **Risk.** Turning Secure Boot off in firmware invalidates TPM-sealed secrets. If this machine dual-boots Windows with BitLocker, or uses a TPM-sealed LUKS key (systemd-cryptenroll --tpm2-device with PCR 7), it will demand a recovery key or password on the next boot. Have that recovery key in hand before you touch the firmware setting. Enrolling a MOK requires you to complete the MokManager prompt at the very next boot. If you miss it the request expires and the module stays unloadable. `dkms generate_mok` overwrites `/var/lib/dkms/mok.key`/`mok.pub` if either file is missing. Regenerating invalidates any previously enrolled DKMS key, so every DKMS module must be rebuilt and the new key re-enrolled.
 
 **Fix.**
 
@@ -1457,9 +1457,9 @@ uname -r; pacman -Q linux linux-hardened linux-lts 2>/dev/null
 sudo dmesg | grep -iE 'lockdown|Key was rejected|module verification'
 ```
 
-If `lockdown` reads `[none]` and `sig_enforce` is `N`, module signing is not your problem — look elsewhere (a failed DKMS build, or the boot loader/kernel itself not being signed).
+If `lockdown` reads `[none]` and `sig_enforce` is `N`, module signing is not your problem. Look elsewhere (a failed DKMS build, or the boot loader/kernel itself not being signed).
 
-**2a. You put the enforcement there yourself — take it back out.** On Omarchy 4 the command line lives in `limine-entry-tool` drop-ins, not in `/boot/limine.conf`:
+**2a. You put the enforcement there yourself, so take it back out.** On Omarchy 4 the command line lives in `limine-entry-tool` drop-ins, not in `/boot/limine.conf`:
 
 ```bash
 grep -rn 'sig_enforce\|lockdown' /etc/limine-entry-tool.d/ /etc/default/limine /etc/kernel/cmdline 2>/dev/null
@@ -1470,7 +1470,7 @@ sudo reboot
 
 On GRUB systems remove it from `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
 
-**2b. You genuinely have a shim in the chain (dual-boot with a shim-signed distro, or you installed `shim-signed`).** DKMS auto-generates a signing key on first build; enroll its certificate:
+**2b. You genuinely have a shim in the chain (dual-boot with a shim-signed distro, or you installed `shim-signed`).** DKMS auto-generates a signing key on first build. Enroll its certificate:
 
 ```bash
 ls -l /var/lib/dkms/mok.pub || sudo dkms generate_mok
@@ -1496,11 +1496,11 @@ mok_certificate=$kernel_source_dir/certs/signing_key.x509
 sudo dkms autoinstall -k "$(uname -r)"
 ```
 
-This only works if your kernel package actually installs `certs/signing_key.pem` into the headers — Arch's stock `linux` does not, which is why 2c is a custom-kernel path only.
+This only works if your kernel package actually installs `certs/signing_key.pem` into the headers. Arch's stock `linux` does not, which is why 2c is a custom-kernel path only.
 
 **3. Emergency escape while you sort it out:** boot once with Secure Boot disabled in firmware, or add `module.sig_enforce=0` at the Limine menu (the editor is unconditionally disabled when Secure Boot is active, so this needs Secure Boot off first).
 
-**Verify.** `sudo modprobe nvidia && nvidia-smi` succeeds; `sudo dmesg | grep -i 'Key was rejected'` is empty; `cat /sys/kernel/security/lockdown` shows `[none]` (or the module loads despite lockdown, meaning the signature is now trusted).
+**Verify.** `sudo modprobe nvidia && nvidia-smi` succeeds. `sudo dmesg | grep -i 'Key was rejected'` is empty. `cat /sys/kernel/security/lockdown` shows `[none]` (or the module loads despite lockdown, meaning the signature is now trusted).
 
 Sources: <https://wiki.archlinux.org/title/Security> · <https://wiki.archlinux.org/title/Signed_kernel_modules> · <https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support> · <https://man.archlinux.org/man/dkms.8> · <https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot> · <https://bbs.archlinux.org/viewtopic.php?id=283289> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md>
 
@@ -1512,7 +1512,7 @@ Sources: <https://wiki.archlinux.org/title/Security> · <https://wiki.archlinux.
 
 **Symptom.** Steam/Proton and other XWayland games flicker violently, show frames out of order, or are effectively unplayable on NVIDIA under Hyprland, while the rest of the desktop is fine.
 
-**Cause.** The NVIDIA driver has no implicit synchronisation. Explicit sync (`linux-drm-syncobj-v1`) is only negotiated when XWayland, wayland-protocols and the NVIDIA driver are all new enough; older combinations present buffers before rendering has finished.
+**Cause.** The NVIDIA driver has no implicit synchronisation. Explicit sync (`linux-drm-syncobj-v1`) is only negotiated when XWayland, wayland-protocols and the NVIDIA driver are all new enough. Older combinations present buffers before rendering has finished.
 
 > **Audit corrected this record.** Checked the Hyprland wiki Nvidia page (content/nvidia/_index.md), which still has the Flickering in Xwayland games section with the same floors: xorg-xwayland 24.1, wayland-protocols 1.34, NVIDIA 555, and a 535xx fallback for GPUs the 555 driver dropped. Symptom, cause and the three version floors are confirmed, and the Arch wiki NVIDIA page carries the same note about pre-555 drivers and linux-drm-syncobj-v1. Four things were wrong. The Kepler claim is wrong: the Arch wiki NVIDIA driver table puts Kepler on nvidia-470xx-dkms and Maxwell, Pascal and Volta on nvidia-580xx-dkms, so no GPU family needs 535xx today and the 580 branch already exceeds the 555 floor, while Kepler cannot run any explicit-sync driver at all. `hl.set` does not exist: the wiki config-options page documents `hl.config({ ... })` and every Omarchy file under /usr/share/omarchy uses that form, so the Lua block was replaced with `hl.config({ render = { direct_scanout = 0 } })` and the 0/1/2 values were added from the same page, which also shows the default is 0. `sudo pacman -Syu <pkgs>` is blocked by Omarchy's ALPM guard, so the fix now uses `omarchy update`. The danger overstated the lib32 mixing risk: AUR metadata shows lib32-nvidia-535xx-utils and lib32-nvidia-580xx-utils depend on an exactly matching nvidia-utils version and conflict with the repo lib32-nvidia-utils, so pacman refuses the mismatch rather than letting 32-bit games fail. `hyprctl systeminfo` reporting the driver version was confirmed on this machine, which prints an NVRM version line for 610.57.04. Current repo versions (xorg-xwayland 24.1.13, wayland-protocols 1.49, nvidia-utils 610.57.04) and the AUR packages 535xx 535.309.01, 580xx 580.178.04 and 470xx 470.256.02 were read from archlinux.org and the AUR RPC on 2026-09-06. The cited raw Variables.md URL now returns 404 and was replaced with the current config-options page.
 >
@@ -1572,7 +1572,7 @@ Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/N
 
 `amdgpu-flip-done-timed-out` · severity: **high** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** The screen stops updating entirely — the image is frozen but audio keeps playing and SSH still works. `journalctl -k` shows:
+**Symptom.** The screen stops updating entirely. The image is frozen but audio keeps playing and SSH still works. `journalctl -k` shows:
 
 ```
 [drm:drm_atomic_helper_wait_for_flip_done] *ERROR* [CRTC:...] flip_done timed out
@@ -1663,9 +1663,9 @@ CONFIG_DRM_I915_FORCE_PROBE='!9a49' configuration options.
 
 **Cause.** Intel gates support for hardware it considers not yet validated behind a `require_force_probe` flag in the driver's device table. Until Intel clears it, the driver refuses `-ENODEV` on probe and prints the message above, and you fall back to `simpledrm`/`efifb` plus software rendering.
 
-The second half of the problem is the i915-vs-xe split. Both drivers exist in the same kernel and both claim overlapping PCI IDs. `i915` covers everything up to and including Alchemist/Meteor Lake; `xe` is the newer driver and is the only option for Lunar Lake, Battlemage and later. For first-generation Xe hardware (Tiger Lake, Rocket Lake, Alder Lake, Arc A-series) both drivers can bind, and the Arch wiki flags `xe` as *experimental* on those parts. Two drivers cannot own the same device, so switching to `xe` always requires excluding the ID from `i915` at the same time.
+The second half of the problem is the i915-vs-xe split. Both drivers exist in the same kernel and both claim overlapping PCI IDs. `i915` covers everything up to and including Alchemist/Meteor Lake. `xe` is the newer driver and is the only option for Lunar Lake, Battlemage and later. For first-generation Xe hardware (Tiger Lake, Rocket Lake, Alder Lake, Arc A-series) both drivers can bind, and the Arch wiki flags `xe` as *experimental* on those parts. Two drivers cannot own the same device, so switching to `xe` always requires excluding the ID from `i915` at the same time.
 
-> ⚠️ **Risk.** Force-probing calls `add_taint(TAINT_USER)` — the kernel is marked tainted, and Intel will not accept bug reports from that state. Unvalidated hardware can hang, corrupt the display, or fail to resume from suspend; keep a snapshot or a second boot entry. Switching Tiger Lake / Rocket Lake / Alder Lake / Arc A-series to `xe` is explicitly experimental per the Arch wiki, with no stability or feature-parity guarantee — have a way to revert (edit the entry at the Limine menu, or boot a snapshot) before you reboot. Getting the `!` wrong on the i915 exclusion leaves both drivers fighting for the device and you get no display at all.
+> ⚠️ **Risk.** Force-probing calls `add_taint(TAINT_USER)`: the kernel is marked tainted, and Intel will not accept bug reports from that state. Unvalidated hardware can hang, corrupt the display, or fail to resume from suspend. Keep a snapshot or a second boot entry. Switching Tiger Lake / Rocket Lake / Alder Lake / Arc A-series to `xe` is explicitly experimental per the Arch wiki, with no stability or feature-parity guarantee. Have a way to revert (edit the entry at the Limine menu, or boot a snapshot) before you reboot. Getting the `!` wrong on the i915 exclusion leaves both drivers fighting for the device and you get no display at all.
 
 **Fix.**
 
@@ -1679,7 +1679,7 @@ dmesg | grep -iE 'i915|xe ' | head -20
 lspci -k -d ::03xx        # confirm no "Kernel driver in use"
 ```
 
-**2. Prefer the real fix: a newer kernel.** The driver message says so itself. Before forcing anything, update and try the newest kernel available; on Arch-based systems that means `linux` at minimum, and `linux-firmware` for the GuC/HuC blobs the newer parts require.
+**2. Prefer the real fix: a newer kernel.** The driver message says so itself. Before forcing anything, update and try the newest kernel available. On Arch-based systems that means `linux` at minimum, and `linux-firmware` for the GuC/HuC blobs the newer parts require.
 
 ```bash
 omarchy update                                  # Omarchy 4
@@ -1708,7 +1708,7 @@ EOF
 sudo limine-mkinitcpio && sudo limine-update && sudo reboot
 ```
 
-The modprobe.d equivalent (works only if the module is loaded from the initramfs *after* your config is included — the cmdline is more reliable for early KMS):
+The modprobe.d equivalent (works only if the module is loaded from the initramfs *after* your config is included, and the cmdline is more reliable for early KMS):
 
 ```conf
 # /etc/modprobe.d/intel_xe.conf
@@ -1724,7 +1724,7 @@ On GRUB systems, put the same string in `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/de
 sudo pacman -S mesa vulkan-intel intel-media-driver
 ```
 
-**Verify.** `lspci -k -d ::03xx` now shows `Kernel driver in use: i915` (or `xe`); `glxinfo -B | grep -i 'OpenGL renderer'` names your Intel GPU instead of `llvmpipe`; `vulkaninfo --summary` lists an Intel device; `dmesg | grep -i force` shows `Force probing unsupported Device ID 7d55, tainting kernel`, confirming the parameter took effect.
+**Verify.** `lspci -k -d ::03xx` now shows `Kernel driver in use: i915` (or `xe`). `glxinfo -B | grep -i 'OpenGL renderer'` names your Intel GPU instead of `llvmpipe`. `vulkaninfo --summary` lists an Intel device. `dmesg | grep -i force` shows `Force probing unsupported Device ID 7d55, tainting kernel`, confirming the parameter took effect.
 
 Sources: <https://wiki.archlinux.org/title/Intel_graphics> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/i915_pci.c> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/xe/xe_pci.c> · <https://wiki.archlinux.org/title/Limine>
 
@@ -1734,7 +1734,7 @@ Sources: <https://wiki.archlinux.org/title/Intel_graphics> · <https://github.co
 
 `nvidia-dpms-gsp-timeout-freeze` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** The machine hard-freezes seconds after the screen blanks on idle, or right after resuming — mouse dead, no TTY switch, only a power-button reset works. `journalctl -b -1 -k` shows:
+**Symptom.** The machine hard-freezes seconds after the screen blanks on idle, or right after resuming: the mouse is dead, there is no TTY switch, and only a power-button reset works. `journalctl -b -1 -k` shows:
 
 ```
 NVRM: _kgspLogXid119: ***** GSP Timeout *****
@@ -1853,25 +1853,25 @@ Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://g
 
 `nvidia-gsp-firmware-crashes` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** Random full-system crashes, Vulkan applications refusing to start, or on some Ampere laptops the driver failing outright (no display, `nvidia-smi` errors) — all starting with driver 555 or later. Games and `vkcube` die with Vulkan initialisation errors.
+**Symptom.** Random full-system crashes, Vulkan applications refusing to start, or on some Ampere laptops the driver failing outright (no display, `nvidia-smi` errors), all starting with driver 555 or later. Games and `vkcube` die with Vulkan initialisation errors.
 
 **Cause.** The GSP (GPU System Processor) firmware, enabled by default since driver 555, is known to cause a range of failures including Vulkan breakage, broken PCIe D3 power management on pre-Ampere cards, and complete driver failure on some Ampere-equipped laptops.
 
-> **Audit corrected this record.** The problem and the core parameter are right (Arch NVIDIA/Troubleshooting#GSP firmware: enabled by default since 555, causes Vulkan failures and crashes; NVreg_EnableGpuFirmware=0 'only works with the proprietary NVIDIA driver'; the NVIDIA page's footnote 2 recommends exactly nvidia-580xx-dkms + that parameter for the Ampere-laptop failures). The fix is dangerous as written for one group: on Blackwell (RTX 50xx) and newer the open kernel modules are REQUIRED (Hyprland wiki states this in bold), and nvidia-580xx does not support Blackwell at all — a 50-series owner who runs `pacman -Rdd nvidia-open` and installs 580xx ends up with no working driver and no desktop. It also skips linux-headers ordering and the nvidia-utils conflict.
+> **Audit corrected this record.** The problem and the core parameter are right (Arch NVIDIA/Troubleshooting#GSP firmware: enabled by default since 555, causes Vulkan failures and crashes. NVreg_EnableGpuFirmware=0 'only works with the proprietary NVIDIA driver'. The NVIDIA page's footnote 2 recommends exactly nvidia-580xx-dkms + that parameter for the Ampere-laptop failures). The fix is dangerous as written for one group: on Blackwell (RTX 50xx) and newer the open kernel modules are REQUIRED (Hyprland wiki states this in bold), and nvidia-580xx does not support Blackwell at all. A 50-series owner who runs `pacman -Rdd nvidia-open` and installs 580xx ends up with no working driver and no desktop. It also skips linux-headers ordering and the nvidia-utils conflict.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Swapping between the open and proprietary kernel modules with `pacman -Rdd` bypasses dependency checking and leaves you temporarily without a working driver — do the removal and the install in one session, from a TTY, and do not reboot in between. Blackwell (RTX 50xx) and newer REQUIRE the open modules; do not do this on those cards.
+> ⚠️ **Risk.** Swapping between the open and proprietary kernel modules with `pacman -Rdd` bypasses dependency checking and leaves you temporarily without a working driver. Do the removal and the install in one session, from a TTY, and do not reboot in between. Blackwell (RTX 50xx) and newer REQUIRE the open modules. Do not do this on those cards.
 
 **Fix.**
 
-First identify the GPU — the proprietary 580xx branch covers Maxwell through Ada only:
+First identify the GPU. The proprietary 580xx branch covers Maxwell through Ada only:
 
 ```bash
 lspci -d ::03xx
 ```
 
-- Blackwell (RTX 50xx) and newer: the open kernel modules are mandatory. GSP **cannot** be disabled. Do not remove `nvidia-open*`; look for another workaround (driver version change, `nvidia-open-beta`).
+- Blackwell (RTX 50xx) and newer: the open kernel modules are mandatory. GSP **cannot** be disabled. Do not remove `nvidia-open*`. Look for another workaround (driver version change, `nvidia-open-beta`).
 - Turing / Ampere / Ada (and Maxwell/Pascal/Volta, which are already on 580xx): you can switch to the proprietary branch.
 
 ```bash
@@ -1894,7 +1894,7 @@ reboot
 
 Verify afterwards with `cat /proc/driver/nvidia/params | grep EnableGpuFirmware` (want `0`).
 
-**Verify.** `sudo sort /proc/driver/nvidia/params | grep EnableGpuFirmware` shows `0`; `nvidia-smi -q | grep -i 'GSP Firmware'` reports no GSP version in use; `vkcube` runs and the crashes stop.
+**Verify.** `sudo sort /proc/driver/nvidia/params | grep EnableGpuFirmware` shows `0`. `nvidia-smi -q | grep -i 'GSP Firmware'` reports no GSP version in use. `vkcube` runs and the crashes stop.
 
 Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.archlinux.org/title/PRIME>
 
@@ -1933,7 +1933,7 @@ hl.set("misc:vrr", 0)
 
 To keep VRR usable for games only, use `vrr = 2` (fullscreen only) instead of `0`.
 
-System-wide alternative — hide the driver's VRR capability entirely so nothing can enable it. Add this kernel parameter:
+System-wide alternative: hide the driver's VRR capability entirely so nothing can enable it. Add this kernel parameter:
 
 ```
 nvidia_modeset.conceal_vrr_caps=1
@@ -1945,7 +1945,7 @@ nvidia_modeset.conceal_vrr_caps=1
 
 Reboot.
 
-**Verify.** `hyprctl getoption misc:vrr` reports `0`; Ctrl+Alt+F2 and back no longer hangs, and `journalctl -k | grep 'Flip event timeout'` stays empty.
+**Verify.** `hyprctl getoption misc:vrr` reports `0`. Ctrl+Alt+F2 and back no longer hangs, and `journalctl -k | grep 'Flip event timeout'` stays empty.
 
 Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Variables.md>
 
@@ -2092,7 +2092,7 @@ EOF
 
 Log out and back into Hyprland (env changes only apply to newly started sessions).
 
-**Verify.** In Chromium open `chrome://gpu` — 'Ozone platform' should read `wayland`. The app window no longer flickers while scrolling. `hyprctl clients` shows the app without an `xwayland: 1` flag.
+**Verify.** In Chromium open `chrome://gpu`. 'Ozone platform' should read `wayland`. The app window no longer flickers while scrolling. `hyprctl clients` shows the app without an `xwayland: 1` flag.
 
 Sources: <https://wiki.hypr.land/Nvidia/> · <https://github.com/basecamp/omarchy/issues/3899>
 
@@ -2106,11 +2106,11 @@ Sources: <https://wiki.hypr.land/Nvidia/> · <https://github.com/basecamp/omarch
 
 **Cause.** PCI-Express Runtime D3 power management is not configured, so the dGPU never enters D3cold. Anything that touches an EGL/Vulkan device enumeration (including the compositor itself) wakes it and keeps it up.
 
-> **Audit corrected this record.** The udev rules are byte-identical to Arch's PRIME#PCI-Express Runtime D3 (RTD3) section, `options nvidia "NVreg_DynamicPowerManagement=0x02"` including the quoting is the wiki's own, the 0x03 note for 'Ampere or later notebooks with supported configurations' is correct, the runtime_status check path is correct, and nvidia-prime-rtd3pm really does ship those two files. Two defects in the tail: (a) `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/intel_icd.json` is hardcoded to Intel on a record that also claims to apply to AMD iGPUs (the AMD file is `radeon_icd.json`), and pinning a single 64-bit ICD silently removes Vulkan from 32-bit Steam/Proton — a wrong path here breaks Vulkan everywhere with no error message; (b) enabling nvidia-persistenced is at best pointless here and reads as counterproductive advice in a 'make the dGPU sleep' record.
+> **Audit corrected this record.** The udev rules are byte-identical to Arch's PRIME#PCI-Express Runtime D3 (RTD3) section, `options nvidia "NVreg_DynamicPowerManagement=0x02"` including the quoting is the wiki's own, the 0x03 note for 'Ampere or later notebooks with supported configurations' is correct, the runtime_status check path is correct, and nvidia-prime-rtd3pm really does ship those two files. Two defects in the tail: (a) `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/intel_icd.json` is hardcoded to Intel on a record that also claims to apply to AMD iGPUs (the AMD file is `radeon_icd.json`), and pinning a single 64-bit ICD silently removes Vulkan from 32-bit Steam/Proton, and a wrong path here breaks Vulkan everywhere with no error message. (b) Enabling nvidia-persistenced is at best pointless here and reads as counterproductive advice in a 'make the dGPU sleep' record.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Setting `VK_DRIVER_FILES` and `__EGL_VENDOR_LIBRARY_FILENAMES` globally means Vulkan/OpenGL apps will NOT see the NVIDIA GPU unless you unset or override them per-app — Steam games launched without `prime-run` will silently run on the iGPU. If `Runtime D3 status: Not supported` persists on nvidia-open below driver 610, the udev rules have no effect.
+> ⚠️ **Risk.** Setting `VK_DRIVER_FILES` and `__EGL_VENDOR_LIBRARY_FILENAMES` globally means Vulkan/OpenGL apps will NOT see the NVIDIA GPU unless you unset or override them per-app. Steam games launched without `prime-run` will silently run on the iGPU. If `Runtime D3 status: Not supported` persists on nvidia-open below driver 610, the udev rules have no effect.
 
 **Fix.**
 
@@ -2134,7 +2134,7 @@ EOF
 reboot
 ```
 
-(Or install the AUR package `nvidia-prime-rtd3pm`, which ships exactly these two files. Do not enable `nvidia-persistenced` for this — it is unrelated to RTD3.)
+(Or install the AUR package `nvidia-prime-rtd3pm`, which ships exactly these two files. Do not enable `nvidia-persistenced` for this: it is unrelated to RTD3.)
 
 Verify:
 
@@ -2143,7 +2143,7 @@ cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status          # want: susp
 cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_suspended_time  # should be climbing
 ```
 
-To stop EGL/GLX clients waking the card, default them to Mesa — but check your ICD filenames first, a bad path kills Vulkan silently:
+To stop EGL/GLX clients waking the card, default them to Mesa, but check your ICD filenames first, a bad path kills Vulkan silently:
 
 ```bash
 ls /usr/share/vulkan/icd.d/ /usr/share/glvnd/egl_vendor.d/
@@ -2154,13 +2154,13 @@ __GLX_VENDOR_LIBRARY_NAME=mesa
 EOF
 ```
 
-Leave `VK_DRIVER_FILES` unset unless you have a reason to pin it; if you do set it, list every ICD you still need (Intel: `intel_icd.json`, AMD: `radeon_icd.json`, plus the 32-bit ones from that directory listing if you use Steam/Proton), colon-separated.
+Leave `VK_DRIVER_FILES` unset unless you have a reason to pin it. If you do set it, list every ICD you still need (Intel: `intel_icd.json`, AMD: `radeon_icd.json`, plus the 32-bit ones from that directory listing if you use Steam/Proton), colon-separated.
 
 **Verify.** ```bash
 cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status   # suspended
 cat /proc/driver/nvidia/gpus/0000:01:00.0/power              # Runtime D3 status: Enabled
 ```
-If `runtime_status` reports `active`, check that `power/runtime_suspended_time` keeps incrementing — that also means it is asleep.
+If `runtime_status` reports `active`, check that `power/runtime_suspended_time` keeps incrementing. That also means it is asleep.
 
 Sources: <https://wiki.archlinux.org/title/PRIME> · <https://github.com/basecamp/omarchy/issues/1776> · <https://github.com/basecamp/omarchy/blob/master/bin/omarchy-toggle-hybrid-gpu>
 
@@ -2184,7 +2184,7 @@ prime-run glxinfo | grep "OpenGL renderer"
 prime-run vulkaninfo | head
 ```
 
-`prime-run` is just a wrapper for these variables; use them directly when you cannot prefix the command:
+`prime-run` is just a wrapper for these variables. Use them directly when you cannot prefix the command:
 
 ```bash
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <command>
@@ -2206,7 +2206,7 @@ __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json \
 <command>
 ```
 
-If you have `bumblebee` installed, remove it — it blacklists `nvidia_drm`, which offloading requires:
+If you have `bumblebee` installed, remove it, because it blacklists `nvidia_drm`, which offloading requires:
 
 ```bash
 sudo pacman -Rns bumblebee
@@ -2222,29 +2222,29 @@ Sources: <https://wiki.archlinux.org/title/PRIME> · <https://wiki.archlinux.org
 
 `screen-share-black-portal-hyprland` · severity: **medium** · frequency: **very-common** · applies to: `amdgpu`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy-4`
 
-**Symptom.** In Discord, Zoom, Google Meet, Teams or OBS you start a share and the other side sees a solid black rectangle — audio works, video does not. Or the Qt share picker never appears at all and the browser reports no capture sources. `journalctl --user -u xdg-desktop-portal -b` shows lines like `No skeleton portal implementation` or `Failed to load portal implementation`. A plain `grim screenshot.png` from the same session may work fine, which makes it look like the compositor is healthy.
+**Symptom.** In Discord, Zoom, Google Meet, Teams or OBS you start a share and the other side sees a solid black rectangle: audio works, video does not. Or the Qt share picker never appears at all and the browser reports no capture sources. `journalctl --user -u xdg-desktop-portal -b` shows lines like `No skeleton portal implementation` or `Failed to load portal implementation`. A plain `grim screenshot.png` from the same session may work fine, which makes it look like the compositor is healthy.
 
-**Cause.** Capture goes through a chain — app → `xdg-desktop-portal` → `xdg-desktop-portal-hyprland` (XDPH) → Hyprland's screencopy → PipeWire — and every link breaks in its own way:
+**Cause.** Capture goes through a chain: app → `xdg-desktop-portal` → `xdg-desktop-portal-hyprland` (XDPH) → Hyprland's screencopy → PipeWire. Every link breaks in its own way:
 
 1. `pipewire`, `wireplumber` or `xdg-desktop-portal-hyprland` is not running.
 2. XDPH was D-Bus-activated before `WAYLAND_DISPLAY` / `XDG_CURRENT_DESKTOP` / `HYPRLAND_INSTANCE_SIGNATURE` reached the activation environment, so it cannot talk to the compositor and hands back an empty stream.
 3. A second portal backend is installed (`xdg-desktop-portal-wlr`, `-gnome`, `-kde`) and wins the `ScreenCast` interface, or a stale `~/.config/xdg-desktop-portal/portals.conf` from an old setup routes it somewhere dead.
 4. **10-bit output.** The Hyprland Monitors page states outright that "some applications do not support screen capture with 10 bit enabled", and the Screen Sharing page tells you to make sure `bitdepth` matches your physical monitor. A `bitdepth = 10` monitor line is one of the most common causes of a black capture.
-5. The capturing app is running under XWayland (the Discord desktop client, older Skype). Per the Hyprland wiki it can then only see other XWayland windows — it cannot capture a whole screen or a native Wayland window.
+5. The capturing app is running under XWayland (the Discord desktop client, older Skype). Per the Hyprland wiki it can then only see other XWayland windows, and it cannot capture a whole screen or a native Wayland window.
 
-> **Audit corrected this record.** Nearly all of this is verbatim wiki-sourced and correct. The XDPH wiki page carries the exact warning "XDPH doesn't implement a file picker. For that, it is recommended to install xdg-desktop-portal-gtk alongside XDPH", so keeping GTK is right. Screen-Sharing.md says "Ensure that the bitdepth set in your configuration matches that of your physical monitor" and Monitors.md says "Some applications do not support screen capture with 10 bit enabled" — both quoted accurately, and the bitdepth = 8 fix is the wiki's own. The XWayland limitation is quoted almost word for word from Screen-Sharing.md, and the xwaylandvideobridge window_rule block — including `opacity = 0.0`, which the Variables table types as a string but the wiki's own example writes as a number — is copied verbatim from that page, so I am not faulting it. hl.on("hyprland.start", ...) with hl.exec_cmd() is the documented autostart form. xwaylandvideobridge is correctly labelled AUR (0.4.0-3). One real defect: `/usr/share/xdg-desktop-portal/hyprland-portals.conf` does not exist. I pulled both Arch package file lists — xdg-desktop-portal-hyprland ships only usr/share/xdg-desktop-portal/portals/hyprland.portal, and xdg-desktop-portal ships no *-portals.conf at all (its only matching file is the portals.conf.5 man page). Omarchy ships none either. So step 3's `cp` fails with 'No such file or directory' and the parenthetical claim about default routing living there is wrong.
+> **Audit corrected this record.** Nearly all of this is verbatim wiki-sourced and correct. The XDPH wiki page carries the exact warning "XDPH doesn't implement a file picker. For that, it is recommended to install xdg-desktop-portal-gtk alongside XDPH", so keeping GTK is right. Screen-Sharing.md says "Ensure that the bitdepth set in your configuration matches that of your physical monitor" and Monitors.md says "Some applications do not support screen capture with 10 bit enabled", both quoted accurately, and the bitdepth = 8 fix is the wiki's own. The XWayland limitation is quoted almost word for word from Screen-Sharing.md, and the xwaylandvideobridge window_rule block (including `opacity = 0.0`, which the Variables table types as a string but the wiki's own example writes as a number) is copied verbatim from that page, so I am not faulting it. hl.on("hyprland.start", ...) with hl.exec_cmd() is the documented autostart form. xwaylandvideobridge is correctly labelled AUR (0.4.0-3). One real defect: `/usr/share/xdg-desktop-portal/hyprland-portals.conf` does not exist. I pulled both Arch package file lists: xdg-desktop-portal-hyprland ships only usr/share/xdg-desktop-portal/portals/hyprland.portal, and xdg-desktop-portal ships no *-portals.conf at all (its only matching file is the portals.conf.5 man page). Omarchy ships none either. So step 3's `cp` fails with 'No such file or directory' and the parenthetical claim about default routing living there is wrong.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Removing `xdg-desktop-portal-wlr` with `-Rns` will also take its dependencies; if any other compositor on this machine relies on it, that session loses file pickers and screen capture. Do not remove `xdg-desktop-portal-gtk` — XDPH has no file picker of its own and every GTK/Electron "Open File" dialog will stop working. Dropping `bitdepth` from 10 to 8 loses HDR/wide-gamut output on that display.
+> ⚠️ **Risk.** Removing `xdg-desktop-portal-wlr` with `-Rns` will also take its dependencies. If any other compositor on this machine relies on it, that session loses file pickers and screen capture. Do not remove `xdg-desktop-portal-gtk`, because XDPH has no file picker of its own and every GTK/Electron "Open File" dialog will stop working. Dropping `bitdepth` from 10 to 8 loses HDR/wide-gamut output on that display.
 
 **Fix.**
 
 Steps 1, 2 and 4 through 8 stand as written. Two things change.
 
-**Step 2's parenthetical:** keep `xdg-desktop-portal-gtk` — XDPH does not implement a file picker and the Hyprland wiki recommends GTK alongside it. XDPH's own interface declaration lives in `/usr/share/xdg-desktop-portal/portals/hyprland.portal`; there is **no** `/usr/share/xdg-desktop-portal/hyprland-portals.conf` on Arch or Omarchy.
+**Step 2's parenthetical:** keep `xdg-desktop-portal-gtk`, because XDPH does not implement a file picker and the Hyprland wiki recommends GTK alongside it. XDPH's own interface declaration lives in `/usr/share/xdg-desktop-portal/portals/hyprland.portal`. There is **no** `/usr/share/xdg-desktop-portal/hyprland-portals.conf` on Arch or Omarchy.
 
-**Step 3 — reset a stale user portals.conf.** Deleting it is the fix; there is no packaged Hyprland file to copy back, so just remove yours and let xdg-desktop-portal fall back to its built-in resolution:
+**Step 3: reset a stale user portals.conf.** Deleting it is the fix. There is no packaged Hyprland file to copy back, so just remove yours and let xdg-desktop-portal fall back to its built-in resolution:
 
 ```bash
 rm -f ~/.config/xdg-desktop-portal/portals.conf
@@ -2283,17 +2283,17 @@ Sources: <https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/> · <https://g
 
 **Cause.** Not a bug and not fixable in config. The HDMI Forum refused to allow an open-source implementation of the HDMI 2.1 specification, so Mesa and the `amdgpu` kernel driver cannot implement Fixed Rate Link (FRL) signalling. The Arch wiki states it plainly: "Due to licensing issues the mesa driver cannot support HDMI 2.1. You must use DisplayPort."
 
-The practical ceiling is therefore HDMI 2.0 bandwidth (18 Gbit/s): 4K@60 at 8-bit RGB, or 4K@120 only by dropping to 4:2:0. This affects every open driver — AMD `amdgpu` and Intel `i915`/`xe` alike. NVIDIA's proprietary driver is unaffected because it is a closed blob that ships its own HDMI implementation, which is why the same monitor behaves differently on an NVIDIA machine.
+The practical ceiling is therefore HDMI 2.0 bandwidth (18 Gbit/s): 4K@60 at 8-bit RGB, or 4K@120 only by dropping to 4:2:0. This affects every open driver, AMD `amdgpu` and Intel `i915`/`xe` alike. NVIDIA's proprietary driver is unaffected because it is a closed blob that ships its own HDMI implementation, which is why the same monitor behaves differently on an NVIDIA machine.
 
 A related but separate symptom on the same page: chipmunk/double-speed or absent audio when a 4K@60 device is attached over HDMI, which is a handshake problem rather than a bandwidth one.
 
-> **Audit corrected this record.** The substance is excellent and directly wiki-sourced. Arch AMDGPU wiki line 650 reads "Due to licensing issues the mesa driver cannot support HDMI 2.1. You must use DisplayPort. If your display does not support DisplayPort, some users have reported success with converter devices that take DisplayPort input and output HDMI 2.1 signals" — the record's quote is verbatim and even the active-converter recommendation is the wiki's own. The Lua is correct against the current Hyprland wiki: `hl.monitor({ output, mode, position, scale })` is the documented signature, `bitdepth` is a real field (integer, 8 or 10), and both /sys/class/drm/card*-HDMI-A-1/modes and the nested card*/card*-HDMI-A-1 form resolve. One concrete defect: the diagnostic line comments the package as `drm_info`, but the Arch package is named **drm-info** (extra) — `drm_info` is only the binary, and there is no drm_info package in extra or the AUR (only drm_info-git). Anyone who types the commented name gets 'target not found'.
+> **Audit corrected this record.** The substance is excellent and directly wiki-sourced. Arch AMDGPU wiki line 650 reads "Due to licensing issues the mesa driver cannot support HDMI 2.1. You must use DisplayPort. If your display does not support DisplayPort, some users have reported success with converter devices that take DisplayPort input and output HDMI 2.1 signals". The record's quote is verbatim and even the active-converter recommendation is the wiki's own. The Lua is correct against the current Hyprland wiki: `hl.monitor({ output, mode, position, scale })` is the documented signature, `bitdepth` is a real field (integer, 8 or 10), and both /sys/class/drm/card*-HDMI-A-1/modes and the nested card*/card*-HDMI-A-1 form resolve. One concrete defect: the diagnostic line comments the package as `drm_info`, but the Arch package is named **drm-info** (extra). `drm_info` is only the binary, and there is no drm_info package in extra or the AUR (only drm_info-git). Anyone who types the commented name gets 'target not found'.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 **Fix.**
 
-Identical to the original, with one package name fixed in step 1 (`drm_info` is the binary; the package is `drm-info`):
+Identical to the original, with one package name fixed in step 1 (`drm_info` is the binary and the package is `drm-info`):
 
 **1. Confirm you are actually bandwidth-limited rather than mis-configured.**
 
@@ -2307,9 +2307,9 @@ lspci -nnd ::03xx                        # AMD/Intel = affected; NVIDIA propriet
 
 If `availableModes` genuinely has no entry above `3840x2160@60`, you are hitting the cap.
 
-Steps 2 through 5 stand exactly as written: DisplayPort is the fix; an *active* DP-to-HDMI-2.1 protocol converter is the workaround for a display with no DP input (passive adapters and "HDMI 2.1 certified" cables do nothing); otherwise pick your compromise explicitly with `hl.monitor({ ... mode = "3840x2160@120" })` for 4:2:0, `"2560x1440@144"` for full colour at high refresh, or `mode = "3840x2160@60", bitdepth = 10`; and check the display's own OSD for "Ultra HD Deep Color" if HDMI audio is double-speed or missing.
+Steps 2 through 5 stand exactly as written. DisplayPort is the fix. An *active* DP-to-HDMI-2.1 protocol converter is the workaround for a display with no DP input (passive adapters and "HDMI 2.1 certified" cables do nothing). Otherwise pick your compromise explicitly with `hl.monitor({ ... mode = "3840x2160@120" })` for 4:2:0, `"2560x1440@144"` for full colour at high refresh, or `mode = "3840x2160@60", bitdepth = 10`. Also check the display's own OSD for "Ultra HD Deep Color" if HDMI audio is double-speed or missing.
 
-**Verify.** `hyprctl monitors` shows the intended refresh rate as active for that output; `hyprctl monitors all | grep -A20 availableModes` confirms what the link can actually carry.
+**Verify.** `hyprctl monitors` shows the intended refresh rate as active for that output. `hyprctl monitors all | grep -A20 availableModes` confirms what the link can actually carry.
 
 Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/Basics/Monitors.md> · <https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/>
 
@@ -2319,7 +2319,7 @@ Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://github.com/hyprwm
 
 `amdgpu-screen-flicker-white-sg-display` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** On an AMD APU laptop, the screen flickers white or grey — or stays white — when changing resolution, plugging in an external monitor, or waking a display.
+**Symptom.** On an AMD APU laptop, the screen flickers white or grey, or stays white, when changing resolution, plugging in an external monitor, or waking a display.
 
 **Cause.** A bug in the amdgpu 'scatter-gather display' path, which lets the display engine scan out from system memory on APUs.
 
@@ -2929,7 +2929,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/1441> · <https://wiki.arch
 
 **Cause.** The NVIDIA modules must not be in use when the eGPU is attached, and stray EGL clients hold the internal dGPU (each EGL program pins ~1 MB of dGPU memory even while rendering on the iGPU), so the modules cannot be unloaded and the new device is never enumerated.
 
-> **Audit corrected this record.** The core sequence is lifted correctly from Arch's External_GPU#'Hotplugging NVIDIA eGPU' — the 1 MB-per-EGL-program explanation, /etc/environment.d/50_mesa.conf, the exact rmmod order (uvm, drm, modeset, nvidia), `modprobe nvidia-drm` to reload, and the four-variable offload string are all the wiki's own. What is missing will stop most readers cold: (1) the Thunderbolt device must be authorized (boltctl / BIOS setting), and the record says 'wait for Thunderbolt to authorise it' without saying how; (2) many laptops need PCIe hotplug kernel parameters before an eGPU is enumerated at all; (3) if the nvidia modules are early-loaded from the initramfs (which records [0] and [2] tell users to configure) or modeset/fbdev has bound a console, `rmmod` fails no matter how many EGL clients you kill — the record's only answer to that is `lsof`.
+> **Audit corrected this record.** The core sequence is lifted correctly from Arch's External_GPU#'Hotplugging NVIDIA eGPU'. The 1 MB-per-EGL-program explanation, /etc/environment.d/50_mesa.conf, the exact rmmod order (uvm, drm, modeset, nvidia), `modprobe nvidia-drm` to reload, and the four-variable offload string are all the wiki's own. What is missing will stop most readers cold. (1) The Thunderbolt device must be authorized (boltctl / BIOS setting), and the record says 'wait for Thunderbolt to authorise it' without saying how. (2) Many laptops need PCIe hotplug kernel parameters before an eGPU is enumerated at all. (3) If the nvidia modules are early-loaded from the initramfs (which records [0] and [2] tell users to configure) or modeset/fbdev has bound a console, `rmmod` fails no matter how many EGL clients you kill, and the record's only answer to that is `lsof`.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -2994,9 +2994,9 @@ __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json \
 <command>
 ```
 
-Hyprland also needs to be told the eGPU exists — see the AQ_DRM_DEVICES record.
+Hyprland also needs to be told the eGPU exists. See the AQ_DRM_DEVICES record.
 
-**Verify.** `nvidia-smi` lists the eGPU; the offload command above reports the eGPU in `glxinfo | grep "OpenGL renderer"`.
+**Verify.** `nvidia-smi` lists the eGPU. The offload command above reports the eGPU in `glxinfo | grep "OpenGL renderer"`.
 
 Sources: <https://wiki.archlinux.org/title/External_GPU> · <https://wiki.archlinux.org/title/PRIME>
 
@@ -3006,11 +3006,11 @@ Sources: <https://wiki.archlinux.org/title/External_GPU> · <https://wiki.archli
 
 `hyprland-nvidia-cursor-artifacts-hardware-cursors` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** The mouse pointer leaves trails, flickers, disappears entirely over some windows, or a frozen 'ghost' cursor stays on screen after a game exits — on an NVIDIA GPU under Hyprland.
+**Symptom.** The mouse pointer leaves trails, flickers, disappears entirely over some windows, or a frozen 'ghost' cursor stays on screen after a game exits, on an NVIDIA GPU under Hyprland.
 
-**Cause.** Hyprland uses a hardware cursor plane by default (`cursor:no_hardware_cursors = 2`, auto). NVIDIA's hardware cursor plane misbehaves in several situations — mixed-scale multi-monitor setups, tearing/direct-scanout, and after an XWayland client dies holding a cursor surface.
+**Cause.** Hyprland uses a hardware cursor plane by default (`cursor:no_hardware_cursors = 2`, auto). NVIDIA's hardware cursor plane misbehaves in several situations: mixed-scale multi-monitor setups, tearing/direct-scanout, and after an XWayland client dies holding a cursor surface.
 
-> **Audit corrected this record.** The main fix is right and current: I confirmed against Hyprland's Variables.md that cursor:no_hardware_cursors is an int defaulting to 2 ('0 - use hw cursors if possible, 1 - don't use hw cursors, 2 - auto (disable when tearing)'), and that no_break_fs_vrr's description literally says 'may require no_hardware_cursors = true'. The tail is wrong: `hyprcursor` is the cursor format/library/utilities package — installing it gives you no cursor theme at all, so `hyprctl setcursor <ThemeName> 24` will fail with whatever name the user guesses. You need an actual theme package.
+> **Audit corrected this record.** The main fix is right and current: I confirmed against Hyprland's Variables.md that cursor:no_hardware_cursors is an int defaulting to 2 ('0 - use hw cursors if possible, 1 - don't use hw cursors, 2 - auto (disable when tearing)'), and that no_break_fs_vrr's description literally says 'may require no_hardware_cursors = true'. The tail is wrong: `hyprcursor` is the cursor format/library/utilities package. Installing it gives you no cursor theme at all, so `hyprctl setcursor <ThemeName> 24` will fail with whatever name the user guesses. You need an actual theme package.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -3036,7 +3036,7 @@ Apply without restarting:
 hyprctl reload
 ```
 
-If instead of artifacts you see the default Hyprland logo cursor, you have no cursor **theme** installed — `hyprcursor` is only the library/format, not a theme. Install a real theme and select it by its directory name:
+If instead of artifacts you see the default Hyprland logo cursor, you have no cursor **theme** installed. `hyprcursor` is only the library/format, not a theme. Install a real theme and select it by its directory name:
 
 ```bash
 sudo pacman -S --needed adwaita-cursors      # or xcursor-themes, breeze, a bibata-* AUR theme...
@@ -3151,23 +3151,23 @@ Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://github.com/torval
 
 ---
 
-## Kill the 1–2 second app launch delay caused by waking the dGPU
+## Kill the 1 to 2 second app launch delay caused by waking the dGPU
 
 `wayland-app-launch-delay-dgpu-wakeup` · severity: **low** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** On a hybrid laptop with working RTD3 power management, GUI apps take an extra second or two to appear every time — especially the first launch after idle. Nothing is CPU-bound; the delay is just dead time before the window shows.
+**Symptom.** On a hybrid laptop with working RTD3 power management, GUI apps take an extra second or two to appear every time, especially the first launch after idle. Nothing is CPU-bound. The delay is just dead time before the window shows.
 
 **Cause.** OpenGL/EGL and Vulkan enumerate every candidate device listed in `/usr/share/glvnd/egl_vendor.d/` and `/usr/share/vulkan/icd.d/`. Even when the iGPU config sorts first, the loader still iterates the NVIDIA entry, which wakes the sleeping dGPU (~1 s) and burns battery, before falling back to the iGPU. It is an NVIDIA driver behaviour, not a compositor bug.
 
-> **Audit corrected this record.** The mechanism (the GLVND/Vulkan loaders iterate every ICD in /usr/share/vulkan/icd.d and /usr/share/glvnd/egl_vendor.d and wake a sleeping dGPU on the way) is real and is the same trick Arch's External_GPU page uses, and the Intel path is right — I confirmed vulkan-intel currently ships /usr/share/vulkan/icd.d/intel_icd.json. But the AMD filename given is stale: vulkan-radeon ships radeon_icd.json, not radeon_icd.x86_64.json (Mesa dropped the arch suffix), so an AMD-iGPU reader copy-pastes a path that does not exist and loses Vulkan entirely with no error. Also missing: pinning one 64-bit ICD removes Vulkan from 32-bit Steam/Proton, and environment.d only applies to the systemd user session (not TTY logins or sudo).
+> **Audit corrected this record.** The mechanism (the GLVND/Vulkan loaders iterate every ICD in /usr/share/vulkan/icd.d and /usr/share/glvnd/egl_vendor.d and wake a sleeping dGPU on the way) is real and is the same trick Arch's External_GPU page uses, and the Intel path is right. I confirmed vulkan-intel currently ships /usr/share/vulkan/icd.d/intel_icd.json. But the AMD filename given is stale: vulkan-radeon ships radeon_icd.json, not radeon_icd.x86_64.json (Mesa dropped the arch suffix), so an AMD-iGPU reader copy-pastes a path that does not exist and loses Vulkan entirely with no error. Also missing: pinning one 64-bit ICD removes Vulkan from 32-bit Steam/Proton, and environment.d only applies to the systemd user session (not TTY logins or sudo).
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** With these set globally, Vulkan and EGL apps will not see the NVIDIA GPU at all — Steam games and CUDA/ML workloads launched without an explicit override will silently run on the iGPU or fail to find a device.
+> ⚠️ **Risk.** With these set globally, Vulkan and EGL apps will not see the NVIDIA GPU at all. Steam games and CUDA/ML workloads launched without an explicit override will silently run on the iGPU or fail to find a device.
 
 **Fix.**
 
-Check what you actually have before pinning anything — a nonexistent path in `VK_DRIVER_FILES` silently disables Vulkan:
+Check what you actually have before pinning anything, because a nonexistent path in `VK_DRIVER_FILES` silently disables Vulkan:
 
 ```bash
 ls /usr/share/vulkan/icd.d/ /usr/share/glvnd/egl_vendor.d/
@@ -3182,7 +3182,7 @@ __GLX_VENDOR_LIBRARY_NAME=mesa
 EOF
 ```
 
-That alone removes most of the wake-ups. Only add a Vulkan pin if you still see the delay, and list every ICD you need — e.g. on an Intel iGPU with Steam/Proton:
+That alone removes most of the wake-ups. Only add a Vulkan pin if you still see the delay, and list every ICD you need, e.g. on an Intel iGPU with Steam/Proton:
 
 ```bash
 # append to the same file, using the exact filenames from the ls above
@@ -3191,7 +3191,7 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/intel_icd.json
 
 Alternative that does not break 32-bit: install `vulkan-mesa-implicit-layers` and use `MESA_VK_DEVICE_SELECT=<vendorID>:<deviceID>` per app instead.
 
-Log out and back in (`/etc/environment.d` is read by the systemd user manager, so it does not affect bare TTY logins). Override per-command when you want the dGPU — see the PRIME record.
+Log out and back in (`/etc/environment.d` is read by the systemd user manager, so it does not affect bare TTY logins). Override per-command when you want the dGPU. See the PRIME record.
 
 **Verify.** Apps open without the extra pause, and `cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status` stays `suspended` while you launch them.
 

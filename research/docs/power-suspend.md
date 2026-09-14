@@ -6,17 +6,17 @@
 
 `iwlwifi-hang-on-second-suspend` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `intel`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** First suspend/resume is fine. The second suspend — often a lid close — hangs the machine completely and only a hard power-off recovers it. The journal is full of:
+**Symptom.** First suspend/resume is fine. The second suspend, often a lid close, hangs the machine completely and only a hard power-off recovers it. The journal is full of:
 `iwlwifi 0000:00:14.3: Failed to run INIT ucode: -110`
 repeated dozens of times over 30 seconds before the freeze.
 
 **Cause.** After the first resume the Intel Wi-Fi driver fails to reinitialise its firmware and enters an indefinite retry loop. When logind starts another suspend while that loop is running, the suspend never completes and the system deadlocks.
 
-> **Audit corrected this record.** The problem is real and correctly described — basecamp/omarchy#8461 reports repeated "Failed to run INIT ucode: -110" after the first resume on ThinkPad X1 / Intel AX hardware, with a second suspend during the retry loop hanging the machine, and proposes both the sleep hook and enable_ini=N. The sleep-hook path and pre/post arguments match systemd-sleep(8). Two gaps make the fix miss on current hardware: newer Intel parts (BE200/BE201 and recent AX on current kernels) bind to iwlmld rather than iwlmvm, so `modprobe -r iwlmvm iwlwifi` fails with "Module iwlwifi is in use" and the hook silently does nothing; and `options iwlwifi power_save=0` is the older knob — the effective one for MVM devices is iwlmvm power_scheme=1. The hook also has no error handling, so a failed unload is invisible.
+> **Audit corrected this record.** The problem is real and correctly described: basecamp/omarchy#8461 reports repeated "Failed to run INIT ucode: -110" after the first resume on ThinkPad X1 / Intel AX hardware, with a second suspend during the retry loop hanging the machine, and proposes both the sleep hook and enable_ini=N. The sleep-hook path and pre/post arguments match systemd-sleep(8). Two gaps make the fix miss on current hardware. First, newer Intel parts (BE200/BE201 and recent AX on current kernels) bind to iwlmld rather than iwlmvm, so `modprobe -r iwlmvm iwlwifi` fails with "Module iwlwifi is in use" and the hook silently does nothing. Second, `options iwlwifi power_save=0` is the older knob: the effective one for MVM devices is iwlmvm power_scheme=1. The hook also has no error handling, so a failed unload is invisible.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Scripts placed in `/usr/lib/systemd/system-sleep/` sit in a package-owned directory and can be removed by a systemd upgrade — re-check after major updates. Unloading iwlwifi drops any active VPN or network mount at suspend time.
+> ⚠️ **Risk.** Scripts placed in `/usr/lib/systemd/system-sleep/` sit in a package-owned directory and can be removed by a systemd upgrade. Re-check after major updates. Unloading iwlwifi drops any active VPN or network mount at suspend time.
 
 **Fix.**
 
@@ -44,9 +44,9 @@ EOF
 sudo chmod +x /etc/systemd/system-sleep/iwlwifi.sh
 ```
 
-(/etc/systemd/system-sleep/ is the admin directory; /usr/lib/systemd/system-sleep/ also works but belongs to packages.)
+(/etc/systemd/system-sleep/ is the admin directory. /usr/lib/systemd/system-sleep/ also works but belongs to packages.)
 
-Verify it runs and that the unload succeeds — if NetworkManager holds the interface, the unload fails and the hook is useless:
+Verify it runs and that the unload succeeds, because if NetworkManager holds the interface, the unload fails and the hook is useless:
 
 ```bash
 systemctl suspend
@@ -55,7 +55,7 @@ journalctl -b -u systemd-suspend.service | grep -i iwl
 
 If the unload fails, take the interface down first in the `pre` branch (`nmcli radio wifi off`) and bring it back in `post`.
 
-For the modprobe options, set both — power_save is the iwlwifi-level knob, power_scheme=1 is the one that matters for MVM/MLD devices:
+For the modprobe options, set both: power_save is the iwlwifi-level knob, and power_scheme=1 is the one that matters for MVM/MLD devices:
 
 ```
 # /etc/modprobe.d/iwlwifi.conf
@@ -77,7 +77,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/8461> · <https://wiki.arch
 
 `amdgpu-black-screen-on-resume-from-suspend` · severity: **high** · frequency: **very-common** · applies to: `amd`, `amdgpu`, `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** I close the lid (or suspend the desktop), open it again, and the screen stays black. The machine is clearly alive — the Caps Lock LED toggles, I can SSH in, music keeps playing — but nothing ever draws. Sometimes the panel comes back but frozen or full of corruption. `journalctl -b -1 -k` has:
+**Symptom.** I close the lid (or suspend the desktop), open it again, and the screen stays black. The machine is clearly alive (the Caps Lock LED toggles, I can SSH in, music keeps playing) but nothing ever draws. Sometimes the panel comes back but frozen or full of corruption. `journalctl -b -1 -k` has:
 
 ```
 amdgpu 0000:03:00.0: amdgpu: SMU: I'm not done with your previous command: SMN_C2PMSG_66:0x0000003A
@@ -87,7 +87,7 @@ amdgpu 0000:03:00.0: amdgpu: resume of IP block <smu> failed -62
 [drm:dc_dmub_srv_wait_idle] *ERROR* [CRTC:82:crtc-0] flip_done timed out
 ```
 
-**Cause.** Several distinct amdgpu resume bugs land on the same symptom. On laptop eDP panels the usual culprit is PSR (Panel Self Refresh): the panel keeps showing its own stale frame and the display controller never re-arms after resume, producing `flip_done timed out`. On dGPUs the SMU (power-management microcontroller) can fail to re-initialise, giving `resume of IP block <smu> failed`. A third variant is scatter-gather display on APUs, which flickers white or stays blank when the framebuffer is re-created. All three are workaround-able from the kernel command line, and several have been fixed and re-broken across kernel releases — one Arch BBS report was resolved purely by moving from 6.16.7 to 6.16.10.
+**Cause.** Several distinct amdgpu resume bugs land on the same symptom. On laptop eDP panels the usual culprit is PSR (Panel Self Refresh): the panel keeps showing its own stale frame and the display controller never re-arms after resume, producing `flip_done timed out`. On dGPUs the SMU (power-management microcontroller) can fail to re-initialise, giving `resume of IP block <smu> failed`. A third variant is scatter-gather display on APUs, which flickers white or stays blank when the framebuffer is re-created. All three are workaround-able from the kernel command line, and several have been fixed and re-broken across kernel releases. One Arch BBS report was resolved purely by moving from 6.16.7 to 6.16.10.
 
 > **Audit corrected this record.** Checked on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, Hyprland 0.56.2-1, kernel 7.1.9-arch1-2). It is a DESKTOP with an NVIDIA card, so there is no AMD GPU here and the symptom, the parameters and the suspend cycles could NOT be exercised. Everything below is a config and source check. What held: `modinfo -p amdgpu` on kernel 7.1.9 still lists all three parameters (`dcdebugmask`, `sg_display`, `runpm`), so none has been removed. wiki.archlinux.org/title/AMDGPU section 'Frozen or unresponsive display (flip_done timed out)' still gives 0x10 and 0x12 with the record's near-verbatim wording, 'Screen flickering white/gray' still gives `amdgpu.sg_display=0`, and the dGPU power-management section still gives `amdgpu.runpm=0`. I read bbs.archlinux.org/viewtopic.php?id=309052 in full: it is dated 2025-10-03, its dmesg matches the record's symptom block verbatim, and the reporter's closing post shows 6.16.10-arch1-1, so the record's 'resolved purely by moving from 6.16.7 to 6.16.10' claim is exactly right. `/usr/bin/omarchy-update-pacman-guard` aborts only when both sync and sysupgrade are present, so `pacman -S linux-lts` is allowed as the record says. Nothing under `/usr/share/omarchy` mentions amdgpu at all, so the advice collides with nothing Omarchy ships. Three things were wrong. First and worst, step 2. `/etc/limine-entry-tool.d/omarchy-uki.conf` sets ENABLE_UKI=yes, so the command line is embedded in `/boot/EFI/Linux/omarchy_linux.efi`, and systemd-stub's own documentation says an invocation command line is used to 'override' the embedded one and is ignored outright under Secure Boot. Limine's CONFIG.md confirms `cmdline` is a general entry option that applies to the `efi` protocol. So a menu edit holding only `amdgpu.dcdebugmask=0x10` replaces the whole command line and drops `cryptdevice=`, `root=` and `rootflags=subvol=@`, which is a failed boot, not the 'no config edits, nothing to undo' step the record promises. The rewrite prints the real command line with `limine-entry-tool --get-cmdline linux`, which I ran unprivileged here and which returned the full string. Second, step 3 named `/etc/default/limine`, which does work (it is loaded last and highest priority per `/usr/lib/limine/limine-common-functions` lines 99 to 129, and Omarchy's own copy uses `+=`), but Omarchy 4 keeps its command line in `/etc/limine-entry-tool.d/*.conf` and ships `resume.conf` and `omarchy-defaults.conf` there, so the drop-in is now the primary branch with `/etc/default/limine` kept as the labelled alternative. Third, the symptom was not distinguishable from a lock screen failure, which is the specific Omarchy 4 trap here: `omarchy-system-sleep-monitor` holds a logind delay inhibitor and runs `omarchy-system-sleep-lock` before every suspend, so you always resume into an `ext-session-lock` surface drawn by omarchy-shell, and a lock that fails to draw gives the identical 'black screen, ssh works' picture. Step 1 now separates the two with `omarchy-hyprland-session-locked` before anything is changed. Minor fixes folded in: `sudo limine-update` after installing linux-lts is redundant because `90-mkinitcpio-install.hook` already builds and registers the entry, and the danger now names Snapshots as the recovery path because Omarchy 4 builds no fallback kernel entry (MKINITCPIO_FALLBACK is unset everywhere and `limine-list` shows only Omarchy > linux, Snapshots and the EFI fallback bootloader). I could not read `/boot/limine.conf` to see whether a UKI entry carries a `cmdline:` line at all, because /boot is mounted dmask=0077 and I did not use sudo. Sources: the cited raw.githubusercontent.com/basecamp/omarchy/master/default/limine/default.conf still returns 200, but `master` is the branch this project treats as stale and its content no longer matches what 4.0.2 ships, which splits that file between `/etc/default/limine` (ESP_PATH plus the cmdline line) and `/etc/limine-entry-tool.d/omarchy-defaults.conf` (everything else). I replaced it with the two quattro paths I fetched through the gh API.
 >
@@ -168,7 +168,7 @@ sudo fwupdmgr refresh --force && sudo fwupdmgr get-updates
 
 On Omarchy this is also exposed as Update > Firmware.
 
-**Verify.** `cat /proc/cmdline` shows the parameter after reboot. Run three suspend/resume cycles (`sudo systemctl suspend`, wake, repeat) and then `sudo journalctl -b -k | grep -iE 'flip_done|resume of IP block|SMU'` — a clean run has no matches, and `grep -c 'PM: suspend exit' <<< "$(journalctl -b -k)"` counts the resumes that completed.
+**Verify.** `cat /proc/cmdline` shows the parameter after reboot. Run three suspend/resume cycles (`sudo systemctl suspend`, wake, repeat) and then `sudo journalctl -b -k | grep -iE 'flip_done|resume of IP block|SMU'`. A clean run has no matches, and `grep -c 'PM: suspend exit' <<< "$(journalctl -b -k)"` counts the resumes that completed.
 
 Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://bbs.archlinux.org/viewtopic.php?id=309052> · <https://wiki.archlinux.org/title/Kernel_parameters> · <https://wiki.archlinux.org/title/Limine> · <https://www.freedesktop.org/software/systemd/man/latest/systemd-stub.html> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md> · <https://github.com/omacom/omarchy/blob/quattro/default/limine/default.conf> · <https://github.com/omacom/omarchy/blob/quattro/etc/limine-entry-tool.d/omarchy-defaults.conf>
 
@@ -180,13 +180,13 @@ Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://bbs.archlinux.org
 
 **Symptom.** I close the lid at 100% and eight hours later the battery is at 30-40%, or the laptop is warm inside the bag. `cat /sys/power/mem_sleep` prints `[s2idle] shallow deep` or only `[s2idle]`.
 
-**Cause.** The machine is using suspend-to-idle (S0ix / "Modern Standby") rather than S3 suspend-to-RAM. On many laptops the platform never actually reaches the deep S0i3 substate — a device keeps a runtime-PM reference or the EC keeps generating wakeups — so the CPU idles at a high power floor all night.
+**Cause.** The machine is using suspend-to-idle (S0ix / "Modern Standby") rather than S3 suspend-to-RAM. On many laptops the platform never actually reaches the deep S0i3 substate, because a device keeps a runtime-PM reference or the EC keeps generating wakeups, so the CPU idles at a high power floor all night.
 
 > **Audit corrected this record.** The generic Arch half of this record holds. I fetched the raw wikitext of Power_management/Suspend_and_hibernate and it prescribes the same two routes the record does, with the same filename: /etc/systemd/sleep.conf.d/mem-deep.conf carrying MemorySleepMode=deep, or the mem_sleep_default=deep kernel parameter, plus the UEFI sleep-state hunt when deep is not advertised. Power_management/Wakeup_triggers confirms acpi.ec_no_wakeup and the /sys/module/acpi/parameters/ec_no_wakeup file, which exists here and reads N. The installed systemd-sleep.conf(5) on systemd 261.2-1 lists MemorySleepMode= as added in version 256, so the directive is current. Two things were wrong for Omarchy 4 and both were checked on this machine. First, the Omarchy branch told the reader to write /etc/limine-entry-tool.d/deep-sleep.conf and also append to /etc/default/limine. Either route works on its own. The header of /etc/limine-entry-tool.conf says /etc/default/limine overrides the drop-in configs, and doing both would set the parameter twice. Omarchy's own code uses the drop-in alone, in /usr/share/omarchy/install/hardware/apple/fix-t2.sh, which writes /etc/limine-entry-tool.d/t2-mac.conf containing mem_sleep_default=deep and whose migration /usr/share/omarchy/migrations/1785944594.sh refreshes it with sudo limine-mkinitcpio. So limine-mkinitcpio alone is right, matching what mt7921e-dead-after-suspend-aspm says, and the /etc/default/limine clause is the defect. Second, /etc/systemd/sleep.conf.d/ does not exist on a stock Omarchy 4 install: ls reports no such directory, and the only file present is /etc/systemd/sleep.conf, owned by systemd 261.2-1 with every entry commented out. The fix now says to create the directory. The verify step was also wrong in a way that reads as a failure. systemd writes /sys/power/mem_sleep only while suspending, confirmed in systemd's src/sleep/sleep.c where write_mode("/sys/power/mem_sleep", ...) sits inside the sleep execution path, so after MemorySleepMode=deep the file still shows [s2idle] until a suspend happens. Only the kernel-parameter route makes it visible at rest. The old verify also asserted the literal string s2idle shallow [deep], and shallow is listed only where the platform advertises standby. This workstation is a DESKTOP (Gigabyte Z390 AORUS ULTRA, chassis type 3, no /sys/class/power_supply entries at all) and reads s2idle [deep] with no shallow, which confirms the string point but is NOT evidence about laptop firmware. Not exercised: no suspend was run, no laptop was tested, and the actual power draw claim of roughly 1%/hour on S3 was not measured anywhere.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** S3 is unvalidated by many vendors on post-2020 laptops — forcing `deep` can produce a machine that suspends but never resumes (black screen, hard power off, unsaved work lost). Test several cycles with nothing important open before trusting it.
+> ⚠️ **Risk.** S3 is unvalidated by many vendors on post-2020 laptops, and forcing `deep` can produce a machine that suspends but never resumes (black screen, hard power off, unsaved work lost). Test several cycles with nothing important open before trusting it.
 
 **Fix.**
 
@@ -264,11 +264,11 @@ and just above it `xhci_hcd 0000:02:00.0: PM: failed to suspend async: error -16
 
 **Cause.** An ACPI wakeup source is armed on the USB host controller (or on a device attached to it, e.g. a Logitech Unifying/Bolt receiver or a USB dock). Buggy firmware asserts a wake event as soon as the xHCI controller enters D3, so the kernel aborts the suspend and immediately resumes. On some Intel Haswell/LynxPoint chipsets this is a known firmware bug the kernel only denylists case by case.
 
-> **Audit corrected this record.** The diagnosis, the sysfs paths and both udev rules are correct. The gap is that writing to /proc/acpi/wakeup is a TOGGLE, not a set: `echo XHC > /proc/acpi/wakeup` flips the current state. If XHC is already disabled the command re-ARMS it (making things worse), and if the string does not exist on that board the write silently does nothing. The record never says this, and a user pasting the line twice undoes their own fix. Also, `echo disabled > /sys/bus/usb/devices/usb1/power/wakeup` disables wake for the root hub only if usb1 is the right bus — it should be picked, not assumed.
+> **Audit corrected this record.** The diagnosis, the sysfs paths and both udev rules are correct. The gap is that writing to /proc/acpi/wakeup is a TOGGLE, not a set: `echo XHC > /proc/acpi/wakeup` flips the current state. If XHC is already disabled the command re-ARMS it (making things worse), and if the string does not exist on that board the write silently does nothing. The record never says this, and a user pasting the line twice undoes their own fix. Also, `echo disabled > /sys/bus/usb/devices/usb1/power/wakeup` disables wake for the root hub only if usb1 is the right bus. It should be picked, not assumed.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Disabling wakeup on the USB controller also kills wake-on-keyboard and wake-on-mouse — you will need the power button to wake the machine. Do not disable the one source you rely on to wake it.
+> ⚠️ **Risk.** Disabling wakeup on the USB controller also kills wake-on-keyboard and wake-on-mouse. You will need the power button to wake the machine. Do not disable the one source you rely on to wake it.
 
 **Fix.**
 
@@ -278,7 +278,7 @@ and just above it `xhci_hcd 0000:02:00.0: PM: failed to suspend async: error -16
 cat /proc/acpi/wakeup
 ```
 
-The write below is a TOGGLE, not a set. Only echo a device that currently reads `*enabled`, and never run it twice — a second write re-arms it. Verify after every write:
+The write below is a TOGGLE, not a set. Only echo a device that currently reads `*enabled`, and never run it twice. A second write re-arms it. Verify after every write:
 
 ```bash
 # only if XHC currently shows *enabled
@@ -306,9 +306,9 @@ lsusb -t   # map bus/port to the device
 echo disabled | sudo tee /sys/bus/usb/devices/usb1/power/wakeup
 ```
 
-The per-device udev rule as given is correct. Note that disabling wakeup on the xHCI controller also kills wake-on-USB-keyboard/mouse for the whole controller — prefer the per-device rule if you rely on that.
+The per-device udev rule as given is correct. Note that disabling wakeup on the xHCI controller also kills wake-on-USB-keyboard/mouse for the whole controller. Prefer the per-device rule if you rely on that.
 
-**Verify.** `systemctl suspend` and leave it for 60 seconds — it should stay asleep and wake only on the power button. Compare `grep -F "" /sys/class/wakeup/*/device/power/wakeup_count` before and after a sleep cycle to see which source fired.
+**Verify.** `systemctl suspend` and leave it for 60 seconds. It should stay asleep and wake only on the power button. Compare `grep -F "" /sys/class/wakeup/*/device/power/wakeup_count` before and after a sleep cycle to see which source fired.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate>
 
@@ -322,15 +322,15 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers> · 
 
 **Cause.** On Btrfs, `filefrag`'s `physical_offset` is an address in Btrfs's virtual address space, not the real on-disk offset, because Btrfs supports multiple devices. The kernel resume code needs the true physical offset, so a `filefrag`-derived value silently points at the wrong blocks.
 
-> **Audit corrected this record.** The Btrfs diagnosis is exactly right and `sudo btrfs inspect-internal map-swapfile -r` is what omarchy-hibernation-setup itself uses (RESUME_OFFSET=$(sudo btrfs inspect-internal map-swapfile -r "$SWAP_FILE")). The Limine drop-in commands match the real script. But the no-reboot test at the end has the two sysfs writes in the WRONG ORDER: writing to /sys/power/resume triggers the resume attempt immediately, so it must be written last, after resume_offset. As printed, the offset is applied to a resume that has already been attempted with offset 0 — the test appears to fail even when the values are right, and on a machine with a stale image it can attempt a resume from the wrong blocks.
+> **Audit corrected this record.** The Btrfs diagnosis is exactly right and `sudo btrfs inspect-internal map-swapfile -r` is what omarchy-hibernation-setup itself uses (RESUME_OFFSET=$(sudo btrfs inspect-internal map-swapfile -r "$SWAP_FILE")). The Limine drop-in commands match the real script. But the no-reboot test at the end has the two sysfs writes in the WRONG ORDER: writing to /sys/power/resume triggers the resume attempt immediately, so it must be written last, after resume_offset. As printed, the offset is applied to a resume that has already been attempted with offset 0. The test appears to fail even when the values are right, and on a machine with a stale image it can attempt a resume from the wrong blocks.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** A wrong `resume_offset` points the kernel at arbitrary blocks on the swap device. It normally just fails to resume, but never point `resume=` at a partition that is not actually swap — that risks writing the hibernation image over a filesystem.
+> ⚠️ **Risk.** A wrong `resume_offset` points the kernel at arbitrary blocks on the swap device. It normally just fails to resume, but never point `resume=` at a partition that is not actually swap. That risks writing the hibernation image over a filesystem.
 
 **Fix.**
 
-Everything above the no-reboot test is correct. Replace only that block — resume_offset MUST be written before resume, because the write to /sys/power/resume is what triggers the resume attempt:
+Everything above the no-reboot test is correct. Replace only that block. Note that resume_offset MUST be written before resume, because the write to /sys/power/resume is what triggers the resume attempt:
 
 ```bash
 # offset FIRST
@@ -340,7 +340,7 @@ lsblk -o NAME,MAJ:MIN,SIZE   # e.g. nvme0n1p2 -> 259:2
 echo 259:2 | sudo tee /sys/power/resume
 ```
 
-Also worth adding: `btrfs inspect-internal map-swapfile` only produces a usable offset on a single-device Btrfs filesystem — hibernation to a swapfile on a multi-device Btrfs volume is not supported by the kernel at all. Check with `sudo btrfs filesystem show` before spending time on the offset.
+Also worth adding: `btrfs inspect-internal map-swapfile` only produces a usable offset on a single-device Btrfs filesystem. Hibernation to a swapfile on a multi-device Btrfs volume is not supported by the kernel at all. Check with `sudo btrfs filesystem show` before spending time on the offset.
 
 And verify the result actually reached the kernel after rebuilding:
 
@@ -358,15 +358,15 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 `hibernate-encrypted-root-resume-mapper-device` · severity: **high** · frequency: **common** · applies to: `arch`, `btrfs`, `cachyos`, `endeavouros`, `laptop`, `luks`, `manjaro`, `omarchy`
 
-**Symptom.** Full-disk-encrypted laptop. `systemctl hibernate` writes the image and powers off properly, but on the next boot I type the LUKS passphrase and land in a brand-new session — everything is gone. Sometimes the initramfs prints `ERROR: resume: hibernation device '/dev/nvme0n1p3' not found` or hangs on `Waiting 10 seconds for device /dev/mapper/cryptswap ...` and then boots normally anyway.
+**Symptom.** Full-disk-encrypted laptop. `systemctl hibernate` writes the image and powers off properly, but on the next boot I type the LUKS passphrase and land in a brand-new session. Everything is gone. Sometimes the initramfs prints `ERROR: resume: hibernation device '/dev/nvme0n1p3' not found` or hangs on `Waiting 10 seconds for device /dev/mapper/cryptswap ...` and then boots normally anyway.
 
-**Cause.** Three separate mistakes, all of which produce the same silent 'fresh boot' result. (a) `resume=` points at the raw LUKS partition. That partition contains ciphertext and has no swap header, so the kernel finds no hibernation image — `resume=` must name the *decrypted* device-mapper node. (b) With the busybox `encrypt` hook, the `resume` hook runs before the container is unlocked. The Arch wiki is explicit: when swap sits on stacked storage (dm-crypt, LVM, RAID) the `resume` hook must be placed *after* `encrypt`/`lvm2`, and after `udev`. (c) The swap device is set up in `/etc/crypttab` with the `swap` option, i.e. re-encrypted with a random key from `/dev/urandom` on every boot. That deliberately makes suspend-to-disk impossible — the key that encrypted the image was thrown away at shutdown.
+**Cause.** Three separate mistakes, all of which produce the same silent 'fresh boot' result. (a) `resume=` points at the raw LUKS partition. That partition contains ciphertext and has no swap header, so the kernel finds no hibernation image. `resume=` must name the *decrypted* device-mapper node. (b) With the busybox `encrypt` hook, the `resume` hook runs before the container is unlocked. The Arch wiki is explicit: when swap sits on stacked storage (dm-crypt, LVM, RAID) the `resume` hook must be placed *after* `encrypt`/`lvm2`, and after `udev`. (c) The swap device is set up in `/etc/crypttab` with the `swap` option, i.e. re-encrypted with a random key from `/dev/urandom` on every boot. That deliberately makes suspend-to-disk impossible: the key that encrypted the image was thrown away at shutdown.
 
-> **Audit corrected this record.** The diagnosis is correct and well sourced — the random-key crypttab swap, resume= pointing at the mapper node, and 'the resume hook must be placed after encrypt or lvm2' are all on wiki.archlinux.org/title/Power_management/Suspend_and_hibernate; the filefrag awk one-liner and `btrfs inspect-internal map-swapfile -r` (including the 198122980 example) are verbatim from it, as are the /sys/power/resume major:minor and /sys/power/resume_offset test steps. Two substantive problems. (1) For a SEPARATE encrypted swap partition, reordering the hooks is NOT enough. dm-crypt/Swap encryption is explicit: 'If the swap device is on a different device from that of the root file system, it will not be opened by the encrypt hook' and 'the encrypt hook ... can only unlock a single device'. A user who follows step 2's `cryptdevice=UUID=...:cryptroot ... resume=/dev/mapper/cryptswap` plus step 3's hook reorder will still land in a fresh boot, because /dev/mapper/cryptswap never exists in early userspace. (2) The record never mentions that Omarchy already ships the whole procedure: bin/omarchy-hibernation-setup (`omarchy hibernation setup`) creates /swap/swapfile on the encrypted Btrfs root, adds it to fstab, writes `HOOKS+=(resume)` to /etc/mkinitcpio.conf.d/omarchy_resume.conf, computes resume=/resume_offset= into /etc/limine-entry-tool.d/resume.conf, and rebuilds. Also, `sudo limine-update` followed by `sudo limine-mkinitcpio` is redundant — upstream's own comment in that script says limine-mkinitcpio 'rebuilds initramfs/UKI for all kernels and updates the /boot/limine.conf entries', and limine-update 'would also re-deploy the binary and rebuild a second time'.
+> **Audit corrected this record.** The diagnosis is correct and well sourced: the random-key crypttab swap, resume= pointing at the mapper node, and 'the resume hook must be placed after encrypt or lvm2' are all on wiki.archlinux.org/title/Power_management/Suspend_and_hibernate. The filefrag awk one-liner and `btrfs inspect-internal map-swapfile -r` (including the 198122980 example) are verbatim from it, as are the /sys/power/resume major:minor and /sys/power/resume_offset test steps. Two substantive problems. (1) For a SEPARATE encrypted swap partition, reordering the hooks is NOT enough. dm-crypt/Swap encryption is explicit: 'If the swap device is on a different device from that of the root file system, it will not be opened by the encrypt hook' and 'the encrypt hook ... can only unlock a single device'. A user who follows step 2's `cryptdevice=UUID=...:cryptroot ... resume=/dev/mapper/cryptswap` plus step 3's hook reorder will still land in a fresh boot, because /dev/mapper/cryptswap never exists in early userspace. (2) The record never mentions that Omarchy already ships the whole procedure: bin/omarchy-hibernation-setup (`omarchy hibernation setup`) creates /swap/swapfile on the encrypted Btrfs root, adds it to fstab, writes `HOOKS+=(resume)` to /etc/mkinitcpio.conf.d/omarchy_resume.conf, computes resume=/resume_offset= into /etc/limine-entry-tool.d/resume.conf, and rebuilds. Also, `sudo limine-update` followed by `sudo limine-mkinitcpio` is redundant. Upstream's own comment in that script says limine-mkinitcpio 'rebuilds initramfs/UKI for all kernels and updates the /boot/limine.conf entries', and limine-update 'would also re-deploy the binary and rebuild a second time'.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Editing HOOKS is how people make a machine unbootable. If you drop or misplace `encrypt`/`sd-encrypt`, the initramfs cannot unlock root and you get an emergency shell with no way in — have an Arch/Omarchy live USB ready before you rebuild, and note that Omarchy's Limine snapshot entries do not help here because the initramfs/UKI is outside the snapshot. Removing a `/etc/crypttab` swap line without also removing or fixing the matching `/etc/fstab` entry leaves a failing swap unit that can block boot. Reformatting a partition that was previously a LUKS container to use as plain swap destroys whatever was on it.
+> ⚠️ **Risk.** Editing HOOKS is how people make a machine unbootable. If you drop or misplace `encrypt`/`sd-encrypt`, the initramfs cannot unlock root and you get an emergency shell with no way in. Have an Arch/Omarchy live USB ready before you rebuild, and note that Omarchy's Limine snapshot entries do not help here because the initramfs/UKI is outside the snapshot. Removing a `/etc/crypttab` swap line without also removing or fixing the matching `/etc/fstab` entry leaves a failing swap unit that can block boot. Reformatting a partition that was previously a LUKS container to use as plain swap destroys whatever was on it.
 
 **Fix.**
 
@@ -395,12 +395,12 @@ cryptswap UUID=<swap-luks-uuid>  none
 HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck)
 ```
 
-- Or put swap inside the *same* LUKS container (LVM logical volume, or a swapfile on the encrypted root — the swapfile variant in step 2 is the one that works with the plain `encrypt` hook).
+- Or put swap inside the *same* LUKS container (LVM logical volume, or a swapfile on the encrypted root. The swapfile variant in step 2 is the one that works with the plain `encrypt` hook).
 - Or install `mkinitcpio-openswap` (AUR) / write an `openswap` hook that runs `cryptsetup open` before `resume`.
 
-And in step 4, drop `sudo limine-update` — `sudo limine-mkinitcpio` alone rebuilds the initramfs/UKI for every kernel and regenerates the Limine entries; running both does the work twice.
+And in step 4, drop `sudo limine-update`, because `sudo limine-mkinitcpio` alone rebuilds the initramfs/UKI for every kernel and regenerates the Limine entries. Running both does the work twice.
 
-**Verify.** After reboot, `cat /sys/power/resume` must print a non-zero `major:minor` matching the mapper device from `lsblk -o NAME,MAJ:MIN`, and `cat /sys/power/resume_offset` must match your swapfile offset. Hibernate, power on, and check `sudo journalctl -b -k | grep -i 'PM: Image'` — a real resume logs `PM: Image loading progress` / `PM: Image loading done`. `grep -h '^HOOKS' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf` should show `resume` after `encrypt`.
+**Verify.** After reboot, `cat /sys/power/resume` must print a non-zero `major:minor` matching the mapper device from `lsblk -o NAME,MAJ:MIN`, and `cat /sys/power/resume_offset` must match your swapfile offset. Hibernate, power on, and check `sudo journalctl -b -k | grep -i 'PM: Image'`. A real resume logs `PM: Image loading progress` / `PM: Image loading done`. `grep -h '^HOOKS' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf` should show `resume` after `encrypt`.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://wiki.archlinux.org/title/Dm-crypt/System_configuration> · <https://wiki.archlinux.org/title/Dm-crypt/Swap_encryption> · <https://wiki.archlinux.org/title/Limine> · <https://raw.githubusercontent.com/basecamp/omarchy/master/default/limine/default.conf>
 
@@ -410,7 +410,7 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 `hibernate-resume-hook-missing-or-misordered` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `limine`, `manjaro`, `mkinitcpio`, `omarchy`
 
-**Symptom.** Hibernate works — the machine writes to disk and powers off cleanly — but on the next boot it just boots normally and my session is gone. No error message anywhere obvious.
+**Symptom.** Hibernate works, the machine writes to disk and powers off cleanly, but on the next boot it just boots normally and my session is gone. No error message anywhere obvious.
 
 **Cause.** The initramfs never attempted the resume. Two separate things have to be in place and either can be missing.
 
@@ -547,7 +547,7 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 `screen-never-wakes-after-dpms-off` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** I bound a key to `hyprctl dispatch dpms off` and now the display is dead — keyboard and mouse do nothing to bring it back, and I have to hard-reboot. Or: after hypridle blanks the screen it never turns back on when I move the mouse.
+**Symptom.** I bound a key to `hyprctl dispatch dpms off` and now the display is dead. Keyboard and mouse do nothing to bring it back, and I have to hard-reboot. Or: after hypridle blanks the screen it never turns back on when I move the mouse.
 
 **Cause.** `dpms off` used as a direct keybind is explicitly not recommended: nothing is registered to turn it back on, so there is no path back. In an idle daemon the same thing happens if a listener has `on-timeout = hyprctl dispatch dpms off` without the matching `on-resume`.
 
@@ -580,7 +580,7 @@ listener {
 }
 ```
 
-**Recovering a currently-dead screen without rebooting** — switch to a TTY with `Ctrl+Alt+F2`, log in, and run blind:
+**Recovering a currently-dead screen without rebooting**: switch to a TTY with `Ctrl+Alt+F2`, log in, and run blind:
 
 ```bash
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
@@ -607,17 +607,17 @@ PM: pci_pm_suspend(): nv_pmops_suspend+0x0/0x20 [nvidia] returns -5
 nvidia 0000:01:00.0: PM: failed to suspend async: error -5
 ```
 
-**Cause.** The NVIDIA driver is set to preserve all video memory across suspend, but the mechanism that actually saves it is not active. There are two such mechanisms and the discriminator is **which kernel modules are in use, not a driver version cut-off**: with the open kernel modules the driver registers a suspend notifier, enabled by `NVreg_UseKernelSuspendNotifiers=1`; otherwise it is the `nvidia-suspend` / `nvidia-hibernate` / `nvidia-resume` systemd services, which the current driver README still documents as installed and enabled by default. Disabling those services on a proprietary-module machine breaks suspend rather than fixing it.
+**Cause.** The NVIDIA driver is set to preserve all video memory across suspend, but the mechanism that actually saves it is not active. There are two such mechanisms and the discriminator is **which kernel modules are in use, not a driver version cut-off**: with the open kernel modules the driver registers a suspend notifier, enabled by `NVreg_UseKernelSuspendNotifiers=1`. Otherwise it is the `nvidia-suspend` / `nvidia-hibernate` / `nvidia-resume` systemd services, which the current driver README still documents as installed and enabled by default. Disabling those services on a proprietary-module machine breaks suspend rather than fixing it.
 
-> **Audit corrected this record.** The symptom, the NVRM message and the general cause are real, and NVreg_UseKernelSuspendNotifiers genuinely exists (nv-reg.h: "If enabled, this option prompts the NVIDIA kernel module to register a notifier that saves and restores all video memory allocations across system power management cycles if PreserveVideoMemoryAllocations is enabled. 0: Suspend notifiers are not used (default), 1: Suspend notifiers are used when available"). But the '430-590 vs 595+' version boundary is fabricated precision and the instruction to DISABLE the three services on '595+' is actively harmful. The current driver README (610.57.04, matching Arch's nvidia-utils 610.57.04-1) says the notifier path applies "When the open kernel modules are in use" and still documents nvidia-suspend/hibernate/resume as installed and enabled by default. The discriminator is open vs proprietary modules, not a version cut-off; blindly masking the services on a proprietary-driver box will break suspend rather than fix it.
+> **Audit corrected this record.** The symptom, the NVRM message and the general cause are real, and NVreg_UseKernelSuspendNotifiers genuinely exists (nv-reg.h: "If enabled, this option prompts the NVIDIA kernel module to register a notifier that saves and restores all video memory allocations across system power management cycles if PreserveVideoMemoryAllocations is enabled. 0: Suspend notifiers are not used (default), 1: Suspend notifiers are used when available"). But the '430-590 vs 595+' version boundary is fabricated precision and the instruction to DISABLE the three services on '595+' is actively harmful. The current driver README (610.57.04, matching Arch's nvidia-utils 610.57.04-1) says the notifier path applies "When the open kernel modules are in use" and still documents nvidia-suspend/hibernate/resume as installed and enabled by default. The discriminator is open vs proprietary modules, not a version cut-off. Blindly masking the services on a proprietary-driver box will break suspend rather than fix it.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** If you use early KMS (the `nvidia` module loaded from the initramfs) the driver has no access to `NVreg_TemporaryFilePath`, so hibernation cannot preserve VRAM — do not use early KMS if you need hibernation. Changing modprobe options requires regenerating the initramfs or the setting silently does not apply.
+> ⚠️ **Risk.** If you use early KMS (the `nvidia` module loaded from the initramfs) the driver has no access to `NVreg_TemporaryFilePath`, so hibernation cannot preserve VRAM. Do not use early KMS if you need hibernation. Changing modprobe options requires regenerating the initramfs or the setting silently does not apply.
 
 **Fix.**
 
-Find out which module flavour you are on — that, not the version number, decides the mechanism:
+Find out which module flavour you are on. That, not the version number, decides the mechanism:
 
 ```bash
 nvidia-smi --query-gpu=driver_version --format=csv,noheader
@@ -627,7 +627,7 @@ sudo sort /proc/driver/nvidia/params | grep -E 'UseKernelSuspendNotifiers|Preser
 systemctl is-enabled nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service
 ```
 
-**Proprietary modules (nvidia / nvidia-dkms) — the default, and the case for most users.** The three services ARE the mechanism; they drive /proc/driver/nvidia/suspend. They ship enabled. If you disabled them, put them back:
+**Proprietary modules (nvidia / nvidia-dkms): the default, and the case for most users.** The three services ARE the mechanism. They drive /proc/driver/nvidia/suspend. They ship enabled. If you disabled them, put them back:
 
 ```bash
 sudo systemctl enable nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service
@@ -650,7 +650,7 @@ Either way, rebuild the initramfs if the nvidia modules are in it:
 sudo mkinitcpio -P     # or sudo limine-mkinitcpio on Omarchy
 ```
 
-The VRAM dump target must support unnamed temporary files (O_TMPFILE — ext4, XFS and Btrfs all do) and must not be a tmpfs, which is why /var/tmp is used instead of the default /tmp. It needs room for the total VRAM in use:
+The VRAM dump target must support unnamed temporary files (O_TMPFILE, which ext4, XFS and Btrfs all do) and must not be a tmpfs, which is why /var/tmp is used instead of the default /tmp. It needs room for the total VRAM in use:
 
 ```bash
 nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits
@@ -667,11 +667,11 @@ Sources: <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks> · <https://w
 
 `suspend-instant-wake-pcie-bridge-desktop` · severity: **high** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `manjaro`, `omarchy`
 
-**Symptom.** Desktop suspends — monitor goes off, case RGB stays lit — then it wakes again after a second or two, or it never comes back and needs a hard power off. Common on Gigabyte B550/A520, ASRock B850 AM5 and MSI X870 boards.
+**Symptom.** Desktop suspends (monitor goes off, case RGB stays lit), then it wakes again after a second or two, or it never comes back and needs a hard power off. Common on Gigabyte B550/A520, ASRock B850 AM5 and MSI X870 boards.
 
 **Cause.** The PCIe root port bridging the NVMe drive (`GPP0`, `GPP1`) or the xHCI controller (`XH00`) has ACPI wakeup armed and generates a spurious wake event immediately after entering the sleep state.
 
-> **Audit corrected this record.** Real problem, and the udev rule is right. Two defects in the systemd unit: (a) /proc/acpi/wakeup is a toggle, so a unit that unconditionally echoes GPP0 at every boot will re-ARM the wake source on any boot where firmware already left it disabled — the exact bug it is meant to fix, intermittently; (b) the unit has no `Type=oneshot`/`RemainAfterExit=yes`, so systemd treats it as a simple service that exits immediately and `systemctl status` will show it as dead/failed-looking. `Description="..."` also keeps the literal quotes in systemd unit syntax. The udev rule already does this idempotently and correctly, so the unit is redundant; if kept, it must be made conditional.
+> **Audit corrected this record.** Real problem, and the udev rule is right. Two defects in the systemd unit: (a) /proc/acpi/wakeup is a toggle, so a unit that unconditionally echoes GPP0 at every boot will re-ARM the wake source on any boot where firmware already left it disabled, which is the exact bug it is meant to fix, intermittently, and (b) the unit has no `Type=oneshot`/`RemainAfterExit=yes`, so systemd treats it as a simple service that exits immediately and `systemctl status` will show it as dead/failed-looking. `Description="..."` also keeps the literal quotes in systemd unit syntax. The udev rule already does this idempotently and correctly, so the unit is redundant. If kept, it must be made conditional.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -685,7 +685,7 @@ Diagnose the same way:
 cat /proc/acpi/wakeup
 ```
 
-Toggle it for the current session — only for a device whose Status column currently reads `*enabled`, and verify, since the write flips rather than sets:
+Toggle it for the current session, but only for a device whose Status column currently reads `*enabled`, and verify, since the write flips rather than sets:
 
 ```bash
 sudo sh -c 'echo GPP0 > /proc/acpi/wakeup'
@@ -725,7 +725,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now disable-gpp0-wakeup.service
 ```
 
-Do not install both the udev rule and an unconditional unit — the second one can toggle the first one's fix back on.
+Do not install both the udev rule and an unconditional unit, because the second one can toggle the first one's fix back on.
 
 **Verify.** `cat /proc/acpi/wakeup | grep GPP0` shows `*disabled`, and `systemctl suspend` keeps the machine asleep for more than a minute.
 
@@ -737,32 +737,32 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers> · 
 
 `black-screen-on-resume-from-hibernate-early-kms` · severity: **high** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `intel`, `laptop`, `manjaro`, `mkinitcpio`, `nvidia`, `omarchy`
 
-**Symptom.** Resume from hibernate leaves a completely black screen — no console, no TTY, the machine is otherwise alive (Caps Lock LED toggles, SSH sometimes works). Resuming from ordinary suspend is fine.
+**Symptom.** Resume from hibernate leaves a completely black screen: no console, no TTY, and the machine is otherwise alive (Caps Lock LED toggles, SSH sometimes works). Resuming from ordinary suspend is fine.
 
 **Cause.** Graphics devices are being initialised inside the initramfs (early KMS / explicit `MODULES=`) before the hibernation image is restored. The device state set up by the initramfs conflicts with the state recorded in the image. It can also be a kernel regression introduced by an update.
 
-> **Audit corrected this record.** The early-KMS-vs-hibernation-image conflict is a real and correctly diagnosed failure mode, and the LTS-kernel and nvidiafb suggestions are reasonable. The defect is Omarchy-specific and this record explicitly claims to apply to Omarchy: it tells the user to edit MODULES= and HOOKS= in /etc/mkinitcpio.conf, but Omarchy ships /etc/mkinitcpio.conf.d/omarchy_hooks.conf which REASSIGNS HOOKS with `=` and is read after the main file — so the edit is silently discarded and the user rebuilds an unchanged initramfs. This is the same drop-in precedence trap the omarchy-resume-hook record documents. The example HOOKS array also drops `kms` while keeping `encrypt`, which on an encrypted root can leave the LUKS passphrase prompt on a blank screen.
+> **Audit corrected this record.** The early-KMS-vs-hibernation-image conflict is a real and correctly diagnosed failure mode, and the LTS-kernel and nvidiafb suggestions are reasonable. The defect is Omarchy-specific and this record explicitly claims to apply to Omarchy: it tells the user to edit MODULES= and HOOKS= in /etc/mkinitcpio.conf, but Omarchy ships /etc/mkinitcpio.conf.d/omarchy_hooks.conf which REASSIGNS HOOKS with `=` and is read after the main file, so the edit is silently discarded and the user rebuilds an unchanged initramfs. This is the same drop-in precedence trap the omarchy-resume-hook record documents. The example HOOKS array also drops `kms` while keeping `encrypt`, which on an encrypted root can leave the LUKS passphrase prompt on a blank screen.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Removing the `kms` hook loses flicker-free boot and can change console/plymouth behaviour, and on an encrypted root the password prompt may render at a different resolution. A wrong HOOKS array is unbootable — keep a fallback entry.
+> ⚠️ **Risk.** Removing the `kms` hook loses flicker-free boot and can change console/plymouth behaviour, and on an encrypted root the password prompt may render at a different resolution. A wrong HOOKS array is unbootable, so keep a fallback entry.
 
 **Fix.**
 
-First check where HOOKS is actually coming from — on Omarchy the main config is overridden by a drop-in:
+First check where HOOKS is actually coming from, because on Omarchy the main config is overridden by a drop-in:
 
 ```bash
 grep -h '^\(HOOKS\|MODULES\)' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf
 ```
 
-**Arch / EndeavourOS / CachyOS** (no drop-in reassigning HOOKS) — edit /etc/mkinitcpio.conf directly:
+**Arch / EndeavourOS / CachyOS** (no drop-in reassigning HOOKS): edit /etc/mkinitcpio.conf directly:
 
 ```
 MODULES=()
 HOOKS=(base udev autodetect microcode modconf keyboard keymap consolefont block encrypt resume filesystems fsck)
 ```
 
-**Omarchy** — editing /etc/mkinitcpio.conf will NOT take effect. Write a drop-in that sorts last, starting from the array the grep above printed and removing only `kms` (keep everything else, including any btrfs-overlayfs hook):
+**Omarchy**: editing /etc/mkinitcpio.conf will NOT take effect. Write a drop-in that sorts last, starting from the array the grep above printed and removing only `kms` (keep everything else, including any btrfs-overlayfs hook):
 
 ```bash
 sudo tee /etc/mkinitcpio.conf.d/zz_no_early_kms.conf <<'EOF'
@@ -780,11 +780,11 @@ sudo mkinitcpio -P          # sudo limine-mkinitcpio on Omarchy
 lsinitcpio -a /boot/initramfs-linux.img | head   # or check the UKI was regenerated
 ```
 
-Caveat the record omits: with an encrypted root, removing `kms` means the LUKS passphrase prompt may render on a black screen on some GPUs — you are typing blind. Test that you can still unlock before relying on it, and be ready to boot the previous entry.
+Caveat the record omits: with an encrypted root, removing `kms` means the LUKS passphrase prompt may render on a black screen on some GPUs, so you are typing blind. Test that you can still unlock before relying on it, and be ready to boot the previous entry.
 
-The LTS-kernel and `blacklist nvidiafb` suggestions are fine as written; on Omarchy, `sudo pacman -S linux-lts linux-lts-headers` followed by `sudo limine-mkinitcpio` generates the extra boot entry for you.
+The LTS-kernel and `blacklist nvidiafb` suggestions are fine as written. On Omarchy, `sudo pacman -S linux-lts linux-lts-headers` followed by `sudo limine-mkinitcpio` generates the extra boot entry for you.
 
-**Verify.** Hibernate and resume — the desktop reappears. `journalctl -b | grep -i 'PM: hibernation'` shows a clean restore with no device errors.
+**Verify.** Hibernate and resume. The desktop reappears. `journalctl -b | grep -i 'PM: hibernation'` shows a clean restore with no device errors.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks>
 
@@ -857,9 +857,9 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 **Symptom.** Suspend takes about a minute and then the machine wakes itself back up, or it resumes but I can no longer open a new session. The journal shows `Failed to freeze unit 'user.slice'` before sleep, and login attempts fail with:
 `pam_systemd(login:session): Failed to create session: Job 9876 for unit 'session-6.scope' failed with 'frozen'`
 
-**Cause.** Since systemd v256, `systemd-sleep` freezes `user.slice` before entering sleep. On some kernels this fails — notably when KVM is in use — leaving cgroups stuck in the frozen state.
+**Cause.** Since systemd v256, `systemd-sleep` freezes `user.slice` before entering sleep. On some kernels this fails, notably when KVM is in use, leaving cgroups stuck in the frozen state.
 
-> **Audit corrected this record.** The mechanism and the env var are real — systemd's ENVIRONMENT.md documents SYSTEMD_SLEEP_FREEZE_USER_SESSIONS as "Takes a boolean. When true (the default), user.slice will be frozen during sleep. When false it will not be." The four unit names and drop-in paths are correct, and `systemctl thaw user.slice` is a real command. What is missing is the caveat that ships with that same documentation: systemd upstream explicitly recommends against setting it, because disabling the freeze causes undesired behaviour with home-directory encryption and with systemd-suspend-then-hibernate.service — which the suspend-then-hibernate record in this same set tells users to enable. Handing someone a copy-paste loop that silently degrades s2h and homed without saying so is an incomplete fix.
+> **Audit corrected this record.** The mechanism and the env var are real: systemd's ENVIRONMENT.md documents SYSTEMD_SLEEP_FREEZE_USER_SESSIONS as "Takes a boolean. When true (the default), user.slice will be frozen during sleep. When false it will not be." The four unit names and drop-in paths are correct, and `systemctl thaw user.slice` is a real command. What is missing is the caveat that ships with that same documentation: systemd upstream explicitly recommends against setting it, because disabling the freeze causes undesired behaviour with home-directory encryption and with systemd-suspend-then-hibernate.service, which the suspend-then-hibernate record in this same set tells users to enable. Handing someone a copy-paste loop that silently degrades s2h and homed without saying so is an incomplete fix.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -867,7 +867,7 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 **Fix.**
 
-Confirm this is actually your failure before changing anything — you want to see the freeze failure in the journal, not just a slow suspend:
+Confirm this is actually your failure before changing anything. You want to see the freeze failure in the journal, not just a slow suspend:
 
 ```bash
 journalctl -b -1 -u systemd-suspend.service | grep -i 'freeze\|user.slice'
@@ -879,9 +879,9 @@ Unstick a currently frozen session without rebooting:
 sudo systemctl thaw user.slice
 ```
 
-If KVM/libvirt is involved, try stopping the guests before suspend first — that avoids the workaround entirely.
+If KVM/libvirt is involved, try stopping the guests before suspend first. That avoids the workaround entirely.
 
-Only then apply the override. Read this first: systemd upstream advises against this setting; with it disabled you can get incorrect behaviour with encrypted home directories (systemd-homed) and with systemd-suspend-then-hibernate. If you use suspend-then-hibernate, apply the drop-in to the suspend unit only rather than all four:
+Only then apply the override. Read this first: systemd upstream advises against this setting. With it disabled you can get incorrect behaviour with encrypted home directories (systemd-homed) and with systemd-suspend-then-hibernate. If you use suspend-then-hibernate, apply the drop-in to the suspend unit only rather than all four:
 
 ```bash
 for u in systemd-suspend systemd-hibernate systemd-hybrid-sleep systemd-suspend-then-hibernate; do
@@ -892,7 +892,7 @@ done
 sudo systemctl daemon-reload
 ```
 
-Treat it as a temporary workaround and re-test after kernel/systemd updates — remove the drop-ins with `sudo rm -r /etc/systemd/system/systemd-{suspend,hibernate,hybrid-sleep,suspend-then-hibernate}.service.d/nofreeze.conf` and `daemon-reload`.
+Treat it as a temporary workaround and re-test after kernel/systemd updates. Remove the drop-ins with `sudo rm -r /etc/systemd/system/systemd-{suspend,hibernate,hybrid-sleep,suspend-then-hibernate}.service.d/nofreeze.conf` and `daemon-reload`.
 
 **Verify.** `systemctl suspend` enters sleep within a couple of seconds. `journalctl -b | grep -i freeze` shows no `Failed to freeze unit` lines, and `systemctl show user.slice -p FreezerState` reports `FreezerState=running`.
 
@@ -908,15 +908,15 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 **Cause.** The board's ACPI tables take a broken code path when the kernel reports itself as a recent Windows version through the `_OSI` interface, and the firmware re-arms a wake source the OS cannot see.
 
-> **Audit corrected this record.** The Omarchy/Limine drop-in mechanism is genuine (omarchy-hibernation-setup does exactly `echo 'KERNEL_CMDLINE[default]+=" ..."' > /etc/limine-entry-tool.d/<name>.conf` then `sudo tee -a /etc/default/limine < "$DROP_IN"`), but the acpi_osi value is BROKEN as written. kernel-parameters.txt is explicit: "Double-quotes can be used to protect spaces in values, e.g.: param=\"spaces in here\"". The record's echo emits `acpi_osi=!Windows 2015` with a bare space, so the kernel parses `acpi_osi=!Windows` (an _OSI string that does not exist) plus a stray `2015` token — the fix silently does nothing. The quotes must survive into the final cmdline. Also `acpi_os_name` is name-dropped with no value or guidance, and there is no warning that a bad cmdline baked into a UKI can leave the machine unbootable.
+> **Audit corrected this record.** The Omarchy/Limine drop-in mechanism is genuine (omarchy-hibernation-setup does exactly `echo 'KERNEL_CMDLINE[default]+=" ..."' > /etc/limine-entry-tool.d/<name>.conf` then `sudo tee -a /etc/default/limine < "$DROP_IN"`), but the acpi_osi value is BROKEN as written. kernel-parameters.txt is explicit: "Double-quotes can be used to protect spaces in values, e.g.: param=\"spaces in here\"". The record's echo emits `acpi_osi=!Windows 2015` with a bare space, so the kernel parses `acpi_osi=!Windows` (an _OSI string that does not exist) plus a stray `2015` token. The fix silently does nothing. The quotes must survive into the final cmdline. Also `acpi_os_name` is name-dropped with no value or guidance, and there is no warning that a bad cmdline baked into a UKI can leave the machine unbootable.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Changing the reported _OSI string alters which ACPI code paths the firmware takes; fan curves, battery reporting or thermal behaviour can change. Keep a known-good boot entry so you can boot without the parameter.
+> ⚠️ **Risk.** Changing the reported _OSI string alters which ACPI code paths the firmware takes. Fan curves, battery reporting or thermal behaviour can change. Keep a known-good boot entry so you can boot without the parameter.
 
 **Fix.**
 
-The quotes are load-bearing — `acpi_osi=!Windows 2015` without them is parsed as two separate parameters and does nothing.
+The quotes are load-bearing. `acpi_osi=!Windows 2015` without them is parsed as two separate parameters and does nothing.
 
 On Omarchy (Limine + UKI), escape the inner quotes so they land in the generated cmdline:
 
@@ -928,7 +928,7 @@ sudo tee -a /etc/default/limine < /etc/limine-entry-tool.d/acpi-osi.conf
 sudo limine-mkinitcpio
 ```
 
-After rebooting, verify the parameter actually arrived intact — if you see `2015` as its own token, the quoting was lost:
+After rebooting, verify the parameter actually arrived intact. If you see `2015` as its own token, the quoting was lost:
 
 ```bash
 cat /proc/cmdline
@@ -938,7 +938,7 @@ dmesg | grep -i 'ACPI: Added _OSI\|ACPI: Deleted _OSI'
 GRUB: `GRUB_CMDLINE_LINUX_DEFAULT="... acpi_osi=\"!Windows 2015\""` in /etc/default/grub, then `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
 systemd-boot: add `acpi_osi="!Windows 2015"` to the `options` line in /boot/loader/entries/*.conf.
 
-Masking an _OSI string changes which ACPI code path the firmware takes for everything, not just wakeup — backlight, fan and battery control can regress. Test it as a one-off boot-time edit (press `e` in the Limine/GRUB menu) before making it permanent, and keep a known-good fallback boot entry, since a broken cmdline baked into a UKI is harder to recover from. Try `"!Windows 2020"`, `"!Windows 2019"` etc. one at a time if 2015 does not help. Drop the vague `acpi_os_name` mention — it takes a full string (e.g. `acpi_os_name="Microsoft Windows NT"`) and is rarely the right knob here.
+Masking an _OSI string changes which ACPI code path the firmware takes for everything, not just wakeup. Backlight, fan and battery control can regress. Test it as a one-off boot-time edit (press `e` in the Limine/GRUB menu) before making it permanent, and keep a known-good fallback boot entry, since a broken cmdline baked into a UKI is harder to recover from. Try `"!Windows 2020"`, `"!Windows 2019"` etc. one at a time if 2015 does not help. Drop the vague `acpi_os_name` mention. It takes a full string (e.g. `acpi_os_name="Microsoft Windows NT"`) and is rarely the right knob here.
 
 **Verify.** `cat /proc/cmdline` contains the parameter, and `systemctl suspend` now stays asleep. `dmesg | grep -i _OSI` shows the string being masked.
 
@@ -1016,15 +1016,15 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 `battery-charge-threshold-resets-or-missing` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `asus`, `cachyos`, `dell`, `endeavouros`, `framework`, `laptop`, `manjaro`, `omarchy`, `system76`, `thinkpad`
 
-**Symptom.** I want the laptop to stop charging at 80% like it did on Windows. Either the file isn't there at all (`ls: cannot access '/sys/class/power_supply/BAT0/charge_control_end_threshold': No such file or directory`), or I `echo 80` into it, it works, and then after a reboot — on ASUS machines after every resume from hibernate — it's silently back at 100 and the battery charges to full again.
+**Symptom.** I want the laptop to stop charging at 80% like it did on Windows. Either the file isn't there at all (`ls: cannot access '/sys/class/power_supply/BAT0/charge_control_end_threshold': No such file or directory`), or I `echo 80` into it, it works, and then after a reboot (on ASUS machines, after every resume from hibernate), it's silently back at 100 and the battery charges to full again.
 
-**Cause.** The charge threshold is not a generic kernel feature. `charge_control_start_threshold` / `charge_control_end_threshold` are power-supply class attributes that only exist if a *vendor platform driver* creates them: `thinkpad_acpi` (natacpi) on ThinkPads, `asus_wmi` / `asus-nb-wmi` on ASUS, `dell-laptop`, `system76_acpi`, `cros_ec` on Framework. The value lives in volatile EC state, so nothing persists it across a power cycle — the Arch wiki notes the ASUS driver explicitly resets it to 100 on every power cycle, and that while the value survives suspend-to-RAM it is reset when resuming from hibernation. A second failure mode: the attribute does not exist until the platform module loads, so anything that writes it too early at boot silently does nothing.
+**Cause.** The charge threshold is not a generic kernel feature. `charge_control_start_threshold` / `charge_control_end_threshold` are power-supply class attributes that only exist if a *vendor platform driver* creates them: `thinkpad_acpi` (natacpi) on ThinkPads, `asus_wmi` / `asus-nb-wmi` on ASUS, `dell-laptop`, `system76_acpi`, `cros_ec` on Framework. The value lives in volatile EC state, so nothing persists it across a power cycle. The Arch wiki notes the ASUS driver explicitly resets it to 100 on every power cycle, and that while the value survives suspend-to-RAM it is reset when resuming from hibernation. A second failure mode: the attribute does not exist until the platform module loads, so anything that writes it too early at boot silently does nothing.
 
-> **Audit corrected this record.** Technically excellent and verified almost line-for-line against wiki.archlinux.org/title/Laptop/ASUS (BAT0/BAT1/BATC/BATT names, 'reset on every power cycle', the asus-nb-wmi udev rule, the /usr/lib/systemd/system-sleep/battery-threshold.sh script, and 'persists after suspend-to-RAM but is reset when resuming from hibernation'). 'You must always specify both charge thresholds ... otherwise TLP will reject both thresholds' is verbatim from linrunner.de/tlp/settings/battery.html, and the ASUS dummy START=0 matches bc-vendors.html. TLP genuinely does restore thresholds on resume. tlp/thinkpad_acpi/tp_smapi-dkms all check out. TWO Omarchy commands are wrong. (1) `omarchy pkg install tlp` does not install tlp: bin/omarchy-pkg-install is an interactive fzf picker (`pacman -Slq | fzf`) that ignores its arguments entirely — the by-name installer is bin/omarchy-pkg-add (`omarchy pkg add tlp`). (2) `OMARCHY_ALLOW_DIRECT_PACMAN=1 sudo pacman -S tlp` cannot work: sudo strips the environment, so the variable never reaches pacman; the documented form printed by the guard itself is `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu`. It is also unnecessary — bin/omarchy-update-pacman-guard only aborts when the pacman invocation has BOTH a sync (-S) and a sysupgrade (-u) flag, and the hook only triggers on Operation=Upgrade, so a plain `pacman -S tlp` is never blocked. Also missing the Arch TLP page's instruction to mask systemd-rfkill.service and systemd-rfkill.socket.
+> **Audit corrected this record.** Technically excellent and verified almost line-for-line against wiki.archlinux.org/title/Laptop/ASUS (BAT0/BAT1/BATC/BATT names, 'reset on every power cycle', the asus-nb-wmi udev rule, the /usr/lib/systemd/system-sleep/battery-threshold.sh script, and 'persists after suspend-to-RAM but is reset when resuming from hibernation'). 'You must always specify both charge thresholds ... otherwise TLP will reject both thresholds' is verbatim from linrunner.de/tlp/settings/battery.html, and the ASUS dummy START=0 matches bc-vendors.html. TLP genuinely does restore thresholds on resume. tlp/thinkpad_acpi/tp_smapi-dkms all check out. TWO Omarchy commands are wrong. (1) `omarchy pkg install tlp` does not install tlp: bin/omarchy-pkg-install is an interactive fzf picker (`pacman -Slq | fzf`) that ignores its arguments entirely. The by-name installer is bin/omarchy-pkg-add (`omarchy pkg add tlp`). (2) `OMARCHY_ALLOW_DIRECT_PACMAN=1 sudo pacman -S tlp` cannot work: sudo strips the environment, so the variable never reaches pacman. The documented form printed by the guard itself is `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu`. It is also unnecessary: bin/omarchy-update-pacman-guard only aborts when the pacman invocation has BOTH a sync (-S) and a sysupgrade (-u) flag, and the hook only triggers on Operation=Upgrade, so a plain `pacman -S tlp` is never blocked. Also missing the Arch TLP page's instruction to mask systemd-rfkill.service and systemd-rfkill.socket.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Installing TLP on Omarchy or any distro shipping power-profiles-daemon puts two daemons on the same knobs — see the existing TLP/power-profiles-daemon conflict record before enabling `tlp.service`, and be aware Omarchy's power menu reads powerprofilesctl. Do not set a stop threshold below your current charge and then expect the battery to discharge to it — it will simply sit there not charging. Setting a very low ceiling (e.g. 50%) on a laptop you also use unplugged leaves you with much less runtime than the battery gauge implies.
+> ⚠️ **Risk.** Installing TLP on Omarchy or any distro shipping power-profiles-daemon puts two daemons on the same knobs. See the existing TLP/power-profiles-daemon conflict record before enabling `tlp.service`, and be aware Omarchy's power menu reads powerprofilesctl. Do not set a stop threshold below your current charge and then expect the battery to discharge to it. It will simply sit there not charging. Setting a very low ceiling (e.g. 50%) on a laptop you also use unplugged leaves you with much less runtime than the battery gauge implies.
 
 **Fix.**
 
@@ -1057,21 +1057,21 @@ $ bluetoothctl show
 No default controller available
 ```
 
-The adapter isn't in `lsusb` any more either — it's as if someone unplugged it. `dmesg` shows `Bluetooth: hci0: command 0x1001 tx timeout` or `hci0: link tx timeout`. Only a full reboot brings it back.
+The adapter isn't in `lsusb` any more either. It's as if someone unplugged it. `dmesg` shows `Bluetooth: hci0: command 0x1001 tx timeout` or `hci0: link tx timeout`. Only a full reboot brings it back.
 
-**Cause.** Two different things wearing the same face. Either bluez lost the adapter and just needs re-powering (`AutoEnable`, rfkill soft-block restored on resume), or — the harder case — the `btusb` USB device genuinely failed to re-enumerate on the xHCI bus after resume, usually because of USB autosuspend on the controller. Common on Intel AX200/AX201/AX211 and MediaTek MT7921/MT7922 combo cards. There is also a distinct bluez-5.80 regression where already-paired LE devices reconnect with a different address and fail to re-pair.
+**Cause.** Two different things wearing the same face. Either bluez lost the adapter and just needs re-powering (`AutoEnable`, rfkill soft-block restored on resume), or (the harder case) the `btusb` USB device genuinely failed to re-enumerate on the xHCI bus after resume, usually because of USB autosuspend on the controller. Common on Intel AX200/AX201/AX211 and MediaTek MT7921/MT7922 combo cards. There is also a distinct bluez-5.80 regression where already-paired LE devices reconnect with a different address and fail to re-pair.
 
-> **Audit corrected this record.** The escalation ladder is sound and mostly wiki-backed: `btusb.enable_autosuspend=n`, the modprobe -r/modprobe btusb cycle, and the rfkill check are all on wiki.archlinux.org/title/Bluetooth; bin/omarchy-restart-bluetooth is indeed just `rfkill unblock bluetooth` plus a listing (the record describes it correctly, unlike its own menu label); the Update > Hardware > Bluetooth mapping is confirmed in the menu JSON; usb_modeswitch and the Limine persistence step are correct. Three fixes needed. (1) Step 2 is stale as a *fix*: the Bluetooth page says 'As of bluez 5.65, BlueZ' default behavior is to power on all Bluetooth adapters when starting the service or resuming from suspend' — AutoEnable=true has been the default for years, so writing it changes nothing. It is only worth checking whether something set it to false. (2) Step 6's xhci_hcd unbind/bind is genuinely dangerous with no warning: unbinding the controller drops every USB device on it, including the keyboard and mouse, and any USB storage — mid-write. (3) The Arch wiki's targeted TLP fix for exactly the quoted `hci0: link tx timeout` symptom is USB_DENYLIST with the adapter's ID, which is far less costly than disabling USB autosuspend machine-wide.
+> **Audit corrected this record.** The escalation ladder is sound and mostly wiki-backed: `btusb.enable_autosuspend=n`, the modprobe -r/modprobe btusb cycle, and the rfkill check are all on wiki.archlinux.org/title/Bluetooth. bin/omarchy-restart-bluetooth is indeed just `rfkill unblock bluetooth` plus a listing (the record describes it correctly, unlike its own menu label). The Update > Hardware > Bluetooth mapping is confirmed in the menu JSON. usb_modeswitch and the Limine persistence step are correct. Three fixes needed. (1) Step 2 is stale as a *fix*: the Bluetooth page says 'As of bluez 5.65, BlueZ' default behavior is to power on all Bluetooth adapters when starting the service or resuming from suspend'. AutoEnable=true has been the default for years, so writing it changes nothing. It is only worth checking whether something set it to false. (2) Step 6's xhci_hcd unbind/bind is genuinely dangerous with no warning: unbinding the controller drops every USB device on it, including the keyboard and mouse, and any USB storage, mid-write. (3) The Arch wiki's targeted TLP fix for exactly the quoted `hci0: link tx timeout` symptom is USB_DENYLIST with the adapter's ID, which is far less costly than disabling USB autosuspend machine-wide.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Step 6's `xhci_hcd` unbind disconnects EVERY device on that controller — your keyboard and mouse included, and any mounted USB storage, which risks filesystem damage. Unmount USB drives first (`sudo umount /run/media/$USER/*`) and run it from an SSH session or on a laptop with a built-in keyboard on a different controller. Disabling USB autosuspend system-wide (`USB_AUTOSUSPEND=0`) measurably increases idle battery drain.
+> ⚠️ **Risk.** Step 6's `xhci_hcd` unbind disconnects EVERY device on that controller, your keyboard and mouse included, and any mounted USB storage, which risks filesystem damage. Unmount USB drives first (`sudo umount /run/media/$USER/*`) and run it from an SSH session or on a laptop with a built-in keyboard on a different controller. Disabling USB autosuspend system-wide (`USB_AUTOSUSPEND=0`) measurably increases idle battery drain.
 
 **Fix.**
 
 Replace step 2 with:
 
-**2. Confirm nothing disabled auto-power-on.** Since bluez 5.65 BlueZ powers on every adapter when the service starts *and* on resume from suspend, so this is already the default — you only need to check that it was not turned off:
+**2. Confirm nothing disabled auto-power-on.** Since bluez 5.65 BlueZ powers on every adapter when the service starts *and* on resume from suspend, so this is already the default. You only need to check that it was not turned off:
 
 ```bash
 grep -r -i autoenable /etc/bluetooth/
@@ -1088,7 +1088,7 @@ AutoEnable=true
 sudo systemctl restart bluetooth.service
 ```
 
-In step 4, prefer the targeted TLP setting over the global one — the Arch Bluetooth/TLP pages document `USB_DENYLIST` for precisely this `link tx timeout` symptom. Get the ID from `lsusb`:
+In step 4, prefer the targeted TLP setting over the global one. The Arch Bluetooth/TLP pages document `USB_DENYLIST` for precisely this `link tx timeout` symptom. Get the ID from `lsusb`:
 
 ```ini
 # /etc/tlp.d/20-bluetooth.conf
@@ -1099,9 +1099,9 @@ Use `USB_AUTOSUSPEND=0` only if the denylist entry does not hold.
 
 In step 6, add before the controller rebind:
 
-> **Warning.** Unbinding `xhci_hcd` drops *every* device on that controller at once — USB keyboard, mouse, dock, and any attached USB storage (unmount it first). Run this over SSH, or from a laptop's built-in (non-USB) keyboard, and never while the root filesystem or /home lives on USB. Identify which controller owns the adapter with `lsusb -t` before picking a PCI address, and confirm it is not the one your input devices are on.
+> **Warning.** Unbinding `xhci_hcd` drops *every* device on that controller at once: USB keyboard, mouse, dock, and any attached USB storage (unmount it first). Run this over SSH, or from a laptop's built-in (non-USB) keyboard, and never while the root filesystem or /home lives on USB. Identify which controller owns the adapter with `lsusb -t` before picking a PCI address, and confirm it is not the one your input devices are on.
 
-**Verify.** `sudo systemctl suspend`, wake, then `bluetoothctl show` prints a controller with `Powered: yes`, `lsusb` still lists the adapter, and `sudo journalctl -b -k | grep -i bluetooth` has no `tx timeout`. Repeat three cycles — this failure is often intermittent on the first cycle only.
+**Verify.** `sudo systemctl suspend`, wake, then `bluetoothctl show` prints a controller with `Powered: yes`, `lsusb` still lists the adapter, and `sudo journalctl -b -k | grep -i bluetooth` has no `tx timeout`. Repeat three cycles. This failure is often intermittent on the first cycle only.
 
 Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://bbs.archlinux.org/viewtopic.php?id=289334> · <https://bbs.archlinux.org/viewtopic.php?id=304397> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-restart-bluetooth> · <https://wiki.archlinux.org/title/TLP> · <https://wiki.archlinux.org/title/Limine>
 
@@ -1197,19 +1197,19 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 `lid-close-wrong-action-docked-or-external-power` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `systemd`, `wayland`
 
-**Symptom.** Closing the lid still suspends the laptop even though it is docked with an external monitor attached — or the opposite, closing the lid does nothing at all and the machine cooks in my bag.
+**Symptom.** Closing the lid still suspends the laptop even though it is docked with an external monitor attached. Or the opposite, closing the lid does nothing at all and the machine cooks in my bag.
 
-**Cause.** `systemd-logind` uses three separate settings: `HandleLidSwitch`, `HandleLidSwitchExternalPower` (on AC) and `HandleLidSwitchDocked` (docked, or more than one display connected — default `ignore`). A desktop power manager may also take an inhibitor lock and override logind entirely.
+**Cause.** `systemd-logind` uses three separate settings: `HandleLidSwitch`, `HandleLidSwitchExternalPower` (on AC) and `HandleLidSwitchDocked` (docked, or more than one display connected, default `ignore`). A desktop power manager may also take an inhibitor lock and override logind entirely.
 
-> **Audit corrected this record.** Almost entirely correct — the three-setting split is real, the action list matches logind.conf(5), and HandleLidSwitchDocked does default to ignore. Two errors. First, the closing note that "logind delays lid-close suspends by up to 90 s to detect docks" is wrong on both the number and the meaning: logind.conf(5) says HoldoffTimeoutSec "Specifies a period of time after system startup or system resume in which systemd will hold off on reacting to lid events... Defaults to 30s" — it is a post-boot/post-resume holdoff, not dock detection, and setting it to 30s as the record does changes nothing. Second, it says HandleLidSwitchExternalPower falls back to on-AC behaviour by default; the man page says it "is completely ignored by default (for backwards compatibility) — an explicit value must be set before it will be used", so on a stock system HandleLidSwitch governs on AC too.
+> **Audit corrected this record.** Almost entirely correct: the three-setting split is real, the action list matches logind.conf(5), and HandleLidSwitchDocked does default to ignore. Two errors. First, the closing note that "logind delays lid-close suspends by up to 90 s to detect docks" is wrong on both the number and the meaning: logind.conf(5) says HoldoffTimeoutSec "Specifies a period of time after system startup or system resume in which systemd will hold off on reacting to lid events... Defaults to 30s". It is a post-boot/post-resume holdoff, not dock detection, and setting it to 30s as the record does changes nothing. Second, it says HandleLidSwitchExternalPower falls back to on-AC behaviour by default. The man page says it "is completely ignored by default (for backwards compatibility) — an explicit value must be set before it will be used", so on a stock system HandleLidSwitch governs on AC too.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** `HandleLidSwitch=ignore` on a laptop means closing the lid and putting it in a bag leaves it running at full power — a real overheating and battery-drain risk.
+> ⚠️ **Risk.** `HandleLidSwitch=ignore` on a laptop means closing the lid and putting it in a bag leaves it running at full power, a real overheating and battery-drain risk.
 
 **Fix.**
 
-Set all three explicitly — HandleLidSwitchExternalPower is ignored entirely until you give it a value, so on a stock system HandleLidSwitch applies on AC as well:
+Set all three explicitly. HandleLidSwitchExternalPower is ignored entirely until you give it a value, so on a stock system HandleLidSwitch applies on AC as well:
 
 ```ini
 # /etc/systemd/logind.conf.d/lid.conf
@@ -1227,9 +1227,9 @@ Apply:
 sudo systemctl restart systemd-logind.service
 ```
 
-(`reload` also works on current systemd. Either way, logind does not retroactively change already-active sessions — if behaviour does not change, log out and back in, or reboot. Check for stale sessions with `loginctl list-sessions`.)
+(`reload` also works on current systemd. Either way, logind does not retroactively change already-active sessions. If behaviour does not change, log out and back in, or reboot. Check for stale sessions with `loginctl list-sessions`.)
 
-Drop the HoldoffTimeoutSec=30s line from the original: 30s is already the default, and it is not dock detection. HoldoffTimeoutSec is the window after boot or after resume during which logind ignores lid events entirely — relevant if your machine suspends again immediately on opening the lid, not if it is picking the wrong action.
+Drop the HoldoffTimeoutSec=30s line from the original: 30s is already the default, and it is not dock detection. HoldoffTimeoutSec is the window after boot or after resume during which logind ignores lid events entirely. It is relevant if your machine suspends again immediately on opening the lid, not if it is picking the wrong action.
 
 If logind is being overridden by a desktop power manager or an application inhibitor:
 
@@ -1257,7 +1257,7 @@ Operation inhibited by "Steam" (PID 4711 "steam", user me), reason is "Downloadi
 Please retry operation after closing inhibitors and logging out other users.
 ```
 
-Adding `-i` makes it suspend fine, so something is blocking it — I just can't see what.
+Adding `-i` makes it suspend fine, so something is blocking it. I just can't see what.
 
 **Cause.** logind honours inhibitor locks. A `block` inhibitor prohibits sleep indefinitely (Steam while downloading, a browser playing video, mpv, a package manager, an SSH session holding `systemd-inhibit`). A `delay` inhibitor only postpones sleep up to `InhibitDelayMaxSec`, which is 5 seconds on stock systemd and 15 seconds on Omarchy 4 because `omarchy-settings` ships a drop-in raising it. Delay inhibitors are normal: NetworkManager, UPower and, on Omarchy 4, the user unit `omarchy-sleep-lock.service` all hold one, the last so `omarchy-system-sleep-lock` can lock the session before the machine sleeps. Separately, an idle-only inhibitor stops logind's `IdleAction` from firing without blocking a manual `systemctl suspend`, which is why the two symptoms look different. On Omarchy 4 that second half is the part most advice gets wrong: `IdleAction` is set to `ignore`, idle is detected by a Quickshell plugin using the Wayland idle-inhibit protocol rather than by logind, and the whole idle path can be switched off by a state file that no inhibitor listing will ever show.
 
@@ -1411,23 +1411,23 @@ Sources: <https://man.archlinux.org/man/systemd-inhibit.1.en> · <https://man.ar
 
 `cpu-power-limit-throttling-low-clocks` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `dell`, `endeavouros`, `intel`, `laptop`, `manjaro`, `omarchy`, `thinkpad`
 
-**Symptom.** The laptop is barely warm — `sensors` says 55 °C — but everything crawls. Under full load `watch -n1 "grep 'MHz' /proc/cpuinfo"` sits at 400–800 MHz even with the performance governor and `boost` enabled. On a ThinkPad it drops to exactly 400 MHz the moment I plug into a dock or a non-Lenovo charger. On other machines the package sticks at ~15 W when the chip is rated for 45 W. It is clearly not heat — so what is limiting it?
+**Symptom.** The laptop is barely warm (`sensors` says 55 °C) but everything crawls. Under full load `watch -n1 "grep 'MHz' /proc/cpuinfo"` sits at 400 to 800 MHz even with the performance governor and `boost` enabled. On a ThinkPad it drops to exactly 400 MHz the moment I plug into a dock or a non-Lenovo charger. On other machines the package sticks at ~15 W when the chip is rated for 45 W. It is clearly not heat, so what is limiting it?
 
-**Cause.** You are being power-limited or signal-limited rather than limited by the CPU's own reported core temperature. Three mechanisms produce identical symptoms. (a) **BD PROCHOT** — a hardware line the embedded controller can assert to force the CPU to its minimum P-state. It is asserted by the EC, not by the CPU's thermal control, so `sensors` can look cool while it is active — but it is a protection mechanism and the EC asserts it for real reasons: a third-party or undersized battery/charger, a hot VRM or chassis sensor, a dock, and on many ThinkPads a CPU temperature crossing an EC threshold as low as ~60 °C (well below Tjmax). Clearing the bit disables that protection. (b) A **BIOS `_PPC` limit** exposed as `/sys/devices/system/cpu/cpu0/cpufreq/bios_limit`, typically set when the firmware sees a failing battery or an undersized adapter; the Arch wiki treats overriding it as a hardware risk. (c) **RAPL power limits** (PL1/PL2) programmed low by firmware or Intel DPTF, which the kernel honours faithfully. The governor cannot override any of these.
+**Cause.** You are being power-limited or signal-limited rather than limited by the CPU's own reported core temperature. Three mechanisms produce identical symptoms. (a) **BD PROCHOT**, a hardware line the embedded controller can assert to force the CPU to its minimum P-state. It is asserted by the EC, not by the CPU's thermal control, so `sensors` can look cool while it is active, but it is a protection mechanism and the EC asserts it for real reasons: a third-party or undersized battery/charger, a hot VRM or chassis sensor, a dock, and on many ThinkPads a CPU temperature crossing an EC threshold as low as ~60 °C (well below Tjmax). Clearing the bit disables that protection. (b) A **BIOS `_PPC` limit** exposed as `/sys/devices/system/cpu/cpu0/cpufreq/bios_limit`, typically set when the firmware sees a failing battery or an undersized adapter. The Arch wiki treats overriding it as a hardware risk. (c) **RAPL power limits** (PL1/PL2) programmed low by firmware or Intel DPTF, which the kernel honours faithfully. The governor cannot override any of these.
 
-> **Audit corrected this record.** Diagnostics and mechanisms are right, and the throttlestop script is copied faithfully from wiki.archlinux.org/title/Lenovo_ThinkPad_T480#CPU_stuck_at_minimum_frequency (including the `reg%2` test and the msr-tools note). processor.ignore_ppc=1 / /sys/module/processor/parameters/ignore_ppc and the bios_limit path are verbatim from CPU frequency scaling. throttled (extra 0.12), turbostat, msr-tools, lm_sensors all exist. Three defects. (1) Wrong config path: the current Arch `throttled` package ships `etc/throttled.conf` and `usr/lib/systemd/system/throttled.service` — there is no /etc/lenovo_fix.conf. That name is the pre-rename lenovo_throttling_fix era; a user editing it will see no effect at all. (2) The cause is wrong on a safety-relevant point. The Arch wiki says BD PROCHOT 'is meant to protect the system and can be triggered by many reasons—the CPU temperature rising above 60 °C, using a third party battery, etc.' — so 'completely independent of core temperature' is false, and clearing the bit can remove a live thermal protection. (3) The record strips the wiki's explicit warning on ignore_ppc and presents it as merely 'reversible, no reboot'. The wiki carries a Warning box: 'CPU frequency limitation is a safety feature of your BIOS and should not need to be bypassed in most cases' and 'This can seriously damage your hardware: use at your own risk.' Given these commands go into a root shell, that omission has to be fixed.
+> **Audit corrected this record.** Diagnostics and mechanisms are right, and the throttlestop script is copied faithfully from wiki.archlinux.org/title/Lenovo_ThinkPad_T480#CPU_stuck_at_minimum_frequency (including the `reg%2` test and the msr-tools note). processor.ignore_ppc=1 / /sys/module/processor/parameters/ignore_ppc and the bios_limit path are verbatim from CPU frequency scaling. throttled (extra 0.12), turbostat, msr-tools, lm_sensors all exist. Three defects. (1) Wrong config path: the current Arch `throttled` package ships `etc/throttled.conf` and `usr/lib/systemd/system/throttled.service`. There is no /etc/lenovo_fix.conf. That name is the pre-rename lenovo_throttling_fix era. A user editing it will see no effect at all. (2) The cause is wrong on a safety-relevant point. The Arch wiki says BD PROCHOT 'is meant to protect the system and can be triggered by many reasons—the CPU temperature rising above 60 °C, using a third party battery, etc.', so 'completely independent of core temperature' is false, and clearing the bit can remove a live thermal protection. (3) The record strips the wiki's explicit warning on ignore_ppc and presents it as merely 'reversible, no reboot'. The wiki carries a Warning box: 'CPU frequency limitation is a safety feature of your BIOS and should not need to be bypassed in most cases' and 'This can seriously damage your hardware: use at your own risk.' Given these commands go into a root shell, that omission has to be fixed.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** This is the most hazardous fix in the set. BD PROCHOT and firmware RAPL limits are electrical and thermal *protections*: the Arch wiki's own warning on the BIOS frequency-limitation section is that bypassing them "can seriously damage your hardware." On a machine with a swollen or failing battery, an undersized or counterfeit charger, or a heatsink full of dust, clearing PROCHOT or raising PL1 can overheat the VRM/CPU or brown out the system under load. Do not apply any of this to a machine that is actually running hot — verify with `turbostat` first. Do not run `throttled.service` alongside a hand-rolled MSR script or another undervolting tool; they overwrite each other and the resulting state is unpredictable. `wrmsr` writes to a CPU model-specific register — a typo in the register number can hang or destabilise the machine.
+> ⚠️ **Risk.** This is the most hazardous fix in the set. BD PROCHOT and firmware RAPL limits are electrical and thermal *protections*: the Arch wiki's own warning on the BIOS frequency-limitation section is that bypassing them "can seriously damage your hardware." On a machine with a swollen or failing battery, an undersized or counterfeit charger, or a heatsink full of dust, clearing PROCHOT or raising PL1 can overheat the VRM/CPU or brown out the system under load. Do not apply any of this to a machine that is actually running hot. Verify with `turbostat` first. Do not run `throttled.service` alongside a hand-rolled MSR script or another undervolting tool. They overwrite each other and the resulting state is unpredictable. `wrmsr` writes to a CPU model-specific register. A typo in the register number can hang or destabilise the machine.
 
 **Fix.**
 
-Step 3 — add the wiki's warning before the command:
+Step 3: add the wiki's warning before the command:
 
-> ⚠️ **Risk.** Per wiki.archlinux.org/title/CPU_frequency_scaling: 'CPU frequency limitation is a safety feature of your BIOS and should not need to be bypassed in most cases' and 'This can seriously damage your hardware: use at your own risk.' Before overriding it, check the BIOS for a manually-set frequency cap or thermal preference, and check whether the battery is failing or the adapter is undersized — those are the usual legitimate triggers.
+> ⚠️ **Risk.** Per wiki.archlinux.org/title/CPU_frequency_scaling: 'CPU frequency limitation is a safety feature of your BIOS and should not need to be bypassed in most cases' and 'This can seriously damage your hardware: use at your own risk.' Before overriding it, check the BIOS for a manually-set frequency cap or thermal preference, and check whether the battery is failing or the adapter is undersized. Those are the usual legitimate triggers.
 
-Step 4 — fix the config path and add the same caveat:
+Step 4: fix the config path and add the same caveat:
 
 ```bash
 omarchy pkg add throttled          # or: sudo pacman -Syu --needed throttled
@@ -1437,7 +1437,7 @@ sudo systemctl status throttled.service
 
 Its config is **`/etc/throttled.conf`** (the current package ships exactly `etc/throttled.conf` and `usr/lib/systemd/system/throttled.service`). `/etc/lenovo_fix.conf` was the old lenovo_throttling_fix name and editing it does nothing.
 
-> ⚠️ **Risk.** BD PROCHOT is a protection signal. Before clearing it, watch `PkgTmp` and per-component temperatures in `turbostat`/`sensors` under load. If the EC is asserting it because of a hot VRM, a third-party charger or a dock, clearing the bit lets the machine run hot instead of slow. Do not run the hand-rolled throttlestop service *and* `throttled` at the same time — pick one, since both write MSR 0x1FC and RAPL limits.
+> ⚠️ **Risk.** BD PROCHOT is a protection signal. Before clearing it, watch `PkgTmp` and per-component temperatures in `turbostat`/`sensors` under load. If the EC is asserting it because of a hot VRM, a third-party charger or a dock, clearing the bit lets the machine run hot instead of slow. Do not run the hand-rolled throttlestop service *and* `throttled` at the same time. Pick one, since both write MSR 0x1FC and RAPL limits.
 
 Everything else (turbostat/RAPL inspection, powerprofilesctl, tlp-stat -p, the Limine persistence step, and the thermald pointer) is accurate as written.
 
@@ -1451,7 +1451,7 @@ Sources: <https://wiki.archlinux.org/title/CPU_frequency_scaling> · <https://wi
 
 `find-which-device-fails-suspend` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `intel`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** Suspend either fails outright, takes forever, or the machine wakes straight back up — and all I get is one useless line:
+**Symptom.** Suspend either fails outright, takes forever, or the machine wakes straight back up, and all I get is one useless line:
 
 ```
 kernel: PM: Some devices failed to suspend, or early wake event detected
@@ -1459,7 +1459,7 @@ kernel: PM: Some devices failed to suspend, or early wake event detected
 
 I don't know which device to blame, and every guide tells me to try a random kernel parameter.
 
-**Cause.** By default the kernel logs almost nothing about the suspend path, and the console is blanked before the interesting messages appear, so a failure looks anonymous. The kernel does have a full debugging interface — per-device timing, a failure-counter directory, a staged test mode that stops before the risky part, and a wakeup-source accounting table — it is just off unless you turn it on.
+**Cause.** By default the kernel logs almost nothing about the suspend path, and the console is blanked before the interesting messages appear, so a failure looks anonymous. The kernel does have a full debugging interface: per-device timing, a failure-counter directory, a staged test mode that stops before the risky part, and a wakeup-source accounting table. It is just off unless you turn it on.
 
 > **Audit corrected this record.** The kernel interfaces all check out and two factual claims about them do not, plus the record is silent on the Omarchy 4 trap that makes this recipe dangerous to run over ssh. Confirmed on this workstation (kernel 7.1.9-arch1-2, Intel, omarchy 4.0.2-1): `/sys/power/` holds `pm_debug_messages`, `pm_print_times`, `pm_async`, `pm_test`, `pm_wakeup_irq` and `suspend_stats/`, all root-writable only, and `cat /sys/power/pm_test` prints `[none] core processors platform devices freezer`. The pm_test modes, the freezer to devices to platform to processors to core order and the roughly 5 second return are verbatim from docs.kernel.org/power/basic-pm-debugging.html. The step 1 echo pair is the kernel's own recipe in docs.kernel.org/arch/x86/amd-debugging.html. `amd-s2idle test` really takes `--count`, `--duration` and `--format` with html, txt or md, and states the 6.1 kernel floor, per docs/amd-s2idle.md on superm1/amd-debug-tools master, and the package is `amd-debug-tools 0.2.21-1` in extra. Defect one: the `# kernel 6.9+` comment on `/sys/power/suspend_stats/*` is wrong. Documentation/ABI/testing/sysfs-power dates the directory and `fail`, `success`, `last_failed_dev` and `last_failed_step` to July 2019, and `suspend_stats_show` still exists under CONFIG_DEBUG_FS in kernel/power/main.c, so the debugfs copy is current rather than a legacy fallback. Defect two: the record presents `last_hw_sleep` as an AMD check, but `suspend_attr_is_visible()` in kernel/power/main.c hides `last_hw_sleep`, `total_hw_sleep` and `max_hw_sleep` unless `acpi_gbl_FADT.flags & ACPI_FADT_LOW_POWER_S0`, and its ABI date is June 2023. On this Intel desktop `/sys/power/mem_sleep` reads `s2idle [deep]` and the three files are absent, so a reader following the verify step gets No such file and no explanation. Defect three, and the reason this is not an `ok`: `sudo systemctl suspend` on Omarchy 4 fires the `omarchy-sleep-lock.service` delay inhibitor and locks the session through Quickshell, and that `ext-session-lock` surface has no `unlock()` IPC and outlives its client, so a suspend that hangs on a remote machine is unrecoverable without the physical console. The record also never says the shipped `InhibitDelayMaxSec=15` makes a broken lock look like a slow suspend. Added a step 0 for that, added `/sys/power/pm_wakeup_irq` which the AMD debugging page names first for a spurious wakeup, fixed the wakeup_sources sort, which the record ran as `sort -k3` on `event_count` with the header line dragged in. The header printed by `wakeup_sources_stats_seq_start()` in drivers/base/power/wakeup.c puts `wakeup_count`, the count of wakeups from system sleep, in field 4, so the fix now drops the header and sorts on `-k4`, and split the Limine step into an Omarchy drop-in (`/etc/limine-entry-tool.d/99-pm-debug.conf`, since `/etc/default/limine` is owned by no package here) and a plain Arch branch, noting that `omarchy-defaults.conf` sets `quiet splash loglevel=0`. Not exercised, deliberately: nothing was suspended, nothing under /sys/power/ was written, and `/sys/kernel/debug/` was not readable unprivileged, so the debugfs and wakeup_sources commands are from the sources rather than run. The Limine menu `e` editing claim for a UKI entry could not be checked because /boot is a vfat ESP mounted dmask=0077, so the fix now hedges it and recommends the drop-in. The record was not GNOME or KDE mis-specialised, and its `journalctl -b -k` is right because a resume is the same boot.
 >
@@ -1611,7 +1611,7 @@ A value of 0 means the platform never reached hardware sleep, so the battery dra
 
 `last_hw_sleep`, `total_hw_sleep` and `max_hw_sleep` are only created when the firmware advertises ACPI Low Power S0 Idle. On a machine without it, typically a desktop reporting `s2idle [deep]` in `/sys/power/mem_sleep`, the files are simply absent and `cat` returns "No such file or directory". That is expected, not a fault, and it means this whole step does not apply.
 
-**Verify.** `grep -H '' /sys/power/suspend_stats/*` shows `fail` and `last_failed_dev` populated after a failed attempt, and `cat /sys/power/pm_test` prints the mode list with `[none]` bracketed when you are finished. `cat /sys/power/pm_async` reads `1` again once you have undone step 4. On an AMD or Intel machine that advertises ACPI Low Power S0 Idle, `cat /sys/power/suspend_stats/last_hw_sleep` is non-zero after a successful s2idle cycle; on a machine without it that file does not exist at all. On Omarchy 4, run `omarchy-toggle-idle allow-idle` afterwards to put idle locking back.
+**Verify.** `grep -H '' /sys/power/suspend_stats/*` shows `fail` and `last_failed_dev` populated after a failed attempt, and `cat /sys/power/pm_test` prints the mode list with `[none]` bracketed when you are finished. `cat /sys/power/pm_async` reads `1` again once you have undone step 4. On an AMD or Intel machine that advertises ACPI Low Power S0 Idle, `cat /sys/power/suspend_stats/last_hw_sleep` is non-zero after a successful s2idle cycle. On a machine without it that file does not exist at all. On Omarchy 4, run `omarchy-toggle-idle allow-idle` afterwards to put idle locking back.
 
 Sources: <https://docs.kernel.org/power/basic-pm-debugging.html> · <https://docs.kernel.org/arch/x86/amd-debugging.html> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/base/power/wakeup.c> · <https://archlinux.org/packages/extra/any/amd-debug-tools/> · <https://github.com/superm1/amd-debug-tools/blob/master/docs/amd-s2idle.md> · <https://wiki.archlinux.org/title/Limine> · <https://raw.githubusercontent.com/torvalds/linux/master/kernel/power/main.c> · <https://raw.githubusercontent.com/torvalds/linux/master/Documentation/ABI/testing/sysfs-power> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-session-locked> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-idle>
 
@@ -1692,7 +1692,7 @@ sudo btrfs inspect-internal map-swapfile -r /swap/swapfile
 
 Do **not** create an on-demand or one-shot swap unit that enables swap only at hibernate time. The Arch wiki states plainly that this is not officially supported, citing systemd issues 16708 and 30083.
 
-**Verify.** `swapon --show` lists both zram (PRIO 100) and the swapfile (PRIO 0); `omarchy-hibernation-available; echo $?` returns 0 on Omarchy; `systemctl hibernate` completes.
+**Verify.** `swapon --show` lists both zram (PRIO 100) and the swapfile (PRIO 0). `omarchy-hibernation-available; echo $?` returns 0 on Omarchy. `systemctl hibernate` completes.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-hibernation-setup> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-hibernation-available> · <https://learn.omacom.io/2/the-omarchy-manual/103/system-sleep> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-hibernation-setup> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-hibernation-available> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/default/systemd/zram-generator.conf.d/90-omarchy.conf> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/manual/36-system-sleep.md>
 
@@ -1719,7 +1719,7 @@ sudo swapoff /home/$USER/swapfile
 sudo rm /home/$USER/swapfile
 ```
 
-Recreate at the top level. Use `mkswap --size --file` rather than `fallocate` — fallocate produces unwritten extents that `swapon` refuses on XFS:
+Recreate at the top level. Use `mkswap --size --file` rather than `fallocate`, because fallocate produces unwritten extents that `swapon` refuses on XFS:
 
 ```bash
 sudo mkswap -U clear --size 32G --file /swapfile
@@ -1729,7 +1729,7 @@ sudo swapon /swapfile
 
 (On older util-linux without `--file`, use `dd if=/dev/zero of=/swapfile bs=1M count=32768 status=progress`, then chmod 600, mkswap, swapon. Do not use fallocate.)
 
-Btrfs — NOCOW subvolume, as Omarchy does:
+On Btrfs, use a NOCOW subvolume, as Omarchy does:
 
 ```bash
 sudo btrfs subvolume create /swap
@@ -1748,7 +1748,7 @@ Add to /etc/fstab in BOTH cases, or it is gone after reboot:
 
 Then redo `resume=` / `resume_offset=` for the new file (see the resume-offset record) and rebuild the initramfs. Sanity-check with `swapon --show` and `systemctl hibernate`.
 
-**Verify.** `systemctl hibernate` no longer errors out immediately; `swapon --show` lists the new path and `findmnt -no UUID -T /swap/swapfile` resolves the backing device.
+**Verify.** `systemctl hibernate` no longer errors out immediately. `swapon --show` lists the new path and `findmnt -no UUID -T /swap/swapfile` resolves the backing device.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-hibernation-setup>
 
@@ -1762,7 +1762,7 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 **Cause.** Arch installs no thermal daemon by default. On Intel machines, `thermald` proactively manages P-states, T-states and the powerclamp driver to keep the package (and, where a skin sensor exists, the chassis) below target before the hardware falls back to aggressive throttling. Without it the firmware's blunt corrections drive the fan curve.
 
-> **Audit corrected this record.** The thermald half is accurate — Arch ships no thermal daemon by default, thermald is Intel-only, and thermald plus lm_sensors are the correct Arch package names (lm_sensors with an underscore). The AMD guidance is fine. The problem is the closing `sudo powertop --auto-tune` presented as a diagnostic step for finding a runaway process. It is not diagnostic at all: it immediately applies every tunable, including USB autosuspend and SATA link power management, which is precisely the breakage the USB-autosuspend record in this same set is about — crackling DACs, dropped Bluetooth, stuttering mice, and on some machines a wedged input device. Telling the reader to 'inspect the Tunables tab before trusting it' after the flag has already applied everything is backwards ordering.
+> **Audit corrected this record.** The thermald half is accurate: Arch ships no thermal daemon by default, thermald is Intel-only, and thermald plus lm_sensors are the correct Arch package names (lm_sensors with an underscore). The AMD guidance is fine. The problem is the closing `sudo powertop --auto-tune` presented as a diagnostic step for finding a runaway process. It is not diagnostic at all: it immediately applies every tunable, including USB autosuspend and SATA link power management, which is precisely the breakage the USB-autosuspend record in this same set is about: crackling DACs, dropped Bluetooth, stuttering mice, and on some machines a wedged input device. Telling the reader to 'inspect the Tunables tab before trusting it' after the flag has already applied everything is backwards ordering.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1782,14 +1782,14 @@ Watch the effect:
 watch -n2 sensors
 ```
 
-On AMD, thermald does not apply — use power-profiles-daemon (or TLP, never both) and the EPP hint:
+On AMD, thermald does not apply. Use power-profiles-daemon (or TLP, never both) and the EPP hint:
 
 ```bash
 sudo systemctl enable --now power-profiles-daemon.service
 powerprofilesctl set balanced
 ```
 
-To find a runaway process, run powertop READ-ONLY first. Do not use --auto-tune as a diagnostic — it applies every tunable immediately, including USB autosuspend and SATA link power management, which is a well-known way to break USB audio, Bluetooth and input devices:
+To find a runaway process, run powertop READ-ONLY first. Do not use --auto-tune as a diagnostic. It applies every tunable immediately, including USB autosuspend and SATA link power management, which is a well-known way to break USB audio, Bluetooth and input devices:
 
 ```bash
 sudo pacman -S powertop
@@ -1806,7 +1806,7 @@ top -o %CPU
 cat /sys/devices/system/cpu/cpufreq/boost      # 1 = boost enabled
 ```
 
-**Verify.** `systemctl status thermald` is active; `sensors` shows the package temperature settling lower under sustained load and the fan stepping down.
+**Verify.** `systemctl status thermald` is active. `sensors` shows the package temperature settling lower under sustained load and the fan stepping down.
 
 Sources: <https://wiki.archlinux.org/title/CPU_frequency_scaling> · <https://wiki.archlinux.org/title/Power_management>
 
@@ -1954,25 +1954,25 @@ Sources: <https://github.com/omacom/omarchy/issues/7229> · <https://github.com/
 Failed to power off system via logind: There's already a shutdown or sleep operation in progress
 ```
 
-Or I get the shutdown screen stuck on `A stop job is running for User Manager for UID 1000 (1min 30s / 2min)`, and at the end the machine reboots instead of powering off — or just hangs with the fans spinning until I hold the power button.
+Or I get the shutdown screen stuck on `A stop job is running for User Manager for UID 1000 (1min 30s / 2min)`, and at the end the machine reboots instead of powering off, or just hangs with the fans spinning until I hold the power button.
 
-**Cause.** Three separate things, and it matters which one you have. (1) A previous suspend never completed, so `systemd-suspend.service` is still sitting in the job queue and logind refuses any new power operation. (2) A unit is refusing to stop and systemd is waiting out `DefaultTimeoutStopSec` (90 s by default) — most often `user@1000.service` because something in the graphical session won't die. (3) The firmware's ACPI power-off path is broken after an S3 cycle, so the kernel's chosen reset/poweroff method reboots or hangs instead.
+**Cause.** Three separate things, and it matters which one you have. (1) A previous suspend never completed, so `systemd-suspend.service` is still sitting in the job queue and logind refuses any new power operation. (2) A unit is refusing to stop and systemd is waiting out `DefaultTimeoutStopSec` (90 s by default), most often `user@1000.service` because something in the graphical session won't die. (3) The firmware's ACPI power-off path is broken after an S3 cycle, so the kernel's chosen reset/poweroff method reboots or hangs instead.
 
-> **Audit corrected this record.** Steps 1, 2, 3, 5 and 6 are excellent and verified. The 'Failed to power off system via logind: There's already a shutdown or sleep operation in progress' symptom, the `systemctl list-jobs` output showing 'systemd-suspend.service start running / suspend.target start waiting', and the `systemctl cancel` + `systemctl stop systemd-suspend.service` remedy are reproduced almost verbatim from wiki.archlinux.org/title/Systemd#Shutdown/reboot_takes_terribly_long. The /usr/lib/systemd/system-shutdown/debug.sh script and the debug cmdline are systemd.io/DEBUGGING's own method. HibernateMode=shutdown in /etc/systemd/sleep.conf.d/hibernatemode.conf matches the wiki's 'System does not power off when hibernating' section word for word, including the 'instead of powering off, the system might reboot or stay on but unresponsive' framing. The reboot_type list (bios, acpi, kbd, triple, efi, pci) is exact per Documentation/admin-guide/kernel-parameters.txt. Two defects. (1) Step 4 is misdirected: `reboot=` selects the *reboot* method (reboot_type feeds the emergency-restart path); it has no effect on the poweroff path, which goes through ACPI S5 / pm_power_off. Telling a user whose machine reboots instead of powering off to cycle reboot=acpi/pci/bios/efi sends them through four reboots for nothing. The real fix for that exact symptom is already the record's step 5 when hibernation is involved, and firmware/ACPI knobs otherwise. (2) `sudo systemctl daemon-reexec` re-executes only the system manager, so the /etc/systemd/user.conf.d drop-in does not take effect in the running user manager — which is the very manager whose stop job ('User Manager for UID 1000') the record is trying to shorten.
+> **Audit corrected this record.** Steps 1, 2, 3, 5 and 6 are excellent and verified. The 'Failed to power off system via logind: There's already a shutdown or sleep operation in progress' symptom, the `systemctl list-jobs` output showing 'systemd-suspend.service start running / suspend.target start waiting', and the `systemctl cancel` + `systemctl stop systemd-suspend.service` remedy are reproduced almost verbatim from wiki.archlinux.org/title/Systemd#Shutdown/reboot_takes_terribly_long. The /usr/lib/systemd/system-shutdown/debug.sh script and the debug cmdline are systemd.io/DEBUGGING's own method. HibernateMode=shutdown in /etc/systemd/sleep.conf.d/hibernatemode.conf matches the wiki's 'System does not power off when hibernating' section word for word, including the 'instead of powering off, the system might reboot or stay on but unresponsive' framing. The reboot_type list (bios, acpi, kbd, triple, efi, pci) is exact per Documentation/admin-guide/kernel-parameters.txt. Two defects. (1) Step 4 is misdirected: `reboot=` selects the *reboot* method (reboot_type feeds the emergency-restart path). It has no effect on the poweroff path, which goes through ACPI S5 / pm_power_off. Telling a user whose machine reboots instead of powering off to cycle reboot=acpi/pci/bios/efi sends them through four reboots for nothing. The real fix for that exact symptom is already the record's step 5 when hibernation is involved, and firmware/ACPI knobs otherwise. (2) `sudo systemctl daemon-reexec` re-executes only the system manager, so the /etc/systemd/user.conf.d drop-in does not take effect in the running user manager, which is the very manager whose stop job ('User Manager for UID 1000') the record is trying to shorten.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** The SysRq sequence `S` `U` `O` syncs and remounts read-only first, but skipping straight to `O` (or holding the power button) leaves dirty filesystems and can lose recent writes; on Btrfs it can also cost you the most recent snapshot state. Lowering `DefaultTimeoutStopSec` globally means databases, VMs and long-running backup services get SIGKILLed 15 s into a shutdown instead of being allowed to flush — set a longer per-unit `TimeoutStopSec=` on anything that needs it. Booting with `systemd.log_level=debug` floods the journal; remove it once you have your log.
+> ⚠️ **Risk.** The SysRq sequence `S` `U` `O` syncs and remounts read-only first, but skipping straight to `O` (or holding the power button) leaves dirty filesystems and can lose recent writes. On Btrfs it can also cost you the most recent snapshot state. Lowering `DefaultTimeoutStopSec` globally means databases, VMs and long-running backup services get SIGKILLed 15 s into a shutdown instead of being allowed to flush. Set a longer per-unit `TimeoutStopSec=` on anything that needs it. Booting with `systemd.log_level=debug` floods the journal. Remove it once you have your log.
 
 **Fix.**
 
 Replace step 4 with:
 
-**4. Machine reboots or hangs instead of powering off.** Do not reach for `reboot=` here — that parameter only selects how a *reboot* is performed (reboot_type in the emergency-restart path) and has no effect on the poweroff path, which goes through ACPI S5. Try, in order:
+**4. Machine reboots or hangs instead of powering off.** Do not reach for `reboot=` here. That parameter only selects how a *reboot* is performed (reboot_type in the emergency-restart path) and has no effect on the poweroff path, which goes through ACPI S5. Try, in order:
 
-- If a hibernate cycle is involved, go straight to step 5 (`HibernateMode=shutdown`) — that is the documented fix for 'instead of powering off, the system might reboot or stay on but unresponsive'.
-- Update the firmware (`sudo fwupdmgr refresh --force && sudo fwupdmgr get-updates`; on Omarchy, Update > Firmware).
-- Check the BIOS for Wake-on-LAN / ErP / 'Restore on AC power loss' settings — these make a completed poweroff look like a reboot.
+- If a hibernate cycle is involved, go straight to step 5 (`HibernateMode=shutdown`). That is the documented fix for 'instead of powering off, the system might reboot or stay on but unresponsive'.
+- Update the firmware (`sudo fwupdmgr refresh --force && sudo fwupdmgr get-updates`, or Update > Firmware on Omarchy).
+- Check the BIOS for Wake-on-LAN / ErP / 'Restore on AC power loss' settings. These make a completed poweroff look like a reboot.
 - Only then test ACPI overrides one at a time at the Limine menu (`e`, edit `cmdline:`): `acpi=force`, then `acpi_osi="!Windows 2015"` (see Power management/Wakeup triggers for the board-specific list). Persist the winner in /etc/default/limine with `KERNEL_CMDLINE[default]+=" ..."` and `sudo limine-update`.
 
 Use `reboot=acpi|pci|bios|efi` only for the different symptom where `systemctl reboot` itself hangs or never completes.
@@ -1986,7 +1986,7 @@ systemctl --user daemon-reexec      # picks up /etc/systemd/user.conf.d
 
 (Or just reboot once.) Note that the 'stop job is running for User Manager for UID 1000' timeout is governed by the *system* drop-in, since user@1000.service is a system unit.
 
-**Verify.** `systemctl list-jobs` prints `No jobs running.` right after a failed suspend, and `systemctl poweroff` then completes. After changing `reboot=`, confirm with `cat /proc/cmdline` and do five power-off cycles — this failure is intermittent, so one success proves nothing. `systemd-analyze` on the next boot and `/shutdown-log.txt` should show no unit hitting its stop timeout.
+**Verify.** `systemctl list-jobs` prints `No jobs running.` right after a failed suspend, and `systemctl poweroff` then completes. After changing `reboot=`, confirm with `cat /proc/cmdline` and do five power-off cycles. This failure is intermittent, so one success proves nothing. `systemd-analyze` on the next boot and `/shutdown-log.txt` should show no unit hitting its stop timeout.
 
 Sources: <https://wiki.archlinux.org/title/Systemd> · <https://systemd.io/DEBUGGING/> · <https://raw.githubusercontent.com/torvalds/linux/master/Documentation/admin-guide/kernel-parameters.txt> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://wiki.archlinux.org/title/Limine> · <https://man.archlinux.org/man/systemctl.1.en>
 
@@ -2033,7 +2033,7 @@ And for lid close:
 HandleLidSwitch=suspend-then-hibernate
 ```
 
-On s2idle-only machines the RTC alarm often does not fire; Omarchy's own hibernation setup adds this kernel parameter for exactly that case:
+On s2idle-only machines the RTC alarm often does not fire. Omarchy's own hibernation setup adds this kernel parameter for exactly that case:
 
 ```bash
 sudo mkdir -p /etc/limine-entry-tool.d
@@ -2042,7 +2042,7 @@ sudo tee -a /etc/default/limine < /etc/limine-entry-tool.d/rtc-alarm.conf
 sudo limine-mkinitcpio
 ```
 
-If you leave `HibernateDelaySec` unset, systemd estimates the delay from the measured battery discharge rate (`SuspendEstimationSec`), briefly waking the machine once to take the measurement — that brief wake is expected, not a bug.
+If you leave `HibernateDelaySec` unset, systemd estimates the delay from the measured battery discharge rate (`SuspendEstimationSec`), briefly waking the machine once to take the measurement. That brief wake is expected, not a bug.
 
 **Verify.** Run `systemctl suspend-then-hibernate`, wait past `HibernateDelaySec`, and confirm the machine has powered itself fully off. After power-on, `journalctl -b -1 | grep -i hibernat` should show the handover.
 
@@ -2140,11 +2140,11 @@ Sources: <https://linrunner.de/tlp/faq/ppd.html> · <https://wiki.archlinux.org/
 
 `tlp-usb-autosuspend-breaks-devices` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `tlp`
 
-**Symptom.** On battery my USB DAC crackles or disappears, my Bluetooth headphones cut out, or the mouse stutters — all fine when plugged into AC. `dmesg` shows `hci0: link tx timeout`.
+**Symptom.** On battery my USB DAC crackles or disappears, my Bluetooth headphones cut out, or the mouse stutters. It is all fine when plugged into AC. `dmesg` shows `hci0: link tx timeout`.
 
-**Cause.** With its default configuration TLP enables USB autosuspend on battery. Its own docs state that all input devices (driver `usbhid`), libsane-supported scanners **and audio devices** are excluded by default - `USB_EXCLUDE_AUDIO` defaults to 1 - so a USB DAC is already covered and autosuspend is usually not the explanation for it. The class that genuinely is *not* excluded by default is Bluetooth: `USB_EXCLUDE_BTUSB` defaults to 0, so a USB Bluetooth radio is the device this actually bites.
+**Cause.** With its default configuration TLP enables USB autosuspend on battery. Its own docs state that all input devices (driver `usbhid`), libsane-supported scanners **and audio devices** are excluded by default. `USB_EXCLUDE_AUDIO` defaults to 1, so a USB DAC is already covered and autosuspend is usually not the explanation for it. The class that genuinely is *not* excluded by default is Bluetooth: `USB_EXCLUDE_BTUSB` defaults to 0, so a USB Bluetooth radio is the device this actually bites.
 
-> **Audit corrected this record.** Two real errors. (1) The cause paragraph is wrong about defaults: TLP's own docs state "All input devices (driver usbhid), libsane-supported scanners and audio devices get excluded by default" — USB_EXCLUDE_AUDIO defaults to 1, so a USB DAC is already excluded and USB autosuspend is not the explanation for it. The device that genuinely is NOT excluded by default is Bluetooth (USB_EXCLUDE_BTUSB defaults to 0), which the record misses as the one-line fix. (2) The closing 'without TLP' udev rule is backwards and actively harmful: ATTR{power/control}="auto" ENABLES autosuspend on every non-mouse, non-keyboard USB device — it would cause the reported symptom on a machine that does not have it. Disabling autosuspend requires "on", not "auto". USB_DENYLIST and USB_AUTOSUSPEND=0 themselves are correct option names, and the note about /etc/tlp.conf taking precedence over /etc/tlp.d/ is right.
+> **Audit corrected this record.** Two real errors. (1) The cause paragraph is wrong about defaults: TLP's own docs state "All input devices (driver usbhid), libsane-supported scanners and audio devices get excluded by default". USB_EXCLUDE_AUDIO defaults to 1, so a USB DAC is already excluded and USB autosuspend is not the explanation for it. The device that genuinely is NOT excluded by default is Bluetooth (USB_EXCLUDE_BTUSB defaults to 0), which the record misses as the one-line fix. (2) The closing 'without TLP' udev rule is backwards and actively harmful: ATTR{power/control}="auto" ENABLES autosuspend on every non-mouse, non-keyboard USB device. It would cause the reported symptom on a machine that does not have it. Disabling autosuspend requires "on", not "auto". USB_DENYLIST and USB_AUTOSUSPEND=0 themselves are correct option names, and the note about /etc/tlp.conf taking precedence over /etc/tlp.d/ is right.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
@@ -2158,7 +2158,7 @@ Identify the device:
 lsusb
 ```
 
-For Bluetooth — this is the common case, because unlike input, scanner and audio devices, Bluetooth is NOT excluded by default:
+For Bluetooth (the common case, because unlike input, scanner and audio devices, Bluetooth is NOT excluded by default):
 
 ```
 # /etc/tlp.d/10-usb.conf
@@ -2172,7 +2172,7 @@ For anything else, denylist by vendor:product:
 USB_DENYLIST="1234:5678"
 ```
 
-Note that USB audio devices (snd_usb_audio) and usbhid input devices are already excluded by TLP defaults — if your DAC crackles on battery, TLP's USB autosuspend is probably not the cause; look at CPU/PCIe power settings (PCIE_ASPM_ON_BAT, CPU_ENERGY_PERF_POLICY_ON_BAT) or PipeWire quantum settings instead.
+Note that USB audio devices (snd_usb_audio) and usbhid input devices are already excluded by TLP defaults. If your DAC crackles on battery, TLP's USB autosuspend is probably not the cause. Look at CPU/PCIe power settings (PCIE_ASPM_ON_BAT, CPU_ENERGY_PERF_POLICY_ON_BAT) or PipeWire quantum settings instead.
 
 Blunt fallback:
 
@@ -2189,7 +2189,7 @@ tlp-stat -u        # confirm the device now shows as excluded
 
 Settings in /etc/tlp.conf override /etc/tlp.d/ drop-ins, so make sure the same key is not also set there.
 
-Without TLP, the correct udev rule DISABLES autosuspend for the offending device — `"auto"` turns it on, which is the opposite of what you want here:
+Without TLP, the correct udev rule DISABLES autosuspend for the offending device. `"auto"` turns it on, which is the opposite of what you want here:
 
 ```
 # /etc/udev/rules.d/50-usb-no-autosuspend.rules
@@ -2212,7 +2212,7 @@ Sources: <https://wiki.archlinux.org/title/TLP> · <https://wiki.archlinux.org/t
 
 `fancontrol-stops-after-suspend` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
 
-**Symptom.** My custom fan curve works fine until I suspend the machine. After resume the fans are stuck — either full blast or off entirely — until I restart the service by hand.
+**Symptom.** My custom fan curve works fine until I suspend the machine. After resume the fans are stuck, either full blast or off entirely, until I restart the service by hand.
 
 **Cause.** An open lm-sensors bug, `lm-sensors/lm-sensors#172`. On resume the hwmon `pwm*_enable` attributes are reset out of manual mode, so the hardware or the driver takes the fans back and `fancontrol` neither notices nor reasserts them. The fans then stay wherever the reset left them, usually full speed or off, until `fancontrol.service` is restarted. The bug is in `fancontrol` itself and not in Omarchy, so it behaves the same on any Arch system.
 
@@ -2328,7 +2328,7 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference
 echo balance_power | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference
 ```
 
-**Verify.** `powerprofilesctl` prints the profile list and exits 0; the Omarchy power panel opens and switching profiles no longer produces an ABRT in the logs.
+**Verify.** `powerprofilesctl` prints the profile list and exits 0. The Omarchy power panel opens and switching profiles no longer produces an ABRT in the logs.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8596> · <https://linrunner.de/tlp/faq/ppd.html> · <https://wiki.archlinux.org/title/CPU_frequency_scaling>
 
@@ -2585,11 +2585,11 @@ Sources: <https://github.com/omacom/omarchy/blob/quattro/config/omarchy/shell.js
 
 `omarchy-lockscreen-no-keyboard-focus-after-resume` · severity: **low** · frequency: **common** · applies to: `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** I open the lid, the lock screen is there, I type my password and nothing appears in the field. I have to click the password box first, then it works. Locking manually while awake is fine — only resume is affected.
+**Symptom.** I open the lid, the lock screen is there, I type my password and nothing appears in the field. I have to click the password box first, then it works. Locking manually while awake is fine. Only resume is affected.
 
-**Cause.** A timing race: the password field calls `forceActiveFocus()` as soon as the lock is *requested*, not once the `WlSessionLock` surface has actually been mapped and granted exclusive keyboard focus by the compositor. On resume the lock is set up during the unstable early-resume window, so the focus call lands before the surface exists. Hybrid Intel+NVIDIA laptops make the window wider. Omarchy has no `omarchy-sleep-lock.service`; pre-sleep locking is driven by hypridle's `inhibit_sleep = 3` together with the hooks under `default/systemd/system-sleep/`.
+**Cause.** A timing race: the password field calls `forceActiveFocus()` as soon as the lock is *requested*, not once the `WlSessionLock` surface has actually been mapped and granted exclusive keyboard focus by the compositor. On resume the lock is set up during the unstable early-resume window, so the focus call lands before the surface exists. Hybrid Intel+NVIDIA laptops make the window wider. Omarchy has no `omarchy-sleep-lock.service`. Pre-sleep locking is driven by hypridle's `inhibit_sleep = 3` together with the hooks under `default/systemd/system-sleep/`.
 
-> **Audit corrected this record.** The issue is real and the root-cause analysis is accurate — basecamp/omarchy#8520 describes the password field lacking keyboard focus after resume but not on manual lock, on Omarchy 4.0.1-1 with hybrid Intel+NVIDIA, and attributes it to forceActiveFocus() firing before "the WlSessionLock surface has actually been mapped and granted exclusive keyboard focus by the compositor". The workarounds (click the field, widen the after_sleep_cmd delay) are sound and the config block matches upstream apart from the intended sleep 2. The defect is the diagnostic step: there is no omarchy-sleep-lock.service in the Omarchy repository — Omarchy handles pre-sleep locking via hypridle's inhibit_sleep = 3 and hooks under default/systemd/system-sleep/. Those two commands will just report that the unit could not be found, sending the user chasing a non-existent service.
+> **Audit corrected this record.** The issue is real and the root-cause analysis is accurate. basecamp/omarchy#8520 describes the password field lacking keyboard focus after resume but not on manual lock, on Omarchy 4.0.1-1 with hybrid Intel+NVIDIA, and attributes it to forceActiveFocus() firing before "the WlSessionLock surface has actually been mapped and granted exclusive keyboard focus by the compositor". The workarounds (click the field, widen the after_sleep_cmd delay) are sound and the config block matches upstream apart from the intended sleep 2. The defect is the diagnostic step: there is no omarchy-sleep-lock.service in the Omarchy repository. Omarchy handles pre-sleep locking via hypridle's inhibit_sleep = 3 and hooks under default/systemd/system-sleep/. Those two commands will just report that the unit could not be found, sending the user chasing a non-existent service.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
@@ -2613,7 +2613,7 @@ general {
 systemctl --user restart hypridle.service 2>/dev/null || { pkill hypridle; uwsm app -- hypridle & }
 ```
 
-Replace the omarchy-sleep-lock.service checks — that unit does not exist. Omarchy locks before sleep through hypridle's `inhibit_sleep = 3` (lock notify) and systemd sleep hooks, so look there instead:
+Replace the omarchy-sleep-lock.service checks. That unit does not exist. Omarchy locks before sleep through hypridle's `inhibit_sleep = 3` (lock notify) and systemd sleep hooks, so look there instead:
 
 ```bash
 journalctl -b --since '-1h' | grep -i 'hypridle\|hyprlock\|omarchy-system-lock'
@@ -2621,9 +2621,9 @@ systemd-inhibit --list --what=sleep      # hypridle should hold a sleep inhibito
 ls /usr/lib/systemd/system-sleep/ /etc/systemd/system-sleep/
 ```
 
-If hypridle is not holding a sleep inhibitor, `inhibit_sleep` is not in effect and the machine can suspend before the lock surface is up — which makes the focus race much worse. Confirm hypridle is actually running (`pidof hypridle`) before tuning delays.
+If hypridle is not holding a sleep inhibitor, `inhibit_sleep` is not in effect and the machine can suspend before the lock surface is up, which makes the focus race much worse. Confirm hypridle is actually running (`pidof hypridle`) before tuning delays.
 
-**Verify.** Suspend, resume, and type immediately — characters appear in the field without clicking it first.
+**Verify.** Suspend, resume, and type immediately. Characters appear in the field without clicking it first.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8520> · <https://github.com/basecamp/omarchy/issues?q=is%3Aissue+suspend> · <https://raw.githubusercontent.com/basecamp/omarchy/master/config/hypr/hypridle.conf>
 

@@ -110,13 +110,13 @@ Sources: <https://wiki.archlinux.org/title/Btrfs> · <https://wiki.archlinux.org
 
 **Symptom.** UFW says my firewall is active and only SSH is allowed, but a container started with `-p 8080:80` is reachable from every machine on my LAN (and from the internet if the box is exposed). `sudo ufw status` looks correct and yet the port is wide open.
 
-**Cause.** Docker in its default mode writes its own iptables/nftables rules into the `DOCKER` and `DOCKER-USER` chains, which are evaluated for forwarded traffic before UFW's INPUT rules ever apply, so a published port is reachable regardless of `ufw status`. This affects any Arch box running ufw + Docker. Note that Omarchy 4 (Quattro) already ships `ufw-docker` and runs `ufw-docker install` at install time, so the DOCKER-USER block is normally present there — check before assuming you are exposed.
+**Cause.** Docker in its default mode writes its own iptables/nftables rules into the `DOCKER` and `DOCKER-USER` chains, which are evaluated for forwarded traffic before UFW's INPUT rules ever apply, so a published port is reachable regardless of `ufw status`. This affects any Arch box running ufw + Docker. Note that Omarchy 4 (Quattro) already ships `ufw-docker` and runs `ufw-docker install` at install time, so the DOCKER-USER block is normally present there. Check before assuming you are exposed.
 
-> **Audit corrected this record.** The security problem, the chain explanation (DOCKER/DOCKER-USER evaluated before UFW's INPUT rules), the loopback-binding containment, `ufw-docker` (present in the AUR, last updated 2026-02) and the warning against `"iptables": false` are all accurate and still current on Docker 28/29. The Omarchy-specific sentence in the cause is stale: Omarchy 4 ships `ufw-docker` in its base package list and runs `ufw-docker install` during installation (`install/config/firewall.sh`), so Quattro is NOT the false-sense-of-protection case the record claims — pasting `yay -S ufw-docker && sudo ufw-docker install` there re-applies rules that already exist and tells the reader the wrong thing about their machine.
+> **Audit corrected this record.** The security problem, the chain explanation (DOCKER/DOCKER-USER evaluated before UFW's INPUT rules), the loopback-binding containment, `ufw-docker` (present in the AUR, last updated 2026-02) and the warning against `"iptables": false` are all accurate and still current on Docker 28/29. The Omarchy-specific sentence in the cause is stale: Omarchy 4 ships `ufw-docker` in its base package list and runs `ufw-docker install` during installation (`install/config/firewall.sh`), so Quattro is NOT the false-sense-of-protection case the record claims. Pasting `yay -S ufw-docker && sudo ufw-docker install` there re-applies rules that already exist and tells the reader the wrong thing about their machine.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Do NOT "fix" this by setting `"iptables": false` in `/etc/docker/daemon.json` unless you know what you are doing — that disables all of Docker's rule management and container outbound networking/NAT will break.
+> ⚠️ **Risk.** Do NOT "fix" this by setting `"iptables": false` in `/etc/docker/daemon.json` unless you know what you are doing. That disables all of Docker's rule management and container outbound networking/NAT will break.
 
 **Fix.**
 
@@ -164,17 +164,17 @@ It works with `sudo docker ps`.
 
 **Cause.** Two separate causes with the same symptom: the daemon is not started/enabled at all, or your user is not in the `docker` group so it cannot open the root-owned socket.
 
-> **Audit corrected this record.** Correct for plain Arch (packages `docker`, `docker-buildx`, `docker-compose` all exist; `newgrp` caveat and the 'docker group == root' warning are right). It is wrong for Omarchy 4, which is in applies_to: `install/config/docker.sh` in v4.0.1 documents that Quattro deliberately does NOT add the install user to the `docker` group ('membership in the docker group is equivalent to passwordless root'), and ships `omarchy-sudo-docker` plus an opt-in toggle. Pasting `usermod -aG docker $USER` silently undoes a shipped hardening decision instead of using the supported path. Also, Omarchy enables `docker.socket` only, not `docker.service` (see enable-services.sh), so `enable --now docker.service` there has the side effect covered by the sibling record.
+> **Audit corrected this record.** Correct for plain Arch (packages `docker`, `docker-buildx`, `docker-compose` all exist, and the `newgrp` caveat and the 'docker group == root' warning are right). It is wrong for Omarchy 4, which is in applies_to: `install/config/docker.sh` in v4.0.1 documents that Quattro deliberately does NOT add the install user to the `docker` group ('membership in the docker group is equivalent to passwordless root'), and ships `omarchy-sudo-docker` plus an opt-in toggle. Pasting `usermod -aG docker $USER` silently undoes a shipped hardening decision instead of using the supported path. Also, Omarchy enables `docker.socket` only, not `docker.service` (see enable-services.sh), so `enable --now docker.service` there has the side effect covered by the sibling record.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Anyone in the `docker` group is effectively root: `docker run --privileged -v /:/host ...` gives full access to the host filesystem. Do not add untrusted users. Also note the daemon can fail to start while a VPN is connected because of IP conflicts with Docker's bridge/overlay networks — disconnect the VPN, start Docker, reconnect.
+> ⚠️ **Risk.** Anyone in the `docker` group is effectively root: `docker run --privileged -v /:/host ...` gives full access to the host filesystem. Do not add untrusted users. Also note the daemon can fail to start while a VPN is connected because of IP conflicts with Docker's bridge/overlay networks. Disconnect the VPN, start Docker, reconnect.
 
 **Fix.**
 
 On plain Arch/EndeavourOS/CachyOS the fix as written is right (`sudo pacman -S docker docker-buildx docker-compose`, `sudo systemctl enable --now docker.service`, `sudo usermod -aG docker $USER`, then log out and back in).
 
-On **Omarchy 4 (Quattro)** do not add yourself to the `docker` group by hand — Quattro intentionally leaves that group empty because it is passwordless root. Either keep using the packaged wrappers (`omarchy-sudo-docker ...`, the Docker TUI via Super+Shift+D, or plain `sudo docker ...`), or opt in explicitly, behind the warning, with:
+On **Omarchy 4 (Quattro)** do not add yourself to the `docker` group by hand. Quattro intentionally leaves that group empty because it is passwordless root. Either keep using the packaged wrappers (`omarchy-sudo-docker ...`, the Docker TUI via Super+Shift+D, or plain `sudo docker ...`), or opt in explicitly, behind the warning, with:
 
 ```bash
 omarchy-setup-security-sudoless-docker   # Setup > Security > Sudoless Docker
@@ -217,7 +217,7 @@ For Electron apps also force native Wayland so the portal is used:
 ELECTRON_OZONE_PLATFORM_HINT=wayland <app>
 ```
 
-**Verify.** Open https://mozilla.github.io/webrtc-landing/gum_test.html and start a screen capture — the picker lists your monitors and the preview is not black. `systemctl --user status xdg-desktop-portal-hyprland` is active.
+**Verify.** Open https://mozilla.github.io/webrtc-landing/gum_test.html and start a screen capture. The picker lists your monitors and the preview is not black. `systemctl --user status xdg-desktop-portal-hyprland` is active.
 
 Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal>
 
@@ -386,11 +386,11 @@ Sources: <https://github.com/omacom/omarchy/issues/6868> · <https://github.com/
 
 **Cause.** The `qemu:///system` RW socket is protected by polkit (the default `unix_sock_auth` on Arch since libvirt pulls in polkit). Without group membership or a running polkit authentication agent, the connection is refused.
 
-> **Audit corrected this record.** Most of this is right: polkit gating of the `qemu:///system` RW socket, the `libvirt` group having password-less access, the `org.libvirt.unix.manage` polkit action id, the package names (`libvirt`, `qemu-desktop`, `virt-manager`, `dnsmasq`, `iptables-nft`, `edk2-ovmf` all exist), and the `libvirt-qemu` group (Arch's libvirt does ship `/usr/lib/sysusers.d/libvirt-qemu.conf`, so that chown target is real). Three problems: (1) the polkit-agent instruction writes `exec-once = ...` into `~/.config/hypr/hyprland.conf`, which Hyprland 0.55+ and Omarchy 4 no longer read (config is `hyprland.lua`); (2) libvirt is mid-migration to modular daemons — `virtqemud.service/.socket`, `virtnetworkd`, `virtstoraged` etc. all ship in Arch's libvirt package and are the direction upstream is taking (monolithic `libvirtd` is slated for removal), and mixing the two setups is a known way to end up with a half-working stack; (3) `virtlogd` is socket-activated and pulled in by the daemon — enabling `virtlogd.service` is unnecessary. Minor: `chown -R $USER:libvirt-qemu` alone does not fix 'search permissions' when `$HOME` is mode 0700, since the QEMU user still cannot traverse it.
+> **Audit corrected this record.** Most of this is right: polkit gating of the `qemu:///system` RW socket, the `libvirt` group having password-less access, the `org.libvirt.unix.manage` polkit action id, the package names (`libvirt`, `qemu-desktop`, `virt-manager`, `dnsmasq`, `iptables-nft`, `edk2-ovmf` all exist), and the `libvirt-qemu` group (Arch's libvirt does ship `/usr/lib/sysusers.d/libvirt-qemu.conf`, so that chown target is real). Three problems. (1) The polkit-agent instruction writes `exec-once = ...` into `~/.config/hypr/hyprland.conf`, which Hyprland 0.55+ and Omarchy 4 no longer read (config is `hyprland.lua`). (2) Libvirt is mid-migration to modular daemons: `virtqemud.service/.socket`, `virtnetworkd`, `virtstoraged` etc. all ship in Arch's libvirt package and are the direction upstream is taking (monolithic `libvirtd` is slated for removal), and mixing the two setups is a known way to end up with a half-working stack. (3) `virtlogd` is socket-activated and pulled in by the daemon, so enabling `virtlogd.service` is unnecessary. Minor: `chown -R $USER:libvirt-qemu` alone does not fix 'search permissions' when `$HOME` is mode 0700, since the QEMU user still cannot traverse it.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Members of the `libvirt` group can define and start VMs with arbitrary host device and disk passthrough — it is close to root-equivalent. A reboot may be required before polkit-based authentication behaves correctly. Permission changes to system directories under `/usr` or `/var/lib/libvirt` are lost on package update.
+> ⚠️ **Risk.** Members of the `libvirt` group can define and start VMs with arbitrary host device and disk passthrough. It is close to root-equivalent. A reboot may be required before polkit-based authentication behaves correctly. Permission changes to system directories under `/usr` or `/var/lib/libvirt` are lost on package update.
 
 **Fix.**
 
@@ -404,13 +404,13 @@ sudo systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.so
 sudo systemctl enable --now libvirtd.socket
 ```
 
-Do not enable `virtlogd.service` by hand — it is socket-activated. Check what you are already running with `systemctl list-units 'virt*' 'libvirtd*'` before changing anything.
+Do not enable `virtlogd.service` by hand. It is socket-activated. Check what you are already running with `systemctl list-units 'virt*' 'libvirtd*'` before changing anything.
 
 Group membership (`sudo usermod -aG libvirt $USER`, then log out and back in) and the `/etc/polkit-1/rules.d/50-libvirt.rules` snippet are correct as written.
 
-For the polkit agent: Omarchy already runs one (`pgrep -af polkit`) — check before adding anything. If you do need to start one and you are on Hyprland 0.55+ / Omarchy 4, the config is Lua, not `hyprland.conf`: add it to `~/.config/hypr/autostart.lua` (`o.launch_on_start("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")`), or better install `hyprpolkitagent` and enable its user unit. Only pre-0.55 Hyprland takes the `exec-once =` line.
+For the polkit agent: Omarchy already runs one (`pgrep -af polkit`), so check before adding anything. If you do need to start one and you are on Hyprland 0.55+ / Omarchy 4, the config is Lua, not `hyprland.conf`: add it to `~/.config/hypr/autostart.lua` (`o.launch_on_start("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")`), or better install `hyprpolkitagent` and enable its user unit. Only pre-0.55 Hyprland takes the `exec-once =` line.
 
-For 'doesn't have search permissions': moving the image into `/var/lib/libvirt/images` + `sudo virsh pool-refresh default` is the reliable fix. If you keep it under `$HOME`, `chown` is not enough on a 0700 home — grant traversal explicitly, e.g. `sudo setfacl -m u:libvirt-qemu:x /home/$USER` (and on each parent directory) plus read access on the image.
+For 'doesn't have search permissions': moving the image into `/var/lib/libvirt/images` + `sudo virsh pool-refresh default` is the reliable fix. If you keep it under `$HOME`, `chown` is not enough on a 0700 home. Grant traversal explicitly, e.g. `sudo setfacl -m u:libvirt-qemu:x /home/$USER` (and on each parent directory) plus read access on the image.
 
 **Verify.** `virsh -c qemu:///system list --all` works as your normal user, and virt-manager shows "QEMU/KVM" connected. `id -nG` includes `libvirt`.
 
@@ -436,7 +436,7 @@ Everywhere else you have to build it. On GRUB you need `grub-btrfs`, on rEFInd `
 >
 > *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Converting an existing installation to a snapshot-friendly btrfs layout means moving subvolumes and reinstalling/reconfiguring the bootloader — get it wrong and the machine does not boot. In particular, if `genfstab` wrote a `subvolid=` option for `/` or `/home`, remove it or you will be unable to boot *after* restoring a snapshot. Do that work from a live ISO with a full backup already taken, never on a machine you need working in an hour. `timeshift --restore` overwrites system files in place; read the excluded/included paths in `/etc/timeshift/timeshift.json` before running it, and note that Timeshift in btrfs mode ignores the `exclude` list entirely.
+> ⚠️ **Risk.** Converting an existing installation to a snapshot-friendly btrfs layout means moving subvolumes and reinstalling/reconfiguring the bootloader. Get it wrong and the machine does not boot. In particular, if `genfstab` wrote a `subvolid=` option for `/` or `/home`, remove it or you will be unable to boot *after* restoring a snapshot. Do that work from a live ISO with a full backup already taken, never on a machine you need working in an hour. `timeshift --restore` overwrites system files in place. Read the excluded/included paths in `/etc/timeshift/timeshift.json` before running it, and note that Timeshift in btrfs mode ignores the `exclude` list entirely.
 
 **Fix.**
 
@@ -547,9 +547,9 @@ Sources: <https://wiki.archlinux.org/title/Snapper> · <https://wiki.archlinux.o
 
 `omarchy-docker-containers-dead-after-reboot` · severity: **high** · frequency: **common** · applies to: `arch`, `docker`, `omarchy`, `systemd`
 
-**Symptom.** I installed Postgres/MySQL/Redis from Omarchy's Install > Development > Docker DB menu. It works, but after every reboot my app cannot connect — `connection refused` on `127.0.0.1:5432` — until I run `docker ps` once, after which everything springs to life.
+**Symptom.** I installed Postgres/MySQL/Redis from Omarchy's Install > Development > Docker DB menu. It works, but after every reboot my app cannot connect, with `connection refused` on `127.0.0.1:5432`, until I run `docker ps` once, after which everything springs to life.
 
-**Cause.** Omarchy deliberately enables only `docker.socket` and leaves `docker.service` disabled to keep boot fast. Socket activation only fires when something actually touches `/run/docker.sock`. Published container ports are served by `docker-proxy`, a child of the daemon, which does not exist while the daemon is inactive — so the containers' `--restart unless-stopped` policy is never evaluated at boot.
+**Cause.** Omarchy deliberately enables only `docker.socket` and leaves `docker.service` disabled to keep boot fast. Socket activation only fires when something actually touches `/run/docker.sock`. Published container ports are served by `docker-proxy`, a child of the daemon, which does not exist while the daemon is inactive, so the containers' `--restart unless-stopped` policy is never evaluated at boot.
 
 **Fix.**
 
@@ -582,19 +582,19 @@ Sources: <https://github.com/basecamp/omarchy/issues/8541> · <https://wiki.arch
 
 `omarchy-snapshot-restore-keeps-home` · severity: **high** · frequency: **common** · applies to: `arch`, `btrfs`, `hyprland`, `limine`, `omarchy`
 
-**Symptom.** An update broke my system. I booted an older snapshot from the Limine boot menu and ran the restore, but my apps still misbehave — configs seem to be from the broken version, and I am unsure whether my documents were rolled back too.
+**Symptom.** An update broke my system. I booted an older snapshot from the Limine boot menu and ran the restore, but my apps still misbehave. Configs seem to be from the broken version, and I am unsure whether my documents were rolled back too.
 
-**Cause.** Omarchy takes a btrfs snapshot on every update and exposes them in the Limine boot menu. The restore rolls back the root subvolume only. `/home` — including `~/.config` — is deliberately left untouched so personal files survive, which means config files written in a newer format stay behind and can conflict with the older restored system.
+**Cause.** Omarchy takes a btrfs snapshot on every update and exposes them in the Limine boot menu. The restore rolls back the root subvolume only. `/home`, including `~/.config`, is deliberately left untouched so personal files survive, which means config files written in a newer format stay behind and can conflict with the older restored system.
 
-> **Audit corrected this record.** Almost everything matches Omarchy 4's own manual (manual/47-system-snapshots.md) close to verbatim: snapshot on every update, pick the dated entry in Limine with the version shown bottom-left, the 'you are in a bootable snapshot' notification, `omarchy-snapshot create` / `omarchy-snapshot restore` (the script exists and `restore` calls `limine-snapper-restore`), root restored but `/home` and `~/.config` left alone, Limine-only and default since Omarchy 2.0. `omarchy-debug` and `omarchy-reinstall` also exist. The one stale piece is the recovery advice: Omarchy 4 has no 'Update > Config' menu entry that restores a single config to its shipped default. Quattro's equivalents are `omarchy-refresh-config <path>` (copies one shipped config from `$OMARCHY_PATH/config` into `~/.config`, backing up yours) and the per-component refreshers; `omarchy-reinstall-configs` is the blunt one and is destructive — it replays all of `/etc/skel` over `$HOME`.
+> **Audit corrected this record.** Almost everything matches Omarchy 4's own manual (manual/47-system-snapshots.md) close to verbatim: snapshot on every update, pick the dated entry in Limine with the version shown bottom-left, the 'you are in a bootable snapshot' notification, `omarchy-snapshot create` / `omarchy-snapshot restore` (the script exists and `restore` calls `limine-snapper-restore`), root restored but `/home` and `~/.config` left alone, Limine-only and default since Omarchy 2.0. `omarchy-debug` and `omarchy-reinstall` also exist. The one stale piece is the recovery advice: Omarchy 4 has no 'Update > Config' menu entry that restores a single config to its shipped default. Quattro's equivalents are `omarchy-refresh-config <path>` (copies one shipped config from `$OMARCHY_PATH/config` into `~/.config`, backing up yours) and the per-component refreshers. `omarchy-reinstall-configs` is the blunt one and is destructive: it replays all of `/etc/skel` over `$HOME`.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Rolling back root while keeping `/home` can leave newer config formats in `~/.config` that the older software cannot read — expect to reset some configs by hand. Snapshot restore is only available on installs using the Limine boot loader (default since Omarchy 2.0); GRUB and systemd-boot installs have no rollback path, so back up before big updates. Restoring does not roll back your documents, so it is not a data-recovery mechanism.
+> ⚠️ **Risk.** Rolling back root while keeping `/home` can leave newer config formats in `~/.config` that the older software cannot read. Expect to reset some configs by hand. Snapshot restore is only available on installs using the Limine boot loader (default since Omarchy 2.0). GRUB and systemd-boot installs have no rollback path, so back up before big updates. Restoring does not roll back your documents, so it is not a data-recovery mechanism.
 
 **Fix.**
 
-Snapshot/restore flow is right as written (`omarchy-snapshot create` before anything risky; reboot, pick the dated Limine entry, then the notification or `omarchy-snapshot restore`).
+Snapshot/restore flow is right as written (`omarchy-snapshot create` before anything risky, then reboot, pick the dated Limine entry, then the notification or `omarchy-snapshot restore`).
 
 For the configs left behind in `~/.config`, use Quattro's refreshers rather than a 'Update > Config' menu entry:
 
@@ -694,11 +694,11 @@ or `newuidmap: write to uid_map failed`. Running as root works.
 
 **Cause.** Rootless containers need a range of subordinate UIDs/GIDs allocated to your user. Accounts created before `shadow` 4.11.1-3 (i.e. most long-lived Arch installs) have no entries in `/etc/subuid`/`/etc/subgid`, and `systemd-homed` users never get them.
 
-> **Audit corrected this record.** The main fix is right: `usermod --add-subuids/--add-subgids`, checking `/etc/subuid`/`/etc/subgid` for overlap, 65536 as the practical range size, and `podman system migrate` to make Podman pick up the new mapping. `bubblewrap-suid` does exist in extra, so that note is fine. The secondary step is misleading on Arch: `kernel.unprivileged_userns_clone` is a hardened-kernel patch knob — it exists on `linux-hardened` but NOT on the stock `linux` kernel, where `sysctl kernel.unprivileged_userns_clone` errors out and the `/etc/sysctl.d/99-userns.conf` file the record tells you to write is inert. A reader on the stock kernel will chase a non-problem and end up with a dead sysctl drop-in.
+> **Audit corrected this record.** The main fix is right: `usermod --add-subuids/--add-subgids`, checking `/etc/subuid`/`/etc/subgid` for overlap, 65536 as the practical range size, and `podman system migrate` to make Podman pick up the new mapping. `bubblewrap-suid` does exist in extra, so that note is fine. The secondary step is misleading on Arch: `kernel.unprivileged_userns_clone` is a hardened-kernel patch knob. It exists on `linux-hardened` but NOT on the stock `linux` kernel, where `sysctl kernel.unprivileged_userns_clone` errors out and the `/etc/sysctl.d/99-userns.conf` file the record tells you to write is inert. A reader on the stock kernel will chase a non-problem and end up with a dead sysctl drop-in.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Enabling `kernel.unprivileged_userns_clone=1` has real security implications — it is set to 0 on `linux-hardened` on purpose. Also, overlapping subuid ranges between users breaks isolation, so always check `/etc/subuid` before picking a block.
+> ⚠️ **Risk.** Enabling `kernel.unprivileged_userns_clone=1` has real security implications, and it is set to 0 on `linux-hardened` on purpose. Also, overlapping subuid ranges between users breaks isolation, so always check `/etc/subuid` before picking a block.
 
 **Fix.**
 
@@ -712,7 +712,7 @@ podman system migrate
 
 (or write `myuser:524288:65536` into both files by hand if 100000 is taken).
 
-On the user-namespace check, be kernel-specific: `kernel.unprivileged_userns_clone` only exists on `linux-hardened` (and other patched kernels). On the stock `linux`/`linux-lts`/`linux-zen` kernels the sysctl does not exist and unprivileged user namespaces are already enabled — `sysctl kernel.unprivileged_userns_clone` returning 'cannot stat' there is normal, not a fault, and you should not create `/etc/sysctl.d/99-userns.conf`. Only on `linux-hardened` does the knob apply, and there the safer fix for Flatpak specifically is `sudo pacman -S bubblewrap-suid` rather than relaxing the sysctl globally. Verify with `podman unshare cat /proc/self/uid_map` and `podman run --rm docker.io/library/alpine echo ok`.
+On the user-namespace check, be kernel-specific: `kernel.unprivileged_userns_clone` only exists on `linux-hardened` (and other patched kernels). On the stock `linux`/`linux-lts`/`linux-zen` kernels the sysctl does not exist and unprivileged user namespaces are already enabled. `sysctl kernel.unprivileged_userns_clone` returning 'cannot stat' there is normal, not a fault, and you should not create `/etc/sysctl.d/99-userns.conf`. Only on `linux-hardened` does the knob apply, and there the safer fix for Flatpak specifically is `sudo pacman -S bubblewrap-suid` rather than relaxing the sysctl globally. Verify with `podman unshare cat /proc/self/uid_map` and `podman run --rm docker.io/library/alpine echo ok`.
 
 **Verify.** `podman unshare cat /proc/self/uid_map` shows your mapped range, and `podman run --rm docker.io/library/alpine echo ok` prints `ok` as a normal user.
 
@@ -820,13 +820,13 @@ Kernel driver not installed (rc=-1908)
 The VirtualBox Linux kernel driver is either not loaded or not set up correctly.
 ```
 
-**Cause.** The `vboxdrv` kernel module is not loaded for the running kernel: the DKMS module was not (re)built for it, the matching `*-headers` package is missing, or you booted a new kernel while the previous modules were still loaded. VirtualBox on Arch is now DKMS-only — there is no prebuilt `virtualbox-host-modules-arch` package any more — so every kernel update depends on DKMS succeeding.
+**Cause.** The `vboxdrv` kernel module is not loaded for the running kernel: the DKMS module was not (re)built for it, the matching `*-headers` package is missing, or you booted a new kernel while the previous modules were still loaded. VirtualBox on Arch is now DKMS-only, and there is no prebuilt `virtualbox-host-modules-arch` package any more, so every kernel update depends on DKMS succeeding.
 
-> **Audit corrected this record.** The failure mode, `vboxreload` (really shipped at `/usr/bin/vboxreload` by the `virtualbox` package), the `vboxnetadp`/`vboxnetflt` modules, the `vboxusers` group and the module-signing note are all correct. The problem is the headline command: `virtualbox-host-modules-arch` no longer exists in the Arch repositories — a search of the current repos returns `virtualbox`, `virtualbox-host-dkms`, `virtualbox-guest-*`, `virtualbox-ext-vnc`, `virtualbox-sdk` and nothing named `*-modules-arch`. `sudo pacman -S virtualbox virtualbox-host-modules-arch` therefore fails with 'target not found', which is a bad first line for a record whose whole point is a missing module.
+> **Audit corrected this record.** The failure mode, `vboxreload` (really shipped at `/usr/bin/vboxreload` by the `virtualbox` package), the `vboxnetadp`/`vboxnetflt` modules, the `vboxusers` group and the module-signing note are all correct. The problem is the headline command: `virtualbox-host-modules-arch` no longer exists in the Arch repositories. A search of the current repos returns `virtualbox`, `virtualbox-host-dkms`, `virtualbox-guest-*`, `virtualbox-ext-vnc`, `virtualbox-sdk` and nothing named `*-modules-arch`. `sudo pacman -S virtualbox virtualbox-host-modules-arch` therefore fails with 'target not found', which is a bad first line for a record whose whole point is a missing module.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Mixing `virtualbox-host-modules-arch` (built for the stock `linux` kernel) with a different kernel is exactly what causes this. Don't install both module packages. Rebuilding DKMS modules requires the matching `*-headers` package — installing a new kernel without its headers reproduces the failure on the next boot.
+> ⚠️ **Risk.** Mixing `virtualbox-host-modules-arch` (built for the stock `linux` kernel) with a different kernel is exactly what causes this. Don't install both module packages. Rebuilding DKMS modules requires the matching `*-headers` package. Installing a new kernel without its headers reproduces the failure on the next boot.
 
 **Fix.**
 
@@ -848,7 +848,7 @@ sudo modprobe vboxnetadp vboxnetflt  # bridged/host-only networking
 sudo usermod -aG vboxusers $USER     # USB passthrough; log out/in afterwards
 ```
 
-The `Required key not available` / `CONFIG_MODULE_SIG_FORCE` note and the 'install headers for every kernel you keep' warning stand as written; the warning about mixing module packages can go, since only the DKMS package remains.
+The `Required key not available` / `CONFIG_MODULE_SIG_FORCE` note and the 'install headers for every kernel you keep' warning stand as written. The warning about mixing module packages can go, since only the DKMS package remains.
 
 **Verify.** `lsmod | grep vbox` lists `vboxdrv` (and `vboxnetflt`/`vboxnetadp` if you loaded them), and the VM starts. `dkms status` shows the module built for your running kernel.
 
@@ -864,18 +864,18 @@ Sources: <https://wiki.archlinux.org/title/VirtualBox>
 
 **Cause.** `xdg-desktop-portal-wlr` and `xdg-desktop-portal-hyprland` require `XDG_CURRENT_DESKTOP` and `WAYLAND_DISPLAY` to be present in the systemd user session and the D-Bus activation environment. If the compositor is started without importing them, the backend has no way to talk to the compositor. Separately, launching from a TTY/greetd that never reaches `graphical-session.target` makes `xdg-desktop-portal.service` refuse to start because of its `Requisite=graphical-session.target`.
 
-> **Audit corrected this record.** The systemd analysis is verified correct: upstream `xdg-desktop-portal.service` really does carry `PartOf=graphical-session.target`, `Requisite=graphical-session.target`, `After=graphical-session.target`, so the empty-assignment drop-in via `systemctl --user edit` is the right technique, and the danger note about not editing `/usr/lib/systemd/user/` is right. What is stale is where the environment import goes: Hyprland 0.55+ deprecated hyprlang and reads `~/.config/hypr/hyprland.lua`, and Omarchy 4 (Quattro) ships `~/.config/hypr/hyprland.lua` + `autostart.lua` and starts the session under uwsm — so `exec-once = ...` lines added to `~/.config/hypr/hyprland.conf` are silently ignored on both. Under uwsm the imports are also unnecessary, because uwsm already populates the systemd/D-Bus activation environment.
+> **Audit corrected this record.** The systemd analysis is verified correct: upstream `xdg-desktop-portal.service` really does carry `PartOf=graphical-session.target`, `Requisite=graphical-session.target`, `After=graphical-session.target`, so the empty-assignment drop-in via `systemctl --user edit` is the right technique, and the danger note about not editing `/usr/lib/systemd/user/` is right. What is stale is where the environment import goes: Hyprland 0.55+ deprecated hyprlang and reads `~/.config/hypr/hyprland.lua`, and Omarchy 4 (Quattro) ships `~/.config/hypr/hyprland.lua` + `autostart.lua` and starts the session under uwsm, so `exec-once = ...` lines added to `~/.config/hypr/hyprland.conf` are silently ignored on both. Under uwsm the imports are also unnecessary, because uwsm already populates the systemd/D-Bus activation environment.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Do not edit `/usr/lib/systemd/user/xdg-desktop-portal.service` directly — the next `xdg-desktop-portal` package update overwrites it and the fix silently disappears. Use `systemctl --user edit` so the drop-in lands in `~/.config/systemd/user/`.
+> ⚠️ **Risk.** Do not edit `/usr/lib/systemd/user/xdg-desktop-portal.service` directly. The next `xdg-desktop-portal` package update overwrites it and the fix silently disappears. Use `systemctl --user edit` so the drop-in lands in `~/.config/systemd/user/`.
 
 **Fix.**
 
 Diagnose the same way (`systemctl --user show-environment | grep -E 'XDG_CURRENT_DESKTOP|WAYLAND_DISPLAY'`), but fix it in the right place:
 
-- **Preferred (and the Omarchy 4 default): start Hyprland through uwsm** (`uwsm start hyprland-uwsm.desktop`), which exports the session environment to systemd and D-Bus for you — no `exec-once` import lines needed. If you are already on Omarchy 4 and the variables are missing, that is a session bug to report, not something to paper over in the config.
-- **If you launch `Hyprland` bare on 0.55+**, put the imports in the Lua config instead of `hyprland.conf` — on Omarchy that is `~/.config/hypr/autostart.lua` (`o.launch_on_start("systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")`, same for the `dbus-update-activation-environment --systemd ...` line). Only a pre-0.55 Hyprland still takes the `exec-once =` form in `hyprland.conf`.
+- **Preferred (and the Omarchy 4 default): start Hyprland through uwsm** (`uwsm start hyprland-uwsm.desktop`), which exports the session environment to systemd and D-Bus for you, so no `exec-once` import lines are needed. If you are already on Omarchy 4 and the variables are missing, that is a session bug to report, not something to paper over in the config.
+- **If you launch `Hyprland` bare on 0.55+**, put the imports in the Lua config instead of `hyprland.conf`. On Omarchy that is `~/.config/hypr/autostart.lua` (`o.launch_on_start("systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")`, same for the `dbus-update-activation-environment --systemd ...` line). Only a pre-0.55 Hyprland still takes the `exec-once =` form in `hyprland.conf`.
 
 The `systemctl --user edit xdg-desktop-portal.service` drop-in (`[Unit]` with empty `Requisite=`, `After=`, `PartOf=`) and the `xdg-desktop-portal-gtk` `DISPLAY=:0` drop-in stay exactly as written.
 
@@ -893,7 +893,7 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal>
 
 **Cause.** Docker inserts iptables rules that set the FORWARD chain policy to DROP and only permit forwarding on its own interfaces, so traffic across your KVM bridge is dropped.
 
-> **Audit corrected this record.** The core diagnosis (Docker sets the FORWARD policy to DROP and only permits its own interfaces) and the `iptables -I FORWARD -i br0 -o br0 -j ACCEPT` fix are correct, as is the `"iptables": false` warning. Two defects: (1) `IPForward=yes` is obsolete — current systemd.network(5) documents only `IPv4Forwarding=` and `IPv6Forwarding=`; `IPForward=` was removed and pasting it yields an ignored/warned key. (2) Setting `"bridge": "br0"` in `/etc/docker/daemon.json` hands your libvirt bridge to the Docker daemon as its default bridge (Docker then attaches containers to it and manages addressing on it) — that is not a safe 'alternative' for a bridge already carrying VMs and should not be offered as one.
+> **Audit corrected this record.** The core diagnosis (Docker sets the FORWARD policy to DROP and only permits its own interfaces) and the `iptables -I FORWARD -i br0 -o br0 -j ACCEPT` fix are correct, as is the `"iptables": false` warning. Two defects: (1) `IPForward=yes` is obsolete: current systemd.network(5) documents only `IPv4Forwarding=` and `IPv6Forwarding=`. `IPForward=` was removed and pasting it yields an ignored/warned key. (2) Setting `"bridge": "br0"` in `/etc/docker/daemon.json` hands your libvirt bridge to the Docker daemon as its default bridge (Docker then attaches containers to it and manages addressing on it). That is not a safe 'alternative' for a bridge already carrying VMs and should not be offered as one.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -907,7 +907,7 @@ Preferred fix, unchanged:
 sudo iptables -I FORWARD -i br0 -o br0 -j ACCEPT
 ```
 
-Persist it the Arch way — save the live ruleset and enable the service that restores it:
+Persist it the Arch way: save the live ruleset and enable the service that restores it:
 
 ```bash
 sudo iptables-save | sudo tee /etc/iptables/iptables.rules
@@ -916,9 +916,9 @@ sudo systemctl enable --now iptables.service
 
 (or add the equivalent accept rule to your `/etc/nftables.conf` forward chain and enable `nftables.service`).
 
-Do **not** set `"bridge": "br0"` in `/etc/docker/daemon.json` — that makes Docker adopt and manage your libvirt bridge. If you want Docker off your bridge entirely, give it its own with `"bip"`/a user-defined network instead.
+Do **not** set `"bridge": "br0"` in `/etc/docker/daemon.json`. That makes Docker adopt and manage your libvirt bridge. If you want Docker off your bridge entirely, give it its own with `"bip"`/a user-defined network instead.
 
-If forwarding is being reset under systemd-networkd, the current option names are `IPv4Forwarding=yes` (and `IPv6Forwarding=yes`) in the `[Network]` section of the relevant `.network` file — `IPForward=` no longer exists. Verify with `sysctl net.ipv4.ip_forward` and `sudo iptables -S FORWARD | head`.
+If forwarding is being reset under systemd-networkd, the current option names are `IPv4Forwarding=yes` (and `IPv6Forwarding=yes`) in the `[Network]` section of the relevant `.network` file. `IPForward=` no longer exists. Verify with `sysctl net.ipv4.ip_forward` and `sudo iptables -S FORWARD | head`.
 
 **Verify.** With `docker.service` running, a VM on `br0` gets a DHCP lease and can ping the gateway. `sudo iptables -S FORWARD | head` shows your ACCEPT rule ahead of Docker's DROP.
 
@@ -930,7 +930,7 @@ Sources: <https://wiki.archlinux.org/title/Docker> · <https://wiki.archlinux.or
 
 `scheduled-backup-skipped-and-repo-locked` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `systemd`
 
-**Symptom.** A nightly backup timer set for 03:00 has not run in days on a laptop — `systemctl list-timers` shows a `NEXT` time but `LAST` is `n/a` or weeks old. When it does eventually run it fails with restic's
+**Symptom.** A nightly backup timer set for 03:00 has not run in days on a laptop. `systemctl list-timers` shows a `NEXT` time but `LAST` is `n/a` or weeks old. When it does eventually run it fails with restic's
 
 ```
 Fatal: unable to create lock in backend: repository is already locked exclusively by PID 1234 on host by user (UID 0, GID 0)
@@ -1091,7 +1091,7 @@ vfio: error, group 13 is not viable, please ensure all devices within the iommu_
 
 Or `/sys/kernel/iommu_groups/` is empty, or `lspci -nnk` still shows `Kernel driver in use: nvidia` / `amdgpu` for the card you meant to pass through.
 
-**Cause.** An IOMMU group is the smallest unit that can be handed to a VM. Every device in the group must be bound to `vfio-pci` — if the GPU's HDMI audio function, a USB controller, or a PCIe root port shares the group and is still on its normal driver, the group is "not viable". An empty `iommu_groups` directory means IOMMU (Intel VT-d / AMD-Vi) is not enabled at all.
+**Cause.** An IOMMU group is the smallest unit that can be handed to a VM. Every device in the group must be bound to `vfio-pci`. If the GPU's HDMI audio function, a USB controller, or a PCIe root port shares the group and is still on its normal driver, the group is "not viable". An empty `iommu_groups` directory means IOMMU (Intel VT-d / AMD-Vi) is not enabled at all.
 
 > **Audit corrected this record.** Checked on this Omarchy 4 workstation (omarchy 4.0.2-1, mkinitcpio 41.1-1, limine-mkinitcpio-hook 1.37.1-1, kernel 7.1.9, RTX 3090) and against the cited Arch wiki page fetched as raw wikitext. The generic VFIO content held: the group-listing script is byte-for-byte the wiki's, the `10de:13c2` / `10de:0fbb` pair is the wiki's own example group 13, `intel_iommu=on` for Intel with nothing needed for AMD-Vi is still what the wiki says, `vfio_pci vfio vfio_iommu_type1` with `vfio_virqfd` absent since 6.2 is current, and the root-port and ACS-override warnings match the wiki notes. I confirmed the exact error string in QEMU source at hw/vfio/container-legacy.c line 796, which the wiki does not carry. Three Omarchy 4 claims were wrong. First, `sudo mkinitcpio -P` cannot work here: `/etc/mkinitcpio.d/` is empty (`ls` on this machine, and `pacman -Ql linux` ships no preset), and `/usr/bin/mkinitcpio` line 986 does `[[ -e "${_optpreset[0]}" ]] || die 'No presets found in %s'`, so the command dies and writes no boot image. The rebuild is `limine-mkinitcpio`, which runs `/usr/share/libalpm/scripts/limine-mkinitcpio-install`. Second, the instruction to put `intel_iommu=on` on the `cmdline:` line of `/boot/limine.conf` is wrong on Omarchy: `/usr/lib/limine/limine-common-functions` sets `LIMINE_CONFIG_PATH="${ESP_PATH}/limine.conf"` and the tool regenerates it, and `ENABLE_UKI=yes` in `/etc/limine-entry-tool.d/omarchy-uki.conf` means the command line is embedded in the UKI, so a drop-in under `/etc/limine-entry-tool.d/` with `+=` is the only place it persists. This agrees with the existing corpus record `limine-kernel-parameters-not-applying-omarchy` rather than contradicting it. Third, "make sure modconf is in your HOOKS" points at the wrong file: `/etc/mkinitcpio.conf` is package-stock here and `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` sets `HOOKS=` wholesale, so editing the former has no effect. I also found a new Omarchy-specific trap the record could not have known: mkinitcpio line 1121 concatenates `/etc/mkinitcpio.conf.d/*.conf` in `sort -V` order, and I verified with `sort -zVu` that `vfio.conf` sorts after `nvidia.conf`, so the wiki's requirement that VFIO modules precede an early-KMS driver is violated unless the drop-in is named to sort first, hence `00-vfio.conf`. The danger field's "known-good Limine/GRUB fallback entry" does not exist on Omarchy: `MKINITCPIO_FALLBACK` is commented out in `/etc/limine-entry-tool.conf` and `limine-list` prints only `linux` under `Omarchy` plus `EFI fallback`, which is the Limine binary on the removable-media path, not a separate initramfs. I could NOT exercise any of the binding: `ls /sys/kernel/iommu_groups/ | wc -l` is 0 on this workstation, so IOMMU is off in firmware here, and I have no sudo and ran nothing that touches modules, initramfs or the bootloader. The wiki's own note that nvidia modesetting forces the ids into the initramfs is confirmed as applying here, because `/etc/modprobe.d/nvidia.conf` contains `options nvidia_drm modeset=1` and `/etc/mkinitcpio.conf.d/nvidia.conf` early-loads `nvidia_drm`. The KVM and Libvirt wiki pages were fetched and support none of the record's claims (grep for vfio or iommu returns nothing in Libvirt and only an incidental lsmod paste in KVM), so they are removed in favour of the Limine wiki and the QEMU source.
 >
@@ -1209,7 +1209,7 @@ Sources: <https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF> · <https:/
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** `timedatectl set-local-rtc 1` is the wrong direction and is explicitly discouraged — it causes over-correction across DST changes and can make the system clock go backwards during boot. Only remove `/etc/adjtime` if you then immediately reset the hardware clock, or the next boot may come up with a wildly wrong time (which breaks TLS and pacman signature checks).
+> ⚠️ **Risk.** `timedatectl set-local-rtc 1` is the wrong direction and is explicitly discouraged, because it causes over-correction across DST changes and can make the system clock go backwards during boot. Only remove `/etc/adjtime` if you then immediately reset the hardware clock, or the next boot may come up with a wildly wrong time (which breaks TLS and pacman signature checks).
 
 **Fix.**
 
@@ -1270,7 +1270,7 @@ sudo hwclock --systohc --utc
 
 If both machines run a time client, disable synchronisation in Windows so the two do not each estimate RTC drift without knowing about the other.
 
-**Verify.** `timedatectl status` shows `RTC in local TZ: no`, `System clock synchronized: yes`, `NTP service: active`. Reboot into Windows and back — the time is still correct.
+**Verify.** `timedatectl status` shows `RTC in local TZ: no`, `System clock synchronized: yes`, `NTP service: active`. Reboot into Windows and back. The time is still correct.
 
 Sources: <https://wiki.archlinux.org/title/System_time> · <https://wiki.archlinux.org/title/Systemd-timesyncd> · <https://github.com/omacom/omarchy-iso/blob/quattro/manifests/fresh-4-semantic.json>
 
@@ -1287,7 +1287,7 @@ Cannot connect to remote printer ipp://HP079676.local
 copy_model: empty PPD file
 ```
 
-**Cause.** Modern printer discovery uses DNS-SD/mDNS over `.local` names. CUPS only supports Avahi for this — it cannot use systemd-resolved's mDNS for service discovery. Without `avahi-daemon` running and `nss-mdns` wired into `/etc/nsswitch.conf`, the `.local` hostname never resolves.
+**Cause.** Modern printer discovery uses DNS-SD/mDNS over `.local` names. CUPS only supports Avahi for this: it cannot use systemd-resolved's mDNS for service discovery. Without `avahi-daemon` running and `nss-mdns` wired into `/etc/nsswitch.conf`, the `.local` hostname never resolves.
 
 **Fix.**
 
@@ -1333,7 +1333,7 @@ Sources: <https://wiki.archlinux.org/title/CUPS> · <https://wiki.archlinux.org/
 
 **Symptom.** Something silently does not work after boot. `systemctl status foo` says `Active: failed (Result: exit-code)` or the boot prints `Failed to start <something>. See 'systemctl status ...' for details.` Or an installer script aborted with `Failed to enable unit: Unit foo.service could not be found.`
 
-**Cause.** Generic — but the diagnostic path is always the same, and most people never get past `systemctl status`, which truncates the log to a handful of lines. The "could not be found" variant is usually a script guessing a unit name that does not match what the package actually ships (e.g. Sunshine ships `app-dev.lizardbyte.app.Sunshine.service`, not `sunshine.service`).
+**Cause.** Generic, but the diagnostic path is always the same, and most people never get past `systemctl status`, which truncates the log to a handful of lines. The "could not be found" variant is usually a script guessing a unit name that does not match what the package actually ships (e.g. Sunshine ships `app-dev.lizardbyte.app.Sunshine.service`, not `sunshine.service`).
 
 **Fix.**
 
@@ -1365,14 +1365,14 @@ systemctl cat <unit>
 systemctl show <unit> -p ExecStart -p Environment
 ```
 
-If a unit "could not be found", never guess the name — ask the package:
+If a unit "could not be found", never guess the name. Ask the package:
 
 ```bash
 pacman -Ql <package> | grep -E '\.service$'
 systemctl --user list-unit-files | grep -i <name>
 ```
 
-For a short-lived service that logs nothing under its unit name, find the PID from the status output and query by PID instead — unit attribution is racy for processes that exit immediately:
+For a short-lived service that logs nothing under its unit name, find the PID from the status output and query by PID instead, because unit attribution is racy for processes that exit immediately:
 
 ```bash
 journalctl -b _PID=123
@@ -1386,7 +1386,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart <unit>
 ```
 
-Never edit unit files under `/usr/lib/systemd/` — package updates overwrite them. Use `sudo systemctl edit <unit>` instead.
+Never edit unit files under `/usr/lib/systemd/`, because package updates overwrite them. Use `sudo systemctl edit <unit>` instead.
 
 **Verify.** `systemctl --failed` returns `0 loaded units listed`, and `systemctl is-active <unit>` prints `active`.
 
@@ -1649,9 +1649,9 @@ Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://docs.flatpak.org
 
 **Symptom.** Flatpak Electron/Chromium apps (Spotify, Signal, Obsidian, VS Code, Slack) look soft and fuzzy next to native apps on a fractionally scaled monitor, and text edges look smeared. `hyprctl clients` shows `xwayland: 1` for those windows while everything else is 0. If I set `ELECTRON_OZONE_PLATFORM_HINT=auto` the app instead refuses to start with `Failed to connect to Wayland display: No such file or directory`.
 
-**Cause.** On a fractionally scaled output, an app running through XWayland is rendered at 1x and upscaled as a bitmap, which is the blur. The reason these apps land on XWayland is almost never a missing socket — current Flathub manifests for Spotify, Signal, Obsidian, VS Code and Chrome all grant --socket=wayland — it is that Electron/Chromium still default to the X11 ozone backend unless told otherwise, and --socket=fallback-x11 then hands them an X11 socket to fall back onto. The 'Failed to connect to Wayland display' case only applies to the minority of manifests that genuinely grant x11/fallback-x11 only; there, the hint must be paired with a socket grant.
+**Cause.** On a fractionally scaled output, an app running through XWayland is rendered at 1x and upscaled as a bitmap, which is the blur. The reason these apps land on XWayland is almost never a missing socket, since current Flathub manifests for Spotify, Signal, Obsidian, VS Code and Chrome all grant --socket=wayland. It is that Electron/Chromium still default to the X11 ozone backend unless told otherwise, and --socket=fallback-x11 then hands them an X11 socket to fall back onto. The 'Failed to connect to Wayland display' case only applies to the minority of manifests that genuinely grant x11/fallback-x11 only. There, the hint must be paired with a socket grant.
 
-> **Audit corrected this record.** Symptom and blur mechanism (XWayland rendered at 1x then bitmap-scaled) are real, and the fix works, but the stated cause is factually wrong for exactly the apps named. I pulled the live Flathub manifests: com.spotify.Client, com.visualstudio.code, com.google.Chrome, org.signal.Signal and md.obsidian.Obsidian all already declare --socket=wayland (Chrome declares both x11 and wayland; the others wayland + fallback-x11). So the Wayland socket IS present in the sandbox, and the claimed 'Failed to connect to Wayland display' failure from setting the Ozone hint alone will not happen on these apps. The operative fix is the Ozone hint, not the socket grant. Two smaller gaps: the desktop-entry copy path is only right for system-wide installs (a --user install exports to ~/.local/share/flatpak/exports/share/applications), and --nosocket=fallback-x11 will break apps whose Wayland backend is flaky with no way back. flatpak override --show / --reset / info --show-permissions are all valid.
+> **Audit corrected this record.** Symptom and blur mechanism (XWayland rendered at 1x then bitmap-scaled) are real, and the fix works, but the stated cause is factually wrong for exactly the apps named. I pulled the live Flathub manifests: com.spotify.Client, com.visualstudio.code, com.google.Chrome, org.signal.Signal and md.obsidian.Obsidian all already declare --socket=wayland (Chrome declares both x11 and wayland, and the others wayland + fallback-x11). So the Wayland socket IS present in the sandbox, and the claimed 'Failed to connect to Wayland display' failure from setting the Ozone hint alone will not happen on these apps. The operative fix is the Ozone hint, not the socket grant. Two smaller gaps: the desktop-entry copy path is only right for system-wide installs (a --user install exports to ~/.local/share/flatpak/exports/share/applications), and --nosocket=fallback-x11 will break apps whose Wayland backend is flaky with no way back. flatpak override --show / --reset / info --show-permissions are all valid.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1683,7 +1683,7 @@ For Chromium-based Flatpaks that ignore the Electron variable, pass the Ozone fl
 flatpak run com.google.Chrome --ozone-platform-hint=auto --enable-features=WaylandWindowDecorations
 ```
 
-To make the flags stick for the launcher, copy the exported desktop entry — from `/var/lib/flatpak/exports/share/applications/` for a system install, or `~/.local/share/flatpak/exports/share/applications/` for a `--user` install — into `~/.local/share/applications/`, append the flags to `Exec=`, then `update-desktop-database ~/.local/share/applications`.
+To make the flags stick for the launcher, copy the exported desktop entry (from `/var/lib/flatpak/exports/share/applications/` for a system install, or `~/.local/share/flatpak/exports/share/applications/` for a `--user` install) into `~/.local/share/applications/`, append the flags to `Exec=`, then `update-desktop-database ~/.local/share/applications`.
 
 Verify with `hyprctl clients | grep -A2 xwayland` (want `xwayland: 0`). Only revoke X11 (`flatpak override --user --nosocket=x11 --nosocket=fallback-x11 <app-id>`) once the app is confirmed working natively, and keep `flatpak override --user --reset <app-id>` in mind as the undo.
 
@@ -1707,7 +1707,7 @@ It worked before I rebooted.
 
 **Cause.** libvirt's `default` NAT network is not started, and/or not marked to autostart, so it goes away on every boot. It also silently fails to start if `dnsmasq` is not installed, since the default network depends on it for DHCP/DNS.
 
-> **Audit corrected this record.** The problem and the main commands are right (`virsh net-start default` / `net-autostart default`, dnsmasq being required for the default NAT network, and the ufw `route allow ... on virbr0` rules). The recreate path is wrong: `/usr/share/libvirt/networks/default.xml` does not exist in Arch's libvirt package — the shipped template is `/etc/libvirt/qemu/networks/default.xml` (verified against the package file list, which contains no `/usr/share/libvirt/networks` at all). Pasted as written, `virsh net-define` fails with 'failed to open file'.
+> **Audit corrected this record.** The problem and the main commands are right (`virsh net-start default` / `net-autostart default`, dnsmasq being required for the default NAT network, and the ufw `route allow ... on virbr0` rules). The recreate path is wrong: `/usr/share/libvirt/networks/default.xml` does not exist in Arch's libvirt package. The shipped template is `/etc/libvirt/qemu/networks/default.xml` (verified against the package file list, which contains no `/usr/share/libvirt/networks` at all). Pasted as written, `virsh net-define` fails with 'failed to open file'.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1750,17 +1750,17 @@ Sometimes instead: `Cannot autolaunch D-Bus without X11 $DISPLAY`. `git push` ov
 
 **Cause.** `org.freedesktop.secrets` is provided by `gnome-keyring-daemon`'s secrets component. On a bare Wayland compositor there is no desktop environment starting it with the right components, and the session D-Bus may not know about the graphical environment at all, so it cannot even show an unlock prompt. Flatpak apps additionally need the Secret *portal* routed to gnome-keyring, which is only wired up for GNOME by default.
 
-> **Audit corrected this record.** Cause and most of the fix are right, and the Omarchy-specific detail is verified precisely: install/login/sddm.sh really does `sed -i '/-auth.*pam_gnome_keyring\.so/d'` and the same for `-password` on /etc/pam.d/sddm, with a comment about the passwordless Default_keyring — and the /etc/pam.d/login block quoted for TTY logins matches the Hyprland wiki's own snippet. gnome-keyring ships usr/share/xdg-desktop-portal/portals/gnome-keyring.portal, so routing org.freedesktop.impl.portal.Secret=gnome-keyring in ~/.config/xdg-desktop-portal/hyprland-portals.conf is valid, and /usr/lib/git-core/git-credential-libsecret is genuinely shipped by Arch's git. The defect is the docker login section: it hands the reader `"credsStore": "secretservice"` while only vaguely saying to 'install a helper', and there is no docker-credential-secretservice in the official repos (I checked — it exists only in the AUR, alongside docker-credential-helpers and docker-credential-pass). Setting credsStore without that binary reproduces the exact error in the symptom. Also worth using the shipped gnome-keyring-daemon.service instead of only the hand-run daemon.
+> **Audit corrected this record.** Cause and most of the fix are right, and the Omarchy-specific detail is verified precisely: install/login/sddm.sh really does `sed -i '/-auth.*pam_gnome_keyring\.so/d'` and the same for `-password` on /etc/pam.d/sddm, with a comment about the passwordless Default_keyring, and the /etc/pam.d/login block quoted for TTY logins matches the Hyprland wiki's own snippet. gnome-keyring ships usr/share/xdg-desktop-portal/portals/gnome-keyring.portal, so routing org.freedesktop.impl.portal.Secret=gnome-keyring in ~/.config/xdg-desktop-portal/hyprland-portals.conf is valid, and /usr/lib/git-core/git-credential-libsecret is genuinely shipped by Arch's git. The defect is the docker login section: it hands the reader `"credsStore": "secretservice"` while only vaguely saying to 'install a helper', and there is no docker-credential-secretservice in the official repos (I checked: it exists only in the AUR, alongside docker-credential-helpers and docker-credential-pass). Setting credsStore without that binary reproduces the exact error in the symptom. Also worth using the shipped gnome-keyring-daemon.service instead of only the hand-run daemon.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Never delete files under `~/.local/share/keyrings/` to "start clean" — every stored secret is in those files and is unrecoverable without them. A passwordless keyring stores its contents unencrypted on disk; that is a deliberate Omarchy trade-off for autologin, but do not add a passwordless keyring to a machine where the disk is not encrypted. Adding `pam_gnome_keyring.so` to a PAM file with a typo can lock you out of logins — edit it from a root shell you already have open.
+> ⚠️ **Risk.** Never delete files under `~/.local/share/keyrings/` to "start clean": every stored secret is in those files and is unrecoverable without them. A passwordless keyring stores its contents unencrypted on disk. That is a deliberate Omarchy trade-off for autologin, but do not add a passwordless keyring to a machine where the disk is not encrypted. Adding `pam_gnome_keyring.so` to a PAM file with a typo can lock you out of logins. Edit it from a root shell you already have open.
 
 **Fix.**
 
-Install the pieces and start the secrets component as documented (`gnome-keyring libsecret seahorse`, `dbus-update-activation-environment --systemd --all`, then `gnome-keyring-daemon --start --components=secrets` in your session startup — or simply `systemctl --user enable --now gnome-keyring-daemon.service`, which the package ships). Verify with `busctl --user list | grep secrets` and a `secret-tool store` / `lookup` round-trip. Git over HTTPS via `/usr/lib/git-core/git-credential-libsecret` is unchanged.
+Install the pieces and start the secrets component as documented (`gnome-keyring libsecret seahorse`, `dbus-update-activation-environment --systemd --all`, then `gnome-keyring-daemon --start --components=secrets` in your session startup, or simply `systemctl --user enable --now gnome-keyring-daemon.service`, which the package ships). Verify with `busctl --user list | grep secrets` and a `secret-tool store` / `lookup` round-trip. Git over HTTPS via `/usr/lib/git-core/git-credential-libsecret` is unchanged.
 
-For **docker login**, the credential helper is not in the official repos — install it from the AUR before setting credsStore, otherwise you get the same 'error storing credentials' failure:
+For **docker login**, the credential helper is not in the official repos, so install it from the AUR before setting credsStore, otherwise you get the same 'error storing credentials' failure:
 
 ```bash
 yay -S docker-credential-secretservice   # or docker-credential-pass for a GPG/pass-backed store
@@ -1794,13 +1794,13 @@ Print-Job client-error-document-format-not-supported
 
 or the queue stops with "Filter failed" and the job disappears.
 
-**Cause.** CUPS has deprecated classic PPD drivers in favour of IPP Everywhere / driverless printing, which sends PDF to the printer. When the printer needs a conversion step, that work is done by the cups-filters chain (`cups-filters`, and on current Arch `libcupsfilters`/`libppd`) backed by `ghostscript`/`gsfonts`. If those are missing, or a legacy PPD was selected for a printer that has no matching filter, CUPS reports the job as an unsupported document format or stops the queue with 'Filter failed'. (`cups-pdf` is unrelated — it only adds a virtual PDF printer.)
+**Cause.** CUPS has deprecated classic PPD drivers in favour of IPP Everywhere / driverless printing, which sends PDF to the printer. When the printer needs a conversion step, that work is done by the cups-filters chain (`cups-filters`, and on current Arch `libcupsfilters`/`libppd`) backed by `ghostscript`/`gsfonts`. If those are missing, or a legacy PPD was selected for a printer that has no matching filter, CUPS reports the job as an unsupported document format or stops the queue with 'Filter failed'. (`cups-pdf` is unrelated: it only adds a virtual PDF printer.)
 
-> **Audit corrected this record.** The fix is broadly right (install the filter chain, raise LogLevel, re-enable the queue, re-add as driverless `-m everywhere`; `cups-filters`, `ghostscript`, `gsfonts`, `foomatic-db*` all exist in extra) and the LogLevel warning is a good catch. The cause is wrong on one point that changes what a reader installs: `cups-pdf` is not part of the print pipeline at all — it is a backend that adds a virtual 'PDF' printer writing files to `~/PDF`. Missing `cups-pdf` cannot cause `client-error-document-format-not-supported` or 'Filter failed' on a real printer. The conversion chain is `cups-filters` (plus `libcupsfilters`/`libppd` on current Arch) with `ghostscript`/`gsfonts` behind it.
+> **Audit corrected this record.** The fix is broadly right (install the filter chain, raise LogLevel, re-enable the queue, re-add as driverless `-m everywhere`), `cups-filters`, `ghostscript`, `gsfonts` and `foomatic-db*` all exist in extra, and the LogLevel warning is a good catch. The cause is wrong on one point that changes what a reader installs: `cups-pdf` is not part of the print pipeline at all. It is a backend that adds a virtual 'PDF' printer writing files to `~/PDF`. Missing `cups-pdf` cannot cause `client-error-document-format-not-supported` or 'Filter failed' on a real printer. The conversion chain is `cups-filters` (plus `libcupsfilters`/`libppd` on current Arch) with `ghostscript`/`gsfonts` behind it.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Remember to set `LogLevel` back to `warn` in `/etc/cups/cupsd.conf` afterwards — debug logging fills `/var/log/cups/` quickly on a busy machine.
+> ⚠️ **Risk.** Remember to set `LogLevel` back to `warn` in `/etc/cups/cupsd.conf` afterwards. Debug logging fills `/var/log/cups/` quickly on a busy machine.
 
 **Fix.**
 
@@ -1811,7 +1811,7 @@ sudo pacman -S cups cups-filters ghostscript gsfonts
 sudo systemctl restart cups.service
 ```
 
-(`cups-pdf` is optional and only gives you a virtual PDF printer — install it if you want that, not to fix this error.) For non-IPP-Everywhere printers needing a legacy PPD, add `foomatic-db foomatic-db-engine foomatic-db-nonfree` as written.
+(`cups-pdf` is optional and only gives you a virtual PDF printer. Install it if you want that, not to fix this error.) For non-IPP-Everywhere printers needing a legacy PPD, add `foomatic-db foomatic-db-engine foomatic-db-nonfree` as written.
 
 The rest is correct as written: `LogLevel debug` in `/etc/cups/cupsd.conf` + `tail -f /var/log/cups/error_log` to read the real failure (then set it back to `warn`), `cupsenable`/`cupsaccept` to restart the queue, and `lpadmin -x` / `lpadmin -p ... -m everywhere` to re-add it driverless. Run the `lpadmin`/`cupsenable`/`cupsaccept` commands with administrative rights.
 
@@ -1897,9 +1897,9 @@ Sources: <https://docs.flatpak.org/en/latest/sandbox-permissions.html> · <https
 
 **Symptom.** I installed an app with `flatpak install flathub org.something.App` and it runs fine from the terminal with `flatpak run`, but pressing Super+Space (the Omarchy launcher / app menu) never shows it. Other GUI apps installed with pacman show up fine.
 
-**Cause.** The graphical session's XDG_DATA_DIRS (as seen by the uwsm-started `wayland-wm@hyprland.desktop.service` and therefore by the launcher) lacks the Flatpak export dirs. Flatpak ships a systemd user-environment generator (`/usr/lib/systemd/user-environment-generators/60-flatpak`) that normally adds `/var/lib/flatpak/exports/share` and `$XDG_DATA_HOME/flatpak/exports/share`, but generators only run when the systemd user manager starts and cannot override a value the session explicitly sets — so a manager started before Flatpak was installed, or a session that exports its own XDG_DATA_DIRS, keeps the short value. `/etc/profile.d/flatpak.sh` only fixes login shells, which is why `bash -lc 'echo $XDG_DATA_DIRS'` looks right while the launcher does not.
+**Cause.** The graphical session's XDG_DATA_DIRS (as seen by the uwsm-started `wayland-wm@hyprland.desktop.service` and therefore by the launcher) lacks the Flatpak export dirs. Flatpak ships a systemd user-environment generator (`/usr/lib/systemd/user-environment-generators/60-flatpak`) that normally adds `/var/lib/flatpak/exports/share` and `$XDG_DATA_HOME/flatpak/exports/share`, but generators only run when the systemd user manager starts and cannot override a value the session explicitly sets, so a manager started before Flatpak was installed, or a session that exports its own XDG_DATA_DIRS, keeps the short value. `/etc/profile.d/flatpak.sh` only fixes login shells, which is why `bash -lc 'echo $XDG_DATA_DIRS'` looks right while the launcher does not.
 
-> **Audit corrected this record.** Symptom and source check out: basecamp/omarchy#8650 exists and describes exactly this (uwsm session `XDG_DATA_DIRS=/usr/local/share:/usr/share`, Quickshell AppLibrary scanning only that). But the cause is incomplete and one command is wrong. Arch's flatpak package DOES ship `/usr/lib/systemd/user-environment-generators/60-flatpak` (verified in the package file list), whose whole job is adding the export dirs to the systemd user-manager environment — so 'profile.d is only sourced by login shells' is not the full story. And `systemctl --user import-environment XDG_DATA_DIRS` copies the value out of the *calling shell*; a terminal opened from the Omarchy session inherits the same broken value, so that step is a no-op at best and re-clobbers the drop-in at worst. The drop-in itself is fine (`${HOME}` expansion is supported by environment.d) and the danger note about keeping `/usr/local/share:/usr/share` is correct.
+> **Audit corrected this record.** Symptom and source check out: basecamp/omarchy#8650 exists and describes exactly this (uwsm session `XDG_DATA_DIRS=/usr/local/share:/usr/share`, Quickshell AppLibrary scanning only that). But the cause is incomplete and one command is wrong. Arch's flatpak package DOES ship `/usr/lib/systemd/user-environment-generators/60-flatpak` (verified in the package file list), whose whole job is adding the export dirs to the systemd user-manager environment, so 'profile.d is only sourced by login shells' is not the full story. And `systemctl --user import-environment XDG_DATA_DIRS` copies the value out of the *calling shell*. A terminal opened from the Omarchy session inherits the same broken value, so that step is a no-op at best and re-clobbers the drop-in at worst. The drop-in itself is fine (`${HOME}` expansion is supported by environment.d) and the danger note about keeping `/usr/local/share:/usr/share` is correct.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1907,7 +1907,7 @@ Sources: <https://docs.flatpak.org/en/latest/sandbox-permissions.html> · <https
 
 **Fix.**
 
-1) Confirm the entries exist: `ls /var/lib/flatpak/exports/share/applications/`. 2) Check the session: `systemctl --user show-environment | grep XDG_DATA_DIRS`. 3) Log out of Hyprland and back in first — flatpak's `60-flatpak` user-environment generator re-runs when the user manager starts, and that alone fixes it on machines where Flatpak was installed after first boot. 4) Only if the variable is still short, add the drop-in:
+1) Confirm the entries exist: `ls /var/lib/flatpak/exports/share/applications/`. 2) Check the session: `systemctl --user show-environment | grep XDG_DATA_DIRS`. 3) Log out of Hyprland and back in first, because flatpak's `60-flatpak` user-environment generator re-runs when the user manager starts, and that alone fixes it on machines where Flatpak was installed after first boot. 4) Only if the variable is still short, add the drop-in:
 
 ```bash
 mkdir -p ~/.config/environment.d
@@ -1916,7 +1916,7 @@ XDG_DATA_DIRS=/var/lib/flatpak/exports/share:${HOME}/.local/share/flatpak/export
 EOF
 ```
 
-then log out and back in again. Do NOT run `systemctl --user import-environment XDG_DATA_DIRS` from a session terminal — it imports that shell's (broken) value; if you want it applied without a re-login, use a login shell: `bash -lc 'systemctl --user import-environment XDG_DATA_DIRS && dbus-update-activation-environment --systemd XDG_DATA_DIRS'` and restart the shell/launcher.
+then log out and back in again. Do NOT run `systemctl --user import-environment XDG_DATA_DIRS` from a session terminal, because it imports that shell's (broken) value. If you want it applied without a re-login, use a login shell: `bash -lc 'systemctl --user import-environment XDG_DATA_DIRS && dbus-update-activation-environment --systemd XDG_DATA_DIRS'` and restart the shell/launcher.
 
 **Verify.** `systemctl --user show-environment | grep XDG_DATA_DIRS` lists the two flatpak `exports/share` paths, and the app appears in the launcher after re-login. `ls /var/lib/flatpak/exports/share/applications/` shows the `.desktop` file the launcher should be picking up.
 
@@ -1930,7 +1930,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/8650>
 
 **Symptom.** Clicking a hyperlink inside a Flatpak app (Discord, Element, Signal, a Flatpak IDE) does nothing at all. No browser window, no error dialog. Other apps open links fine.
 
-**Cause.** Flatpak apps open URIs through the `org.freedesktop.portal.OpenURI.OpenURI` D-Bus interface. The wlroots-family backends (`xdg-desktop-portal-wlr` and `xdg-desktop-portal-hyprland`) do not implement the OpenURI / App-chooser / FileChooser portals — they only cover ScreenCast, Screenshot and Global Shortcuts. With no backend implementing the interface, the call silently fails.
+**Cause.** Flatpak apps open URIs through the `org.freedesktop.portal.OpenURI.OpenURI` D-Bus interface. The wlroots-family backends (`xdg-desktop-portal-wlr` and `xdg-desktop-portal-hyprland`) do not implement the OpenURI / App-chooser / FileChooser portals: they only cover ScreenCast, Screenshot and Global Shortcuts. With no backend implementing the interface, the call silently fails.
 
 **Fix.**
 
@@ -1956,7 +1956,7 @@ Also make sure a default browser is registered:
 xdg-settings set default-web-browser <your-browser>.desktop
 ```
 
-**Verify.** Click a link in the Flatpak app — the browser opens. `busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop | grep OpenURI` shows the interface is present.
+**Verify.** Click a link in the Flatpak app. The browser opens. `busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop | grep OpenURI` shows the interface is present.
 
 Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal>
 
@@ -1974,7 +1974,7 @@ Specifying boot ID or boot offset has no effect, no persistent journal was found
 
 and shows the current boot instead. `journalctl --list-boots` lists exactly one boot, and `journalctl --disk-usage` reports usage under `/run/log/journal` rather than `/var/log/journal`. So there is no way to see what happened before the crash.
 
-**Cause.** journald is only writing to the in-memory runtime journal, which is discarded on every boot. On Arch the default is `Storage=persistent` and `/var/log/journal/` ships with the `systemd` package — so this state almost always means the directory was deleted (often while reclaiming disk space, or by `rm -rf /var/log/journal`), or `Storage=` was set to `volatile`/`auto` in a config drop-in, or `/var/log` is on a tmpfs.
+**Cause.** journald is only writing to the in-memory runtime journal, which is discarded on every boot. On Arch the default is `Storage=persistent` and `/var/log/journal/` ships with the `systemd` package, so this state almost always means the directory was deleted (often while reclaiming disk space, or by `rm -rf /var/log/journal`), or `Storage=` was set to `volatile`/`auto` in a config drop-in, or `/var/log` is on a tmpfs.
 
 > **Audit corrected this record.** Everything of substance in this record held, on Omarchy 4 and on plain Arch, and the only defect is one command in the danger field that cannot run on Omarchy. Confirmed on this machine (omarchy 4.0.2-1, systemd 261.2-1): `systemd-analyze cat-config systemd/journald.conf` shows the package-stock file only, with `#Storage=persistent` as the compile-time default, and /etc/systemd/journald.conf.d does not exist, so Omarchy overrides nothing about journald and the record's drop-in advice neither duplicates nor fights it. `pacman -Qo /var/log/journal` returns "owned by systemd 261.2-1", and `pacman -Ql systemd` lists `/var/log/journal/`, confirming the cause's claim that the directory ships with the package and that its absence means somebody removed it. The journal is persistent here, which is the premise the record depends on: `journalctl --header` reports a file under /var/log/journal/2e5dbe305d304555aa01d578380cb2e8/, `journalctl --list-boots` lists three boots, `journalctl --disk-usage` reports 679.8M in the file system, and /run/log/journal is empty. The quoted error text is exact rather than paraphrased: "Specifying boot ID or boot offset has no effect, no persistent journal was found." appears at line 82 of the cited journalctl-util.c and byte-identically in `strings /usr/bin/journalctl` on systemd 261.2-1, so it has not drifted. The recovery sequence is right, and its choice of `systemd-tmpfiles --create --prefix /var/log/journal` over a hand-written chmod is better than the record claims, because on this btrfs root that prefix picks up both /usr/lib/tmpfiles.d/systemd.conf line 28 (`z /var/log/journal 2755 root systemd-journal`) and /usr/lib/tmpfiles.d/journal-nocow.conf line 25 (`h /var/log/journal - - - - +C`), restoring the NOCOW attribute as well as the mode. `--create`, `--prefix`, `--flush`, `--list-boots` and `--disk-usage` all exist on the installed versions, checked against `systemd-tmpfiles --help` and `journalctl --help`. `findmnt /var/log` is the right tmpfs check and on Omarchy 4 it usefully shows the `@log` subvolume the installer creates. All four cited URLs resolved: journald.conf(5) and journalctl(1) both returned real Arch manual pages, the raw journalctl-util.c returned HTTP 200, and Arch's Systemd/Journal page line 141 supports the Storage=persistent default while line 145 supports the 10% and 4 GiB soft cap quoted in the danger. The local `man 5 journald.conf` confirms the auto-is-the-trap explanation. Nothing was removed from sources. The one correction: the danger says an oversized journal "breaks `pacman -Syu`", and on Omarchy 4 that command never gets as far as a disk check, because /usr/share/libalpm/hooks/00-omarchy-update-guard.hook runs omarchy-update-pacman-guard with AbortOnFail and that script aborts whenever both S and u are present, identical at upstream tag v4.0.3. The real Omarchy symptom is omarchy-update-requires-free-space printing "You need at least 10 GiB free to safely update Omarchy." I rewrote the danger only and left symptom, cause, fix and verify untouched, since a rewrite of correct text would itself be a defect. Severity and frequency left alone. Not exercised: I have no sudo, so I did not delete /var/log/journal, did not run the recovery sequence, did not restart journald, and did not reboot to prove `journalctl -b -1` comes back. I also never observed the volatile failure state itself, only the healthy state it contrasts with.
 >
@@ -2010,7 +2010,7 @@ sudo systemctl restart systemd-journald.service
 sudo journalctl --flush
 ```
 
-Be explicit about the mode so nothing can silently fall back again — use a drop-in rather than editing the packaged `journald.conf`:
+Be explicit about the mode so nothing can silently fall back again. Use a drop-in rather than editing the packaged `journald.conf`:
 
 ```bash
 sudo mkdir -p /etc/systemd/journald.conf.d
@@ -2053,17 +2053,17 @@ Sources: <https://man.archlinux.org/man/journald.conf.5.en> · <https://man.arch
 
 **Symptom.** `podman run --rm --device nvidia.com/gpu=all archlinux nvidia-smi -L` fails with `Error: setting up CDI devices: unresolvable CDI devices nvidia.com/gpu=all`, or the container starts but `nvidia-smi` inside it reports `Failed to initialize NVML: Driver/library version mismatch`. It worked before the last update.
 
-**Cause.** Podman resolves nvidia.com/gpu=... through a CDI spec, on Arch /etc/cdi/nvidia.yaml, maintained by the nvidia-ctk-cdi pacman hook in nvidia-container-toolkit. The hook does fire on nvidia-utils/nvidia-container-toolkit/opencl-nvidia/egl-* install and upgrade, but when it detects a driver version change it does not regenerate the spec — it patches the old version string in place with sed and warns you to regenerate manually. So the spec is stale or mangled when that substitution went wrong, when the hook was skipped (pacman --nohooks, or a driver installed outside pacman / an out-of-band DKMS rebuild), or when the file was never generated. There is no nvidia-cdi-refresh.service on Arch to fix it up at boot.
+**Cause.** Podman resolves nvidia.com/gpu=... through a CDI spec, on Arch /etc/cdi/nvidia.yaml, maintained by the nvidia-ctk-cdi pacman hook in nvidia-container-toolkit. The hook does fire on nvidia-utils/nvidia-container-toolkit/opencl-nvidia/egl-* install and upgrade, but when it detects a driver version change it does not regenerate the spec. It patches the old version string in place with sed and warns you to regenerate manually. So the spec is stale or mangled when that substitution went wrong, when the hook was skipped (pacman --nohooks, or a driver installed outside pacman / an out-of-band DKMS rebuild), or when the file was never generated. There is no nvidia-cdi-refresh.service on Arch to fix it up at boot.
 
-> **Audit corrected this record.** The problem and the remedy are right — I confirmed nvidia-container-toolkit ships usr/share/libalpm/hooks/nvidia-ctk-cdi.hook and usr/share/libalpm/scripts/nvidia-ctk-cdi, and that the package contains no nvidia-cdi-refresh.service, so the Arch-specific framing holds and `nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml` is exactly what the hook's own warning tells you to run. But the cause misstates when the spec goes stale: I read the hook, and it triggers on Install AND Upgrade of nvidia-utils, nvidia-container-toolkit, opencl-nvidia, egl-gbm and egl-wayland, so 'the driver was installed after the toolkit' is precisely the case the hook does handle. The real fragility is that when the version changed the script does not regenerate — it rewrites /etc/cdi/nvidia.yaml with a plain `sed` string substitution of the old libcuda version, and prints a warning saying to regenerate by hand if problems appear.
+> **Audit corrected this record.** The problem and the remedy are right: I confirmed nvidia-container-toolkit ships usr/share/libalpm/hooks/nvidia-ctk-cdi.hook and usr/share/libalpm/scripts/nvidia-ctk-cdi, and that the package contains no nvidia-cdi-refresh.service, so the Arch-specific framing holds and `nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml` is exactly what the hook's own warning tells you to run. But the cause misstates when the spec goes stale: I read the hook, and it triggers on Install AND Upgrade of nvidia-utils, nvidia-container-toolkit, opencl-nvidia, egl-gbm and egl-wayland, so 'the driver was installed after the toolkit' is precisely the case the hook does handle. The real fragility is that when the version changed the script does not regenerate: it rewrites /etc/cdi/nvidia.yaml with a plain `sed` string substitution of the old libcuda version, and prints a warning saying to regenerate by hand if problems appear.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** A regenerated spec only matches the driver that is loaded *right now*. If you regenerate it after a `pacman -Syu` but before rebooting into the new kernel/driver, it will break again on reboot — regenerate after the reboot, or just let the pacman hook do it and reboot.
+> ⚠️ **Risk.** A regenerated spec only matches the driver that is loaded *right now*. If you regenerate it after a `pacman -Syu` but before rebooting into the new kernel/driver, it will break again on reboot. Regenerate after the reboot, or just let the pacman hook do it and reboot.
 
 **Fix.**
 
-Same commands, with one extra check first — compare the driver version baked into the spec against the running driver, because the pacman hook may have sed-patched it rather than regenerating:
+Same commands, with one extra check first. Compare the driver version baked into the spec against the running driver, because the pacman hook may have sed-patched it rather than regenerating:
 
 ```bash
 nvidia-ctk cdi list
@@ -2111,7 +2111,7 @@ or, after wiring something up by hand, `docker ps` still shows the root daemon's
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Rootless Docker is a separate, empty daemon: existing images, volumes and containers under `/var/lib/docker` are invisible to it and are NOT migrated. It also cannot bind ports below 1024 by default and has no access to host devices. Do not run both daemons and then wonder which one `docker compose down -v` just wiped — check `docker context show` first. Enabling lingering keeps a daemon running after logout; do not use lingering to fake autologin, it breaks session permissions.
+> ⚠️ **Risk.** Rootless Docker is a separate, empty daemon: existing images, volumes and containers under `/var/lib/docker` are invisible to it and are NOT migrated. It also cannot bind ports below 1024 by default and has no access to host devices. Do not run both daemons and then wonder which one `docker compose down -v` just wiped. Check `docker context show` first. Enabling lingering keeps a daemon running after logout. Do not use lingering to fake autologin, it breaks session permissions.
 
 **Fix.**
 
@@ -2206,7 +2206,7 @@ Failed to start foo.service.
 
 `systemctl restart foo.service` returns the same thing immediately, without even trying to run the binary. The journal shows the service starting and exiting five times in a few seconds just before this.
 
-**Cause.** With `Restart=always`/`on-failure`, a service that fails instantly gets restarted instantly, and systemd's start rate limiter cuts in: more than `StartLimitBurst` starts inside `StartLimitIntervalSec` (5 in 10s by default on Arch) and the unit is refused any further start until the interval passes. The rate limit is the *symptom*; the real failure is whatever made the service exit in the first place, and once the limiter trips, `systemctl restart` no longer tells you anything about it.
+**Cause.** With `Restart=always`/`on-failure`, a service that fails instantly gets restarted instantly, and systemd's start rate limiter cuts in: more than `StartLimitBurst` starts inside `StartLimitIntervalSec` (5 in 10s by default on Arch) and the unit is refused any further start until the interval passes. The rate limit is the *symptom*. The real failure is whatever made the service exit in the first place, and once the limiter trips, `systemctl restart` no longer tells you anything about it.
 
 > **Audit corrected this record.** Checked against man systemd.unit(5) and man systemctl(1) on this machine (systemd 261.2-1), systemd v261's own parser table, and live units here. What held: both quoted messages are real in v261 (`log_unit_warning(u, "Start request repeated too quickly.")` at src/core/unit.c:1882, and `[SERVICE_FAILURE_START_LIMIT_HIT] = "start-limit-hit"` at src/core/service.c:6296). The 5-starts-in-10s default is confirmed twice, from the commented `#DefaultStartLimitIntervalSec=10s` / `#DefaultStartLimitBurst=5` at /etc/systemd/system.conf:56-57 and from live `StartLimitIntervalUSec=10s StartLimitBurst=5` on sshd.service. Reset-failed flushing the start rate limit counter, StartLimit* being documented `[Unit]` keys, `0` disabling rate limiting, and drop-ins being preferred over editing packaged units are all confirmed in the man pages. The framing that the rate limit is the symptom and not the fault is right and is kept verbatim. Three defects, all confirmed on this machine. (1) `systemctl show -p StartLimitIntervalSec` and `-p RestartSec` return NOTHING: the D-Bus properties are `StartLimitIntervalUSec` and `RestartUSec`, and `systemctl show -p` silently skips a name it does not know, so the record's diagnostic line lost two of five properties and its `verify` step could not show the interval the reader had just set. That is the worst of the three because it sat in `verify`. (2) The claim that systemd warns about StartLimit* in `[Service]` is true for exactly one key. systemd v261's src/core/load-fragment-gperf.gperf.in still carries `Service.StartLimitBurst`, `Service.StartLimitInterval` and `Service.StartLimitAction` as compat entries writing into the same Unit fields, and has no `Service.StartLimitIntervalSec`. `systemd-analyze verify` on a throwaway file in /tmp confirmed it: only `StartLimitIntervalSec=` in `[Service]` warns, while `StartLimitBurst=`, `StartLimitInterval=` and `StartLimitAction=` there produce no message and are applied. So the record promised feedback that does not arrive for the key most likely to be misplaced, and the real trap is a burst applied over the default 10s window. (3) `man systemctl` says `systemctl edit` reloads configuration when the editor exits, so the record's extra `daemon-reload` was redundant. The `danger` was half wrong and contradicted the record's own `fix`: reset-failed clears the recorded exit status but does not touch the journal, so "capture the journal output before resetting" was unnecessary alarm, while the fix itself correctly ran journalctl after resetting. The unbounded-restart-loop half of the danger is sound and is kept. Added an Omarchy branch because the record claims `applies_to: omarchy` and had no Omarchy content: six user units under /usr/share/omarchy/default/systemd/user/ set `Restart=` with `RestartSec=2` or `5` and set no `StartLimit*`, and five of them are loaded here showing `StartLimitIntervalUSec=10s StartLimitBurst=5`. NOT exercised: I did not trip a real start limit, edit, reset or restart any unit on this machine, so the reset-failed-then-start recovery sequence is confirmed from the man page and the parser source rather than by running it. severity `medium` and frequency `common` left alone, both look right for a generic systemd shape.
 >
@@ -2347,9 +2347,9 @@ Sources: <https://man.archlinux.org/man/systemd.unit.5.en> · <https://wiki.arch
 
 **Symptom.** `systemctl --user enable foo.service` reports success, but the service is never running: `systemctl --user status foo.service` says `inactive (dead)` after every login. `systemctl --user status graphical-session.target` may show `inactive` too. Enabling it with `--now` starts it once, and then it is gone again after a reboot.
 
-**Cause.** Session-scoped user units are pulled in by graphical-session.target, a passive target that must be activated by something. Since Hyprland integrated systemd target handling, Hyprland itself starts hyprland-session.target and graphical-session.target — even when launched bare from a TTY — unless HYPRLAND_NO_SD_TARGET is set, which suppresses both. So an inactive target now points at that variable, at leftover manual target plumbing from older guides, or at a session started some other way, rather than at 'bare Hyprland cannot reach it'. The other two traps are unchanged and are the usual culprits: a unit with no [Install] section cannot be enabled into anything, and `enable` without `--now` only schedules it for the next login.
+**Cause.** Session-scoped user units are pulled in by graphical-session.target, a passive target that must be activated by something. Since Hyprland integrated systemd target handling, Hyprland itself starts hyprland-session.target and graphical-session.target, even when launched bare from a TTY, unless HYPRLAND_NO_SD_TARGET is set, which suppresses both. So an inactive target now points at that variable, at leftover manual target plumbing from older guides, or at a session started some other way, rather than at 'bare Hyprland cannot reach it'. The other two traps are unchanged and are the usual culprits: a unit with no [Install] section cannot be enabled into anything, and `enable` without `--now` only schedules it for the next login.
 
-> **Audit corrected this record.** The fix steps are almost all right and match the current Hyprland wiki (uwsm + libnewt, the `uwsm check may-start` bash_profile snippet, `add-wants graphical-session.target` for units with no [Install], the After/PartOf drop-in, `systemctl --user revert hyprland-session.target`, deleting leftover systemctl calls from hyprland.lua, and preferring enabled units over exec-once). But the central cause claim is stale: the wiki's Systemd startup page now states hyprland-session.target 'previously required manual setup, but is now integrated into Hyprland and handled automatically', and its note says setting HYPRLAND_NO_SD_TARGET 'will avoid this, but also prevent starting hyprland-session.target and graphical-session.target in the first place'. So a bare Hyprland launched from a TTY does reach graphical-session.target on 0.55/0.56 — 'never reaches' was true of the pre-integration era and now sends readers to fix the wrong thing. HYPRLAND_NO_SD_TARGET itself is a real variable, correctly named.
+> **Audit corrected this record.** The fix steps are almost all right and match the current Hyprland wiki (uwsm + libnewt, the `uwsm check may-start` bash_profile snippet, `add-wants graphical-session.target` for units with no [Install], the After/PartOf drop-in, `systemctl --user revert hyprland-session.target`, deleting leftover systemctl calls from hyprland.lua, and preferring enabled units over exec-once). But the central cause claim is stale: the wiki's Systemd startup page now states hyprland-session.target 'previously required manual setup, but is now integrated into Hyprland and handled automatically', and its note says setting HYPRLAND_NO_SD_TARGET 'will avoid this, but also prevent starting hyprland-session.target and graphical-session.target in the first place'. So a bare Hyprland launched from a TTY does reach graphical-session.target on 0.55/0.56, and 'never reaches' was true of the pre-integration era and now sends readers to fix the wrong thing. HYPRLAND_NO_SD_TARGET itself is a real variable, correctly named.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -2364,14 +2364,14 @@ systemctl --user status graphical-session.target
 systemctl --user list-dependencies graphical-session.target
 ```
 
-If it is inactive, the likely reasons on a current Hyprland are that the target start was suppressed or that leftover manual plumbing is interfering — Hyprland starts hyprland-session.target and graphical-session.target itself now:
+If it is inactive, the likely reasons on a current Hyprland are that the target start was suppressed or that leftover manual plumbing is interfering. Hyprland starts hyprland-session.target and graphical-session.target itself now:
 
 ```bash
 systemctl --user show-environment | grep HYPRLAND_NO_SD_TARGET   # must be unset
 systemctl --user revert hyprland-session.target                  # drop old manual target files
 ```
 
-and delete any `systemctl --user start hyprland-session.target` / `stop graphical-session.target` calls from `hyprland.lua`. Launching through uwsm remains the most robust option and is what Omarchy does (`Exec=uwsm start -g -1 -e -D Hyprland hyprland.desktop`); from a TTY:
+and delete any `systemctl --user start hyprland-session.target` / `stop graphical-session.target` calls from `hyprland.lua`. Launching through uwsm remains the most robust option and is what Omarchy does (`Exec=uwsm start -g -1 -e -D Hyprland hyprland.desktop`). From a TTY:
 
 ```bash
 sudo pacman -S --needed uwsm libnewt
@@ -2384,7 +2384,7 @@ if uwsm check may-start; then
 fi
 ```
 
-With the target reachable, the unit-side fixes are as written: `systemctl --user daemon-reload` then `enable --now`; `systemctl --user add-wants graphical-session.target foo.service` when the unit has no [Install]; and a drop-in via `systemctl --user edit foo.service` adding `After=graphical-session.target` / `PartOf=graphical-session.target` rather than editing the shipped file. Prefer `systemctl --user enable hyprpaper.service` over an `exec_cmd("hyprpaper")` line.
+With the target reachable, the unit-side fixes are as written: `systemctl --user daemon-reload` then `enable --now`, `systemctl --user add-wants graphical-session.target foo.service` when the unit has no [Install], and a drop-in via `systemctl --user edit foo.service` adding `After=graphical-session.target` / `PartOf=graphical-session.target` rather than editing the shipped file. Prefer `systemctl --user enable hyprpaper.service` over an `exec_cmd("hyprpaper")` line.
 
 **Verify.** After a fresh login, `systemctl --user status graphical-session.target` is `active`, and `systemctl --user status foo.service` is `active (running)` without you touching it.
 
@@ -2414,7 +2414,7 @@ Or the VM starts but the guest cannot mount it: `mount: /mnt: unknown filesystem
 
 **Fix.**
 
-**Host — add the shared memory backend.** `virsh edit <vm-name>` and add, inside `<domain>`:
+**On the host, add the shared memory backend.** `virsh edit <vm-name>` and add, inside `<domain>`:
 
 ```xml
 <memoryBacking>
@@ -2439,7 +2439,7 @@ Then declare the share itself, inside `<devices>`:
 sudo pacman -S --needed virtiofsd
 ```
 
-**Guest — mount it:**
+**On the guest, mount it:**
 
 ```bash
 sudo mount -t virtiofs vmshare /mnt/vmshare
@@ -2457,7 +2457,7 @@ cat /etc/subuid
 sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER
 ```
 
-By default guest root maps to your host user and other guest IDs map into that subordinate range; pin a specific mapping with `<idmap>` if file ownership comes out wrong:
+By default guest root maps to your host user and other guest IDs map into that subordinate range. Pin a specific mapping with `<idmap>` if file ownership comes out wrong:
 
 ```xml
 <filesystem type='mount' accessmode='passthrough'>
@@ -2560,21 +2560,21 @@ Sources: <https://github.com/omacom/omarchy/issues/6882> · <https://github.com/
 
 `zram-swap-oom-freezes` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `swap`, `zram`
 
-**Symptom.** Compiling something large or opening too many browser tabs makes the whole desktop lock up for minutes — Hyprland stops repainting, the mouse stutters — and eventually a process is OOM-killed. `free -h` shows Swap: 0B.
+**Symptom.** Compiling something large or opening too many browser tabs makes the whole desktop lock up for minutes (Hyprland stops repainting, the mouse stutters) and eventually a process is OOM-killed. `free -h` shows Swap: 0B.
 
 **Cause.** No swap at all means the kernel has nowhere to push cold pages, so it thrashes the page cache and stalls before the OOM killer finally fires. zram gives compressed in-RAM swap, which absorbs this far better than no swap on a machine with an SSD you would rather not write to.
 
-> **Audit corrected this record.** The generic Arch advice is sound (`zram-generator`, `[zram0]` with `zram-size`/`compression-algorithm`, `systemd-zram-setup@zram0.service`, the swappiness/watermark/page-cluster tuning, and the correct default of `min(ram / 2, 4096)`), and the danger note about hibernation needing real disk swap is right. It is wrong for Omarchy 4, which is in applies_to: Quattro already ships `/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf` (`zram-size = ram`, `zstd`, `swap-priority = 100`) and already enables `systemd-oomd.service` in `install/config/enable-services.sh` — so the stated symptom (`Swap: 0B`) should not occur there, and worse, the prescribed lever is the wrong one: zram-generator reads the main config file *first* and lets drop-ins override it, so a hand-written `/etc/systemd/zram-generator.conf` is silently overridden by Omarchy's shipped drop-in and the user's `min(ram / 2, 16384)` never takes effect.
+> **Audit corrected this record.** The generic Arch advice is sound (`zram-generator`, `[zram0]` with `zram-size`/`compression-algorithm`, `systemd-zram-setup@zram0.service`, the swappiness/watermark/page-cluster tuning, and the correct default of `min(ram / 2, 4096)`), and the danger note about hibernation needing real disk swap is right. It is wrong for Omarchy 4, which is in applies_to: Quattro already ships `/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf` (`zram-size = ram`, `zstd`, `swap-priority = 100`) and already enables `systemd-oomd.service` in `install/config/enable-services.sh`, so the stated symptom (`Swap: 0B`) should not occur there, and worse, the prescribed lever is the wrong one: zram-generator reads the main config file *first* and lets drop-ins override it, so a hand-written `/etc/systemd/zram-generator.conf` is silently overridden by Omarchy's shipped drop-in and the user's `min(ram / 2, 16384)` never takes effect.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** zram is volatile RAM — you cannot hibernate to it. If you rely on hibernate (Omarchy's `omarchy-hibernation-setup`), you still need a real disk swap file or partition with the correct `resume=` kernel parameter; adding zram does not replace it. `vm.swappiness=180` is only sensible when zram is the *only* swap — with a disk swap partition also active it will cause heavy disk swapping.
+> ⚠️ **Risk.** zram is volatile RAM. You cannot hibernate to it. If you rely on hibernate (Omarchy's `omarchy-hibernation-setup`), you still need a real disk swap file or partition with the correct `resume=` kernel parameter. Adding zram does not replace it. `vm.swappiness=180` is only sensible when zram is the *only* swap. With a disk swap partition also active it will cause heavy disk swapping.
 
 **Fix.**
 
 Check what you already have before writing anything: `zramctl`, `swapon --show`, `cat /usr/lib/systemd/zram-generator.conf.d/*.conf /etc/systemd/zram-generator.conf* 2>/dev/null`.
 
-**Plain Arch, no zram yet:** the record's steps are correct —
+**Plain Arch, no zram yet:** the record's steps are correct.
 
 ```bash
 sudo pacman -S zram-generator
@@ -2586,7 +2586,7 @@ sudo systemctl daemon-reload
 sudo systemctl start systemd-zram-setup@zram0.service
 ```
 
-**Omarchy 4:** zram is already configured (`zram-size = ram`, zstd, `swap-priority = 100`) and `systemd-oomd` is already enabled — do not create `/etc/systemd/zram-generator.conf`, it loses to the shipped drop-in. To change the size, add a drop-in that sorts after Omarchy's:
+**Omarchy 4:** zram is already configured (`zram-size = ram`, zstd, `swap-priority = 100`) and `systemd-oomd` is already enabled. Do not create `/etc/systemd/zram-generator.conf`, it loses to the shipped drop-in. To change the size, add a drop-in that sorts after Omarchy's:
 
 ```bash
 sudo mkdir -p /etc/systemd/zram-generator.conf.d
@@ -2595,7 +2595,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart systemd-zram-setup@zram0.service
 ```
 
-The sysctl tuning and the hibernation warning (`omarchy-hibernation-setup` gives the disk swapfile priority 0; zram sits above it at 100 — `vm.swappiness=180` only suits a zram-only setup) stay as written.
+The sysctl tuning and the hibernation warning (`omarchy-hibernation-setup` gives the disk swapfile priority 0, zram sits above it at 100, and `vm.swappiness=180` only suits a zram-only setup) stay as written.
 
 **Verify.** `zramctl` shows `/dev/zram0` with your chosen size and `zstd` algorithm, `swapon --show` lists it, and `free -h` shows a non-zero Swap total. Under load the desktop stays responsive.
 
@@ -2905,9 +2905,9 @@ Sources: <https://github.com/omacom/omarchy/issues/8725> · <https://archlinux.o
 
 **Symptom.** `scanimage -L` prints `No scanners were identified.` even though `lsusb` shows the device. Running `sudo scanimage -L` finds it, so it works as root. The same pattern hits USB printers: CUPS lists the device but the backend fails to open it.
 
-**Cause.** Either the scanner is a modern driverless (eSCL/AirScan/WSD) device that needs `sane-airscan` (plus `ipp-usb` when connected by USB), or it is a permissions problem: the USB device node is only opened by root unless a udev rule tags it `libsane_matched` and gives it `MODE="664", GROUP="scanner"`, and unless your user is in the `scanner` group. Arch ships those rules in `/usr/lib/udev/rules.d/65-sane.rules`, generated from SANE's device database — a device missing from that database gets no rule at all.
+**Cause.** Either the scanner is a modern driverless (eSCL/AirScan/WSD) device that needs `sane-airscan` (plus `ipp-usb` when connected by USB), or it is a permissions problem: the USB device node is only opened by root unless a udev rule tags it `libsane_matched` and gives it `MODE="664", GROUP="scanner"`, and unless your user is in the `scanner` group. Arch ships those rules in `/usr/lib/udev/rules.d/65-sane.rules`, generated from SANE's device database. A device missing from that database gets no rule at all.
 
-> **Audit corrected this record.** The diagnosis and the driverless half are right (`sane`, `sane-airscan`, `ipp-usb` all exist; `ipp-usb.service` for USB models; `sane-find-scanner`; explicit `--device` when a webcam shadows the scanner). The permissions half is wrong in two ways, both verified against the packaging: Arch's `sane` generates `/usr/lib/udev/rules.d/65-sane.rules` from `sane-desc -m udev+hwdb` (the path the record cites is correct), whose access rule is `ENV{libsane_matched}=="yes", MODE="664", GROUP="scanner"` — so the group for scanners is `scanner`, not `lp`, and a hand-written rule using `GROUP="lp"` does not match how the shipped rules grant access. And the closing note that 'the `scanner` and `lp` groups are deprecated under systemd — do not add your user to them' is false: `scanner` (gid 96) is created by the `filesystem` package precisely for this, and membership in it is the intended way to open the device on Arch. Following that note leaves the user with no working access path.
+> **Audit corrected this record.** The diagnosis and the driverless half are right (`sane`, `sane-airscan` and `ipp-usb` all exist, `ipp-usb.service` for USB models, `sane-find-scanner`, explicit `--device` when a webcam shadows the scanner). The permissions half is wrong in two ways, both verified against the packaging: Arch's `sane` generates `/usr/lib/udev/rules.d/65-sane.rules` from `sane-desc -m udev+hwdb` (the path the record cites is correct), whose access rule is `ENV{libsane_matched}=="yes", MODE="664", GROUP="scanner"`, so the group for scanners is `scanner`, not `lp`, and a hand-written rule using `GROUP="lp"` does not match how the shipped rules grant access. And the closing note that 'the `scanner` and `lp` groups are deprecated under systemd — do not add your user to them' is false: `scanner` (gid 96) is created by the `filesystem` package precisely for this, and membership in it is the intended way to open the device on Arch. Following that note leaves the user with no working access path.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -2934,7 +2934,7 @@ If the device still is not matched, check whether it appears in `/usr/lib/udev/r
 ATTRS{idVendor}=="03f0", ATTRS{idProduct}=="2504", MODE="0664", GROUP="scanner", ENV{libsane_matched}="yes"
 ```
 
-Then `sudo udevadm control --reload-rules && sudo udevadm trigger` and re-plug. Verify with `scanimage -L` as your normal user and `ls -l /dev/bus/usb/<bus>/<dev>` showing group `scanner`. (For a *USB printer* the equivalent group is `lp`; do not mix the two.)
+Then `sudo udevadm control --reload-rules && sudo udevadm trigger` and re-plug. Verify with `scanimage -L` as your normal user and `ls -l /dev/bus/usb/<bus>/<dev>` showing group `scanner`. (For a *USB printer* the equivalent group is `lp`. Do not mix the two.)
 
 **Verify.** `scanimage -L` as your normal user lists the device, `ls -l /dev/bus/usb/<bus>/<dev>` shows group `lp` mode `0664`, and `scanimage --format=png --output-file test.png --progress` produces a real image.
 
@@ -3052,11 +3052,11 @@ Sources: <https://github.com/omacom/omarchy/issues/9046> · <https://gitlab.gnom
 
 `emoji-render-as-boxes-tofu` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `fontconfig`, `fonts`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** Emoji show up as empty rectangles (tofu), question marks in boxes, or monochrome outlines in Chrome, my terminal and Waybar — while they render fine on my phone. Sometimes CJK text renders in the wrong (Chinese vs Japanese) glyphs too.
+**Symptom.** Emoji show up as empty rectangles (tofu), question marks in boxes, or monochrome outlines in Chrome, my terminal and Waybar, while they render fine on my phone. Sometimes CJK text renders in the wrong (Chinese vs Japanese) glyphs too.
 
 **Cause.** No emoji font in a supported bitmap/color format is installed, or one is installed but is not in the fontconfig fallback chain for the family the app requested. Qt apps in particular only load the first 255 fonts, so the emoji font must be an explicit preferred fallback.
 
-> **Audit corrected this record.** The packages (`noto-fonts`, `noto-fonts-emoji`, `noto-fonts-cjk`, `ttf-nerd-fonts-symbols`), `fc-cache -fv` and the `fc-match emoji` verification are all correct, and the generic fontconfig `<prefer>` snippet is standard Arch advice. But the Omarchy guidance understates the damage and the fix collides with what Omarchy ships: `omarchy-font-set` does not 'fight' `~/.config/fontconfig/fonts.conf`, it **overwrites the whole file** (`cat > "$HOME/.config/fontconfig/fonts.conf"`), so a single `omarchy font set` deletes everything the record told the user to write. Omarchy 4 also already ships emoji fallback (`50-omarchy.conf` gives `sans-serif`, `serif` and `monospace` an `<accept>` of `Noto Color Emoji`) and `noto-fonts-emoji` in its base packages, and it `assign`s Liberation Sans/Serif and JetBrainsMono Nerd Font with `binding="strong"` — which beats the record's `<prefer>` aliases, so the snippet would also not do what the reader expects there. The 'Qt only loads the first 255 fonts' claim in the cause is folklore I could not verify.
+> **Audit corrected this record.** The packages (`noto-fonts`, `noto-fonts-emoji`, `noto-fonts-cjk`, `ttf-nerd-fonts-symbols`), `fc-cache -fv` and the `fc-match emoji` verification are all correct, and the generic fontconfig `<prefer>` snippet is standard Arch advice. But the Omarchy guidance understates the damage and the fix collides with what Omarchy ships: `omarchy-font-set` does not 'fight' `~/.config/fontconfig/fonts.conf`, it **overwrites the whole file** (`cat > "$HOME/.config/fontconfig/fonts.conf"`), so a single `omarchy font set` deletes everything the record told the user to write. Omarchy 4 also already ships emoji fallback (`50-omarchy.conf` gives `sans-serif`, `serif` and `monospace` an `<accept>` of `Noto Color Emoji`) and `noto-fonts-emoji` in its base packages, and it `assign`s Liberation Sans/Serif and JetBrainsMono Nerd Font with `binding="strong"`, which beats the record's `<prefer>` aliases, so the snippet would also not do what the reader expects there. The 'Qt only loads the first 255 fonts' claim in the cause is folklore I could not verify.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -3071,7 +3071,7 @@ sudo pacman -S noto-fonts noto-fonts-emoji noto-fonts-cjk ttf-nerd-fonts-symbols
 fc-cache -fv
 ```
 
-On most systems that alone fixes tofu, because fontconfig's shipped generic rules already fall back to Noto Color Emoji — check with `fc-match emoji` before editing anything.
+On most systems that alone fixes tofu, because fontconfig's shipped generic rules already fall back to Noto Color Emoji. Check with `fc-match emoji` before editing anything.
 
 If you do need explicit fallbacks, write them as a **drop-in**, not as `fonts.conf`:
 
@@ -3095,7 +3095,7 @@ Sources: <https://wiki.archlinux.org/title/Fonts> · <https://wiki.archlinux.org
 
 **Symptom.** Every native app follows my dark theme, but Flatpak apps (Spotify, Bottles, Obsidian, Zen...) launch in bright white Adwaita light. Changing the Omarchy theme or running `gsettings set org.gnome.desktop.interface gtk-theme ...` does nothing for them.
 
-**Cause.** Flatpak apps run in a sandbox that only sees themes inside their runtime, not `/usr/share/themes` or `~/.themes` on the host. Flatpak's own documentation acknowledges there is no ideal way to apply host themes; the app also has no read access to the host theme directory by default.
+**Cause.** Flatpak apps run in a sandbox that only sees themes inside their runtime, not `/usr/share/themes` or `~/.themes` on the host. Flatpak's own documentation acknowledges there is no ideal way to apply host themes. The app also has no read access to the host theme directory by default.
 
 > **Audit corrected this record.** The sandbox explanation, the `/usr` reserved-path note, the `flatpak override`/`--reset` syntax and `stylepak-git` (present in the AUR, last updated 2025) are all correct. The defect is Option 1, presented as the 'cleanest' fix for GTK apps: `org.kde.KStyle.Adwaita` is a **Qt** KStyle extension and does nothing for GTK apps (Spotify, Obsidian, Zen and the other examples). The GTK equivalent is the `org.gtk.Gtk3theme.*` runtime extension family. Also worth stating: GTK4/libadwaita apps ignore `GTK_THEME` and host GTK themes entirely, so Option 2 will not darken them.
 >
@@ -3103,16 +3103,16 @@ Sources: <https://wiki.archlinux.org/title/Fonts> · <https://wiki.archlinux.org
 
 **Fix.**
 
-Option 1 (cleanest, GTK apps) — install the theme as a GTK runtime extension, not the Qt KStyle:
+Option 1 (cleanest, GTK apps): install the theme as a GTK runtime extension, not the Qt KStyle:
 
 ```bash
 flatpak install flathub org.gtk.Gtk3theme.Adwaita-dark
 # (search for others: flatpak search org.gtk.Gtk3theme)
 ```
 
-Use `flatpak install flathub org.kde.KStyle.Adwaita` only for Qt/KDE Flatpaks. Option 2 (expose host themes + force by env var) and Option 3 (`stylepak-git`), and the cursor overrides, are correct as written. Caveat to add: GTK4/libadwaita apps do not read host GTK themes or `GTK_THEME`; they follow `org.gnome.desktop.interface color-scheme`, so for those set `flatpak override --user --env=GTK_THEME=` (unset) and rely on the portal's dark-preference setting instead.
+Use `flatpak install flathub org.kde.KStyle.Adwaita` only for Qt/KDE Flatpaks. Option 2 (expose host themes + force by env var) and Option 3 (`stylepak-git`), and the cursor overrides, are correct as written. Caveat to add: GTK4/libadwaita apps do not read host GTK themes or `GTK_THEME`. They follow `org.gnome.desktop.interface color-scheme`, so for those set `flatpak override --user --env=GTK_THEME=` (unset) and rely on the portal's dark-preference setting instead.
 
-**Verify.** Relaunch the app; it renders dark and the cursor matches the desktop. `flatpak override --user --show <app-id>` prints the overrides you set.
+**Verify.** Relaunch the app. It renders dark and the cursor matches the desktop. `flatpak override --user --show <app-id>` prints the overrides you set.
 
 Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://wiki.archlinux.org/title/GTK>
 
@@ -3214,9 +3214,9 @@ Sources: <https://wiki.archlinux.org/title/SSH_keys> · <https://wiki.archlinux.
 
 **Symptom.** Copy/paste between host and a QEMU/KVM guest does nothing in either direction, and resizing the virt-manager/virt-viewer window leaves the guest stuck at 1024x768 with black bars instead of following the window. Installing `spice-vdagent` in the guest did not help.
 
-**Cause.** Clipboard and resize are two different mechanisms with different requirements. Both need the VM to have a SPICE display plus the `com.redhat.spice.0` virtio-serial channel. Resize then works in a Wayland guest through the virtio-gpu display-info/EDID update: the host sends the new size, the guest's virtio-gpu DRM driver exposes a new preferred mode, and the compositor follows it — provided the video model is virtio and the guest's monitor config does not pin a mode. Clipboard, however, is done by spice-vdagent, which is X11-only by design (upstream describes it as a per-X-session process using X selections and Xrandr). In a bare Wayland guest such as Hyprland there is no X session for it to attach to, so host/guest copy-paste does not work no matter what is installed; wl-clipboard is a local CLI tool and is unrelated to the SPICE agent.
+**Cause.** Clipboard and resize are two different mechanisms with different requirements. Both need the VM to have a SPICE display plus the `com.redhat.spice.0` virtio-serial channel. Resize then works in a Wayland guest through the virtio-gpu display-info/EDID update: the host sends the new size, the guest's virtio-gpu DRM driver exposes a new preferred mode, and the compositor follows it, provided the video model is virtio and the guest's monitor config does not pin a mode. Clipboard, however, is done by spice-vdagent, which is X11-only by design (upstream describes it as a per-X-session process using X selections and Xrandr). In a bare Wayland guest such as Hyprland there is no X session for it to attach to, so host/guest copy-paste does not work no matter what is installed. wl-clipboard is a local CLI tool and is unrelated to the SPICE agent.
 
-> **Audit corrected this record.** Two hard errors. (1) The Lua is invalid: hl.monitor takes a single table with the output as a key — the 0.55 wiki's own examples are `hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 2 })` and `hl.monitor({ output = "Unknown-1", disabled = true })`. `hl.monitor("", { ... })` passes a string where the table is expected and will throw a Hyprland type error, so the reader's monitor config silently does not apply. (2) The clipboard cause is wrong: spice-vdagent has no Wayland support. Upstream's README describes it as 'a per X-session process' whose features are X-session clipboard/selection and Xrandr resolution adjustment; installing wl-clipboard does not bridge it to a Wayland compositor's clipboard, so a Hyprland guest will still have no host/guest copy-paste after following this record — which is exactly the symptom the reader arrived with ('installing spice-vdagent in the guest did not help'). The host-side XML (spice graphics, virtio video, spicevmc channel with com.redhat.spice.0), the /dev/virtio-ports check, and the 'use virt-viewer not VNC' guidance are all correct and worth keeping.
+> **Audit corrected this record.** Two hard errors. (1) The Lua is invalid: hl.monitor takes a single table with the output as a key. The 0.55 wiki's own examples are `hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 2 })` and `hl.monitor({ output = "Unknown-1", disabled = true })`. `hl.monitor("", { ... })` passes a string where the table is expected and will throw a Hyprland type error, so the reader's monitor config silently does not apply. (2) The clipboard cause is wrong: spice-vdagent has no Wayland support. Upstream's README describes it as 'a per X-session process' whose features are X-session clipboard/selection and Xrandr resolution adjustment. Installing wl-clipboard does not bridge it to a Wayland compositor's clipboard, so a Hyprland guest will still have no host/guest copy-paste after following this record. That is exactly the symptom the reader arrived with ('installing spice-vdagent in the guest did not help'). The host-side XML (spice graphics, virtio video, spicevmc channel with com.redhat.spice.0), the /dev/virtio-ports check, and the 'use virt-viewer not VNC' guidance are all correct and worth keeping.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -3232,18 +3232,18 @@ sudo systemctl enable --now spice-vdagentd.service
 ls -l /dev/virtio-ports/          # expect com.redhat.spice.0
 ```
 
-Then leave the guest output free to change mode — note the correct Lua call shape, a single table with `output` as a key:
+Then leave the guest output free to change mode. Note the correct Lua call shape, a single table with `output` as a key:
 
 ```lua
 -- ~/.config/hypr/hyprland.lua
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 ```
 
-A hard-coded `mode = "1920x1080@60"` pins the guest and defeats auto-resize. Check with `hyprctl monitors`. If the mode never changes, confirm the guest is on virtio-gpu (`lsmod | grep virtio_gpu`) rather than QXL — QXL resize depends on the X11 agent.
+A hard-coded `mode = "1920x1080@60"` pins the guest and defeats auto-resize. Check with `hyprctl monitors`. If the mode never changes, confirm the guest is on virtio-gpu (`lsmod | grep virtio_gpu`) rather than QXL. QXL resize depends on the X11 agent.
 
-**Clipboard.** spice-vdagent cannot do this in a Wayland session; do not expect wl-clipboard to help. Pick one:
-- run the guest desktop as an X11 session (or a guest DE whose XWayland setup spice-vdagent can attach to) if SPICE clipboard is the requirement;
-- or use a protocol with native Wayland clipboard support instead of SPICE for that guest — e.g. RDP into the guest (gnome-remote-desktop / a wlroots-compatible RDP or VNC server with clipboard support);
+**Clipboard.** spice-vdagent cannot do this in a Wayland session. Do not expect wl-clipboard to help. Pick one:
+- run the guest desktop as an X11 session (or a guest DE whose XWayland setup spice-vdagent can attach to) if SPICE clipboard is the requirement
+- or use a protocol with native Wayland clipboard support instead of SPICE for that guest, e.g. RDP into the guest (gnome-remote-desktop / a wlroots-compatible RDP or VNC server with clipboard support)
 - or move data over a virtiofs share or ssh rather than the clipboard.
 
 SPICE's own note still applies: QEMU's GTK display has no supported clipboard path in Arch's `qemu-ui-gtk` build.
@@ -3258,13 +3258,13 @@ Sources: <https://wiki.archlinux.org/title/QEMU> · <https://wiki.archlinux.org/
 
 `flatpak-autostart-background-portal-missing` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `flatpak`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** A Flatpak app's own "Launch on system startup" / "Start minimized at login" setting does nothing — the toggle either flips itself back off or stays on while the app never appears after a reboot. Nextcloud, Element, Telegram and ProtonMail Bridge all behave this way, and native (pacman) builds of the same apps autostart fine.
+**Symptom.** A Flatpak app's own "Launch on system startup" / "Start minimized at login" setting does nothing. The toggle either flips itself back off or stays on while the app never appears after a reboot. Nextcloud, Element, Telegram and ProtonMail Bridge all behave this way, and native (pacman) builds of the same apps autostart fine.
 
 **Cause.** That toggle asks xdg-desktop-portal for the Background portal (`org.freedesktop.impl.portal.Background`), which is what writes the autostart entry on the app's behalf. None of the backends a Hyprland box normally has implement it: `xdg-desktop-portal-hyprland`, `xdg-desktop-portal-wlr` and `xdg-desktop-portal-gtk` all lack Background (only the gnome/kde/dde/xapp backends have it). With no implementation the request never completes and no autostart file is ever created.
 
 **Fix.**
 
-Confirm the gap first — this should print nothing:
+Confirm the gap first. This should print nothing:
 
 ```bash
 grep -l Background /usr/share/xdg-desktop-portal/portals/*.portal
@@ -3312,7 +3312,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now nextcloud.service
 ```
 
-Installing `xdg-desktop-portal-gnome` just to get the Background portal is not worth it — it pulls in GNOME session pieces and competes with the Hyprland backend for other interfaces.
+Installing `xdg-desktop-portal-gnome` just to get the Background portal is not worth it. It pulls in GNOME session pieces and competes with the Hyprland backend for other interfaces.
 
 **Verify.** Log out and back in: the app is running (`flatpak ps` lists it), or `systemctl --user status nextcloud.service` is active. `ls ~/.config/autostart/` shows your entry.
 
@@ -3451,7 +3451,7 @@ This shows up wherever the locale named in the environment was never generated: 
 >
 > *The Cause above was rewritten on 2026-09-11 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Never set `LC_ALL` in `/etc/locale.conf` — it is the one LC_* variable that cannot be set there and it overrides every other category, silently breaking per-category settings. It is meant only for temporary testing.
+> ⚠️ **Risk.** Never set `LC_ALL` in `/etc/locale.conf`. It is the one LC_* variable that cannot be set there and it overrides every other category, silently breaking per-category settings. It is meant only for temporary testing.
 
 **Fix.**
 
@@ -3649,7 +3649,7 @@ If the script genuinely needs the variable, use a login shell instead:
 ExecStart=/bin/bash -lc 'omarchy-something'
 ```
 
-**Verify.** `systemctl --user list-timers foo.timer` shows a concrete `NEXT` timestamp and, after it passes, a `LAST` timestamp; `journalctl --user -u foo.service` shows the run.
+**Verify.** `systemctl --user list-timers foo.timer` shows a concrete `NEXT` timestamp and, after it passes, a `LAST` timestamp. `journalctl --user -u foo.service` shows the run.
 
 Sources: <https://wiki.archlinux.org/title/Systemd/Timers> · <https://wiki.archlinux.org/title/Systemd/User> · <https://wiki.archlinux.org/title/Systemd> · <https://github.com/systemd/systemd/blob/v261/src/core/timer.c>
 
@@ -3822,7 +3822,7 @@ Sources: <https://github.com/omacom/omarchy/issues/8311> · <https://github.com/
 
 `nested-virtualization-not-available-in-guest` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `kvm`, `laptop`, `libvirt`, `manjaro`, `omarchy`
 
-**Symptom.** Inside a KVM guest, `grep -Eo 'vmx|svm' /proc/cpuinfo` returns nothing, `ls /dev/kvm` fails, and anything needing hardware virtualization in the guest refuses to run — WSL2 or Hyper-V in a Windows guest, the Android Studio emulator, Docker Desktop, or another nested VM. The outer host has KVM working perfectly.
+**Symptom.** Inside a KVM guest, `grep -Eo 'vmx|svm' /proc/cpuinfo` returns nothing, `ls /dev/kvm` fails, and anything needing hardware virtualization in the guest refuses to run: WSL2 or Hyper-V in a Windows guest, the Android Studio emulator, Docker Desktop, or another nested VM. The outer host has KVM working perfectly.
 
 **Cause.** The `nested` module parameter is already on for both vendors on any current kernel, so the usual cause is the guest's virtual CPU rather than the host module. Linux defaults it to enabled: `arch/x86/kvm/vmx/vmx.c` has `static bool __read_mostly nested = 1;` and `arch/x86/kvm/svm/svm.c` has `static int __ro_after_init nested = true;`. What blocks nesting is a guest CPU model that carries neither `vmx` nor `svm`. QEMU's default for a hand-written domain with no `<cpu>` element is `qemu64`, which has neither flag. Both `host-model` and `host-passthrough` carry the flag on a host that has it, because `host-model` is a copy of the host-model CPU definition from the host's domain capabilities XML. The module parameter is the cause only on a host where somebody turned it off or on an old kernel, and because it is mode 0444 it can be changed only by reloading the module or at boot, never through `/sys`.
 
