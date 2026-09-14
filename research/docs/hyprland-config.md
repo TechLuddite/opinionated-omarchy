@@ -6,7 +6,7 @@
 
 `hypr-stack-symbol-lookup-error-git-build` · severity: **critical** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`
 
-**Symptom.** Hyprland or a hypr* tool refuses to start after a system update with `<app>: symbol lookup error: <app>: undefined symbol: <symbol>` or `error while loading shared libraries: <lib>: cannot open shared object file: No such file or directory` — sometimes just an immediate crash with no message.
+**Symptom.** Hyprland or a hypr* tool refuses to start after a system update with `<app>: symbol lookup error: <app>: undefined symbol: <symbol>` or `error while loading shared libraries: <lib>: cannot open shared object file: No such file or directory`. Sometimes there is just an immediate crash with no message.
 
 **Cause.** The hypr* stack has no stable ABI between its own libraries. Hyprland 0.56.2 links `libhyprutils.so.13`, `libhyprlang.so.2`, `libhyprgraphics.so.4`, `libhyprcursor.so.0` and `libaquamarine.so.13`, each with a version in the soname, so a rebuild of any one of them can move the number or drop a symbol. If you built Hyprland yourself, or use `-git` AUR packages (which count as building yourself), updating one component without rebuilding the rest leaves mismatched symbols. Mixing distro packages with self-built components produces the same result, and it is the usual way this happens: a `-git` package declares `provides=` for the repo package, so pacman will happily satisfy a repo Hyprland's dependency with a git-built library. Hyprland 0.55 and later also build against Lua for the new config API, and Lua is the first entry in upstream's mandatory build order.
 
@@ -73,7 +73,7 @@ Sources: <https://wiki.hypr.land/FAQ/> · <https://wiki.hypr.land/getting-starte
 
 `hyprlang-deprecated-lua-config-not-loading` · severity: **high** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** Edits to `~/.config/hypr/hyprland.conf` do nothing at all — no errors, no effect. Or the opposite: the wiki examples you copy (`hl.config({...})`, `hl.bind(...)`) are all rejected as syntax errors by your Hyprland.
+**Symptom.** Edits to `~/.config/hypr/hyprland.conf` do nothing at all: no errors, no effect. Or the opposite: the wiki examples you copy (`hl.config({...})`, `hl.bind(...)`) are all rejected as syntax errors by your Hyprland.
 
 **Cause.** Hyprland 0.55 deprecated hyprlang in favour of Lua and rewrote the whole wiki for Lua. The change landed on git on 26 April 2026 and shipped in 0.55 on 9 May 2026. Hyprland decides once, at startup, in `Jeremy::getMainConfigPath()`: if `~/.config/hypr/hyprland.lua` exists it is loaded exclusively and `hyprland.conf` is ignored entirely, if it does not exist `hyprland.conf` is loaded by the legacy hyprlang manager, and if neither exists Hyprland generates a default `hyprland.lua`. So a leftover `hyprland.lua` silently orphans your `.conf`, and copying Lua snippets into a `.conf` (or hyprlang into a `.lua`) fails wholesale. The only record of which engine won is a DEBUG line in Hyprland's own log, so nothing tells you on screen. Upstream says hyprlang is supported for 1 to 2 releases starting from 0.55 and is then dropped, and no new config features are added to it. Omarchy 4 is already past that decision: it ships `~/.config/hypr/hyprland.lua` from `omarchy-settings` and ships no `hyprland.conf`, so on Omarchy there is nothing to fall back to and removing the Lua file costs you the whole desktop rather than reverting it.
 
@@ -363,13 +363,13 @@ Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.hypr.land/Configuring
 
 **Symptom.** After an update, dozens of red 'Config error' lines cover the top of the screen at login, e.g. `Config error in file /home/vs/.local/share/omarchy/default/hypr/apps/hyprshot.conf at line 2: invalid field selection: missing a value`, `invalid field noscreenshare: missing a value`, `invalid field class:^(1[p|P]assword)$: missing a value`, followed by `(47 more...)`. Windows open in the wrong place, nothing floats any more.
 
-**Cause.** Hyprland 0.53 (Dec 2025) completely rewrote the window-rule and layer-rule grammar. The old form put the rule first and the matcher second (`windowrule = float, class:foo`); the new form requires explicit `match:` props (`windowrule = match:class foo, float`). Every old-syntax line is parsed as an unknown field, hence 'invalid field <x>: missing a value'. `windowrulev2` is gone entirely. Distro/desktop config packs that still ship pre-0.53 rules produce one error per rule line.
+**Cause.** Hyprland 0.53 (Dec 2025) completely rewrote the window-rule and layer-rule grammar. The old form put the rule first and the matcher second (`windowrule = float, class:foo`). The new form requires explicit `match:` props (`windowrule = match:class foo, float`). Every old-syntax line is parsed as an unknown field, hence 'invalid field <x>: missing a value'. `windowrulev2` is gone entirely. Distro/desktop config packs that still ship pre-0.53 rules produce one error per rule line.
 
-> **Audit corrected this record.** The syntax analysis is correct and verified. hypr.land/news/update53 confirms the windowrule grammar was 'completely overhauled' in 0.53. The 0.54 archived wiki shows `windowrule = match:class my-window, border_size 10` and `layerrule = blur on, match:namespace waybar` (both orderings are accepted). Every snake_case rename in the table is confirmed against the current effects tables (no_focus, no_blur, no_anim, no_screen_share, suppress_event, border_color, scroll_touchpad, stay_focused, keep_aspect_ratio, max_size, min_size, render_unfocused, idle_inhibit, dim_around, nearest_neighbor, force_rgbx, pseudo, border_size). Cited issue #4023 is real and quotes these exact errors on Omarchy 3.2.3 / Hyprland 0.53.0-2. The Omarchy remedy is the defect: I read bin/omarchy-refresh-hyprland and bin/omarchy-refresh-config — refresh-hyprland ONLY overwrites ~/.config/hypr/*.lua from $OMARCHY_PATH/config. It never touches $OMARCHY_PATH/default/hypr/, which is where the erroring files in the symptom live. So it cannot fix this class of error. `omarchy-channel-set stable` is also a no-op for someone already on stable. The correct action is omarchy-update. Also note the record shows *.lua in a 0.53-era (hyprlang/.conf) scenario, which is anachronistic.
+> **Audit corrected this record.** The syntax analysis is correct and verified. hypr.land/news/update53 confirms the windowrule grammar was 'completely overhauled' in 0.53. The 0.54 archived wiki shows `windowrule = match:class my-window, border_size 10` and `layerrule = blur on, match:namespace waybar` (both orderings are accepted). Every snake_case rename in the table is confirmed against the current effects tables (no_focus, no_blur, no_anim, no_screen_share, suppress_event, border_color, scroll_touchpad, stay_focused, keep_aspect_ratio, max_size, min_size, render_unfocused, idle_inhibit, dim_around, nearest_neighbor, force_rgbx, pseudo, border_size). Cited issue #4023 is real and quotes these exact errors on Omarchy 3.2.3 / Hyprland 0.53.0-2. The Omarchy remedy is the defect: I read bin/omarchy-refresh-hyprland and bin/omarchy-refresh-config, and refresh-hyprland ONLY overwrites ~/.config/hypr/*.lua from $OMARCHY_PATH/config. It never touches $OMARCHY_PATH/default/hypr/, which is where the erroring files in the symptom live. So it cannot fix this class of error. `omarchy-channel-set stable` is also a no-op for someone already on stable. The correct action is omarchy-update. Also note the record shows *.lua in a 0.53-era (hyprlang/.conf) scenario, which is anachronistic.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** On Omarchy, editing files under ~/.local/share/omarchy/default/ or /usr/share/omarchy/ works until the next update silently reverts them; put overrides in ~/.config/hypr/ instead. Switching package channels (stable/rc/edge/dev) changes which Hyprland version pacman installs and can move you to an untested set — a channel switch plus reboot is the intended flow, not a partial upgrade.
+> ⚠️ **Risk.** On Omarchy, editing files under ~/.local/share/omarchy/default/ or /usr/share/omarchy/ works until the next update silently reverts them. Put overrides in ~/.config/hypr/ instead. Switching package channels (stable/rc/edge/dev) changes which Hyprland version pacman installs and can move you to an untested set. A channel switch plus reboot is the intended flow, not a partial upgrade.
 
 **Fix.**
 
@@ -381,7 +381,7 @@ omarchy-update               # THIS is what ships corrected defaults
 hyprctl configerrors         # confirm they are gone
 ```
 
-Only reach for `omarchy-refresh-hyprland` if the remaining errors point at files under ~/.config/hypr/ (your own configs), and note it backs yours up as *.bak.<epoch>. Do not hand-edit the defaults tree — it is replaced on every update.
+Only reach for `omarchy-refresh-hyprland` if the remaining errors point at files under ~/.config/hypr/ (your own configs), and note it backs yours up as *.bak.<epoch>. Do not hand-edit the defaults tree. It is replaced on every update.
 
 **Verify.** `hyprctl configerrors` prints nothing, and the red error bar is gone after `hyprctl reload`.
 
@@ -393,15 +393,15 @@ Sources: <https://github.com/basecamp/omarchy/issues/4023> · <https://github.co
 
 `hyprlock-hypridle-conf-not-lua` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** After migrating `hyprland.conf` to `hyprland.lua` for 0.55, the same treatment applied to `hyprlock.conf` and `hypridle.conf` kills both. The screen never locks on idle; `hypridle` exits immediately; running `hyprlock` by hand prints a config parse error and returns to the shell without locking; or `hyprlock` starts but the session is left unlocked while the machine sleeps. On Omarchy 4, `hyprlock` and `hypridle` are simply not installed and `command not found`.
+**Symptom.** After migrating `hyprland.conf` to `hyprland.lua` for 0.55, the same treatment applied to `hyprlock.conf` and `hypridle.conf` kills both. The screen never locks on idle, `hypridle` exits immediately, running `hyprlock` by hand prints a config parse error and returns to the shell without locking, or `hyprlock` starts but the session is left unlocked while the machine sleeps. On Omarchy 4, `hyprlock` and `hypridle` are simply not installed and `command not found`.
 
-**Cause.** The Lua migration in Hyprland 0.55 applies to **the compositor only**. The rest of the Hypr ecosystem — hyprlock, hypridle, hyprpaper, hyprsunset — still parses hyprlang and still reads `.conf` files. Renaming or rewriting `~/.config/hypr/hyprlock.conf` as Lua leaves hyprlock with nothing it can parse; upstream is explicit that if no config file is found in any searched path, hyprlock exits with an error and your session will not be locked. hypridle is stricter still: a config file is required and it will not run without one. Separately, Omarchy 4 "Quattro" retired both packages (they appear in the removal list in `bin/omarchy-upgrade-to-quattro`) in favour of its own Quickshell lock, so an Omarchy 3 config carried forward has nothing left to read it.
+**Cause.** The Lua migration in Hyprland 0.55 applies to **the compositor only**. The rest of the Hypr ecosystem (hyprlock, hypridle, hyprpaper, hyprsunset) still parses hyprlang and still reads `.conf` files. Renaming or rewriting `~/.config/hypr/hyprlock.conf` as Lua leaves hyprlock with nothing it can parse. Upstream is explicit that if no config file is found in any searched path, hyprlock exits with an error and your session will not be locked. hypridle is stricter still: a config file is required and it will not run without one. Separately, Omarchy 4 "Quattro" retired both packages (they appear in the removal list in `bin/omarchy-upgrade-to-quattro`) in favour of its own Quickshell lock, so an Omarchy 3 config carried forward has nothing left to read it.
 
-> **Audit corrected this record.** The diagnosis is right and well sourced. Vaxry's Lua-ification post states other hypr* tools "will for now continue using hyprlang"; the hyprlock wiki warns in a box that if no config file is found in any searched path hyprlock "exits with an error and your session will not be locked" (search order $XDG_CONFIG_HOME/hypr/hyprlock.conf, $HOME/.config/hypr/hyprlock.conf, XDG_CONFIG_DIRS, /etc/xdg/hypr/); the hypridle wiki says "A config file is required; hypridle won't run without one" and gives the same autostart / `systemctl --user enable --now hypridle.service` split. Both hyprlock and hypridle are genuinely in the retired-package removal list inside bin/omarchy-upgrade-to-quattro, so the Omarchy 4 'command not found' framing is accurate. The hyprlang snippets use real options (general:hide_cursor, background monitor/color, input-field size/position/halign/valign/placeholder_text, general lock_cmd/before_sleep_cmd/after_sleep_cmd, listener timeout/on-timeout/on-resume) and `hl.dsp.dpms({ action = "on"/"off" })` matches the dispatcher table's documented action values. Two defects in the fix, both copy-paste level. (1) The autostart line is wrong for a daemon: top-level Lua runs on every config load AND every reload/save, so `hl.dispatch(hl.dsp.exec_cmd("hypridle"))` stacks a new hypridle on each reload. Per the Autostart wiki the once-per-session hook is `hl.on("hyprland.start", ...)`. (2) The 'put the hyprlang versions back' step is mislabeled: `mv ~/.config/hypr/hyprlock.lua ~/.config/hypr/hyprlock.conf.bak` restores nothing — it only moves the Lua file aside (and .conf.bak is not in hyprlock's search list, which is the one thing it gets right).
+> **Audit corrected this record.** The diagnosis is right and well sourced. Vaxry's Lua-ification post states other hypr* tools "will for now continue using hyprlang". The hyprlock wiki warns in a box that if no config file is found in any searched path hyprlock "exits with an error and your session will not be locked" (search order $XDG_CONFIG_HOME/hypr/hyprlock.conf, $HOME/.config/hypr/hyprlock.conf, XDG_CONFIG_DIRS, /etc/xdg/hypr/). The hypridle wiki says "A config file is required; hypridle won't run without one" and gives the same autostart / `systemctl --user enable --now hypridle.service` split. Both hyprlock and hypridle are genuinely in the retired-package removal list inside bin/omarchy-upgrade-to-quattro, so the Omarchy 4 'command not found' framing is accurate. The hyprlang snippets use real options (general:hide_cursor, background monitor/color, input-field size/position/halign/valign/placeholder_text, general lock_cmd/before_sleep_cmd/after_sleep_cmd, listener timeout/on-timeout/on-resume) and `hl.dsp.dpms({ action = "on"/"off" })` matches the dispatcher table's documented action values. Two defects in the fix, both copy-paste level. (1) The autostart line is wrong for a daemon: top-level Lua runs on every config load AND every reload/save, so `hl.dispatch(hl.dsp.exec_cmd("hypridle"))` stacks a new hypridle on each reload. Per the Autostart wiki the once-per-session hook is `hl.on("hyprland.start", ...)`. (2) The 'put the hyprlang versions back' step is mislabeled: `mv ~/.config/hypr/hyprlock.lua ~/.config/hypr/hyprlock.conf.bak` restores nothing. It only moves the Lua file aside (and .conf.bak is not in hyprlock's search list, which is the one thing it gets right).
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** A broken hyprlock config is a security failure, not just an annoyance: hypridle's `lock_cmd` runs, hyprlock exits with a parse error, and the machine goes to sleep or sits idle **unlocked**. Never edit hyprlock.conf and walk away — run `hyprlock` from a terminal first and confirm it actually locks. Conversely, if you are already locked out by a crashed lock screen, switch to a TTY with Ctrl+Alt+F2 and `pkill hyprlock` rather than power-cycling.
+> ⚠️ **Risk.** A broken hyprlock config is a security failure, not just an annoyance: hypridle's `lock_cmd` runs, hyprlock exits with a parse error, and the machine goes to sleep or sits idle **unlocked**. Never edit hyprlock.conf and walk away. Run `hyprlock` from a terminal first and confirm it actually locks. Conversely, if you are already locked out by a crashed lock screen, switch to a TTY with Ctrl+Alt+F2 and `pkill hyprlock` rather than power-cycling.
 
 **Fix.**
 
@@ -416,9 +416,9 @@ hl.on("hyprland.start", function()
 end)
 ```
 
-On Omarchy the file's own idiom is `o.launch_on_start("hypridle")`. A bare `hl.dispatch(hl.dsp.exec_cmd("hypridle"))` at file scope re-executes on every config reload and leaves a pile of daemons; under uwsm use `systemctl --user enable --now hypridle.service` instead of either.
+On Omarchy the file's own idiom is `o.launch_on_start("hypridle")`. A bare `hl.dispatch(hl.dsp.exec_cmd("hypridle"))` at file scope re-executes on every config reload and leaves a pile of daemons. Under uwsm use `systemctl --user enable --now hypridle.service` instead of either.
 
-(2) Relabel the restore step — moving the Lua file aside is only cleanup, not a restore:
+(2) Relabel the restore step: moving the Lua file aside is only cleanup, not a restore:
 
 ```bash
 ls -la ~/.config/hypr/                  # find hyprlock.lua / hypridle.lua you created
@@ -427,7 +427,7 @@ mv ~/.config/hypr/hyprlock.lua ~/.config/hypr/hyprlock.lua.bak   # get the unpar
 # or write the two hyprlang files below from scratch.
 ```
 
-On Omarchy 4 the packages are gone, so nothing will read those files until you deliberately `sudo pacman -S --needed hyprlock hypridle` — which the record correctly advises against unless you mean to replace omarchy-shell's lock.
+On Omarchy 4 the packages are gone, so nothing will read those files until you deliberately `sudo pacman -S --needed hyprlock hypridle`, which the record correctly advises against unless you mean to replace omarchy-shell's lock.
 
 **Verify.** `hyprlock` run from a terminal locks the screen and unlocks with your password (exit code 0, nothing on stderr). `hypridle` run in the foreground prints no parse errors and locks the session after the configured timeout.
 
@@ -596,7 +596,7 @@ Sources: <https://wiki.hypr.land/Configuring/Start/> · <https://wiki.hypr.land/
 
 `lua-config-getters-infinite-loop-at-load` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`
 
-**Symptom.** `omarchy-menu-keybindings` (SUPER+K) never opens — no menu, no error, no timeout. `omarchy-menu-keybindings --print` hangs forever. In worse cases the machine runs out of memory and freezes. Hyprland itself is fine: `hyprctl reload` and `hyprctl configerrors` are clean.
+**Symptom.** `omarchy-menu-keybindings` (SUPER+K) never opens: no menu, no error, no timeout. `omarchy-menu-keybindings --print` hangs forever. In worse cases the machine runs out of memory and freezes. Hyprland itself is fine: `hyprctl reload` and `hyprctl configerrors` are clean.
 
 **Cause.** Iterating any `hl.*` getter with `ipairs` at config-evaluation time. Omarchy's keybinding scanner (`build_lua_bind_cache()` in `/usr/share/omarchy/bin/omarchy-menu-keybindings`) re-evaluates `~/.config/hypr/hyprland.lua` in a bare `lua` interpreter with `hl` replaced by a stub. The stub implements only `hl.bind`, `hl.dsp` and `hl.get_config`, and answers every other key through a `__index` metamethod that returns a `noop` table which is itself indexable and callable. So `hl.get_monitors()` returns `noop`, and `ipairs(noop)` reads index 1, 2, 3 and never hits nil. That is the whole family, not three names: Hyprland 0.56.2 registers `get_windows`, `get_window`, `get_active_window`, `get_urgent_window`, `get_workspaces`, `get_workspace`, `get_active_workspace`, `get_monitors`, `get_monitor`, `get_layers`, `get_workspace_windows` and more, and the stub covers none of them. Hyprland itself is unaffected because the compositor evaluates the config under a watchdog that aborts after 1500 ms, and inside the real compositor the getters return real tables anyway. Only the scanner subprocess spins. Two things make it worse than a hang. If the loop body allocates, for example `table.insert`, that `lua` process grows without bound. And because the menu never appears, pressing SUPER+K again starts another one, so the leak compounds: the upstream reporter accumulated 63 `lua` processes holding about 56 GB, hit a kernel global OOM, and the machine rebooted. Still unfixed in omarchy 4.0.2-1.
 
@@ -731,7 +731,7 @@ grep -E 'NVD_BACKEND|LIBVA_DRIVER_NAME|__GLX_VENDOR_LIBRARY_NAME' /tmp/envtest.t
 systemctl --user show-environment | grep -E 'NVD_BACKEND|LIBVA_DRIVER_NAME'
 ```
 
-On Omarchy, this specific bug is fixed in v4.0.1 — update rather than patching:
+On Omarchy, this specific bug is fixed in v4.0.1, so update rather than patching:
 ```bash
 omarchy-update    # or: Update > Omarchy from the menu
 ```
@@ -750,15 +750,15 @@ Sources: <https://github.com/basecamp/omarchy/issues/7755> · <https://wiki.hypr
 
 **Cause.** Omarchy 3.8.0 shipped the new Hyprland 0.55 Lua configs, but the Omarchy stable pacman mirror was still pinned to hyprland 0.54.3. A 0.54 binary cannot parse `hyprland.lua`, finds no usable config, and falls back to its own autogenerated one. It is a channel/version skew, not a broken config.
 
-> **Audit corrected this record.** The diagnosis is real and the cited issue is genuine: omarchy #5797 'Omarchy 3.8.0 breaks hyprland' says exactly this — 3.8.0 shipped Lua configs for 0.55 while the stable mirror still pointed at 0.54.3, producing the autogenerated-config banner — and the reporter's own workaround was `omarchy refresh pacman edge` + reboot. omarchy-channel-current and omarchy-channel-set both exist in bin/ and omarchy-channel-set carries `omarchy:requires-sudo=true`, so the sudo is right. Two problems. First, this is a May 2026 skew that stable resolved long ago; on any current system the first move is `omarchy-update`, not a channel switch. Second, and more serious, the record understates what a channel switch does: I read bin/omarchy-channel-set — 'edge' does not merely repoint a mirror, it swaps the installed packages to omarchy-dev + omarchy-settings-dev. Going back with `omarchy-channel-set stable` swaps them back AND returns the pacman mirror to stable, which means Hyprland gets downgraded — reintroducing the exact 0.54-can't-parse-Lua breakage if stable has not actually caught up yet. 'Once stable catches up, move back' needs to be a hard precondition, not an afterthought.
+> **Audit corrected this record.** The diagnosis is real and the cited issue is genuine: omarchy #5797 'Omarchy 3.8.0 breaks hyprland' says exactly this: 3.8.0 shipped Lua configs for 0.55 while the stable mirror still pointed at 0.54.3, producing the autogenerated-config banner. The reporter's own workaround was `omarchy refresh pacman edge` + reboot. omarchy-channel-current and omarchy-channel-set both exist in bin/ and omarchy-channel-set carries `omarchy:requires-sudo=true`, so the sudo is right. Two problems. First, this is a May 2026 skew that stable resolved long ago. On any current system the first move is `omarchy-update`, not a channel switch. Second, and more serious, the record understates what a channel switch does: I read bin/omarchy-channel-set, and 'edge' does not merely repoint a mirror, it swaps the installed packages to omarchy-dev + omarchy-settings-dev. Going back with `omarchy-channel-set stable` swaps them back AND returns the pacman mirror to stable, which means Hyprland gets downgraded. That reintroduces the exact 0.54-can't-parse-Lua breakage if stable has not actually caught up yet. 'Once stable catches up, move back' needs to be a hard precondition, not an afterthought.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Switching to `edge` or `dev` pulls less-tested packages system-wide, not just Hyprland. `dev` links Omarchy to a git checkout in ~/omarchy and is for Omarchy developers only. Never mix mirrors by hand — that is how you get a partial upgrade.
+> ⚠️ **Risk.** Switching to `edge` or `dev` pulls less-tested packages system-wide, not just Hyprland. `dev` links Omarchy to a git checkout in ~/omarchy and is for Omarchy developers only. Never mix mirrors by hand. That is how you get a partial upgrade.
 
 **Fix.**
 
-Diagnose first — this is almost always already fixed:
+Diagnose first. This is almost always already fixed:
 ```bash
 hyprctl version | head -1
 pacman -Q hyprland
@@ -766,7 +766,7 @@ omarchy-channel-current
 omarchy-update          # try this FIRST; stable has long since caught up
 ```
 
-Only if `omarchy-update` genuinely leaves you with Lua configs and a pre-0.55 Hyprland is a channel switch warranted. Understand what it does: `omarchy-channel-set edge` replaces the `omarchy`/`omarchy-settings` packages with `omarchy-dev`/`omarchy-settings-dev` and moves you to the edge repo — it is a package swap, not a mirror tweak.
+Only if `omarchy-update` genuinely leaves you with Lua configs and a pre-0.55 Hyprland is a channel switch warranted. Understand what it does: `omarchy-channel-set edge` replaces the `omarchy`/`omarchy-settings` packages with `omarchy-dev`/`omarchy-settings-dev` and moves you to the edge repo. It is a package swap, not a mirror tweak.
 
 ```bash
 sudo omarchy-channel-set edge
@@ -781,7 +781,7 @@ sudo omarchy-channel-set stable
 reboot
 ```
 
-`omarchy-refresh-hyprland` restores ~/.config/hypr/*.lua from the shipped defaults and backs yours up as *.bak.<epoch> (verified in bin/omarchy-refresh-config) — but it will not help if the installed Hyprland cannot parse Lua at all.
+`omarchy-refresh-hyprland` restores ~/.config/hypr/*.lua from the shipped defaults and backs yours up as *.bak.<epoch> (verified in bin/omarchy-refresh-config), but it will not help if the installed Hyprland cannot parse Lua at all.
 
 **Verify.** `hyprctl version` reports >= 0.55.0, the autogenerated banner is gone, and your Omarchy keybindings (SUPER+Return etc.) work.
 
@@ -793,7 +793,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/5797> · <https://hypr.land
 
 `autostart-apps-slow-portal-dbus-environment` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `pipewire`, `wayland`
 
-**Symptom.** Apps take 15-25 seconds to open after login, file pickers hang or never appear, and screen sharing does not work — but everything is fine if you restart the app later. Sometimes accompanied by multiple xdg-desktop-portal implementations running.
+**Symptom.** Apps take 15-25 seconds to open after login, file pickers hang or never appear, and screen sharing does not work, but everything is fine if you restart the app later. Sometimes accompanied by multiple xdg-desktop-portal implementations running.
 
 **Cause.** Portals and systemd user services are started before Hyprland has exported `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP` into the D-Bus/systemd activation environment, so `xdg-desktop-portal` picks the wrong backend or blocks waiting for one, and every portal call waits out its timeout.
 
@@ -812,7 +812,7 @@ hyprlang:
 exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE
 ```
 
-If portals still launch too early, restart them after a delay — the FAQ's own workaround:
+If portals still launch too early, restart them after a delay. This is the FAQ's own workaround:
 ```bash
 #!/usr/bin/env bash
 sleep 4
@@ -832,7 +832,7 @@ systemctl --user show-environment | grep -E 'WAYLAND_DISPLAY|XDG_CURRENT_DESKTOP
 ```
 Remove portal backends you do not use (e.g. `xdg-desktop-portal-gnome` on a Hyprland-only box).
 
-**Verify.** `systemctl --user show-environment` lists `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=Hyprland`; a GTK file dialog opens instantly.
+**Verify.** `systemctl --user show-environment` lists `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=Hyprland`. A GTK file dialog opens instantly.
 
 Sources: <https://wiki.hypr.land/FAQ/> · <https://wiki.hypr.land/Configuring/Basics/Autostart/>
 
@@ -844,30 +844,30 @@ Sources: <https://wiki.hypr.land/FAQ/> · <https://wiki.hypr.land/Configuring/Ba
 
 **Symptom.** Hyprland feels laggy, the fans spin up while idle, or the laptop's battery drains noticeably faster than under a plain WM. GPU usage sits high with nothing on screen.
 
-**Cause.** Two different costs, worth separating. `*angle` animations using the `loop` style force Hyprland to render new frames continuously at the monitor's refresh rate - and the wiki warns this applies even when animations are otherwise disabled or the affected decoration is not visible. Blur (including blur on the special workspace and popups) and shadows are expensive *per frame* but do not by themselves force frames to be drawn. Fractional monitor scaling adds further GPU cost. On Intel iGPU laptops, TLP's aggressive default GPU floor causes stutter independent of Hyprland.
+**Cause.** Two different costs, worth separating. `*angle` animations using the `loop` style force Hyprland to render new frames continuously at the monitor's refresh rate, and the wiki warns this applies even when animations are otherwise disabled or the affected decoration is not visible. Blur (including blur on the special workspace and popups) and shadows are expensive *per frame* but do not by themselves force frames to be drawn. Fractional monitor scaling adds further GPU cost. On Intel iGPU laptops, TLP's aggressive default GPU floor causes stutter independent of Hyprland.
 
-> **Audit corrected this record.** Most of this is confirmed, some of it verbatim. The Performance wiki's fractional-scaling advice is character-for-character the record's monitor line: 'try setting the scaling to integer numbers such as 1 or 2 like in this example hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 2 })'. The TLP section matches too, including the exact keys INTEL_GPU_MIN_FREQ_ON_AC / _ON_BAT in /etc/tlp.conf and the 300->500 bump. The blur/shadow disable lines match the wiki's 'Useful Optimizations'. Every blur sub-option is real (new_optimizations 'Recommended to leave on, as it will massively improve performance'; xray 'Only available if new_optimizations is true'; special 'note: expensive'; popups). config/hypr/looknfeel.lua does exist in the omarchy repo as a user override file. The error is in the cause paragraph: it attributes continuous full-refresh-rate rendering to blur, and then attaches the wiki's 'even when animations are disabled or the decoration is not visible' warning to that claim. That warning belongs solely to *angle loop animations. The Animations wiki says: 'Using the loop style for *angle animations requires Hyprland to constantly render new frames at a frequency equal to your screen's refresh rate... This will apply even if animations are disabled or the affected decorations are not visible.' Blur is expensive per frame but does not force frames; conflating them will send someone hunting the wrong thing.
+> **Audit corrected this record.** Most of this is confirmed, some of it verbatim. The Performance wiki's fractional-scaling advice is character-for-character the record's monitor line: 'try setting the scaling to integer numbers such as 1 or 2 like in this example hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 2 })'. The TLP section matches too, including the exact keys INTEL_GPU_MIN_FREQ_ON_AC / _ON_BAT in /etc/tlp.conf and the 300->500 bump. The blur/shadow disable lines match the wiki's 'Useful Optimizations'. Every blur sub-option is real (new_optimizations 'Recommended to leave on, as it will massively improve performance', xray 'Only available if new_optimizations is true', special 'note: expensive', popups). config/hypr/looknfeel.lua does exist in the omarchy repo as a user override file. The error is in the cause paragraph: it attributes continuous full-refresh-rate rendering to blur, and then attaches the wiki's 'even when animations are disabled or the decoration is not visible' warning to that claim. That warning belongs solely to *angle loop animations. The Animations wiki says: 'Using the loop style for *angle animations requires Hyprland to constantly render new frames at a frequency equal to your screen's refresh rate... This will apply even if animations are disabled or the affected decorations are not visible.' Blur is expensive per frame but does not force frames. Conflating them will send someone hunting the wrong thing.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
-All the settings are correct — only the cause needs splitting into its two distinct mechanisms, because they have different fixes:
+All the settings are correct. Only the cause needs splitting into its two distinct mechanisms, because they have different fixes:
 
-1. `*angle` loop animations (borderangle / shadowangle / glowangle with style = "loop") are the ones that force continuous rendering at your full refresh rate. The wiki's warning is specific to these: it applies 'even if animations are disabled or the affected decorations are not visible'. This is the one to hunt first on a laptop — it burns GPU on a completely idle screen.
+1. `*angle` loop animations (borderangle / shadowangle / glowangle with style = "loop") are the ones that force continuous rendering at your full refresh rate. The wiki's warning is specific to these: it applies 'even if animations are disabled or the affected decorations are not visible'. This is the one to hunt first on a laptop: it burns GPU on a completely idle screen.
 
 ```bash
 grep -rnE 'borderangle|shadowangle|glowangle' ~/.config/hypr/
 ```
-Remove any `loop` style; the default is `once`.
+Remove any `loop` style. The default is `once`.
 
-2. Blur and shadows do NOT force frames — they make each frame more expensive. They cost you when something is actually redrawing. Disable or tune them as the record shows (the blur { new_optimizations = true, xray = true, special = false, popups = false } block is correct and matches the wiki's own notes).
+2. Blur and shadows do NOT force frames. They make each frame more expensive. They cost you when something is actually redrawing. Disable or tune them as the record shows (the blur { new_optimizations = true, xray = true, special = false, popups = false } block is correct and matches the wiki's own notes).
 
-3. Fractional monitor scale and the Intel iGPU + TLP floor are separate, independent causes — both as the record describes.
+3. Fractional monitor scale and the Intel iGPU + TLP floor are separate, independent causes, both as the record describes.
 
-On Omarchy, ~/.config/hypr/looknfeel.lua is the right place; it is a shipped user override file.
+On Omarchy, ~/.config/hypr/looknfeel.lua is the right place. It is a shipped user override file.
 
-**Verify.** `hyprctl getoption decoration:blur:enabled` reports 0; GPU utilisation drops to near zero on an idle desktop (`intel_gpu_top` / `nvtop` / `radeontop`).
+**Verify.** `hyprctl getoption decoration:blur:enabled` reports 0. GPU utilisation drops to near zero on an idle desktop (`intel_gpu_top` / `nvtop` / `radeontop`).
 
 Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Performance/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Animations/> · <https://github.com/basecamp/omarchy/blob/master/config/hypr/looknfeel.lua>
 
@@ -877,13 +877,13 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Performance/> · 
 
 `cursor-invisible-giant-or-wrong-theme` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hidpi`, `hyprland`, `manjaro`, `nouveau`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** Any of: the pointer vanishes entirely (often on older NVIDIA cards running nouveau, or only over certain surfaces); the pointer is gigantic in GIMP, Steam or pavucontrol while normal everywhere else; the pointer is the default black X11 cross in XWayland apps but your chosen theme in Wayland apps; or the pointer is literally the Hyprland logo.
+**Symptom.** Any of the following. The pointer vanishes entirely (often on older NVIDIA cards running nouveau, or only over certain surfaces). The pointer is gigantic in GIMP, Steam or pavucontrol while normal everywhere else. The pointer is the default black X11 cross in XWayland apps but your chosen theme in Wayland apps. Or the pointer is literally the Hyprland logo.
 
-**Cause.** Three unrelated mechanisms all showing up as "the cursor is wrong". (1) **Hardware cursor plane.** The compositor hands the pointer to a DRM cursor plane; nouveau does not display it on many older NVIDIA GPUs, so the pointer is composited nowhere and you see nothing. (2) **Two cursor systems.** Hyprland prefers hyprcursor (`HYPRCURSOR_THEME`/`HYPRCURSOR_SIZE`); apps that do not support server-side cursors — GTK in particular — fall back to XCursor and read `XCURSOR_THEME`/`XCURSOR_SIZE` plus the GTK gsettings key. Set one and not the other and you get a split. If neither resolves to an installed theme, Hyprland draws its own logo. (3) **Size on scaled outputs.** `XCURSOR_SIZE` is a fixed pixel number; with `xwayland:force_zero_scaling` on, the XWayland side is unscaled, so a size chosen for a 2x display looks enormous in X11 apps.
+**Cause.** Three unrelated mechanisms all showing up as "the cursor is wrong". (1) **Hardware cursor plane.** The compositor hands the pointer to a DRM cursor plane, and nouveau does not display it on many older NVIDIA GPUs, so the pointer is composited nowhere and you see nothing. (2) **Two cursor systems.** Hyprland prefers hyprcursor (`HYPRCURSOR_THEME`/`HYPRCURSOR_SIZE`). Apps that do not support server-side cursors, GTK in particular, fall back to XCursor and read `XCURSOR_THEME`/`XCURSOR_SIZE` plus the GTK gsettings key. Set one and not the other and you get a split. If neither resolves to an installed theme, Hyprland draws its own logo. (3) **Size on scaled outputs.** `XCURSOR_SIZE` is a fixed pixel number. With `xwayland:force_zero_scaling` on, the XWayland side is unscaled, so a size chosen for a 2x display looks enormous in X11 apps.
 
 **Fix.**
 
-**Invisible pointer — disable the hardware cursor plane.** Add to `~/.config/hypr/looknfeel.lua` (Omarchy) or `hyprland.lua`:
+**Invisible pointer: disable the hardware cursor plane.** Add to `~/.config/hypr/looknfeel.lua` (Omarchy) or `hyprland.lua`:
 
 ```lua
 hl.config({
@@ -893,9 +893,9 @@ hl.config({
 })
 ```
 
-This is precisely what Omarchy's installer appends to `~/.config/hypr/looknfeel.lua` when it detects `Kernel driver in use: nouveau`. Confirm you are on nouveau with `lspci -k | grep -A3 -i vga`. On the proprietary NVIDIA driver, try `cursor { use_cpu_buffer = 1 }` first — that is the supported way to keep HW cursors working there.
+This is precisely what Omarchy's installer appends to `~/.config/hypr/looknfeel.lua` when it detects `Kernel driver in use: nouveau`. Confirm you are on nouveau with `lspci -k | grep -A3 -i vga`. On the proprietary NVIDIA driver, try `cursor { use_cpu_buffer = 1 }` first. That is the supported way to keep HW cursors working there.
 
-**Wrong or split theme — set both systems and GTK.** Install a theme (hyprcursor themes go in `~/.local/share/icons` or `~/.icons`, *not* `/usr/share/icons`), then:
+**Wrong or split theme: set both systems and GTK.** Install a theme (hyprcursor themes go in `~/.local/share/icons` or `~/.icons`, *not* `/usr/share/icons`), then:
 
 ```lua
 hl.env("HYPRCURSOR_THEME", "Bibata-Modern-Classic")
@@ -904,7 +904,7 @@ hl.env("XCURSOR_THEME", "Bibata-Modern-Classic")
 hl.env("XCURSOR_SIZE", "24")
 ```
 
-GTK ignores all four; it needs gsettings:
+GTK ignores all four. It needs gsettings:
 
 ```bash
 gsettings set org.gnome.desktop.interface cursor-theme 'Bibata-Modern-Classic'
@@ -913,7 +913,7 @@ gsettings set org.gnome.desktop.interface cursor-size 24
 # dconf write /org/gnome/desktop/interface/cursor-theme "'Bibata-Modern-Classic'"
 ```
 
-Apply live without a relogin (note: since 0.37 `setcursor` takes **hyprcursor** themes only; legacy XCursor themes must go through the env vars):
+Apply live without a relogin (note: since 0.37 `setcursor` takes **hyprcursor** themes only, and legacy XCursor themes must go through the env vars):
 
 ```bash
 hyprctl setcursor Bibata-Modern-Classic 24
@@ -925,11 +925,11 @@ hyprctl setcursor Bibata-Modern-Classic 24
 flatpak override --user --filesystem=~/.themes:ro --filesystem=~/.icons:ro
 ```
 
-Omarchy 4 ships `XCURSOR_SIZE=24` and `HYPRCURSOR_SIZE=24` in `/usr/share/omarchy/default/hypr/envs.lua`; override them in `~/.config/hypr/looknfeel.lua`, which is loaded after the defaults.
+Omarchy 4 ships `XCURSOR_SIZE=24` and `HYPRCURSOR_SIZE=24` in `/usr/share/omarchy/default/hypr/envs.lua`. Override them in `~/.config/hypr/looknfeel.lua`, which is loaded after the defaults.
 
-Env vars only reach apps launched afterwards — `hyprctl reload`, then restart the app.
+Env vars only reach apps launched afterwards, so run `hyprctl reload` and then restart the app.
 
-**Verify.** `hyprctl getoption cursor:no_hardware_cursors` reflects your setting; the pointer is visible and correctly sized over a fullscreen XWayland app (GIMP or Steam) and over a native Wayland one (nautilus/foot) at the same time.
+**Verify.** `hyprctl getoption cursor:no_hardware_cursors` reflects your setting. The pointer is visible and correctly sized over a fullscreen XWayland app (GIMP or Steam) and over a native Wayland one (nautilus/foot) at the same time.
 
 Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hypr.land/FAQ/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://github.com/hyprwm/Hyprland/issues/7349> · <https://github.com/basecamp/omarchy/blob/quattro/install/user/hardware/fix-nouveau-cursor.sh> · <https://github.com/basecamp/omarchy/blob/quattro/default/hypr/envs.lua> · <https://wiki.archlinux.org/title/Hyprland>
 
@@ -941,9 +941,9 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hy
 
 **Symptom.** Scripts, waybar modules, GUI display panels and copy-pasted one-liners that call `hyprctl keyword monitor DP-1,disable` or `hyprctl keyword general:border_size 10` return no visible result and change nothing. Running it by hand appears to succeed. The error only shows on stderr, which most callers throw away: `keyword can't work with non-legacy parsers. Use eval.` The most reported instance is Omarchy's Display panel, where clicking a monitor row to disable or re-enable it does nothing at all.
 
-**Cause.** `hyprctl keyword` drives the legacy hyprlang parser. Since 0.55 a `hyprland.lua` config uses the Lua config provider and the keyword path has nothing to write into, so the command changes nothing: on 0.55 the compositor answers `keyword can't work with non-legacy parsers. Use eval.`, and on 0.56+ `keyword` is not a registered IPC command at all, so the answer is `unknown request`. The trap is the exit code, not the stream: hyprctl prints the compositor's reply on STDOUT and only returns non-zero when that reply starts with `error:` — neither of these does, so the call exits 0. Anything that tests `$?` (a shell `if`, a Qt/Quickshell Process, a bar module) sees success, while a `$(...)` capture does receive the refusal text and usually discards it as uninteresting output. `hyprctl dispatch` has the same split: the classic `hyprctl dispatch workspace 3` form is rejected and must be given as a Lua expression.
+**Cause.** `hyprctl keyword` drives the legacy hyprlang parser. Since 0.55 a `hyprland.lua` config uses the Lua config provider and the keyword path has nothing to write into, so the command changes nothing: on 0.55 the compositor answers `keyword can't work with non-legacy parsers. Use eval.`, and on 0.56+ `keyword` is not a registered IPC command at all, so the answer is `unknown request`. The trap is the exit code, not the stream: hyprctl prints the compositor's reply on STDOUT and only returns non-zero when that reply starts with `error:`, and neither of these does, so the call exits 0. Anything that tests `$?` (a shell `if`, a Qt/Quickshell Process, a bar module) sees success, while a `$(...)` capture does receive the refusal text and usually discards it as uninteresting output. `hyprctl dispatch` has the same split: the classic `hyprctl dispatch workspace 3` form is rejected and must be given as a Lua expression.
 
-> **Audit corrected this record.** The core advice is right and the replacement commands are correct: eval/dispatch take Lua expressions, single-quoting the outer string is the right shell hygiene, `hyprctl repl` is a real interactive Lua REPL (Ctrl+D to exit) and the wiki's own examples are `hyprctl repl 'hl.get_active_window().class'` and the get_windows loop, `hyprctl getoption` uses section.option dotted form, nothing set with eval survives a reload, and the quoted 0.55 error string is exact — src/debug/HyprCtl.cpp at tag v0.55.0 contains `return "keyword can't work with non-legacy parsers. Use eval.";`. But the stated mechanism is wrong and so is one command. Reading hyprctl/src/main.cpp: the reply is printed by `log()` -> `std::println` i.e. STDOUT, and `request()` returns non-zero (7) only when the reply starts with `error:`. Neither the 0.55 keyword message nor 0.56's reply starts with `error:`, so the exit code is 0 and the text lands on stdout — meaning a `$(...)` capture actually DOES receive the message, while callers that check `$?` are the ones fooled. The record has the failure inverted. Also, on current main `keyword` is no longer a registered socket1 command at all (src/ipc/s1/Commands.cpp registers dispatch/eval/repl/getoption/... but no keyword), so src/ipc/s1/S1.cpp answers `unknown request`. Finally `hyprctl descriptions | jq -r '.[].value'` is wrong: Config::Values::getAsJson emits objects with `name`, `description`, `default`, `current` — there is no `value` key (and no type/range keys), so that pipeline prints a column of nulls.
+> **Audit corrected this record.** The core advice is right and the replacement commands are correct: eval/dispatch take Lua expressions, single-quoting the outer string is the right shell hygiene, `hyprctl repl` is a real interactive Lua REPL (Ctrl+D to exit) and the wiki's own examples are `hyprctl repl 'hl.get_active_window().class'` and the get_windows loop, `hyprctl getoption` uses section.option dotted form, nothing set with eval survives a reload, and the quoted 0.55 error string is exact: src/debug/HyprCtl.cpp at tag v0.55.0 contains `return "keyword can't work with non-legacy parsers. Use eval.";`. But the stated mechanism is wrong and so is one command. Reading hyprctl/src/main.cpp: the reply is printed by `log()` -> `std::println` i.e. STDOUT, and `request()` returns non-zero (7) only when the reply starts with `error:`. Neither the 0.55 keyword message nor 0.56's reply starts with `error:`, so the exit code is 0 and the text lands on stdout, which means a `$(...)` capture actually DOES receive the message, while callers that check `$?` are the ones fooled. The record has the failure inverted. Also, on current main `keyword` is no longer a registered socket1 command at all (src/ipc/s1/Commands.cpp registers dispatch/eval/repl/getoption/... but no keyword), so src/ipc/s1/S1.cpp answers `unknown request`. Finally `hyprctl descriptions | jq -r '.[].value'` is wrong: Config::Values::getAsJson emits objects with `name`, `description`, `default`, `current`. There is no `value` key (and no type/range keys), so that pipeline prints a column of nulls.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -951,9 +951,9 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hy
 
 **Fix.**
 
-Keep every replacement command as written — `hyprctl eval 'hl.monitor({ output = "DP-1", disabled = true })'`, `hyprctl eval 'hl.config({ general = { border_size = 10 } })'`, `hyprctl eval 'hl.workspace_rule({ workspace = "2", layout = "scrolling" })'`, `hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })'`, single quotes outside so the inner double quotes survive the shell. Two fixes.
+Keep every replacement command as written: `hyprctl eval 'hl.monitor({ output = "DP-1", disabled = true })'`, `hyprctl eval 'hl.config({ general = { border_size = 10 } })'`, `hyprctl eval 'hl.workspace_rule({ workspace = "2", layout = "scrolling" })'`, `hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })'`, single quotes outside so the inner double quotes survive the shell. Two fixes.
 
-1. Check the result correctly. Unlike `keyword`, a failing `hyprctl eval` DOES reply with a string starting `error:` and hyprctl exits 7, so the exit code is trustworthy here — and the reply is on stdout, so `2>&1` is belt-and-braces rather than the point:
+1. Check the result correctly. Unlike `keyword`, a failing `hyprctl eval` DOES reply with a string starting `error:` and hyprctl exits 7, so the exit code is trustworthy here, and the reply is on stdout, so `2>&1` is belt-and-braces rather than the point:
 
 ```bash
 if ! out=$(hyprctl eval 'hl.config({ general = { border_size = 10 } })'); then
@@ -964,7 +964,7 @@ fi
 
 When auditing an old script, do not trust `$?` on the `keyword` call it is replacing: that one exits 0 while doing nothing.
 
-2. Enumerate options with `.name`, not `.value` — `hyprctl descriptions` entries are `{name, description, default, current}`:
+2. Enumerate options with `.name`, not `.value`, because `hyprctl descriptions` entries are `{name, description, default, current}`:
 
 ```bash
 hyprctl descriptions | jq -r '.[].name' | head          # every option name
@@ -973,7 +973,7 @@ hyprctl getoption general.border_size
 hyprctl configerrors
 ```
 
-**Verify.** `hyprctl eval 'hl.config({ general = { border_size = 10 } })'` prints `ok` and the change is visible immediately; `hyprctl getoption general.border_size` reports 10; `hyprctl reload` reverts it to your configured value.
+**Verify.** `hyprctl eval 'hl.config({ general = { border_size = 10 } })'` prints `ok` and the change is visible immediately. `hyprctl getoption general.border_size` reports 10. `hyprctl reload` reverts it to your configured value.
 
 Sources: <https://github.com/basecamp/omarchy/issues/6968> · <https://github.com/hyprwm/Hyprland/discussions/14525> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://wiki.hypr.land/0.54.0/Configuring/Using-hyprctl/> · <https://wiki.hypr.land/Configuring/Start/>
 
@@ -1073,9 +1073,9 @@ Sources: <https://wiki.hypr.land/Configuring/Start/> · <https://wiki.hypr.land/
 
 **Symptom.** Half-migrated config throws errors on reload: `attempt to index a nil value (global 'o')`, `attempt to call a nil value`, `attempt to concatenate a nil value (global 'mainMod')`, or `module 'modules.monitors' not found`. Symptoms in the session: whole blocks of keybinds silently missing, the Hyprland emergency-binds banner, or one file's worth of settings gone while the rest applied. Requiring an absolute path produces a mangled result like `/home/you//~/.config/wal/colors-hyprland.lua`.
 
-**Cause.** hyprlang's `$name = value` was text substitution and `source = ./other.conf` was a textual include; Lua has neither. `$mainMod` becomes an ordinary Lua local and obeys Lua scope — a local in `hyprland.lua` is NOT visible inside a file you `require()`, because Hyprland deliberately gives each required file its own scope so an error in one does not kill the others. `source =` becomes `require()`, which resolves module names against package.path relative to `hyprland.lua`, accepts `.` or `/` as the separator, and supports wildcards. require also accepts ABSOLUTE paths — the wiki's own example is `require("/usr/share/among/us.lua")`, extension included — so absoluteness is not the problem; the problem is that `~` is never expanded, so `require("~/.cache/wal/colors-hyprland")` gets glued onto the config directory and yields a path like `/home/you//~/.cache/...`. And a missing module is one of the few errors require()'s protection does not cover: `require("nonexistent")` throws in the calling file and kills the rest of it.
+**Cause.** hyprlang's `$name = value` was text substitution and `source = ./other.conf` was a textual include. Lua has neither. `$mainMod` becomes an ordinary Lua local and obeys Lua scope: a local in `hyprland.lua` is NOT visible inside a file you `require()`, because Hyprland deliberately gives each required file its own scope so an error in one does not kill the others. `source =` becomes `require()`, which resolves module names against package.path relative to `hyprland.lua`, accepts `.` or `/` as the separator, and supports wildcards. require also accepts ABSOLUTE paths (the wiki's own example is `require("/usr/share/among/us.lua")`, extension included), so absoluteness is not the problem. The problem is that `~` is never expanded, so `require("~/.cache/wal/colors-hyprland")` gets glued onto the config directory and yields a path like `/home/you//~/.cache/...`. And a missing module is one of the few errors require()'s protection does not cover: `require("nonexistent")` throws in the calling file and kills the rest of it.
 
-> **Audit corrected this record.** Most of this is solid and matches the Start Here page: require() gives each file its own Lua scope so an error in one does not stop the others; a MISSING module is the documented exception ("require(\"nonexistent\") in your main Hyprland config will kill the execution of your main config") and pcall is the wiki's own remedy; `.` and `/` are both valid separators; wildcards are supported; hyprlang `$var` really has no Lua equivalent so locals + a module returning a table is the right port. The Omarchy 4 ordering block is verbatim correct — quattro's config/hypr/hyprland.lua opens with `dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")`, then `require("default.hypr.omarchy")`, then hypr.monitors / hypr.input / hypr.bindings / hypr.looknfeel / hypr.autostart (the real file also ends with `require("default.hypr.toggles")`), so `o.*` being nil in a carried-over Omarchy 3 config is a genuine failure mode. The defect is the absolute-path claim: the wiki explicitly documents `require("/usr/share/among/us.lua")` alongside `require("./stuff/*")`, i.e. require DOES take absolute paths and DOES accept a .lua extension there. What it does not do is expand `~`. The record generalizes the tilde bug into a false rule about absoluteness and prints it as the reason to reach for loadfile.
+> **Audit corrected this record.** Most of this is solid and matches the Start Here page: require() gives each file its own Lua scope so an error in one does not stop the others. A MISSING module is the documented exception ("require(\"nonexistent\") in your main Hyprland config will kill the execution of your main config") and pcall is the wiki's own remedy. `.` and `/` are both valid separators. Wildcards are supported. hyprlang `$var` really has no Lua equivalent so locals + a module returning a table is the right port. The Omarchy 4 ordering block is verbatim correct: quattro's config/hypr/hyprland.lua opens with `dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")`, then `require("default.hypr.omarchy")`, then hypr.monitors / hypr.input / hypr.bindings / hypr.looknfeel / hypr.autostart (the real file also ends with `require("default.hypr.toggles")`), so `o.*` being nil in a carried-over Omarchy 3 config is a genuine failure mode. The defect is the absolute-path claim: the wiki explicitly documents `require("/usr/share/among/us.lua")` alongside `require("./stuff/*")`, i.e. require DOES take absolute paths and DOES accept a .lua extension there. What it does not do is expand `~`. The record generalizes the tilde bug into a false rule about absoluteness and prints it as the reason to reach for loadfile.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1083,7 +1083,7 @@ Sources: <https://wiki.hypr.land/Configuring/Start/> · <https://wiki.hypr.land/
 
 **Fix.**
 
-Same as written, except the absolute-path section. Absolute paths work fine with require — it is `~` that does not expand:
+Same as written, except the absolute-path section. Absolute paths work fine with require. It is `~` that does not expand:
 
 ```lua
 -- WRONG: ~ is never expanded -> /home/you//~/.cache/...
@@ -1093,7 +1093,7 @@ Same as written, except the absolute-path section. Absolute paths work fine with
 require(os.getenv("HOME") .. "/.cache/wal/colors-hyprland.lua")
 ```
 
-For a generated file that may not exist yet (pywal, theme output), still prefer `loadfile` — not because the path is absolute, but because loadfile returns nil instead of throwing and so cannot take the rest of the file down with it:
+For a generated file that may not exist yet (pywal, theme output), still prefer `loadfile`, not because the path is absolute, but because loadfile returns nil instead of throwing and so cannot take the rest of the file down with it:
 
 ```lua
 local chunk = loadfile(os.getenv("HOME") .. "/.cache/wal/colors-hyprland.lua")
@@ -1114,13 +1114,13 @@ Sources: <https://wiki.hypr.land/Configuring/Start/> · <https://wiki.hypr.land/
 
 **Symptom.** `setxkbmap fr` has no effect, `localectl status` shows the right layout but Hyprland still types QWERTY, `/etc/X11/xorg.conf.d/00-keyboard.conf` is ignored, and `caps:escape` / `compose:caps` never engage. On a laptop: two-finger right-click, natural scrolling and disable-while-typing behave nothing like they did before. On Omarchy, editing `~/.config/hypr/input.lua` appears to do nothing because everything in it is still commented out.
 
-**Cause.** Hyprland is a Wayland compositor: it programs the keymap through libxkbcommon itself and never reads `/etc/X11/xorg.conf.d/00-keyboard.conf`, and `setxkbmap` only touches an already-running X server, which Hyprland is not. Input settings live in the compositor's own `input` section, plus optional per-device blocks. Two further traps: keybinds resolve against the **first** entry in a comma-separated `kb_layout` unless you set `resolve_binds_by_sym`, and a per-device layout does not change the keybind keymap at all. On Omarchy 4, `/usr/share/omarchy/default/hypr/input.lua` derives `kb_layout`/`kb_variant` from `XKBLAYOUT`/`XKBVARIANT` in `/etc/vconsole.conf` and prepends `us,` for layouts that cannot type Latin letters — so the layout you want may be set system-wide and still not be first.
+**Cause.** Hyprland is a Wayland compositor: it programs the keymap through libxkbcommon itself and never reads `/etc/X11/xorg.conf.d/00-keyboard.conf`, and `setxkbmap` only touches an already-running X server, which Hyprland is not. Input settings live in the compositor's own `input` section, plus optional per-device blocks. Two further traps: keybinds resolve against the **first** entry in a comma-separated `kb_layout` unless you set `resolve_binds_by_sym`, and a per-device layout does not change the keybind keymap at all. On Omarchy 4, `/usr/share/omarchy/default/hypr/input.lua` derives `kb_layout`/`kb_variant` from `XKBLAYOUT`/`XKBVARIANT` in `/etc/vconsole.conf` and prepends `us,` for layouts that cannot type Latin letters, so the layout you want may be set system-wide and still not be first.
 
 > **Audit corrected this record.** Checked on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, hyprland 0.56.2-1, kernel 7.1.9-arch1-2) and against the three Hyprland wiki pages the record cites, all of which still resolve and still say what the record claims. Confirmed here: the record contains no hyprlang anywhere, every `input` option name, type and range in its block matches the Variables page, `hl.device({ name = ... })` is the current per-device form (Omarchy's own default/hypr/disabled-input-device.lua and omarchy-toggle-input-device use it), `hyprctl switchxkblayout <device|current|all> next|prev|ID` matches `hyprctl switchxkblayout --help` on 0.56.2, `hyprctl eval` exists on 0.56.2, `hyprctl getoption input.kb_layout` and `input:kb_layout` both work, and both wiki traps hold verbatim. The Omarchy claim is confirmed by reading /usr/share/omarchy/default/hypr/input.lua locally and at omacom/omarchy@quattro: it parses /etc/vconsole.conf, and ~/.config/hypr/input.lua here is byte-identical to the packaged fully commented-out template and is required after default.hypr.omarchy, so a user override genuinely wins. Five things were wrong or missing. First, `kb_options` replaces rather than merges, so the record's example silently drops Omarchy 4's `compose:caps,shift:both_capslock_cancel`, and its `caps:escape` collides with `compose:caps` because both claim Caps Lock (both option names verified in /usr/share/X11/xkb/rules/evdev.lst). Second, `sudo localectl set-x11-keymap fr` with no further arguments wipes `XKBMODEL` and `XKBOPTIONS`, confirmed in systemd's localectl.c where the omitted positionals are sent as empty strings, and this machine's /etc/vconsole.conf carries `XKBMODEL=pc105+inet` and `XKBOPTIONS=terminate:ctrl_alt_bksp` to lose. Third, `switchxkblayout current` targets the `main: yes` keyboard, which on this machine is `hl-virtual-keyboard-fcitx5` and not anything the operator types on, a trap Omarchy's own bar widget source documents. Fourth, the record told the reader to get a device name from `hyprctl devices` but gave two invented names and no rule for the lowercase-hyphen form, so the corrected fix prints them with `hyprctl -j devices` and uses real ones. Fifth, Omarchy 4 ships a supported surface the record ignores: the `omarchy.keyboard-layout` bar widget added by migration 1786279107, present in ~/.config/omarchy/shell.json here, which appears once kb_layout has more than one entry and cycles on click. The corrected fix also answers whether an update eats the edit: migration 1781485962.sh sha-gates the copy, so only a still-stock input.lua is replaced. There is no `omarchy-*` command for setting the layout. `ls /usr/share/omarchy/bin | grep -iE 'keyboard|input|layout|xkb'` returns only RGB-lighting theming, the menu text-input helper and the touchpad enable toggle, so hand-editing input.lua is the supported path and not a workaround. The touchpad half stays: the symptom names it and the root cause is the same, that Hyprland programs libinput itself, but the corrected block now labels which of those lines Omarchy 4 or Hyprland already sets by default so the reader is not told to change settings that are already in force. Cause, symptom, danger, severity and frequency all held and are unchanged. NOT exercised: nothing was written, no reload, eval, keyword or dispatch was run, and no layout was switched, because this is the operator's live graphical session. The per-device `kb_layout` override and `resolve_binds_by_sym` were verified from the wiki and from the option table only, not by applying them here.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Setting a single non-Latin `kb_layout` (ru, gr, th, ua, ...) with no Latin layout first means keybinds that use Latin keysyms stop firing — including your terminal and launcher binds — leaving a desktop you cannot drive. Always lead with a Latin layout (`kb_layout = "us,ru"`) and add a switch option such as `grp:alts_toggle`, which is exactly what Omarchy does for you at install time.
+> ⚠️ **Risk.** Setting a single non-Latin `kb_layout` (ru, gr, th, ua, ...) with no Latin layout first means keybinds that use Latin keysyms stop firing, including your terminal and launcher binds, leaving a desktop you cannot drive. Always lead with a Latin layout (`kb_layout = "us,ru"`) and add a switch option such as `grp:alts_toggle`, which is exactly what Omarchy does for you at install time.
 
 **Fix.**
 
@@ -1260,7 +1260,7 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki
 
 `monitor-config-ignored-name-or-mode` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** "My monitor config is just ignored." `hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@144", position = "0x0", scale = 1 })` sits in monitors.lua, the file saves, no error appears in `hyprctl configerrors` — and the display still runs at 60 Hz, or at 1366x768, or the external screen never lights up at all. Sometimes instead you get an on-screen warning about overlapping monitors, or "Invalid scale passed to monitor".
+**Symptom.** "My monitor config is just ignored." `hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@144", position = "0x0", scale = 1 })` sits in monitors.lua, the file saves, no error appears in `hyprctl configerrors`, and the display still runs at 60 Hz, or at 1366x768, or the external screen never lights up at all. Sometimes instead you get an on-screen warning about overlapping monitors, or "Invalid scale passed to monitor".
 
 **Cause.** Four separate failures all present as "the rule did nothing", and only one of them ever produces a config error.
 
@@ -1377,17 +1377,17 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.
 
 `windowrule-not-matching-wrong-class` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** A window rule 'does nothing' — `windowrule = match:class ^(discord)$, workspace 4` never fires, the app still opens tiled on the current workspace, and there is no error in `hyprctl configerrors`.
+**Symptom.** A window rule 'does nothing': `windowrule = match:class ^(discord)$, workspace 4` never fires, the app still opens tiled on the current workspace, and there is no error in `hyprctl configerrors`.
 
-**Cause.** The class string in the rule does not match what the window actually reports. Common causes: the real app_id is reverse-DNS (`com.mitchellh.ghostty`, `org.gnome.Nautilus`, `com.obsproject.Studio`) not the friendly name; XWayland reports a different, often capitalised class than the Wayland app_id; the regex is anchored with `^(...)$` but the real value has a suffix; matching is case-sensitive; and Hyprland uses Google RE2, so lookaheads/backreferences silently never match.
+**Cause.** The class string in the rule does not match what the window actually reports. Common causes: the real app_id is reverse-DNS (`com.mitchellh.ghostty`, `org.gnome.Nautilus`, `com.obsproject.Studio`) not the friendly name. XWayland reports a different, often capitalised class than the Wayland app_id. The regex is anchored with `^(...)$` but the real value has a suffix. Matching is case-sensitive. Hyprland uses Google RE2, so lookaheads/backreferences silently never match.
 
-> **Audit corrected this record.** The diagnosis is excellent and fully verified: the current Window-Rules wiki confirms Hyprland uses Google RE2 ('all operations requiring polynomial time to compute will not work' — so lookaheads/backreferences silently fail), confirms `negative:` as the negation prefix with `negative:kitty` as its own example, and confirms class/title/initial_class/initial_title/xwayland as match props. The hyprctl clients / activewindow / jq inspection commands are right, and the closing advice about Electron/Java apps changing class late maps exactly onto the wiki's static-vs-dynamic split. But the Lua example is broken and contradicts the record's own following sentence. `"^(com%.obsproject%.Studio)$"` uses `%.`, which is Lua *pattern* escaping. The string is handed to RE2, where `%` is a literal percent — so that regex matches the literal text 'com%.obsproject%.Studio' and will never fire. A user copy-pastes it and reproduces the exact bug the record is about.
+> **Audit corrected this record.** The diagnosis is excellent and fully verified: the current Window-Rules wiki confirms Hyprland uses Google RE2 ('all operations requiring polynomial time to compute will not work', so lookaheads/backreferences silently fail), confirms `negative:` as the negation prefix with `negative:kitty` as its own example, and confirms class/title/initial_class/initial_title/xwayland as match props. The hyprctl clients / activewindow / jq inspection commands are right, and the closing advice about Electron/Java apps changing class late maps exactly onto the wiki's static-vs-dynamic split. But the Lua example is broken and contradicts the record's own following sentence. `"^(com%.obsproject%.Studio)$"` uses `%.`, which is Lua *pattern* escaping. The string is handed to RE2, where `%` is a literal percent, so that regex matches the literal text 'com%.obsproject%.Studio' and will never fire. A user copy-pastes it and reproduces the exact bug the record is about.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 **Fix.**
 
-Everything except the Lua regex is correct. Replace the Lua example — RE2 does not understand Lua's `%` escapes:
+Everything except the Lua regex is correct. Replace the Lua example. RE2 does not understand Lua's `%` escapes:
 
 ```lua
 -- WRONG: %. is a Lua pattern escape; RE2 reads % literally, so this never matches
@@ -1400,9 +1400,9 @@ hl.window_rule({ match = { class = "^(com\\.obsproject\\.Studio)$" }, workspace 
 hl.window_rule({ match = { class = [[^(com\.obsproject\.Studio)$]] }, workspace = "4" })
 ```
 
-The record's own note ("escape the dot as \\. in a normal quoted string or use [[...]]") is the correct rule — the example just does not follow it.
+The record's own note ("escape the dot as \\. in a normal quoted string or use [[...]]") is the correct rule. The example just does not follow it.
 
-**Verify.** Reopen the app; `hyprctl clients` shows it on the intended workspace/floating state. `hyprctl -j clients | jq '.[].class'` matches your regex exactly.
+**Verify.** Reopen the app. `hyprctl clients` shows it on the intended workspace/floating state. `hyprctl -j clients | jq '.[].class'` matches your regex exactly.
 
 Sources: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/> · <https://wiki.hypr.land/0.54.0/Configuring/Window-Rules/> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 
@@ -1412,19 +1412,19 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/> · <https://w
 
 `gestures-workspace-swipe-does-not-exist-051` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `omarchy`
 
-**Symptom.** `Config error in file /home/xxx/.local/share/omarchy/default/hypr/input.conf at line 20: config option <gesture:workspace_swipe> does not exist.` — and three-finger workspace swiping on the trackpad has stopped working.
+**Symptom.** `Config error in file /home/xxx/.local/share/omarchy/default/hypr/input.conf at line 20: config option <gesture:workspace_swipe> does not exist.` Three-finger workspace swiping on the trackpad has stopped working.
 
-**Cause.** Hyprland 0.51 (Sept 2025) removed exactly three keys - `gestures:workspace_swipe`, `gestures:workspace_swipe_fingers` and `gestures:workspace_swipe_min_fingers` - in favour of a general-purpose `gesture` keyword that binds any finger count + direction to an action. The `gestures.` category itself was **not** removed: `workspace_swipe_distance`, `workspace_swipe_invert`, `workspace_swipe_touch`, `workspace_swipe_cancel_ratio`, `workspace_swipe_create_new`, `workspace_swipe_direction_lock`, `workspace_swipe_forever`, `close_max_timeout` and `gestures.scrolling.*` are all still documented, so deleting the whole block discards real swipe tuning with no error to point at.
+**Cause.** Hyprland 0.51 (Sept 2025) removed exactly three keys (`gestures:workspace_swipe`, `gestures:workspace_swipe_fingers` and `gestures:workspace_swipe_min_fingers`) in favour of a general-purpose `gesture` keyword that binds any finger count + direction to an action. The `gestures.` category itself was **not** removed: `workspace_swipe_distance`, `workspace_swipe_invert`, `workspace_swipe_touch`, `workspace_swipe_cancel_ratio`, `workspace_swipe_create_new`, `workspace_swipe_direction_lock`, `workspace_swipe_forever`, `close_max_timeout` and `gestures.scrolling.*` are all still documented, so deleting the whole block discards real swipe tuning with no error to point at.
 
-> **Audit corrected this record.** The new `gesture` keyword and every Lua example are confirmed verbatim against the current Gestures wiki page (hl.gesture with fingers/direction/mods/scale/action; the ALT+down close and 4-finger fullscreen examples are near-copies of the wiki's). animations:first_launch_animation -> monitorAdded is plausible; monitorAdded exists in the current animation tree. But the stated cause is wrong and the fix is destructive because of it: the `gestures:` category was NOT removed. The current Variables wiki still documents a full `gestures.` subcategory (workspace_swipe_distance, workspace_swipe_invert, workspace_swipe_touch, workspace_swipe_cancel_ratio, workspace_swipe_create_new, workspace_swipe_direction_lock, workspace_swipe_forever, close_max_timeout, plus gestures.scrolling.*). Only three keys were removed. The wiki says so explicitly: 'workspace_swipe, workspace_swipe_fingers and workspace_swipe_min_fingers were removed in favor of the new gestures system.' Telling a user to 'Delete the old gestures { ... } block entirely' silently discards their swipe tuning (invert, distance, cancel_ratio, forever), which is a real behavior regression with no error to point at.
+> **Audit corrected this record.** The new `gesture` keyword and every Lua example are confirmed verbatim against the current Gestures wiki page (hl.gesture with fingers/direction/mods/scale/action, and the ALT+down close and 4-finger fullscreen examples are near-copies of the wiki's). animations:first_launch_animation -> monitorAdded is plausible, and monitorAdded exists in the current animation tree. But the stated cause is wrong and the fix is destructive because of it: the `gestures:` category was NOT removed. The current Variables wiki still documents a full `gestures.` subcategory (workspace_swipe_distance, workspace_swipe_invert, workspace_swipe_touch, workspace_swipe_cancel_ratio, workspace_swipe_create_new, workspace_swipe_direction_lock, workspace_swipe_forever, close_max_timeout, plus gestures.scrolling.*). Only three keys were removed. The wiki says so explicitly: 'workspace_swipe, workspace_swipe_fingers and workspace_swipe_min_fingers were removed in favor of the new gestures system.' Telling a user to 'Delete the old gestures { ... } block entirely' silently discards their swipe tuning (invert, distance, cancel_ratio, forever), which is a real behavior regression with no error to point at.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
-Do NOT delete the whole `gestures` block — it still exists. Only three keys were removed in 0.51: `workspace_swipe`, `workspace_swipe_fingers`, `workspace_swipe_min_fingers`. Everything else in `gestures.` (workspace_swipe_distance, workspace_swipe_invert, workspace_swipe_touch, workspace_swipe_cancel_ratio, workspace_swipe_create_new, workspace_swipe_direction_lock, workspace_swipe_forever, close_max_timeout, gestures.scrolling.*) is still valid and still tunes the swipe.
+Do NOT delete the whole `gestures` block. It still exists. Only three keys were removed in 0.51: `workspace_swipe`, `workspace_swipe_fingers`, `workspace_swipe_min_fingers`. Everything else in `gestures.` (workspace_swipe_distance, workspace_swipe_invert, workspace_swipe_touch, workspace_swipe_cancel_ratio, workspace_swipe_create_new, workspace_swipe_direction_lock, workspace_swipe_forever, close_max_timeout, gestures.scrolling.*) is still valid and still tunes the swipe.
 
-hyprlang (0.51-0.54) — remove only the three dead keys, keep the rest:
+For hyprlang (0.51-0.54), remove only the three dead keys and keep the rest:
 ```ini
 gestures {
   # workspace_swipe = true            # REMOVED in 0.51
@@ -1445,7 +1445,7 @@ hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 
 Verify what survived on your build with `hyprctl getoption gestures.workspace_swipe_distance`.
 
-**Verify.** Swipe three fingers horizontally on the touchpad — workspaces move. `hyprctl configerrors` is clean.
+**Verify.** Swipe three fingers horizontally on the touchpad and workspaces move. `hyprctl configerrors` is clean.
 
 Sources: <https://github.com/basecamp/omarchy/issues/1594> · <https://hypr.land/news/update51> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Gestures/> · <https://wiki.hypr.land/0.54.0/Configuring/Gestures/>
 
@@ -1584,9 +1584,9 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-varia
 
 **Symptom.** Three errors on a fresh boot after updating to Hyprland 0.55: `Config error in file /home/<user>/.local/share/omarchy/default/hypr/looknfeel.conf at line 53: Error parsing gradient -1: failed to parse -1 as a color`, the same for line 54, and `Config error in file .../looknfeel.conf at line 111: config option dwindle:pseudotile does not exist.`
 
-**Cause.** Hyprland 0.55 removed `dwindle:pseudotile` (it had become a no-op — pseudotiling is per-window only now) and stopped accepting the `-1` 'inherit from parent colour' shorthand for `group:col.border_locked_active` / `col.border_locked_inactive`; the parser now demands a real colour or gradient. 0.55 also removed `decoration:shadow:ignore_window` and `render:cm_fs_passthrough`, and moved `misc:vfr` to `debug:vfr`.
+**Cause.** Hyprland 0.55 removed `dwindle:pseudotile` (it had become a no-op, and pseudotiling is per-window only now) and stopped accepting the `-1` 'inherit from parent colour' shorthand for `group:col.border_locked_active` / `col.border_locked_inactive`. The parser now demands a real colour or gradient. 0.55 also removed `decoration:shadow:ignore_window` and `render:cm_fs_passthrough`, and moved `misc:vfr` to `debug:vfr`.
 
-> **Audit corrected this record.** Nearly all verified. hypr.land/news/update55 lists exactly these breaking changes: dwindle:pseudotile removed ('as it wasn't doing anything'), decoration:shadow:ignore_window removed, render:cm_fs_passthrough removed, misc:vfr moved to debug: — and the current Variables wiki indeed shows vfr under the Debug subcategory. Omarchy issue #5758 is real, quotes these exact three errors, and PR #5723 ('Hyprland lua conversion') is merged. `windowrule = match:class ^(mpv)$, pseudo on` and the Lua equivalent are both valid (pseudo is a documented static effect). One factual error in the fix: the claim that deleting col.border_locked_* makes Hyprland 'fall back to col.border_active/col.border_inactive' is false. The current Variables wiki gives group.col.border_locked_active its own default of 0x66ff5500 and col.border_locked_inactive 0x66775500 — deleting the lines yields those orange group colors, not your normal border colors. Separately, the suggested replacement rgba(00000000) makes locked-group borders fully transparent, which removes the visual cue that a group is locked; that is a deliberate choice, not a neutral one, and should be stated.
+> **Audit corrected this record.** Nearly all verified. hypr.land/news/update55 lists exactly these breaking changes: dwindle:pseudotile removed ('as it wasn't doing anything'), decoration:shadow:ignore_window removed, render:cm_fs_passthrough removed, misc:vfr moved to debug:, and the current Variables wiki indeed shows vfr under the Debug subcategory. Omarchy issue #5758 is real, quotes these exact three errors, and PR #5723 ('Hyprland lua conversion') is merged. `windowrule = match:class ^(mpv)$, pseudo on` and the Lua equivalent are both valid (pseudo is a documented static effect). One factual error in the fix: the claim that deleting col.border_locked_* makes Hyprland 'fall back to col.border_active/col.border_inactive' is false. The current Variables wiki gives group.col.border_locked_active its own default of 0x66ff5500 and col.border_locked_inactive 0x66775500. Deleting the lines yields those orange group colors, not your normal border colors. Separately, the suggested replacement rgba(00000000) makes locked-group borders fully transparent, which removes the visual cue that a group is locked. That is a deliberate choice, not a neutral one, and should be stated.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1596,7 +1596,7 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-varia
 
 Removals and the misc:vfr -> debug:vfr move are correct as written. Fix the border_locked guidance:
 
-Deleting `col.border_locked_active` / `col.border_locked_inactive` does NOT fall back to `col.border_active`/`col.border_inactive` — those keys have their own defaults (`0x66ff5500` active, `0x66775500` inactive), so you get orange locked-group borders.
+Deleting `col.border_locked_active` / `col.border_locked_inactive` does NOT fall back to `col.border_active`/`col.border_inactive`. Those keys have their own defaults (`0x66ff5500` active, `0x66775500` inactive), so you get orange locked-group borders.
 
 Pick deliberately:
 ```ini
@@ -1616,7 +1616,7 @@ misc    { }              # vfr moved out of misc
 debug   { vfr = true }   # default is already true; only set if you changed it
 ```
 
-On 0.55+ `hyprctl getoption` documents the dot form, so prefer `hyprctl getoption dwindle.pseudotile` and `hyprctl getoption group.col.border_locked_active` (the colon form still resolves). And the record is right that these lines live in the package-owned defaults — run `omarchy-update`, do not edit them.
+On 0.55+ `hyprctl getoption` documents the dot form, so prefer `hyprctl getoption dwindle.pseudotile` and `hyprctl getoption group.col.border_locked_active` (the colon form still resolves). And the record is right that these lines live in the package-owned defaults: run `omarchy-update`, do not edit them.
 
 **Verify.** `hyprctl configerrors` is empty and `hyprctl getoption debug:vfr` returns a value.
 
@@ -1628,11 +1628,11 @@ Sources: <https://github.com/basecamp/omarchy/issues/5758> · <https://hypr.land
 
 `omarchy-super-space-launcher-stops-working` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`
 
-**Symptom.** SUPER+Space (the app launcher) and the Omarchy menu randomly stop responding after a while — often after opening a game or Discord. Other keybindings still work. Only a reboot seems to fix it.
+**Symptom.** SUPER+Space (the app launcher) and the Omarchy menu randomly stop responding after a while, often after opening a game or Discord. Other keybindings still work. Only a reboot seems to fix it.
 
-**Cause.** The keybinding itself is fine; the launcher process it execs has died or wedged. In Omarchy 3.x this was Walker (`/usr/bin/walker --gapplication-service`) crashing or losing its D-Bus service. Hyprland reports nothing because `exec` succeeded from its point of view.
+**Cause.** The keybinding itself is fine. The launcher process it execs has died or wedged. In Omarchy 3.x this was Walker (`/usr/bin/walker --gapplication-service`) crashing or losing its D-Bus service. Hyprland reports nothing because `exec` succeeded from its point of view.
 
-> **Audit corrected this record.** The diagnosis is sound and the cited issues (#2089, #2558) are real Omarchy 3.x reports: the bind survives while the exec'd launcher process dies, so Hyprland reports nothing because exec succeeded from its point of view. `hyprctl binds` is a documented info command and is the right first check. But the recovery half is obsolete and one claim is fabricated. I listed all 440 scripts in basecamp/omarchy bin/ — there is no omarchy-refresh-walker, and no walker-related script of any kind; a repo-wide code search returns walker only in bin/omarchy-upgrade-to-quattro (i.e. the migration away from it). Omarchy 4.x replaced Walker with omarchy-shell / omarchy-menu. So `omarchy-refresh-walker` returns 'command not found' because it no longer exists, not because of a capitalised O — that explanation is invented and will send a user chasing a typo that isn't there. `yay -S walker` is also wrong for the era it targets: Omarchy 3.x installed the AUR binary package, walker-bin.
+> **Audit corrected this record.** The diagnosis is sound and the cited issues (#2089, #2558) are real Omarchy 3.x reports: the bind survives while the exec'd launcher process dies, so Hyprland reports nothing because exec succeeded from its point of view. `hyprctl binds` is a documented info command and is the right first check. But the recovery half is obsolete and one claim is fabricated. I listed all 440 scripts in basecamp/omarchy bin/. There is no omarchy-refresh-walker, and no walker-related script of any kind. A repo-wide code search returns walker only in bin/omarchy-upgrade-to-quattro (i.e. the migration away from it). Omarchy 4.x replaced Walker with omarchy-shell / omarchy-menu. So `omarchy-refresh-walker` returns 'command not found' because it no longer exists, not because of a capitalised O. That explanation is invented and will send a user chasing a typo that isn't there. `yay -S walker` is also wrong for the era it targets: Omarchy 3.x installed the AUR binary package, walker-bin.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1640,14 +1640,14 @@ Sources: <https://github.com/basecamp/omarchy/issues/5758> · <https://hypr.land
 
 **Fix.**
 
-First confirm the bind is still registered — the record is right that this is the useful discriminator:
+First confirm the bind is still registered. The record is right that this is the useful discriminator:
 ```bash
 hyprctl binds | grep -B2 -A4 -i 'SPACE'
 ```
 
 Then fix by Omarchy generation.
 
-Omarchy 4.x (current) — Walker is gone; the launcher is the Omarchy shell. Restart it rather than rebooting:
+Omarchy 4.x (current): Walker is gone, and the launcher is the Omarchy shell. Restart it rather than rebooting:
 ```bash
 omarchy-restart-shell
 ```
@@ -1657,7 +1657,7 @@ omarchy-refresh-hyprland
 hyprctl reload
 ```
 
-Omarchy 3.x (historical) — the launcher was Walker:
+Omarchy 3.x (historical), where the launcher was Walker:
 ```bash
 pkill walker
 walker --gapplication-service &
@@ -1665,7 +1665,7 @@ walker --gapplication-service &
 yay -S walker-bin
 ```
 
-There is no `omarchy-refresh-walker` in current Omarchy (verified against all 440 scripts in bin/) — if you get 'command not found', the script has been removed, not miscapitalised.
+There is no `omarchy-refresh-walker` in current Omarchy (verified against all 440 scripts in bin/). If you get 'command not found', the script has been removed, not miscapitalised.
 
 **Verify.** `hyprctl binds | grep SPACE` shows the bind, and pressing SUPER+Space opens the launcher without a reboot.
 
@@ -1677,7 +1677,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/2089> · <https://github.co
 
 `share-picker-never-appears-selection-minus-one` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** Clicking "Share screen" in Google Meet, Discord, Zoom or Teams does nothing at all — no window/monitor picker dialog, the request just fails. `journalctl --user -u xdg-desktop-portal-hyprland` shows `[LOG] [screencopy] SHAREDATA returned selection -1` followed by `[LOG] [screencopy] Session destroyed`. Or the picker does appear, you choose a screen, and the far end sees a black rectangle.
+**Symptom.** Clicking "Share screen" in Google Meet, Discord, Zoom or Teams does nothing at all: no window/monitor picker dialog, the request just fails. `journalctl --user -u xdg-desktop-portal-hyprland` shows `[LOG] [screencopy] SHAREDATA returned selection -1` followed by `[LOG] [screencopy] Session destroyed`. Or the picker does appear, you choose a screen, and the far end sees a black rectangle.
 
 **Cause.** Two distinct failures.
 
@@ -1788,7 +1788,7 @@ systemctl --user show-environment | grep -E 'XDG_CURRENT_DESKTOP|WAYLAND_DISPLAY
 
 On Omarchy 4 both are normally present, because `/usr/share/omarchy/default/hypr/autostart.lua` imports the whole session environment on `hyprland.start`. If they are missing, you are almost certainly looking at a user manager that was started by ssh or by lingering rather than by the graphical session.
 
-**Verify.** `journalctl --user -u xdg-desktop-portal-hyprland -f` while starting a share shows a picker session created and no `selection -1`; the picker window appears; the receiving end sees live video rather than black.
+**Verify.** `journalctl --user -u xdg-desktop-portal-hyprland -f` while starting a share shows a picker session created and no `selection -1`. The picker window appears. The receiving end sees live video rather than black.
 
 Sources: <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/> · <https://wiki.hypr.land/Useful-Utilities/Screen-Sharing/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.hypr.land/Nvidia/> · <https://github.com/omacom/omarchy/issues/3989> · <https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/shared/ScreencopyShared.cpp> · <https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/shared/ScreencopyShared.hpp> · <https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/portals/Screencopy.cpp> · <https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/core/PortalManager.cpp> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/xdph.conf> · <https://wiki.hypr.land/configuring/core/monitors/colors/> · <https://wiki.hypr.land/useful-utilities/screen-sharing/> · <https://github.com/WhySoBad/hyprland-preview-share-picker>
 
@@ -1798,7 +1798,7 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/> ·
 
 `stuck-in-submap-no-keys-work` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`
 
-**Symptom.** After pressing the resize/move hotkey, the keyboard is effectively dead — no keybinding does anything, you cannot open a terminal, and you cannot get out.
+**Symptom.** After pressing the resize/move hotkey, the keyboard is effectively dead: no keybinding does anything, you cannot open a terminal, and you cannot get out.
 
 **Cause.** A submap replaces the active bind set. If the submap definition has no bind that calls `submap reset`, or the reset key was typo'd, there is no way back from inside the submap. Any bind not marked submap-universal is inactive while you are in it.
 
@@ -1853,7 +1853,7 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Binds/> · <https://wiki.hyp
 
 **Cause.** Hyprland splits rule effects into static and dynamic. Static effects (`float`, `tile`, `fullscreen`, `maximize`, `move`, `size`, `center`, `pseudo`, `monitor`, `workspace`, `pin`, `group`, `no_initial_focus`) are evaluated exactly once, at window open, and at that moment only `initialTitle`/`initialClass` are known. A later title change cannot retroactively float the window. Dynamic effects (`opacity`, `border_color`, `no_blur`, `max_size`, `tag`, ...) are re-evaluated on every property change, which is why those appear to work.
 
-> **Audit corrected this record.** The cause is exactly right and is the wiki's own warning: 'It is not possible to float (or any other static rule) a window based on a change in the title after the window has been created. This applies to all static effects listed here. Instead, use a dispatch triggered by an event listener.' The record's static list (float, tile, fullscreen, maximize, move, size, center, pseudo, monitor, workspace, pin, group, no_initial_focus) is a correct subset of the wiki's static table, and its dynamic examples (opacity, border_color, no_blur, max_size, tag) are all in the dynamic table. The Lua listener is valid: window.title is a documented event, hl.dsp.window.float({action, window}) is a documented dispatcher, `action = "on"` is a documented value (the action param type is toggle/enable|on/disable|off), and `address:0x...` is a documented window selector. The `match:initial_title` advice is right. The bash/socat fallback is the problem — it is broken in two independent ways and floats windows it should not.
+> **Audit corrected this record.** The cause is exactly right and is the wiki's own warning: 'It is not possible to float (or any other static rule) a window based on a change in the title after the window has been created. This applies to all static effects listed here. Instead, use a dispatch triggered by an event listener.' The record's static list (float, tile, fullscreen, maximize, move, size, center, pseudo, monitor, workspace, pin, group, no_initial_focus) is a correct subset of the wiki's static table, and its dynamic examples (opacity, border_color, no_blur, max_size, tag) are all in the dynamic table. The Lua listener is valid: window.title is a documented event, hl.dsp.window.float({action, window}) is a documented dispatcher, `action = "on"` is a documented value (the action param type is toggle/enable|on/disable|off), and `address:0x...` is a documented window selector. The `match:initial_title` advice is right. The bash/socat fallback is the problem. It is broken in two independent ways and floats windows it should not.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -1879,9 +1879,9 @@ socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.soc
   done
 ```
 
-(`setfloating` is the hyprlang-era dispatcher name, correct for <= 0.54; on 0.55+ prefer the Lua listener shown above.)
+(`setfloating` is the hyprlang-era dispatcher name, correct for <= 0.54. On 0.55+ prefer the Lua listener shown above.)
 
-**Verify.** Trigger the title change; `hyprctl clients` shows `floating: 1` for that address.
+**Verify.** Trigger the title change. `hyprctl clients` shows `floating: 1` for that address.
 
 Sources: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/> · <https://wiki.hypr.land/0.54.0/Configuring/Window-Rules/>
 
@@ -1893,7 +1893,7 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/> · <https://w
 
 **Symptom.** On a French AZERTY (or similar) layout, SUPER+1..9 do not switch workspaces at all, while SUPER+letter binds work fine.
 
-**Cause.** Keys used in binds must be reachable without modifiers in your keyboard layout. On AZERTY the digit row produces `&`, `é`, `"`, `'` etc. unmodified — the digits require SHIFT. So `bind = SUPER, 1, workspace, 1` describes a chord that never occurs.
+**Cause.** Keys used in binds must be reachable without modifiers in your keyboard layout. On AZERTY the digit row produces `&`, `é`, `"`, `'` etc. unmodified: the digits require SHIFT. So `bind = SUPER, 1, workspace, 1` describes a chord that never occurs.
 
 **Fix.**
 
@@ -1939,7 +1939,7 @@ Sources: <https://wiki.hypr.land/0.54.0/Configuring/Binds/> · <https://wiki.hyp
 
 **Fix.**
 
-Bind by keycode instead of key name — keycodes are layout-independent. XKB keycodes are evdev+8, so C/V/X are `code:54`, `code:55`, `code:53`.
+Bind by keycode instead of key name. Keycodes are layout-independent. XKB keycodes are evdev+8, so C/V/X are `code:54`, `code:55`, `code:53`.
 
 ```lua
 -- ~/.config/hypr/bindings.lua
@@ -1955,7 +1955,7 @@ hl.bind("SUPER + C", function()
 end)
 ```
 
-Simplest alternative — drop the universal shortcuts and use the apps' native CTRL+C/V/X:
+The simplest alternative is to drop the universal shortcuts and use the apps' native CTRL+C/V/X:
 ```lua
 -- ~/.config/hypr/bindings.lua
 hl.unbind("SUPER + C")
@@ -1965,7 +1965,7 @@ hl.unbind("SUPER + X")
 
 Confirm keycodes for your keyboard with `wev` (the `code` field it prints is the XKB keycode).
 
-**Verify.** Switch to the non-Latin layout, select text, press SUPER+C — no error popup and `wl-paste` returns the selection.
+**Verify.** Switch to the non-Latin layout, select text, press SUPER+C. No error popup and `wl-paste` returns the selection.
 
 Sources: <https://github.com/basecamp/omarchy/issues/7371> · <https://github.com/basecamp/omarchy/issues/7027> · <https://wiki.hypr.land/Configuring/Basics/Binds/>
 
@@ -2182,15 +2182,15 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki
 
 `gdk-scale-apps-too-large-hyprland` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
-**Symptom.** Some apps are enormous on a 1080p or 1x display — UI elements roughly double size — while native Wayland apps look correct. Others (XWayland ones) look blurry or pixelated instead.
+**Symptom.** Some apps are enormous on a 1080p or 1x display, with UI elements roughly double size, while native Wayland apps look correct. Others (XWayland ones) look blurry or pixelated instead.
 
-**Cause.** Hyprland's monitor `scale` sizes Wayland-native output, but GTK/X11 apps are sized by the `GDK_SCALE` environment variable, which only accepts whole numbers. Omarchy assumes a 2x HiDPI panel and sets `GDK_SCALE=2`; on a 1x display everything GTK/XWayland draws is doubled. Separately, XWayland cannot scale fractionally at all, which is why those apps go blurry or pixelated rather than large.
+**Cause.** Hyprland's monitor `scale` sizes Wayland-native output, but GTK/X11 apps are sized by the `GDK_SCALE` environment variable, which only accepts whole numbers. Omarchy assumes a 2x HiDPI panel and sets `GDK_SCALE=2`. On a 1x display everything GTK/XWayland draws is doubled. Separately, XWayland cannot scale fractionally at all, which is why those apps go blurry or pixelated rather than large.
 
 **Fix.**
 
 Set the GDK scale to the nearest integer to your monitor scale.
 
-Omarchy 4.x — edit `~/.config/hypr/monitors.lua`:
+On Omarchy 4.x, edit `~/.config/hypr/monitors.lua`:
 ```lua
 local omarchy_monitor_scale = "auto"
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
@@ -2211,7 +2211,7 @@ List what your outputs actually support:
 hyprctl monitors all
 ```
 
-GDK_SCALE only reaches an app at launch — restart the oversized apps (or log out) after changing it. If a specific app is pixelated rather than large, it is running under XWayland; run it natively in Wayland where possible, or accept integer scaling for it.
+GDK_SCALE only reaches an app at launch. Restart the oversized apps (or log out) after changing it. If a specific app is pixelated rather than large, it is running under XWayland. Run it natively in Wayland where possible, or accept integer scaling for it.
 
 **Verify.** `hyprctl monitors | grep -E 'scale|Monitor'` shows the intended scale, and a restarted GTK app is normal-sized.
 
@@ -2223,13 +2223,13 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting> · <h
 
 `keybind-trailing-comma-hyprlang` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`
 
-**Symptom.** A keybinding does nothing at all, silently — no error, no notification. E.g. `bind = SUPER, F, exec, firefox,` never launches Firefox, while the identical-looking line for another app works.
+**Symptom.** A keybinding does nothing at all, silently: no error, no notification. E.g. `bind = SUPER, F, exec, firefox,` never launches Firefox, while the identical-looking line for another app works.
 
 **Cause.** hyprlang's `bind` keyword takes exactly four comma-separated arguments. An accidental trailing comma becomes part of the last argument, so Hyprland tries to exec the literal command `firefox,` which does not exist. Example configs legitimately end with a trailing comma when the last argument is meant to be empty (`bind = SUPER, Tab, cyclenext,`), which is where the habit comes from.
 
 **Fix.**
 
-Count the commas — exactly three.
+Count the commas: exactly three.
 
 ```ini
 bind = SUPER, F, exec, firefox      # OK   - 4 args
@@ -2243,7 +2243,7 @@ Find offenders across your config:
 grep -rnE '^\s*bind[a-z]*\s*=.*exec,.*,\s*$' ~/.config/hypr/
 ```
 
-On Lua (0.55+) this class of bug is gone — args are explicit:
+On Lua (0.55+) this class of bug is gone, because args are explicit:
 ```lua
 hl.bind("SUPER + F", hl.dsp.exec_cmd("firefox"))
 ```
@@ -2258,9 +2258,9 @@ Sources: <https://wiki.hypr.land/0.54.0/Configuring/Binds/>
 
 `xwayland-blurry-on-fractional-scale` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hidpi`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
 
-**Symptom.** On a HiDPI or fractionally scaled monitor, native Wayland apps look sharp but Steam, Zoom, older Electron builds, JetBrains IDEs, GIMP and Wine games are soft, fuzzy or visibly pixelated. The Hyprland FAQ answer people find is "This just means they are running through XWayland, which physically cannot scale by fractional amounts" — which explains it but doesn't fix it. Turning scaling off makes them sharp and everything tiny.
+**Symptom.** On a HiDPI or fractionally scaled monitor, native Wayland apps look sharp but Steam, Zoom, older Electron builds, JetBrains IDEs, GIMP and Wine games are soft, fuzzy or visibly pixelated. The Hyprland FAQ answer people find is "This just means they are running through XWayland, which physically cannot scale by fractional amounts", which explains it but doesn't fix it. Turning scaling off makes them sharp and everything tiny.
 
-**Cause.** Xorg has no per-output scale, so XWayland surfaces are rendered at 1x and then bitmap-scaled by the compositor to the monitor's scale factor. Any non-integer factor means resampling, hence the blur; `xwayland:use_nearest_neighbor` (default true) swaps blur for pixelation but does not add detail. The documented remedy is to stop the compositor scaling XWayland at all (`xwayland:force_zero_scaling`) and instead let each toolkit draw its own UI larger — but that only works if the toolkit env vars are actually set, and `hl.env()` only reaches processes Hyprland itself spawns after that line runs.
+**Cause.** Xorg has no per-output scale, so XWayland surfaces are rendered at 1x and then bitmap-scaled by the compositor to the monitor's scale factor. Any non-integer factor means resampling, hence the blur. `xwayland:use_nearest_neighbor` (default true) swaps blur for pixelation but does not add detail. The documented remedy is to stop the compositor scaling XWayland at all (`xwayland:force_zero_scaling`) and instead let each toolkit draw its own UI larger, but that only works if the toolkit env vars are actually set, and `hl.env()` only reaches processes Hyprland itself spawns after that line runs.
 
 > **Audit corrected this record.** Re-checked on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, hyprland 0.56.2-1, kernel 7.1.9-arch1-2, NVIDIA) against the live system, the current Hyprland wiki markdown and Hyprland's source at tag v0.56.2. The mechanism and both Omarchy claims hold. The verify block is wrong in two ways and the toolkit advice is incomplete.
 
@@ -2284,7 +2284,7 @@ is in the git history and in `raw/o3-wayland-audio-audit.json`.
 >
 > *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Setting `Xft.dpi` at the same time as a toolkit scale such as `GDK_SCALE` makes interface elements much larger than intended in some programs (Firefox is the usual casualty). Pick one mechanism per toolkit. Do not install the old XWayland HiDPI patches — upstream states they are no longer supported.
+> ⚠️ **Risk.** Setting `Xft.dpi` at the same time as a toolkit scale such as `GDK_SCALE` makes interface elements much larger than intended in some programs (Firefox is the usual casualty). Pick one mechanism per toolkit. Do not install the old XWayland HiDPI patches. Upstream states they are no longer supported.
 
 **Fix.**
 
@@ -2404,11 +2404,11 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/> · <ht
 
 `hyprctl-fails-outside-session-instance-signature` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `grub`, `hyprland`, `manjaro`, `omarchy`, `systemd-boot`
 
-**Symptom.** Running `hyprctl` from a TTY, a cron job, a systemd unit or an SSH session fails — no output, or it targets the wrong Hyprland when you have more than one running.
+**Symptom.** Running `hyprctl` from a TTY, a cron job, a systemd unit or an SSH session fails: no output, or it targets the wrong Hyprland when you have more than one running.
 
-**Cause.** hyprctl talks to a per-instance UNIX socket under `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/`. Outside the compositor's own environment that variable is unset, so hyprctl has nothing to connect to; with multiple instances it needs to be told which.
+**Cause.** hyprctl talks to a per-instance UNIX socket under `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/`. Outside the compositor's own environment that variable is unset, so hyprctl has nothing to connect to. With multiple instances it needs to be told which.
 
-> **Audit corrected this record.** The diagnosis and most commands are right: hyprctl talks to $XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/ (confirmed on the IPC wiki), `hyprctl instances` is a documented info command, `--instance` is a real flag (hyprctl.usage: `-i | --instance`), --batch is documented, and the batching-for-performance advice comes straight from the wiki's own warning that 'any spam of the utility will cause slowdowns. It's recommended to use --batch'. The log path is correct. The defect is the signature-export recipe, which is offered specifically 'for scripts and units' — the one context where it is most likely to fail. In a system unit or a cron job XDG_RUNTIME_DIR is not set, so the path collapses to /hypr and the command silently produces nothing. And `ls -t | head -n 1` picks the newest entry by mtime, which can be a stale directory left by a crashed session or a non-instance entry, so it can also silently target the wrong thing.
+> **Audit corrected this record.** The diagnosis and most commands are right: hyprctl talks to $XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/ (confirmed on the IPC wiki), `hyprctl instances` is a documented info command, `--instance` is a real flag (hyprctl.usage: `-i | --instance`), --batch is documented, and the batching-for-performance advice comes straight from the wiki's own warning that 'any spam of the utility will cause slowdowns. It's recommended to use --batch'. The log path is correct. The defect is the signature-export recipe, which is offered specifically 'for scripts and units', the one context where it is most likely to fail. In a system unit or a cron job XDG_RUNTIME_DIR is not set, so the path collapses to /hypr and the command silently produces nothing. And `ls -t | head -n 1` picks the newest entry by mtime, which can be a stale directory left by a crashed session or a non-instance entry, so it can also silently target the wrong thing.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -2416,7 +2416,7 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/> · <ht
 
 Diagnosis, `--instance`, `--batch` and the log path are all correct. Replace the export recipe, which fails in exactly the script/unit context it is recommended for.
 
-Set XDG_RUNTIME_DIR explicitly first — it is unset in system units and cron:
+Set XDG_RUNTIME_DIR explicitly first, because it is unset in system units and cron:
 ```bash
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 ```
@@ -2531,7 +2531,7 @@ Sources: <https://github.com/omacom/omarchy/issues/8817> · <https://github.com/
 
 Delete the old keys and use the new one.
 
-hyprlang (0.53–0.54):
+hyprlang (0.53 to 0.54):
 ```ini
 misc {
   # new_window_takes_over_fullscreen = 2   # remove
@@ -2559,7 +2559,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/4023> · <https://hypr.land
 
 `tearing-and-vrr-not-working` · severity: **low** · frequency: **common** · applies to: `amdgpu`, `arch`, `cachyos`, `desktop`, `endeavouros`, `gaming`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** `allow_tearing` is on and the `immediate` window rule is set, but frame times in a game are unchanged and there is no tearing at all. Or tearing works and the game freezes instead, or shows random coloured pixels. Or VRR is enabled and the desktop now flickers in brightness — worst while scrolling, watching a fullscreen YouTube video, or in any game whose framerate swings.
+**Symptom.** `allow_tearing` is on and the `immediate` window rule is set, but frame times in a game are unchanged and there is no tearing at all. Or tearing works and the game freezes instead, or shows random coloured pixels. Or VRR is enabled and the desktop now flickers in brightness, worst while scrolling, watching a fullscreen YouTube video, or in any game whose framerate swings.
 
 **Cause.** **Tearing** is only applied when the tearing window is fullscreen and is the *only* thing visible on that output. A notification, a bar, a lock surface, an overlay or a second window on the same monitor suppresses it, and it needs both the `general:allow_tearing` master toggle and a per-window `immediate` rule. `hyprctl monitors` says which condition is failing in its `tearingBlockedBy` field. Frozen or artefacted output almost always means the GPU driver does not support tearing, and the Hyprland wiki asks that it not be reported as a Hyprland bug. **VRR brightness flicker** is not something Hyprland controls. FreeSync panels often have a VRR range much narrower than their maximum refresh rate, and a panel driven across a limited range shows it as flicker: the one Hyprland report cited (an AOC FreeSync monitor over DisplayPort on AMD, swinging between 72 and 144 Hz while the game held 120 fps) matches that pattern, and it was auto-closed without a maintainer reply because Hyprland no longer accepts user-filed issues. VRR also requires DisplayPort on most hardware, HDMI VRR needs a display that implements that part of HDMI 2.1, and some monitors only expose VRR below their maximum refresh rate.
 
@@ -2567,7 +2567,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/4023> · <https://hypr.land
 >
 > *The Cause above was rewritten on 2026-09-06 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Tearing is experimental and driver-dependent: if the driver does not support it, apps that should tear will freeze outright or render corrupted frames, and there is no compositor-side workaround. Turn `allow_tearing` back off before assuming a game is broken. Setting `vrr = 1` (always on) on a panel with a narrow VRR range can make the whole desktop flicker constantly — `vrr = 2` is the safe default.
+> ⚠️ **Risk.** Tearing is experimental and driver-dependent: if the driver does not support it, apps that should tear will freeze outright or render corrupted frames, and there is no compositor-side workaround. Turn `allow_tearing` back off before assuming a game is broken. Setting `vrr = 1` (always on) on a panel with a narrow VRR range can make the whole desktop flicker constantly. `vrr = 2` is the safe default.
 
 **Fix.**
 
@@ -2637,7 +2637,7 @@ sudo pacman -S --needed gamescope
 #   gamescope -W 2560 -H 1440 -r 144 -f --adaptive-sync -- %command%
 ```
 
-**Verify.** `hyprctl getoption general.allow_tearing` is 1 and `hyprctl getoption misc.vrr` matches what you set; `hyprctl -j monitors | jq -r '.[] | "\(.name) vrr=\(.vrr)"'` shows the per-output state; in a fullscreen game the reported refresh rate tracks the framerate and the desktop no longer pulses.
+**Verify.** `hyprctl getoption general.allow_tearing` is 1 and `hyprctl getoption misc.vrr` matches what you set. `hyprctl -j monitors | jq -r '.[] | "\(.name) vrr=\(.vrr)"'` shows the per-output state. In a fullscreen game the reported refresh rate tracks the framerate and the desktop no longer pulses.
 
 Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Tearing/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.archlinux.org/title/Variable_refresh_rate> · <https://github.com/hyprwm/Hyprland/issues/11712> · <https://wiki.archlinux.org/title/Gaming> · <https://wiki.hypr.land/configuring/extra/tearing/> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://wiki.hypr.land/configuring/core/rules/window-rules/> · <https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/> · <https://wiki.archlinux.org/title/Gamescope> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/shared/monitor/MonitorRuleManager.cpp>
 
@@ -2647,11 +2647,11 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Tearing/> · <htt
 
 `unbind-case-sensitive-key-name` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`
 
-**Symptom.** `unbind = SUPER, Tab` appears to do nothing — the original binding still fires, and adding your own bind on the same key gives you two actions at once or the wrong one.
+**Symptom.** `unbind = SUPER, Tab` appears to do nothing. The original binding still fires, and adding your own bind on the same key gives you two actions at once or the wrong one.
 
 **Cause.** In `unbind`, the key name is case-sensitive and must match the case used in the original `bind` exactly. `Tab` and `TAB` are different keys as far as the unbind lookup is concerned.
 
-> **Audit corrected this record.** The central claim is verbatim wiki text — the current Binds page states: 'In unbind, key is case-sensitive It must exactly match the case of the bind you are unbinding.' `hyprctl binds` is a documented info command. The Omarchy override block is confirmed almost character-for-character against config/hypr/bindings.lua in the omarchy repo, which ships exactly `hl.unbind("SUPER + SPACE")` followed by `o.bind("SUPER + SPACE", "Omarchy menu", "omarchy-menu toggle root")` as its worked example. `hl.unbind("SUPER + TAB")` is correct. The one defect: the runtime-test line `hyprctl keyword unbind SUPER, TAB` is hyprlang-era and is presented unlabeled between two 0.55+ Lua blocks. On a current Omarchy 4.x box (Hyprland 0.56, Lua config) a user pastes it and it does not work; the Binds wiki gives the Lua-era equivalent explicitly.
+> **Audit corrected this record.** The central claim is verbatim wiki text. The current Binds page states: 'In unbind, key is case-sensitive It must exactly match the case of the bind you are unbinding.' `hyprctl binds` is a documented info command. The Omarchy override block is confirmed almost character-for-character against config/hypr/bindings.lua in the omarchy repo, which ships exactly `hl.unbind("SUPER + SPACE")` followed by `o.bind("SUPER + SPACE", "Omarchy menu", "omarchy-menu toggle root")` as its worked example. `hl.unbind("SUPER + TAB")` is correct. The one defect: the runtime-test line `hyprctl keyword unbind SUPER, TAB` is hyprlang-era and is presented unlabeled between two 0.55+ Lua blocks. On a current Omarchy 4.x box (Hyprland 0.56, Lua config) a user pastes it and it does not work. The Binds wiki gives the Lua-era equivalent explicitly.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -2664,7 +2664,7 @@ hyprlang (<= 0.54):
 hyprctl keyword unbind SUPER, TAB
 ```
 
-Lua (0.55+) — this is the wiki's own example:
+Lua (0.55+), which is the wiki's own example:
 ```bash
 hyprctl eval 'hl.unbind("SUPER + TAB")'
 ```
@@ -2674,7 +2674,7 @@ Find the exact registered spelling first, since the case must match:
 hyprctl binds | grep -A4 -i 'tab'
 ```
 
-**Verify.** `hyprctl binds` no longer lists the old bind; pressing the key does only what you expect.
+**Verify.** `hyprctl binds` no longer lists the old bind. Pressing the key does only what you expect.
 
 Sources: <https://wiki.hypr.land/0.54.0/Configuring/Binds/> · <https://github.com/basecamp/omarchy/blob/master/config/hypr/bindings.lua>
 
@@ -2686,7 +2686,7 @@ Sources: <https://wiki.hypr.land/0.54.0/Configuring/Binds/> · <https://github.c
 
 **Symptom.** `hl.workspace_rule({ workspace = "1", monitor = "DP-1" })` is in the config, but workspace 1 opens on whichever monitor happens to be focused. Or the binding works once and then stops: the first `SUPER+1` lands correctly, every later one pulls the workspace to the current screen. Or after undocking and re-docking, every workspace has piled onto the laptop panel and stays there. Or the rule quietly does nothing because the monitor was absent at login.
 
-**Cause.** Workspace-to-monitor binding is a *rule about where a workspace is created*, not a permanent tether. If the named output does not exist when Hyprland evaluates the rule — monitor off, dock not attached, connector renamed from `DP-1` to `DP-2` — the workspace is created on whatever monitor is available and there is nothing that migrates it back when the output reappears. Compounding this: workspace *selectors* (`r[2-4]`, `w[t1]`, `m[DP-1]`) only ever match workspaces that already exist, so a selector-based rule cannot pre-place a workspace that has not been created yet. Connector names are also unstable across docks, which is what turns a working config into a broken one after a hardware change.
+**Cause.** Workspace-to-monitor binding is a *rule about where a workspace is created*, not a permanent tether. If the named output does not exist when Hyprland evaluates the rule (monitor off, dock not attached, connector renamed from `DP-1` to `DP-2`), the workspace is created on whatever monitor is available and there is nothing that migrates it back when the output reappears. Compounding this: workspace *selectors* (`r[2-4]`, `w[t1]`, `m[DP-1]`) only ever match workspaces that already exist, so a selector-based rule cannot pre-place a workspace that has not been created yet. Connector names are also unstable across docks, which is what turns a working config into a broken one after a hardware change.
 
 **Fix.**
 
@@ -2738,7 +2738,7 @@ hyprctl reload      # Omarchy: omarchy-restart-hyprctl
 
 To automate it, bind the moves to a key or drive them from a `monitoradded` handler on `socket2` and call the dispatcher above for each workspace.
 
-**Verify.** `hyprctl workspacerules` lists a `monitor` entry for each bound workspace; after `hyprctl reload` with both displays attached, `hyprctl -j workspaces | jq -r '.[] | "\(.id) -> \(.monitor)"'` shows each workspace on its intended output.
+**Verify.** `hyprctl workspacerules` lists a `monitor` entry for each bound workspace. After `hyprctl reload` with both displays attached, `hyprctl -j workspaces | jq -r '.[] | "\(.id) -> \(.monitor)"'` shows each workspace on its intended output.
 
 Sources: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.hypr.land/Configuring/Basics/Dispatchers/> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://github.com/hyprwm/Hyprland/discussions/13755> · <https://github.com/hyprwm/Hyprland/issues/3120>
 

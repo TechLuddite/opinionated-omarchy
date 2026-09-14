@@ -10,7 +10,7 @@
 
 **Cause.** The NVIDIA DKMS module failed to compile against the newly installed kernel (often a GCC version bump). mkinitcpio still "succeeded" and regenerated the image/UKI without the NVIDIA modules, while userspace `nvidia-utils` was upgraded. The kernel-module/userspace version mismatch makes Hyprland fail to get a DRM device, so the session dies instantly and SDDM re-prompts.
 
-> **Audit corrected this record.** Symptom, diagnosis and the diagnostic commands are sound; `limine-mkinitcpio` is real (shipped by limine-mkinitcpio-hook, listed in install/omarchy-other.packages) and SDDM is indeed the DM. Two substantive errors. (1) Driver package selection is wrong: install/hardware/nvidia.sh picks `nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver` for GSP-capable (Turing+) GPUs and `nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils` for pre-Turing. The record says 'nvidia-dkms for pre-Turing', which is wrong - pre-Turing needs the 580xx legacy branch. (2) `sudo mkinitcpio -P` followed by `sudo limine-mkinitcpio` is redundant: per the comment in bin/omarchy-hibernation-setup, limine-mkinitcpio 'rebuilds initramfs/UKI for all kernels and updates the' boot entries itself. Also `pacman -S nvidia-open-dkms nvidia-utils` without -u is a partial-upgrade pattern, and `linux-lts-headers` is pointless unless linux-lts is installed.
+> **Audit corrected this record.** Symptom, diagnosis and the diagnostic commands are sound. `limine-mkinitcpio` is real (shipped by limine-mkinitcpio-hook, listed in install/omarchy-other.packages) and SDDM is indeed the DM. Two substantive errors. (1) Driver package selection is wrong: install/hardware/nvidia.sh picks `nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver` for GSP-capable (Turing+) GPUs and `nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils` for pre-Turing. The record says 'nvidia-dkms for pre-Turing', which is wrong: pre-Turing needs the 580xx legacy branch. (2) `sudo mkinitcpio -P` followed by `sudo limine-mkinitcpio` is redundant: per the comment in bin/omarchy-hibernation-setup, limine-mkinitcpio 'rebuilds initramfs/UKI for all kernels and updates the' boot entries itself. Also `pacman -S nvidia-open-dkms nvidia-utils` without -u is a partial-upgrade pattern, and `linux-lts-headers` is pointless unless linux-lts is installed.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -34,7 +34,7 @@ sudo limine-mkinitcpio
 sudo reboot
 ```
 
-If `dkms autoinstall` fails to build, read the build log, then reinstall the driver that matches your GPU generation. Which branch you need is not a guess - Omarchy's own detector tells you:
+If `dkms autoinstall` fails to build, read the build log, then reinstall the driver that matches your GPU generation. Which branch you need is not a guess. Omarchy's own detector tells you:
 
 ```bash
 sudo cat /var/lib/dkms/nvidia*/*/build/make.log | tail -40
@@ -94,15 +94,15 @@ Error: Legacy Limine configs exist (/boot/limine/limine.conf) but /boot/limine.c
 
 **Cause.** `omarchy-upgrade-to-quattro` is a one-way, multi-stage transaction: it rewrites `/etc/pacman.d/mirrorlist` and the `[omarchy]` section of `/etc/pacman.conf` to point at the Quattro package servers (`pkgs.omarchy.org`), reinstalls the whole desktop as pacman packages under `/usr/share/omarchy`, retires a long list of v3 packages, and only then replaces the user's `~/.local/share/omarchy` git checkout with a symlink. It runs under `set -euo pipefail`, so any single failing step aborts and leaves the system with a v4 pacman config and a partly-v3 package set. The most common concrete trigger: pre-Quattro installs have `omarchy-*` packages cached in `/var/cache/pacman/pkg` that the Quattro server rebuilt under the same name and version with different bytes, so the cached copies fail the new database's checksum and abort the `--noconfirm` transaction.
 
-> **Audit corrected this record.** Cause is verbatim-accurate against upstream `bin/omarchy-upgrade-to-quattro` (master, 2447 lines): `set -euo pipefail` (L8), the three-line red banner including "Re-running is safe and resumes the remaining steps." (L372-374), `as_root find /var/cache/pacman/pkg -maxdepth 1 -name 'omarchy-*' -delete` (L443) with the same-name/same-version/different-bytes comment, the key `40DFB630FF42BCFFB047046CF0134EE680CAC571` + `--keyserver keys.openpgp.org` + `--lsign-key` (L452-453), `pkgs.omarchy.org` channel servers (L319-327), `Legacy Limine configs exist (...) but /boot/limine.conf does not. Do not reboot until the bootloader config is repaired.` (L490), the exact four legacy paths (L473-476), timestamped `.omarchy-upgrade-to-quattro.<suffix>.bak` backups, and `--yes` / `--channel stable|rc|edge` (L4). `default/limine/limine.conf` exists in v3.8.0, so the `~/.local/share/omarchy/...` path is valid on a 3.8.x box. Two real defects in the fix. (1) Step 3 is unsafe in the exact state the record is about. The shipped `default/limine/limine.conf` is a branding/timeout template with ZERO boot entries (verified identical on v3.8.0 and quattro: no `protocol:`, no `path:`, no `//Snapshots`) — copying it blows away whatever entries /boot/limine.conf had, and the block then `rm -f`s all four alternate configs with no check that `limine-update` actually regenerated bootable entries. On a machine already displaying "do NOT reboot", that can turn a recoverable state into an unbootable one. Upstream itself gates on `grep -qE '(^|[[:space:]])root=' /boot/limine.conf` (L615); the record omits that gate. (2) The comment `--channel stable` / "stay on your current channel explicitly" is wrong: the script auto-detects the channel from the v3 mirrorlist (L58-64, matching `stable-mirror.omarchy.org` / `rc-mirror.omarchy.org` / `mirror.omarchy.org`) and `--channel` *overrides* that detection (usage L22: "Override the default stable Omarchy package channel"). `sudo limine-snapper-sync` is fine — ArchWiki's Limine page documents running it by hand as a check step.
+> **Audit corrected this record.** Cause is verbatim-accurate against upstream `bin/omarchy-upgrade-to-quattro` (master, 2447 lines): `set -euo pipefail` (L8), the three-line red banner including "Re-running is safe and resumes the remaining steps." (L372-374), `as_root find /var/cache/pacman/pkg -maxdepth 1 -name 'omarchy-*' -delete` (L443) with the same-name/same-version/different-bytes comment, the key `40DFB630FF42BCFFB047046CF0134EE680CAC571` + `--keyserver keys.openpgp.org` + `--lsign-key` (L452-453), `pkgs.omarchy.org` channel servers (L319-327), `Legacy Limine configs exist (...) but /boot/limine.conf does not. Do not reboot until the bootloader config is repaired.` (L490), the exact four legacy paths (L473-476), timestamped `.omarchy-upgrade-to-quattro.<suffix>.bak` backups, and `--yes` / `--channel stable|rc|edge` (L4). `default/limine/limine.conf` exists in v3.8.0, so the `~/.local/share/omarchy/...` path is valid on a 3.8.x box. Two real defects in the fix. (1) Step 3 is unsafe in the exact state the record is about. The shipped `default/limine/limine.conf` is a branding/timeout template with ZERO boot entries (verified identical on v3.8.0 and quattro: no `protocol:`, no `path:`, no `//Snapshots`). Copying it blows away whatever entries /boot/limine.conf had, and the block then `rm -f`s all four alternate configs with no check that `limine-update` actually regenerated bootable entries. On a machine already displaying "do NOT reboot", that can turn a recoverable state into an unbootable one. Upstream itself gates on `grep -qE '(^|[[:space:]])root=' /boot/limine.conf` (L615). The record omits that gate. (2) The comment `--channel stable` / "stay on your current channel explicitly" is wrong: the script auto-detects the channel from the v3 mirrorlist (L58-64, matching `stable-mirror.omarchy.org` / `rc-mirror.omarchy.org` / `mirror.omarchy.org`) and `--channel` *overrides* that detection (usage L22: "Override the default stable Omarchy package channel"). `sudo limine-snapper-sync` is fine: ArchWiki's Limine page documents running it by hand as a check step.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** This upgrade is one-way — the script's own banner says "Upgrading Omarchy to Quattro is a one-way street! You cannot downgrade from Quattro." Take a snapshot (`omarchy-snapshot create`) and back up $HOME before starting; a snapshot restore recovers `/` but never `/home`. Rebooting while the "Upgrade incomplete" banner is showing can bring the machine up with no network and no desktop, because the pacman repos are already v4 while the installed packages are not. If the Limine config error appeared, do not reboot until `/boot/limine.conf` exists and `limine-update` succeeded, or the machine will not boot at all.
+> ⚠️ **Risk.** This upgrade is one-way. The script's own banner says "Upgrading Omarchy to Quattro is a one-way street! You cannot downgrade from Quattro." Take a snapshot (`omarchy-snapshot create`) and back up $HOME before starting. A snapshot restore recovers `/` but never `/home`. Rebooting while the "Upgrade incomplete" banner is showing can bring the machine up with no network and no desktop, because the pacman repos are already v4 while the installed packages are not. If the Limine config error appeared, do not reboot until `/boot/limine.conf` exists and `limine-update` succeeded, or the machine will not boot at all.
 
 **Fix.**
 
-Do **not** reboot while that banner is on screen. Read the real error above it, clear it, then re-run — the script is idempotent and resumes:
+Do **not** reboot while that banner is on screen. Read the real error above it, clear it, then re-run. The script is idempotent and resumes:
 
 ```bash
 # 1. Cached legacy omarchy-* packages fail the new repo's checksums. This is
@@ -118,7 +118,7 @@ sudo pacman-key --lsign-key 40DFB630FF42BCFFB047046CF0134EE680CAC571
 sudo pacman -Syy --noconfirm archlinux-keyring omarchy-keyring
 ```
 
-**3. "Legacy Limine configs exist but /boot/limine.conf does not"** — repair the bootloader config BEFORE anything else. Prefer promoting the config you already have: it contains your real kernel entries. The Omarchy default under `default/limine/` is only branding + timeout and has **no boot entries at all**, so copying it is a last resort that depends entirely on `limine-update` regenerating them.
+**3. "Legacy Limine configs exist but /boot/limine.conf does not"**: repair the bootloader config BEFORE anything else. Prefer promoting the config you already have: it contains your real kernel entries. The Omarchy default under `default/limine/` is only branding + timeout and has **no boot entries at all**, so copying it is a last resort that depends entirely on `limine-update` regenerating them.
 
 ```bash
 sudo ls -l /boot/limine.conf /boot/limine/limine.conf \
@@ -170,7 +170,7 @@ ls -d /etc/pacman.conf.omarchy-upgrade-to-quattro.*.bak \
 find ~/.config -maxdepth 3 -name '*.omarchy-upgrade-to-quattro.*.bak'
 ```
 
-**Verify.** `omarchy-version` reports 4.x; `pacman -Q omarchy` returns a version; `ls /usr/share/omarchy/bin | head`; `readlink ~/.local/share/omarchy` prints `/usr/share/omarchy`; `omarchy update` runs to completion.
+**Verify.** `omarchy-version` reports 4.x, `pacman -Q omarchy` returns a version, `readlink ~/.local/share/omarchy` prints `/usr/share/omarchy`, and `omarchy update` runs to completion. Also check `ls /usr/share/omarchy/bin | head`.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-upgrade-to-quattro> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-menu> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots>
 
@@ -271,15 +271,15 @@ Sources: <https://github.com/omacom/omarchy/issues/6917> · <https://github.com/
 
 `black-screen-after-install-old-nvidia` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `desktop`, `nvidia`, `omarchy`
 
-**Symptom.** Install completes and the machine reboots to a permanent black screen — no login prompt, sometimes not even a TTY. Common on older NVIDIA cards (Kepler/Maxwell/Pascal era, e.g. GT 630, GTX 10xx) paired with older Intel CPUs.
+**Symptom.** Install completes and the machine reboots to a permanent black screen, with no login prompt and sometimes not even a TTY. Common on older NVIDIA cards (Kepler/Maxwell/Pascal era, e.g. GT 630, GTX 10xx) paired with older Intel CPUs.
 
-**Cause.** Two overlapping causes: (a) modern `nvidia`/`nvidia-open` packages no longer support pre-Turing GPUs — Arch's NVIDIA 590 release dropped Pascal and older and switched the main packages to the Open Kernel Modules; (b) with an unsupported card the DRM device never initialises, so Hyprland cannot start and there is nothing to display.
+**Cause.** Two overlapping causes: (a) modern `nvidia`/`nvidia-open` packages no longer support pre-Turing GPUs, since Arch's NVIDIA 590 release dropped Pascal and older and switched the main packages to the Open Kernel Modules. (b) With an unsupported card the DRM device never initialises, so Hyprland cannot start and there is nothing to display.
 
-> **Audit corrected this record.** The problem is real but the fix throws away a supported path. Verified in install/hardware/nvidia.sh: Omarchy already handles pre-Turing cards by installing the legacy branch - `nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils` when `omarchy-hw-nvidia-without-gsp` matches, versus `nvidia-open-dkms nvidia-utils` for GSP-capable GPUs. All of those are listed in install/omarchy-other.packages. So the first move should be installing the 580xx branch, not ripping NVIDIA out for nouveau. The mkinitcpio guidance repeats the error from the sibling record: Omarchy uses /etc/mkinitcpio.conf.d/nvidia.conf (MODULES+=) and /etc/mkinitcpio.conf.d/omarchy_hooks.conf for the conditional kms removal, not /etc/mkinitcpio.conf; and modesetting is set in /etc/modprobe.d/nvidia.conf, not on the kernel cmdline, so 'drop nvidia_drm.modeset=1 from the kernel cmdline' targets something that is not there. Also GPU generations are conflated: a GT 630 is Fermi/Kepler and needs the 470xx branch, while a GTX 10xx is Pascal and is covered by 580xx. `pacman -Rns nvidia-utils` can cascade into other packages that depend on it.
+> **Audit corrected this record.** The problem is real but the fix throws away a supported path. Verified in install/hardware/nvidia.sh: Omarchy already handles pre-Turing cards by installing the legacy branch: `nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils` when `omarchy-hw-nvidia-without-gsp` matches, versus `nvidia-open-dkms nvidia-utils` for GSP-capable GPUs. All of those are listed in install/omarchy-other.packages. So the first move should be installing the 580xx branch, not ripping NVIDIA out for nouveau. The mkinitcpio guidance repeats the error from the sibling record: Omarchy uses /etc/mkinitcpio.conf.d/nvidia.conf (MODULES+=) and /etc/mkinitcpio.conf.d/omarchy_hooks.conf for the conditional kms removal, not /etc/mkinitcpio.conf. Modesetting is set in /etc/modprobe.d/nvidia.conf, not on the kernel cmdline, so 'drop nvidia_drm.modeset=1 from the kernel cmdline' targets something that is not there. Also GPU generations are conflated: a GT 630 is Fermi/Kepler and needs the 470xx branch, while a GTX 10xx is Pascal and is covered by 580xx. `pacman -Rns nvidia-utils` can cascade into other packages that depend on it.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Removing driver packages and editing mkinitcpio.conf can leave the machine with no working display path at all. Do this from a TTY you can get back to, keep the LTS kernel entry, and note that `pacman -Rns nvidia-utils` may cascade-remove other packages — read the transaction list before confirming.
+> ⚠️ **Risk.** Removing driver packages and editing mkinitcpio.conf can leave the machine with no working display path at all. Do this from a TTY you can get back to, keep the LTS kernel entry, and note that `pacman -Rns nvidia-utils` may cascade-remove other packages, so read the transaction list before confirming.
 
 **Fix.**
 
@@ -296,7 +296,7 @@ omarchy-hw-nvidia-gsp && echo "Turing+ -> nvidia-open-dkms"
 omarchy-hw-nvidia-without-gsp && echo "pre-Turing -> nvidia-580xx-dkms"
 ```
 
-For a pre-Turing card, install the **legacy 580xx branch** - do not go to nouveau first. This is the path Omarchy's installer itself takes:
+For a pre-Turing card, install the **legacy 580xx branch**. Do not go to nouveau first. This is the path Omarchy's installer itself takes:
 
 ```bash
 # Maxwell / Pascal / Volta (e.g. GTX 9xx, GTX 10xx, Titan V):
@@ -306,7 +306,7 @@ sudo limine-mkinitcpio
 sudo reboot
 ```
 
-For a Fermi/Kepler card (e.g. GT 630, GTX 6xx/7xx), 580xx does NOT cover it - you need the older legacy branch from the AUR:
+For a Fermi/Kepler card (e.g. GT 630, GTX 6xx/7xx), 580xx does NOT cover it. You need the older legacy branch from the AUR:
 
 ```bash
 yay -S nvidia-470xx-dkms nvidia-470xx-utils
@@ -320,7 +320,7 @@ sudo pacman -Rns nvidia-open-dkms nvidia-utils lib32-nvidia-utils   # review the
 sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu --needed mesa lib32-mesa vulkan-nouveau
 ```
 
-Then remove Omarchy's NVIDIA drop-ins - these are separate files, NOT edits to /etc/mkinitcpio.conf:
+Then remove Omarchy's NVIDIA drop-ins. These are separate files, NOT edits to /etc/mkinitcpio.conf:
 
 ```bash
 sudo rm -f /etc/mkinitcpio.conf.d/nvidia.conf
@@ -329,9 +329,9 @@ sudo limine-mkinitcpio
 sudo reboot
 ```
 
-Leave the `kms` hook alone - /etc/mkinitcpio.conf.d/omarchy_hooks.conf restores it automatically once nvidia_drm is no longer early-loaded. And do not go hunting for `nvidia_drm.modeset=1` on the kernel cmdline; Omarchy sets modesetting via modprobe.d, so it was never there.
+Leave the `kms` hook alone. /etc/mkinitcpio.conf.d/omarchy_hooks.conf restores it automatically once nvidia_drm is no longer early-loaded. And do not go hunting for `nvidia_drm.modeset=1` on the kernel cmdline. Omarchy sets modesetting via modprobe.d, so it was never there.
 
-**Verify.** After reboot the login screen appears; `lsmod | grep nouveau` shows the module loaded and `hyprctl monitors` lists your display.
+**Verify.** After reboot the login screen appears. `lsmod | grep nouveau` shows the module loaded and `hyprctl monitors` lists your display.
 
 Sources: <https://github.com/basecamp/omarchy/issues/2434> · <https://archlinux.org/news/> · <https://github.com/basecamp/omarchy/issues?q=is%3Aissue+nvidia>
 
@@ -341,11 +341,11 @@ Sources: <https://github.com/basecamp/omarchy/issues/2434> · <https://archlinux
 
 `limine-boot-entry-missing-after-install` · severity: **critical** · frequency: **occasional** · applies to: `amd`, `arch`, `desktop`, `laptop`, `nvidia`, `omarchy`
 
-**Symptom.** Install finishes suspiciously fast ("under 3 minutes"), with an error that flashes past too quickly to read. On reboot the machine lands in the Limine boot menu but the only entry is a generic **EFI** option — no Omarchy/Arch kernel entry at all. Reported on both AMD and NVIDIA hardware.
+**Symptom.** Install finishes suspiciously fast ("under 3 minutes"), with an error that flashes past too quickly to read. On reboot the machine lands in the Limine boot menu but the only entry is a generic **EFI** option, with no Omarchy/Arch kernel entry at all. Reported on both AMD and NVIDIA hardware.
 
 **Cause.** The Omarchy installer's Limine step failed (commonly the initramfs/UKI generation or the Limine config write), so no kernel boot entry was created. The installer's error handling swallowed it and the run "completed".
 
-> **Audit corrected this record.** The scenario and the chroot recovery shape are sound, and /boot/limine.conf is the correct path (13 references across the repo vs 1 legacy reference to /boot/limine/limine.conf). `limine-mkinitcpio` is real. But `pacman -S limine limine-mkinitcpio-hook` is wrong as written: archlinux.org shows only `limine` (extra, 12.6.1) in the official repos - `limine-mkinitcpio-hook` is not an official package, it comes from the AUR / the [omarchy] repo (it is listed in install/omarchy-other.packages). From a plain Arch ISO chroot that command fails unless the [omarchy] repo and its keyring are already configured. The `mkinitcpio -P` + `limine-mkinitcpio` pair is redundant (limine-mkinitcpio rebuilds initramfs/UKI for all kernels itself), and the recovery omits `limine-update`, which is what actually writes the entries. `limine bios-install /dev/nvme0n1` on an NVMe UEFI install is very unlikely to be what anyone wants and deserves a stronger caveat.
+> **Audit corrected this record.** The scenario and the chroot recovery shape are sound, and /boot/limine.conf is the correct path (13 references across the repo vs 1 legacy reference to /boot/limine/limine.conf). `limine-mkinitcpio` is real. But `pacman -S limine limine-mkinitcpio-hook` is wrong as written: archlinux.org shows only `limine` (extra, 12.6.1) in the official repos. `limine-mkinitcpio-hook` is not an official package, it comes from the AUR / the [omarchy] repo (it is listed in install/omarchy-other.packages). From a plain Arch ISO chroot that command fails unless the [omarchy] repo and its keyring are already configured. The `mkinitcpio -P` + `limine-mkinitcpio` pair is redundant (limine-mkinitcpio rebuilds initramfs/UKI for all kernels itself), and the recovery omits `limine-update`, which is what actually writes the entries. `limine bios-install /dev/nvme0n1` on an NVMe UEFI install is very unlikely to be what anyone wants and deserves a stronger caveat.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -374,7 +374,7 @@ umount -R /mnt
 reboot
 ```
 
-If the tooling is missing, install it. Only `limine` is in the official Arch repos - `limine-mkinitcpio-hook` comes from the AUR or the [omarchy] repo, so on a plain Arch ISO chroot you need that repo configured (or build it from the AUR) first:
+If the tooling is missing, install it. Only `limine` is in the official Arch repos. `limine-mkinitcpio-hook` comes from the AUR or the [omarchy] repo, so on a plain Arch ISO chroot you need that repo configured (or build it from the AUR) first:
 
 ```bash
 pacman -S limine
@@ -401,15 +401,15 @@ Sources: <https://github.com/basecamp/omarchy/issues/4152> · <https://github.co
 
 `luks-prompt-then-no-desktop` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
-**Symptom.** After an update and reboot, the LUKS passphrase prompt appears and accepts the password, then the screen goes black with a blinking cursor. A message flashes for a fraction of a second and is unreadable. `Ctrl + Alt + F2` does nothing — the machine is completely inaccessible.
+**Symptom.** After an update and reboot, the LUKS passphrase prompt appears and accepts the password, then the screen goes black with a blinking cursor. A message flashes for a fraction of a second and is unreadable. `Ctrl + Alt + F2` does nothing. The machine is completely inaccessible.
 
 **Cause.** The graphical session fails to come up after unlock. On Omarchy 4 that means SDDM or the uwsm session, not `seamless-login`: `bin/omarchy-upgrade-to-quattro` removes `/etc/systemd/system/omarchy-seamless-login.service` and `/usr/local/bin/seamless-login` and disables the unit, and Omarchy 4 boots through SDDM (`install/login/sddm.sh`). Under uwsm the session is `wayland-wm@hyprland.service`, not a `hyprland` unit. Because Omarchy hides the boot text and the session never comes up, there is no TTY handoff either, so the console appears dead. It is a session-startup failure, not a disk-decryption failure.
 
-> **Audit corrected this record.** The recovery approach is sound and the multi-user.target trick is the right instinct. But the cause is half-obsolete and one command is wrong. `seamless-login` no longer exists on current Omarchy: bin/omarchy-upgrade-to-quattro explicitly removes /etc/systemd/system/omarchy-seamless-login.service and /usr/local/bin/seamless-login and disables the unit - Omarchy 4 boots through SDDM (install/login/sddm.sh). So on a current system the thing to inspect is sddm, not seamless-login. `uwsm start hyprland` is not the correct invocation - uwsm takes a desktop entry (hyprland-uwsm.desktop) or an explicit `--` separator. Under uwsm the session is also not a `hyprland` unit, so a `journalctl -u hyprland` style lookup returns nothing; it is wayland-wm@hyprland.service. Minor: `cat file | tail` is a useless use of cat, and the quiet/splash removal should go through Omarchy's limine-entry-tool drop-ins rather than hand-editing.
+> **Audit corrected this record.** The recovery approach is sound and the multi-user.target trick is the right instinct. But the cause is half-obsolete and one command is wrong. `seamless-login` no longer exists on current Omarchy: bin/omarchy-upgrade-to-quattro explicitly removes /etc/systemd/system/omarchy-seamless-login.service and /usr/local/bin/seamless-login and disables the unit. Omarchy 4 boots through SDDM (install/login/sddm.sh). So on a current system the thing to inspect is sddm, not seamless-login. `uwsm start hyprland` is not the correct invocation, because uwsm takes a desktop entry (hyprland-uwsm.desktop) or an explicit `--` separator. Under uwsm the session is also not a `hyprland` unit, so a `journalctl -u hyprland` style lookup returns nothing. It is wayland-wm@hyprland.service. Minor: `cat file | tail` is a useless use of cat, and the quiet/splash removal should go through Omarchy's limine-entry-tool drop-ins rather than hand-editing.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Editing the kernel cmdline at the Limine prompt is temporary and safe, but making it permanent in limine.conf incorrectly can prevent boot. Do not remove the `cryptdevice`/`rd.luks` parameters — that makes the encrypted root unreachable.
+> ⚠️ **Risk.** Editing the kernel cmdline at the Limine prompt is temporary and safe, but making it permanent in limine.conf incorrectly can prevent boot. Do not remove the `cryptdevice`/`rd.luks` parameters: that makes the encrypted root unreachable.
 
 **Fix.**
 
@@ -474,9 +474,9 @@ failed to get hyprland version string (bad json)
 
 Users report the update "looked fine" and only the reboot revealed the breakage.
 
-**Cause.** An Omarchy migration script rebuilds the initramfs via `limine-mkinitcpio`. On NVIDIA systems that rebuild can drop the required modules (or the nouveau GSP firmware), so the proprietary driver never loads. Hyprland then cannot get GPU rendering and exits, and the watchdog's `hyprctl version -j` returns nothing parseable — hence the "bad json".
+**Cause.** An Omarchy migration script rebuilds the initramfs via `limine-mkinitcpio`. On NVIDIA systems that rebuild can drop the required modules (or the nouveau GSP firmware), so the proprietary driver never loads. Hyprland then cannot get GPU rendering and exits, and the watchdog's `hyprctl version -j` returns nothing parseable, hence the "bad json".
 
-> **Audit corrected this record.** The symptom is real but the fix edits the wrong files and would actively damage an Omarchy system. Verified in the repo: Omarchy does NOT manage /etc/mkinitcpio.conf directly - install/hardware/nvidia.sh writes /etc/mkinitcpio.conf.d/nvidia.conf containing `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` (append, not assign). Telling the user to set `MODULES=(nvidia ...)` in /etc/mkinitcpio.conf clobbers other hardware drop-ins (thunderbolt_module.conf, surface/apple keyboard drop-ins all use MODULES+=). The kms advice is also wrong: /etc/mkinitcpio.conf.d/omarchy_hooks.conf already drops kms automatically and CONDITIONALLY (only when nvidia_drm is early-loaded and NVIDIA owns every display), with a dedicated test at test/shell.d/nvidia-kms-hook-test.sh - hand-editing HOOKS fights it. Worst of all, the cmdline check is wrong: install/hardware/nvidia.sh sets modesetting via /etc/modprobe.d/nvidia.conf (`options nvidia_drm modeset=1`), NOT the kernel cmdline, so `cat /proc/cmdline | grep -i nvidia` returns nothing on a perfectly healthy machine and will send users chasing a non-problem.
+> **Audit corrected this record.** The symptom is real but the fix edits the wrong files and would actively damage an Omarchy system. Verified in the repo: Omarchy does NOT manage /etc/mkinitcpio.conf directly: install/hardware/nvidia.sh writes /etc/mkinitcpio.conf.d/nvidia.conf containing `MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` (append, not assign). Telling the user to set `MODULES=(nvidia ...)` in /etc/mkinitcpio.conf clobbers other hardware drop-ins (thunderbolt_module.conf, surface/apple keyboard drop-ins all use MODULES+=). The kms advice is also wrong: /etc/mkinitcpio.conf.d/omarchy_hooks.conf already drops kms automatically and CONDITIONALLY (only when nvidia_drm is early-loaded and NVIDIA owns every display), with a dedicated test at test/shell.d/nvidia-kms-hook-test.sh. Hand-editing HOOKS fights it. Worst of all, the cmdline check is wrong: install/hardware/nvidia.sh sets modesetting via /etc/modprobe.d/nvidia.conf (`options nvidia_drm modeset=1`), NOT the kernel cmdline, so `cat /proc/cmdline | grep -i nvidia` returns nothing on a perfectly healthy machine and will send users chasing a non-problem.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -491,7 +491,7 @@ lsmod | grep -i nvidia
 journalctl -b -p err --no-pager | head -50
 ```
 
-Do NOT edit /etc/mkinitcpio.conf. Omarchy configures NVIDIA entirely through drop-ins; check that they still exist and are intact:
+Do NOT edit /etc/mkinitcpio.conf. Omarchy configures NVIDIA entirely through drop-ins. Check that they still exist and are intact:
 
 ```bash
 cat /etc/mkinitcpio.conf.d/nvidia.conf
@@ -501,14 +501,14 @@ cat /etc/modprobe.d/nvidia.conf
 # expect: options nvidia_drm modeset=1
 ```
 
-If the mkinitcpio drop-in is missing or was truncated, recreate it exactly as the installer does - note the `+=`, which appends instead of wiping the other hardware drop-ins:
+If the mkinitcpio drop-in is missing or was truncated, recreate it exactly as the installer does. Note the `+=`, which appends instead of wiping the other hardware drop-ins:
 
 ```bash
 printf 'MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n' | sudo tee /etc/mkinitcpio.conf.d/nvidia.conf
 printf 'options nvidia_drm modeset=1\n' | sudo tee /etc/modprobe.d/nvidia.conf
 ```
 
-Leave the `kms` hook alone. Omarchy's /etc/mkinitcpio.conf.d/omarchy_hooks.conf removes it automatically, and only on systems where nvidia_drm is early-loaded and NVIDIA drives every display - removing it by hand breaks hybrid-GPU laptops.
+Leave the `kms` hook alone. Omarchy's /etc/mkinitcpio.conf.d/omarchy_hooks.conf removes it automatically, and only on systems where nvidia_drm is early-loaded and NVIDIA drives every display. Removing it by hand breaks hybrid-GPU laptops.
 
 Rebuild the initramfs and the Limine entries in one step:
 
@@ -517,7 +517,7 @@ sudo limine-mkinitcpio
 sudo reboot
 ```
 
-Verify modesetting is actually on. It is set through modprobe.d, so it will NOT appear in /proc/cmdline - check the module parameter instead:
+Verify modesetting is actually on. It is set through modprobe.d, so it will NOT appear in /proc/cmdline. Check the module parameter instead:
 
 ```bash
 cat /sys/module/nvidia_drm/parameters/modeset
@@ -534,7 +534,7 @@ Sources: <https://github.com/basecamp/omarchy/issues/8319> · <https://github.co
 
 `hypr-conf-overrides-ignored-after-quattro` · severity: **high** · frequency: **very-common** · applies to: `omarchy-4`
 
-**Symptom.** "After upgrading to Omarchy 4 all my Hyprland tweaks are gone." Custom keybinds, monitor resolution/refresh/scale, keyboard layout (an AZERTY/QWERTZ session comes back as US QWERTY), touchpad natural scrolling and `exec-once` autostarts all revert to stock — but `~/.config/hypr/hyprland.conf`, `bindings.conf`, `input.conf`, `monitors.conf`, `looknfeel.conf` are still sitting on disk with the settings in them.
+**Symptom.** "After upgrading to Omarchy 4 all my Hyprland tweaks are gone." Custom keybinds, monitor resolution/refresh/scale, keyboard layout (an AZERTY/QWERTZ session comes back as US QWERTY), touchpad natural scrolling and `exec-once` autostarts all revert to stock, but `~/.config/hypr/hyprland.conf`, `bindings.conf`, `input.conf`, `monitors.conf`, `looknfeel.conf` are still sitting on disk with the settings in them.
 
 A subset of users instead get a black screen with a red Hyprland error banner:
 
@@ -544,27 +544,27 @@ attempt to index a nil value (global 'o')
 
 referencing `default/hypr/autostart.lua:1`, `default/hypr/bindings/media.lua:2`, `default/hypr/bindings/clipboard.lua:13`, `default/hypr/windows.lua:3`.
 
-**Cause.** Hyprland 0.55 deprecated hyprlang in favour of Lua. It loads `$XDG_CONFIG_HOME/hypr/hyprland.lua` when that file exists and only falls back to `hyprland.conf` when it does not. `omarchy-upgrade-to-quattro` unconditionally installs the stock Quattro entry points — its `always_copy_config_files` list is `hypr/hyprland.lua`, `hypr/bindings.lua`, `hypr/input.lua`, `hypr/looknfeel.lua`, `hypr/monitors.lua`, `hypr/autostart.lua`, `hypr/.luarc.json` — and deliberately leaves the legacy `.conf` files alone ("Hyprland .conf files are intentionally left in place for users to reference/port after the upgrade"). The moment `hyprland.lua` exists, every `.conf` it used to source is dead weight.
+**Cause.** Hyprland 0.55 deprecated hyprlang in favour of Lua. It loads `$XDG_CONFIG_HOME/hypr/hyprland.lua` when that file exists and only falls back to `hyprland.conf` when it does not. `omarchy-upgrade-to-quattro` unconditionally installs the stock Quattro entry points, and its `always_copy_config_files` list is `hypr/hyprland.lua`, `hypr/bindings.lua`, `hypr/input.lua`, `hypr/looknfeel.lua`, `hypr/monitors.lua`, `hypr/autostart.lua`, `hypr/.luarc.json`. It deliberately leaves the legacy `.conf` files alone ("Hyprland .conf files are intentionally left in place for users to reference/port after the upgrade"). The moment `hyprland.lua` exists, every `.conf` it used to source is dead weight.
 
 The keyboard layout is a special case: the packaged `default/hypr/input.lua` reads `local kb_layout = vconsole.XKBLAYOUT or "us"`. Most installs have only `KEYMAP=fr` in `/etc/vconsole.conf` and no `XKBLAYOUT`, so the layout silently falls back to `us` (issue #6878).
 
 The `global 'o'` crash is different: it hits people who already hand-wrote a `hyprland.lua` on an earlier release whose entrypoint never called `require("default.hypr.helpers")`, which is where the `o` helper table is defined. No migration backfills that line (issue #5879).
 
-> **Audit corrected this record.** Cause verified line-for-line. hypr.land/news/26_lua: "if you don't have a hyprland.lua config file, your old hyprland.conf will be loaded... However, if you do have one, hyprland.lua will be loaded instead. This check is only done once at startup" — plus "Other hypr* tools will for now continue using hyprlang", which validates leaving hyprsunset.conf/xdph.conf alone. The `always_copy_config_files` list in omarchy-upgrade-to-quattro (L1631) matches the record exactly (hypr/.luarc.json, autostart.lua, bindings.lua, hyprland.lua, input.lua, looknfeel.lua, monitors.lua). `default/hypr/input.lua` really does read `local kb_layout = vconsole.XKBLAYOUT or "us"`. `default/hypr/helpers.lua` really defines global `o = o or {}`, and upstream `config/hypr/hyprland.lua` does NOT require it directly (it goes bootstrap -> `require("default.hypr.omarchy")`), so the missing-require diagnosis is correct; bootstrap.lua puts `~/.config/?.lua` and `$OMARCHY_PATH/?.lua` on package.path so the require resolves. Every Lua line in the fix is copied verbatim from upstream's own commented examples (hl.monitor / hl.env / hl.config / o.bind / hl.unbind / o.launch_on_start). Issues #6878 and #5879 are real and titled exactly as described. Two defects: (1) `hyprctl getoption input:kb_layout` uses the retired hyprlang colon syntax — wiki.hypr.land's hyprctl page now states "the option name should be written as `section.option`" with examples `general.border_size` and `input.touchpad.disable_while_typing`, so it must be `input.kb_layout`; the colon form is exactly the kind of stale pre-Lua syntax that should not ship. (2) For the most-reported symptom (#6878, layout reverting to US) the record only offers hardcoding kb_layout in input.lua, and never mentions the one-line root-cause fix: populate XKBLAYOUT in /etc/vconsole.conf, which the packaged default already reads. ArchWiki Xorg/Keyboard_configuration confirms "localectl additionally writes the keyboard configuration to /etc/vconsole.conf using variables XKBLAYOUT, XKBMODEL, XKBVARIANT and XKBOPTIONS".
+> **Audit corrected this record.** Cause verified line-for-line. hypr.land/news/26_lua: "if you don't have a hyprland.lua config file, your old hyprland.conf will be loaded... However, if you do have one, hyprland.lua will be loaded instead. This check is only done once at startup", plus "Other hypr* tools will for now continue using hyprlang", which validates leaving hyprsunset.conf/xdph.conf alone. The `always_copy_config_files` list in omarchy-upgrade-to-quattro (L1631) matches the record exactly (hypr/.luarc.json, autostart.lua, bindings.lua, hyprland.lua, input.lua, looknfeel.lua, monitors.lua). `default/hypr/input.lua` really does read `local kb_layout = vconsole.XKBLAYOUT or "us"`. `default/hypr/helpers.lua` really defines global `o = o or {}`, and upstream `config/hypr/hyprland.lua` does NOT require it directly (it goes bootstrap -> `require("default.hypr.omarchy")`), so the missing-require diagnosis is correct, and bootstrap.lua puts `~/.config/?.lua` and `$OMARCHY_PATH/?.lua` on package.path so the require resolves. Every Lua line in the fix is copied verbatim from upstream's own commented examples (hl.monitor / hl.env / hl.config / o.bind / hl.unbind / o.launch_on_start). Issues #6878 and #5879 are real and titled exactly as described. Two defects: (1) `hyprctl getoption input:kb_layout` uses the retired hyprlang colon syntax: wiki.hypr.land's hyprctl page now states "the option name should be written as `section.option`" with examples `general.border_size` and `input.touchpad.disable_while_typing`, so it must be `input.kb_layout`. The colon form is exactly the kind of stale pre-Lua syntax that should not ship. (2) For the most-reported symptom (#6878, layout reverting to US) the record only offers hardcoding kb_layout in input.lua, and never mentions the one-line root-cause fix: populate XKBLAYOUT in /etc/vconsole.conf, which the packaged default already reads. ArchWiki Xorg/Keyboard_configuration confirms "localectl additionally writes the keyboard configuration to /etc/vconsole.conf using variables XKBLAYOUT, XKBMODEL, XKBVARIANT and XKBOPTIONS".
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** hyprlock and hypridle deliberately stayed on hyprlang — the Hyprland announcement says "Other hypr* tools will for now continue using hyprlang as their config language provider." Do not convert `hyprlock.conf` to Lua while porting; a broken hyprlock config locks you out of a running session. `omarchy-refresh-config` overwrites the target file (it does write a `.bak.<epoch>` first). Move the legacy `.conf` files rather than deleting them until you have confirmed every setting is ported.
+> ⚠️ **Risk.** hyprlock and hypridle deliberately stayed on hyprlang. The Hyprland announcement says "Other hypr* tools will for now continue using hyprlang as their config language provider." Do not convert `hyprlock.conf` to Lua while porting. A broken hyprlock config locks you out of a running session. `omarchy-refresh-config` overwrites the target file (it does write a `.bak.<epoch>` first). Move the legacy `.conf` files rather than deleting them until you have confirmed every setting is ported.
 
 **Fix.**
 
-Your old settings are still readable — port them block by block into the Lua files Omarchy now loads.
+Your old settings are still readable. Port them block by block into the Lua files Omarchy now loads.
 
 ```bash
 ls -l ~/.config/hypr/*.conf   # the settings you are missing are in here
 ```
 
-**Keyboard layout first — it has a one-line root-cause fix.** Omarchy's packaged `default/hypr/input.lua` reads `vconsole.XKBLAYOUT or "us"`, and most installs only have `KEYMAP=` set. Give it the variable it is looking for and the layout comes back everywhere (Hyprland, TTY, initramfs prompt):
+**Keyboard layout first. It has a one-line root-cause fix.** Omarchy's packaged `default/hypr/input.lua` reads `vconsole.XKBLAYOUT or "us"`, and most installs only have `KEYMAP=` set. Give it the variable it is looking for and the layout comes back everywhere (Hyprland, TTY, initramfs prompt):
 
 ```bash
 grep -E 'KEYMAP|XKB' /etc/vconsole.conf     # likely KEYMAP=fr and no XKBLAYOUT
@@ -611,7 +611,7 @@ hl.config({ general = { gaps_in = 0, gaps_out = 0, border_size = 0 } })
 o.launch_on_start("my-service")
 ```
 
-Apply and check without logging out. Note that on Hyprland 0.55+ `getoption` takes `section.option` with **dots** — the old `input:kb_layout` colon form is hyprlang syntax and no longer correct:
+Apply and check without logging out. Note that on Hyprland 0.55+ `getoption` takes `section.option` with **dots**. The old `input:kb_layout` colon form is hyprlang syntax and no longer correct:
 
 ```bash
 hyprctl reload
@@ -638,7 +638,7 @@ or reset to the shipped entrypoint (it saves yours as `hyprland.lua.bak.<epoch>`
 omarchy-refresh-config hypr/hyprland.lua
 ```
 
-Once ported, get the dead files out of the way — but leave `hyprsunset.conf` and `xdph.conf`, whose tools are still hyprlang:
+Once ported, get the dead files out of the way, but leave `hyprsunset.conf` and `xdph.conf`, whose tools are still hyprlang:
 
 ```bash
 mkdir -p ~/.config/hypr/legacy-conf
@@ -647,7 +647,7 @@ mv ~/.config/hypr/hyprland.conf ~/.config/hypr/bindings.conf ~/.config/hypr/inpu
    ~/.config/hypr/envs.conf ~/.config/hypr/legacy-conf/ 2>/dev/null
 ```
 
-**Verify.** `hyprctl getoption input:kb_layout` reports your layout; `hyprctl monitors` shows the right mode/scale; `hyprctl binds` lists your custom binds; no red error banner at login.
+**Verify.** `hyprctl getoption input:kb_layout` reports your layout. `hyprctl monitors` shows the right mode/scale. `hyprctl binds` lists your custom binds. No red error banner at login.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-upgrade-to-quattro> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/config/hypr/hyprland.lua> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/config/hypr/monitors.lua> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/config/hypr/input.lua> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/config/hypr/bindings.lua> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/config/hypr/looknfeel.lua> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/config/hypr/autostart.lua> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-refresh-config> · <https://github.com/basecamp/omarchy/issues/6878> · <https://github.com/basecamp/omarchy/issues/5879> · <https://hypr.land/news/26_lua/>
 
@@ -657,27 +657,27 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-
 
 `omarchy-update-aborted-midway` · severity: **high** · frequency: **very-common** · applies to: `omarchy`
 
-**Symptom.** Running the update from the menu (Super + Alt + Space > Update > Omarchy) or `omarchy update` stops partway with a red banner: "Something went wrong during the update! Please review the output above carefully, correct the error, and retry the update." The desktop may then be in a half-updated state — theme wrong, menu items missing, or waybar/shell not restarting.
+**Symptom.** Running the update from the menu (Super + Alt + Space > Update > Omarchy) or `omarchy update` stops partway with a red banner: "Something went wrong during the update! Please review the output above carefully, correct the error, and retry the update." The desktop may then be in a half-updated state: theme wrong, menu items missing, or waybar/shell not restarting.
 
-**Cause.** `omarchy-update` is a wrapper around an ordered chain, and any non-zero exit in it trips the script's `trap` and aborts. The real order is: pkg-prune -> `omarchy-snapshot create` -> `omarchy-update-dev` -> `omarchy-update-keyring` -> `omarchy-update-system-pkgs` (packages) -> `omarchy-migrate` (migrations) -> hooks -> AUR. Packages come **before** migrations, deliberately - upstream's own comment reads 'Migrations ship with the packages installed here and are written against them, so everything below waits on this finishing.' So an abort partway leaves packages upgraded with their migrations unapplied. There is no `git pull` step: Omarchy 4 is pacman-packaged at `/usr/share/omarchy`. The whole session is teed to a log file.
+**Cause.** `omarchy-update` is a wrapper around an ordered chain, and any non-zero exit in it trips the script's `trap` and aborts. The real order is: pkg-prune -> `omarchy-snapshot create` -> `omarchy-update-dev` -> `omarchy-update-keyring` -> `omarchy-update-system-pkgs` (packages) -> `omarchy-migrate` (migrations) -> hooks -> AUR. Packages come **before** migrations, deliberately. Upstream's own comment reads 'Migrations ship with the packages installed here and are written against them, so everything below waits on this finishing.' So an abort partway leaves packages upgraded with their migrations unapplied. There is no `git pull` step: Omarchy 4 is pacman-packaged at `/usr/share/omarchy`. The whole session is teed to a log file.
 
 > **Audit corrected this record.** Log path /tmp/omarchy-update.log, the ERR trap, the red banner text, `omarchy update`, and `omarchy debug --print` -> /tmp/omarchy-debug.log all verified in bin/omarchy-update and bin/omarchy-debug. But the Cause section has the step order BACKWARDS. bin/omarchy-update runs: pkg-prune -> omarchy-snapshot create -> omarchy-update-dev -> omarchy-update-keyring -> omarchy-update-system-pkgs (packages) -> omarchy-migrate (migrations) -> hooks -> AUR. Upstream's own comment says: 'Migrations ship with the packages installed here and are written against them, so everything below waits on this finishing.' The record claims migrations run in step 2 and packages in step 3. Also: the menu is Super+Space (Super+Alt+Space is the Apps menu, per default/hypr/bindings/utilities.lua), there is no longer a git pull into ~/.local/share/omarchy (Omarchy 4 is pacman-packaged at /usr/share/omarchy), and the bare `sudo pacman -Syu` fallback is now BLOCKED by bin/omarchy-update-pacman-guard.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** An aborted update leaves the system in a partial-upgrade state. Do NOT install new packages until `sudo pacman -Syu` completes cleanly — installing against a half-synced database is the classic Arch way to break glibc/libalpm linkage.
+> ⚠️ **Risk.** An aborted update leaves the system in a partial-upgrade state. Do NOT install new packages until `sudo pacman -Syu` completes cleanly. Installing against a half-synced database is the classic Arch way to break glibc/libalpm linkage.
 
 **Fix.**
 
-Read the log first - it is always written, even when the screen scrolled past:
+Read the log first, because it is always written, even when the screen scrolled past:
 
 ```bash
 less /tmp/omarchy-update.log
 ```
 
-Understand the order so you know what state you are in. `omarchy-update` runs: snapshot -> keyring refresh -> **package upgrade** -> **migrations** -> post-update hooks -> AUR packages. Packages come FIRST because migrations are written against the packages they ship with. So an abort during the package step means migrations have NOT run yet (config is still old, consistent); an abort during migrations means new packages are installed against partially-migrated config.
+Understand the order so you know what state you are in. `omarchy-update` runs: snapshot -> keyring refresh -> **package upgrade** -> **migrations** -> post-update hooks -> AUR packages. Packages come FIRST because migrations are written against the packages they ship with. So an abort during the package step means migrations have NOT run yet (config is still old, consistent). An abort during migrations means new packages are installed against partially-migrated config.
 
-Fix the reported cause and re-run. The update is idempotent - already-applied migrations are tracked in ~/.local/state/omarchy/migrations and are skipped:
+Fix the reported cause and re-run. The update is idempotent. Already-applied migrations are tracked in ~/.local/state/omarchy/migrations and are skipped:
 
 ```bash
 omarchy update
@@ -685,7 +685,7 @@ omarchy update
 
 Menu equivalent: `Super + Space` > **Update** > **Omarchy**. (`Super + Alt + Space` is the Apps menu, not this.)
 
-If the failure was in package resolution, do NOT run bare `pacman -Syu` - Omarchy installs an ALPM guard that aborts direct system upgrades. Use the documented bypass for a single transaction, then resume:
+If the failure was in package resolution, do NOT run bare `pacman -Syu`, because Omarchy installs an ALPM guard that aborts direct system upgrades. Use the documented bypass for a single transaction, then resume:
 
 ```bash
 sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu
@@ -701,7 +701,7 @@ omarchy debug --print  # dump to terminal instead
 
 If the machine is unusable, reboot and pick the pre-update snapshot from the Limine menu (see `limine-snapshot-rollback`).
 
-**Verify.** `omarchy update` completes and prints no error banner; `tail -n 40 /tmp/omarchy-update.log` shows the package transaction finishing.
+**Verify.** `omarchy update` completes and prints no error banner. `tail -n 40 /tmp/omarchy-update.log` shows the package transaction finishing.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-debug> · <https://learn.omacom.io/2/the-omarchy-manual/68/updates> · <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting>
 
@@ -981,25 +981,25 @@ Sources: <https://github.com/omacom/omarchy/issues/7704> · <https://github.com/
 
 `limine-snapshot-rollback` · severity: **high** · frequency: **common** · applies to: `desktop`, `laptop`, `omarchy`, `systemd-boot`
 
-**Symptom.** An update left the machine broken — black screen, login loop, or a desktop that won't start — and the user wants to get back to the state from 10 minutes ago. They ask "how do I undo an omarchy update?"
+**Symptom.** An update left the machine broken, with a black screen, a login loop, or a desktop that won't start, and the user wants to get back to the state from 10 minutes ago. They ask "how do I undo an omarchy update?"
 
 **Cause.** Omarchy takes a btrfs snapshot before every update and registers it as a bootable Limine entry. Most users don't know the entries are there, or they roll back and are then surprised that their dotfiles didn't change back.
 
-> **Audit corrected this record.** `omarchy-snapshot create` and `omarchy-snapshot restore` are verified real (restore shells out to `sudo limine-snapper-restore`), and manual/47-system-snapshots.md confirms the whole flow including the click-the-notification step. Three corrections. (1) The 'Applies to' tag lists systemd-boot, which is flatly wrong - the manual states the feature 'is only available on installations using the Limine boot loader ... It's not available if you're on GRUB or systemd-boot.' (2) Snapshots are snapper-managed, not raw btrfs: install/config/snapper.sh installs a `root` config from default/snapper/root with NUMBER_LIMIT=5 and TIMELINE_CREATE=no. (3) It omits the Direct Boot trap - if Setup > Direct Boot is enabled, the firmware boots Omarchy straight past Limine, so the snapshot entries are unreachable until you pick Limine from the BIOS boot menu. That is exactly the situation where a user needs a rollback and cannot find one.
+> **Audit corrected this record.** `omarchy-snapshot create` and `omarchy-snapshot restore` are verified real (restore shells out to `sudo limine-snapper-restore`), and manual/47-system-snapshots.md confirms the whole flow including the click-the-notification step. Three corrections. (1) The 'Applies to' tag lists systemd-boot, which is flatly wrong. The manual states the feature 'is only available on installations using the Limine boot loader ... It's not available if you're on GRUB or systemd-boot.' (2) Snapshots are snapper-managed, not raw btrfs: install/config/snapper.sh installs a `root` config from default/snapper/root with NUMBER_LIMIT=5 and TIMELINE_CREATE=no. (3) It omits the Direct Boot trap. If Setup > Direct Boot is enabled, the firmware boots Omarchy straight past Limine, so the snapshot entries are unreachable until you pick Limine from the BIOS boot menu. That is exactly the situation where a user needs a rollback and cannot find one.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Snapshot restore only restores the root subvolume — /home is NOT rolled back, so ~/.config keeps its post-update state and can still be mismatched. Snapshots only exist on Limine installs; GRUB/systemd-boot installs have no rollback entries. `omarchy reinstall` overwrites customised configs.
+> ⚠️ **Risk.** Snapshot restore only restores the root subvolume. /home is NOT rolled back, so ~/.config keeps its post-update state and can still be mismatched. Snapshots only exist on Limine installs. GRUB and systemd-boot installs have no rollback entries. `omarchy reinstall` overwrites customised configs.
 
 **Fix.**
 
 1. Reboot. At the **Limine** boot menu, pick the snapshot entry labelled with the date and Omarchy version from *before* the bad update (the version shows in the bottom-left corner).
 
-   If you never see a Limine menu, you have *Setup > Direct Boot* enabled - the firmware is jumping straight to Omarchy. Interrupt at power-on and choose **Limine** from your BIOS/UEFI boot menu to reach the snapshot entries.
+   If you never see a Limine menu, you have *Setup > Direct Boot* enabled. The firmware is jumping straight to Omarchy. Interrupt at power-on and choose **Limine** from your BIOS/UEFI boot menu to reach the snapshot entries.
 
    Snapshots require the Limine bootloader (default since Omarchy 2.0). They do not exist on GRUB or systemd-boot installs.
 
-2. The system boots read-write into that snapshot. A notification appears - click it to make the rollback permanent, or run:
+2. The system boots read-write into that snapshot. A notification appears. Click it to make the rollback permanent, or run:
 
 ```bash
 omarchy-snapshot restore
@@ -1017,7 +1017,7 @@ Snapshots are managed by snapper against the `root` config only, and Omarchy kee
 sudo snapper -c root list
 ```
 
-Remember a restore covers the root subvolume only - /home and ~/.config are untouched (see `snapshot-restore-does-not-restore-home`).
+Remember a restore covers the root subvolume only. /home and ~/.config are untouched (see `snapshot-restore-does-not-restore-home`).
 
 If the desktop is fine but only Omarchy's own config is mangled, skip the rollback:
 
@@ -1045,13 +1045,13 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots> · 
 
 **Cause.** PAM's `pam_faillock` has locked the account after repeated failed authentications. It stays locked until the deny window expires or the counter is reset. Very common right after an install where the keyboard layout defaulted to a different one than the user typed the password in.
 
-> **Audit corrected this record.** Substantially correct - manual/45-troubleshooting.md gives almost this exact procedure (`CTRL + ALT + F2`, login as root, `faillock --reset --user [your-username]`). Two gaps. (1) It omits the single most useful fact: bin/omarchy-apply-lock configures pam_faillock with `deny=10 unlock_time=120`, so the lockout clears itself after two minutes - most users just need to wait rather than drop to a TTY. (2) The keyboard-layout remedy uses the obsolete `.conf` format; current Omarchy uses ~/.config/hypr/input.lua with an hl.config() call. Minor caveat worth adding: logging in as root at the TTY only works if a root password was actually set.
+> **Audit corrected this record.** Substantially correct: manual/45-troubleshooting.md gives almost this exact procedure (`CTRL + ALT + F2`, login as root, `faillock --reset --user [your-username]`). Two gaps. (1) It omits the single most useful fact: bin/omarchy-apply-lock configures pam_faillock with `deny=10 unlock_time=120`, so the lockout clears itself after two minutes. Most users just need to wait rather than drop to a TTY. (2) The keyboard-layout remedy uses the obsolete `.conf` format. Current Omarchy uses ~/.config/hypr/input.lua with an hl.config() call. Minor caveat worth adding: logging in as root at the TTY only works if a root password was actually set.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 **Fix.**
 
-Omarchy configures pam_faillock with `deny=10 unlock_time=120`, so the simplest fix is to **wait two minutes** and try again - the lockout expires on its own.
+Omarchy configures pam_faillock with `deny=10 unlock_time=120`, so the simplest fix is to **wait two minutes** and try again. The lockout expires on its own.
 
 If you do not want to wait, switch to a text console with `Ctrl + Alt + F2` and log in as **root** (this requires a root password to have been set), then reset the counter:
 
@@ -1171,15 +1171,15 @@ or `error: failed to synchronize all databases (invalid or corrupted database (P
 
 **Cause.** Omarchy ships its own signed pacman repository. Its signing key (fingerprint `40DFB630FF42BCFFB047046CF0134EE680CAC571`) must be in the local pacman keyring and locally signed. The key gets lost or goes stale after a clock skew, a restored snapshot, a manual /etc/pacman.d edit, or an `archlinux-keyring` that fell far behind.
 
-> **Audit corrected this record.** The fingerprint 40DFB630FF42BCFFB047046CF0134EE680CAC571 and keyserver keys.openpgp.org are verified exactly (bin/omarchy-update-keyring and manual/48-security.md). The clock-first advice is good. Three problems. (1) It misses the canonical one-command fix: `omarchy-update-keyring` exists and does precisely this recv-keys/lsign-key/install-omarchy-keyring dance. (2) `sudo pacman -Sy` then `sudo pacman -S ...` then `sudo pacman -Syyuu` will be aborted by bin/omarchy-update-pacman-guard on the -Syyuu step. (3) `sudo pacman -Syyuu --noconfirm` is genuinely dangerous as written - the double-u enables downgrades and --noconfirm accepts every one of them silently. The `rm -rf /etc/pacman.d/gnupg` step is the standard Arch recovery but is presented with no warning that it destroys every locally-signed key on the machine.
+> **Audit corrected this record.** The fingerprint 40DFB630FF42BCFFB047046CF0134EE680CAC571 and keyserver keys.openpgp.org are verified exactly (bin/omarchy-update-keyring and manual/48-security.md). The clock-first advice is good. Three problems. (1) It misses the canonical one-command fix: `omarchy-update-keyring` exists and does precisely this recv-keys/lsign-key/install-omarchy-keyring dance. (2) `sudo pacman -Sy` then `sudo pacman -S ...` then `sudo pacman -Syyuu` will be aborted by bin/omarchy-update-pacman-guard on the -Syyuu step. (3) `sudo pacman -Syyuu --noconfirm` is genuinely dangerous as written. The double-u enables downgrades and --noconfirm accepts every one of them silently. The `rm -rf /etc/pacman.d/gnupg` step is the standard Arch recovery but is presented with no warning that it destroys every locally-signed key on the machine.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** `pacman -Syyuu` can downgrade packages (`-uu`) — that is intentional here to resync with the Omarchy mirror, but do not run it while a previous transaction is half-applied.
+> ⚠️ **Risk.** `pacman -Syyuu` can downgrade packages (`-uu`). That is intentional here to resync with the Omarchy mirror, but do not run it while a previous transaction is half-applied.
 
 **Fix.**
 
-Make sure the system clock is right first - a wrong clock invalidates every signature:
+Make sure the system clock is right first, because a wrong clock invalidates every signature:
 
 ```bash
 timedatectl set-ntp true
@@ -1208,7 +1208,7 @@ Then refresh the keyring packages and finish the upgrade through Omarchy, which 
 omarchy update
 ```
 
-If you must drive pacman directly, use the documented bypass and do NOT pass --noconfirm to a downgrade-enabled upgrade - `-uu` permits downgrades and you want to see them before they happen:
+If you must drive pacman directly, use the documented bypass and do NOT pass --noconfirm to a downgrade-enabled upgrade, because `-uu` permits downgrades and you want to see them before they happen:
 
 ```bash
 sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Sy archlinux-keyring omarchy-keyring
@@ -1354,7 +1354,7 @@ Move `plugins.off` and `themed.off` back once you know which one it was.
 
 No graphical session left at all? Switch to a TTY with `Ctrl+Alt+F2`, log in, and run `omarchy-restart-shell` there. It derives `HYPRLAND_INSTANCE_SIGNATURE` from the newest instance runtime dir on its own, and takes `OMARCHY_PATH` from `systemctl --user show-environment`, so it works without a login shell.
 
-**Verify.** `omarchy-shell shell ping` returns; `hyprctl layers | grep omarchy-bar` shows the layer; `journalctl --user -b -t omarchy-shell` stops emitting "relaunching" lines.
+**Verify.** `omarchy-shell shell ping` returns. `hyprctl layers | grep omarchy-bar` shows the layer. `journalctl --user -b -t omarchy-shell` stops emitting "relaunching" lines.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-restart> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-audio> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-wifi> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-bluetooth> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/7380> · <https://github.com/basecamp/omarchy/issues/8647> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-templates> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-refresh-config> · <https://github.com/omacom/omarchy/issues/7380> · <https://github.com/omacom/omarchy/issues/8647> · <https://github.com/omacom/omarchy/issues/7106>
 
@@ -1455,7 +1455,7 @@ A package-vs-package conflict is a decision rather than a cleanup, so it is deli
 >
 > *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Never widen the glob to `--overwrite '*'` — it will silently clobber files owned by other packages and is the single fastest way to make a system unrepairable. Only overwrite a path you have confirmed with `pacman -Qo` is unowned. Move conflicting files instead of deleting them: on this system `sddm.conf.d` and `systemd/system-sleep` are read wholesale, so a copy left *beside* the original would still be live, which is exactly why Omarchy quarantines to a mirrored path under `/var/lib/omarchy/replaced` rather than renaming in place.
+> ⚠️ **Risk.** Never widen the glob to `--overwrite '*'`. It will silently clobber files owned by other packages and is the single fastest way to make a system unrepairable. Only overwrite a path you have confirmed with `pacman -Qo` is unowned. Move conflicting files instead of deleting them: on this system `sddm.conf.d` and `systemd/system-sleep` are read wholesale, so a copy left *beside* the original would still be live, which is exactly why Omarchy quarantines to a mirrored path under `/var/lib/omarchy/replaced` rather than renaming in place.
 
 **Fix.**
 
@@ -1662,7 +1662,7 @@ On a btrfs root the confusing part is that `df -h /` can still show a couple of 
 
 A second case produces the same `No space left on device` and never produces this message. `omarchy-update-requires-free-space` measures `/` and nothing else, so when the vfat ESP at `/boot` is the filesystem that is full the check passes, the update starts, and mkinitcpio or the Limine hook dies while `df -h /` still shows hundreds of gigabytes free. Look at both filesystems before believing either.
 
-**Cause.** `omarchy-update-requires-free-space` runs `df --output=avail --block-size=1 /` and aborts below 10 GiB (10737418240 bytes). On Omarchy's default btrfs layout that space is usually not "used by files" at all: `install/config/snapper.sh` installs a snapper `root` config with `NUMBER_LIMIT=5` / `NUMBER_LIMIT_IMPORTANT=5`, and `omarchy update` creates a pre-update snapshot on every run. Those five snapshots pin every block that any deleted file used to occupy, including `/var/cache/pacman/pkg`, which lives on the same snapshotted subvolume — which is exactly why `omarchy-update-pkg-prune` runs `paccache -rk2` *before* the snapshot rather than after. Deleting files inside the live root therefore frees nothing until the snapshots holding them age out.
+**Cause.** `omarchy-update-requires-free-space` runs `df --output=avail --block-size=1 /` and aborts below 10 GiB (10737418240 bytes). On Omarchy's default btrfs layout that space is usually not "used by files" at all: `install/config/snapper.sh` installs a snapper `root` config with `NUMBER_LIMIT=5` / `NUMBER_LIMIT_IMPORTANT=5`, and `omarchy update` creates a pre-update snapshot on every run. Those five snapshots pin every block that any deleted file used to occupy, including `/var/cache/pacman/pkg`, which lives on the same snapshotted subvolume. That is exactly why `omarchy-update-pkg-prune` runs `paccache -rk2` *before* the snapshot rather than after. Deleting files inside the live root therefore frees nothing until the snapshots holding them age out.
 
 > **Audit corrected this record.** Re-audited on omarchy 4.0.2-1, kernel 7.1.9. The first-pass note is still true line for line: I diffed `/usr/share/omarchy/bin/omarchy-update-requires-free-space`, `bin/omarchy-update-pkg-prune` and `default/snapper/root` on this machine against the quattro tree and all three are byte identical, so `df --output=avail --block-size=1 /`, the `(( available_bytes < 10 * 1024 * 1024 * 1024 ))` test, the exact message, the `OMARCHY_UPDATE_FORCE=1` early exit, `paccache -rk2`, and `NUMBER_LIMIT=5` / `NUMBER_LIMIT_IMPORTANT=5` / `TIMELINE_CREATE=no` all hold. `bin/omarchy-update` still calls `omarchy-update-pkg-prune` before `omarchy-snapshot create`. `paccache -rk1` and `paccache -ruk0` are on the Arch Wiki Pacman page verbatim. The rollback claim in `danger` checks out: `limine-snapper-sync` 1.31.0-1 is installed from the `omarchy` repo and `omarchy-snapshot restore` calls `limine-snapper-restore`. What the first pass did not cover is the filesystem the check does not measure. The script looks at `/` only, and on this install `/boot` is a separate vfat ESP (`findmnt` reports `dmask=0077`, 2.0 GiB, 428 MiB used), so a full ESP sails past the 10 GiB check and kills the update later with the same `No space left on device` the symptom attributes to a full root. That case is Omarchy specific rather than generic: `/etc/limine-snapper-sync.conf` as shipped sets `LIMIT_USAGE_PERCENT=85` with `MAX_SNAPSHOT_ENTRIES` left at `auto`, and the upstream comments say new snapshot entries stop being added at that limit, so the same snapshots the record is about also consume ESP space. `/usr/lib/snapper/plugins/10-limine-snapper-sync` acts on the delete operation and re-runs `limine-snapper-sync`, which is why deleting snapshots is the safe way to reclaim the ESP and hand deletion of files there is not. I rewrote `symptom`, `fix`, `danger` and `verify` for that branch, added the warning that `paccache -rk1` and `yay -Sc` spend the cache that `omarchy-update-pkg-prune`'s own comment calls the only offline downgrade path, corrected the fix's claim that `yay -Sc` only clears build trees (it also clears pacman's cache of packages no longer installed), and reworded "df lies on btrfs" into what actually happens, which is that df reports against allocated chunks. The `cause` is correct as written and I left it alone, so `cause_reconciled` should stay unset. Two things I did not exercise: I ran no update and deleted no snapshot, cache or journal file, so the remedies are verified by reading sources and not by execution, and I could not list `/boot/EFI/Linux` because the ESP is `dmask=0077` and I am not permitted to use sudo here. One thing I cannot fix from a verdict: `applies_to` lists `arch`, `cachyos` and `endeavouros`, but the symptom, the threshold and the bypass variable are all `omarchy update` and exist nowhere else, so only the btrfs and snapper halves carry over to those systems.
 >
@@ -1756,19 +1756,19 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 yay: error while loading shared libraries: libalpm.so.15: cannot open shared object file: No such file or directory
 ```
 
-`omarchy update` then fails too, because it shells out to yay. Users describe it as "deadlocked — I can't update because the updater is broken."
+`omarchy update` then fails too, because it shells out to yay. Users describe it as "deadlocked. I can't update because the updater is broken."
 
 **Cause.** Classic partial upgrade. `pacman` was upgraded (bumping libalpm's soname, e.g. .so.14 -> .so.15) but `yay`, which links against libalpm, was not upgraded in the same transaction. Usually caused by `pacman -Sy <pkg>`, a Ctrl-C'd transaction, or an update that aborted after pacman but before yay.
 
-> **Audit corrected this record.** The failure mode is real and yay is still shipped (install/omarchy-base.packages lists `yay`). But the primary fix `sudo pacman -Syu` is now BLOCKED on Omarchy by bin/omarchy-update-pacman-guard, so the record's first command fails outright. The premise is also overstated: `omarchy update` is not deadlocked by a broken yay, because bin/omarchy-update runs omarchy-update-system-pkgs (pacman) first and omarchy-update-aur-pkgs (yay) last, and omarchy-update-aur-pkgs is skipped entirely unless `pacman -Qem` reports foreign packages. Additionally yay-bin conflicts with/provides yay, so `makepkg -si` will prompt to replace the installed yay, and makepkg must not be run as root - neither is mentioned.
+> **Audit corrected this record.** The failure mode is real and yay is still shipped (install/omarchy-base.packages lists `yay`). But the primary fix `sudo pacman -Syu` is now BLOCKED on Omarchy by bin/omarchy-update-pacman-guard, so the record's first command fails outright. The premise is also overstated: `omarchy update` is not deadlocked by a broken yay, because bin/omarchy-update runs omarchy-update-system-pkgs (pacman) first and omarchy-update-aur-pkgs (yay) last, and omarchy-update-aur-pkgs is skipped entirely unless `pacman -Qem` reports foreign packages. Additionally yay-bin conflicts with/provides yay, so `makepkg -si` will prompt to replace the installed yay, and makepkg must not be run as root. Neither is mentioned.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Do not `pacman -Sy` a single package to "fix" this — that deepens the partial upgrade. Always use a full `-Syu`.
+> ⚠️ **Risk.** Do not `pacman -Sy` a single package to "fix" this, because that deepens the partial upgrade. Always use a full `-Syu`.
 
 **Fix.**
 
-`pacman` itself still works. On Omarchy, a bare `pacman -Syu` is stopped by the update guard, so either run the normal updater (preferred - it upgrades system packages with pacman before it ever touches yay):
+`pacman` itself still works. On Omarchy, a bare `pacman -Syu` is stopped by the update guard, so either run the normal updater (preferred, because it upgrades system packages with pacman before it ever touches yay):
 
 ```bash
 omarchy update
@@ -1786,7 +1786,7 @@ Either one pulls the rebuilt `yay` and the soname mismatch goes away. Confirm:
 yay --version
 ```
 
-Only if yay is still broken (its repo build genuinely lags the new libalpm) fall back to the prebuilt `yay-bin`. Run makepkg as your normal user, never with sudo. `yay-bin` conflicts with `yay`, so pacman will ask to replace it - answer yes:
+Only if yay is still broken (its repo build genuinely lags the new libalpm) fall back to the prebuilt `yay-bin`. Run makepkg as your normal user, never with sudo. `yay-bin` conflicts with `yay`, so pacman will ask to replace it. Answer yes:
 
 ```bash
 sudo pacman -S --needed git base-devel
@@ -1812,17 +1812,17 @@ Sources: <https://github.com/basecamp/omarchy/issues/3877> · <https://raw.githu
 
 `direct-boot-hides-limine-snapshot-menu` · severity: **high** · frequency: **occasional** · applies to: `omarchy-4`
 
-**Symptom.** After enabling Setup > Direct Boot, the green "Omarchy Bootloader" menu never appears — the machine goes straight from the vendor logo into Omarchy. Later, when an update breaks the desktop and the manual says "restart and select a pre-update snapshot from the boot menu", there is no boot menu to select from. Users report being stuck at a black screen or login loop with no visible way back.
+**Symptom.** After enabling Setup > Direct Boot, the green "Omarchy Bootloader" menu never appears. The machine goes straight from the vendor logo into Omarchy. Later, when an update breaks the desktop and the manual says "restart and select a pre-update snapshot from the boot menu", there is no boot menu to select from. Users report being stuck at a black screen or login loop with no visible way back.
 
 A related report: Setup > Direct Boot itself fails with `Error: No Omarchy UKI found in /boot/EFI/Linux/` even though `sudo ls /boot/EFI/Linux/` clearly shows `omarchy_linux.efi`.
 
-**Cause.** `omarchy-setup-direct-boot` creates a firmware boot entry with `efibootmgr --create --label Omarchy --loader '\EFI\Linux\<uki>.efi'`, and efibootmgr places new entries at the head of `BootOrder`. The firmware then loads the unified kernel image directly and Limine never runs — and Limine is what renders the snapshot entries that `limine-snapper-sync` writes into `/boot/limine.conf`. The confirmation prompt says as much: "Setup direct boot (so snapshot booting must be done via bios)?". Some users reach the same state a different way, by setting `timeout: 0` in `/boot/limine.conf` (Omarchy ships it commented out as `#timeout: 3`, so Limine's own 5s default applies). Separately, the script refuses to run at all on some machines, and these are the current reasons: it hard-exits when `/sys/class/dmi/id/bios_vendor` matches *american megatrends* ("may not safely support custom EFI entries") or *apple*, when not booted UEFI, or when `efibootmgr` is not functional. `Error: No Omarchy UKI found in /boot/EFI/Linux/` means the probe `sudo find /boot/EFI/Linux/ -name 'omarchy*.efi'` matched nothing — the ESP is not mounted at /boot, or the install boots a separate kernel+initramfs rather than a UKI, or the UKI is not named `omarchy*.efi`. This is **not** a sudo/permissions problem: the script's find already runs under sudo, and the beta bug that did have that symptom (issue #6651) is fixed and closed.
+**Cause.** `omarchy-setup-direct-boot` creates a firmware boot entry with `efibootmgr --create --label Omarchy --loader '\EFI\Linux\<uki>.efi'`, and efibootmgr places new entries at the head of `BootOrder`. The firmware then loads the unified kernel image directly and Limine never runs. Limine is what renders the snapshot entries that `limine-snapper-sync` writes into `/boot/limine.conf`. The confirmation prompt says as much: "Setup direct boot (so snapshot booting must be done via bios)?". Some users reach the same state a different way, by setting `timeout: 0` in `/boot/limine.conf` (Omarchy ships it commented out as `#timeout: 3`, so Limine's own 5s default applies). Separately, the script refuses to run at all on some machines, and these are the current reasons: it hard-exits when `/sys/class/dmi/id/bios_vendor` matches *american megatrends* ("may not safely support custom EFI entries") or *apple*, when not booted UEFI, or when `efibootmgr` is not functional. `Error: No Omarchy UKI found in /boot/EFI/Linux/` means the probe `sudo find /boot/EFI/Linux/ -name 'omarchy*.efi'` matched nothing: the ESP is not mounted at /boot, or the install boots a separate kernel+initramfs rather than a UKI, or the UKI is not named `omarchy*.efi`. This is **not** a sudo/permissions problem: the script's find already runs under sudo, and the beta bug that did have that symptom (issue #6651) is fixed and closed.
 
-> **Audit corrected this record.** The main mechanism is correct and well sourced: `bin/omarchy-setup-direct-boot` does `efibootmgr --create --disk --part --label "Omarchy" --loader "\\EFI\\Linux\\$uki_file"` (efibootmgr prepends new entries to BootOrder), the confirm prompt is verbatim "Setup direct boot (so snapshot booting must be done via bios)?", re-running detects the entry and offers "Disable direct boot (remove Omarchy EFI entry)?" then `efibootmgr --bootnum "$boot_num" --delete-bootnum`, and `default/limine/limine.conf` really ships `#timeout: 3` commented out (Limine's own default of 5s then applies, as the record says). ArchWiki's Limine page confirms limine-snapper-sync is the thing that writes snapshot entries and that running `limine-snapper-sync` by hand is a documented check step. But the second half of the cause is factually wrong against current upstream: the script's probe is `uki_file=$(sudo find /boot/EFI/Linux/ -name "omarchy*.efi" -printf "%f\n" 2>/dev/null | head -1)` — it already runs under sudo, so "the script's find runs without sudo" is not true, and the cited issue #6651 ("Quattro, beta 1: Setup -> Direct boot reports Error: No Omarchy UKI found") is CLOSED, i.e. fixed. Telling readers "the file is there, the script just cannot see it" sends them chasing a bug that no longer exists. The record also misses the reason Direct Boot most visibly refuses to run today: the script hard-exits on `american megatrends` and `apple` BIOS vendors before it ever looks for a UKI — and the record's manual `efibootmgr --create` fallback walks straight past that deliberate safety check with no warning.
+> **Audit corrected this record.** The main mechanism is correct and well sourced: `bin/omarchy-setup-direct-boot` does `efibootmgr --create --disk --part --label "Omarchy" --loader "\\EFI\\Linux\\$uki_file"` (efibootmgr prepends new entries to BootOrder), the confirm prompt is verbatim "Setup direct boot (so snapshot booting must be done via bios)?", re-running detects the entry and offers "Disable direct boot (remove Omarchy EFI entry)?" then `efibootmgr --bootnum "$boot_num" --delete-bootnum`, and `default/limine/limine.conf` really ships `#timeout: 3` commented out (Limine's own default of 5s then applies, as the record says). ArchWiki's Limine page confirms limine-snapper-sync is the thing that writes snapshot entries and that running `limine-snapper-sync` by hand is a documented check step. But the second half of the cause is factually wrong against current upstream: the script's probe is `uki_file=$(sudo find /boot/EFI/Linux/ -name "omarchy*.efi" -printf "%f\n" 2>/dev/null | head -1)`. It already runs under sudo, so "the script's find runs without sudo" is not true, and the cited issue #6651 ("Quattro, beta 1: Setup -> Direct boot reports Error: No Omarchy UKI found") is CLOSED, i.e. fixed. Telling readers "the file is there, the script just cannot see it" sends them chasing a bug that no longer exists. The record also misses the reason Direct Boot most visibly refuses to run today: the script hard-exits on `american megatrends` and `apple` BIOS vendors before it ever looks for a UKI, and the record's manual `efibootmgr --create` fallback walks straight past that deliberate safety check with no warning.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Never delete an EFI boot entry you have not identified — `efibootmgr --delete-bootnum` on the wrong `Boot####` can leave the machine with nothing bootable. Confirm a Limine/Arch entry exists in `efibootmgr` output *before* rebooting after a deletion; if in doubt, reorder with `--bootorder` instead of deleting. `omarchy-setup-direct-boot` deliberately refuses to run on American Megatrends and Apple firmware because they mishandle custom EFI entries — do not work around that by creating the entry by hand on those machines. Also remember a snapshot restore recovers `/` but not `/home`, so `~/.config` stays as-is after a rollback.
+> ⚠️ **Risk.** Never delete an EFI boot entry you have not identified. `efibootmgr --delete-bootnum` on the wrong `Boot####` can leave the machine with nothing bootable. Confirm a Limine/Arch entry exists in `efibootmgr` output *before* rebooting after a deletion. If in doubt, reorder with `--bootorder` instead of deleting. `omarchy-setup-direct-boot` deliberately refuses to run on American Megatrends and Apple firmware because they mishandle custom EFI entries. Do not work around that by creating the entry by hand on those machines. Also remember a snapshot restore recovers `/` but not `/home`, so `~/.config` stays as-is after a rollback.
 
 **Fix.**
 
@@ -1849,7 +1849,7 @@ sudo limine-snapper-list             # the entries that should appear in the men
 sudo snapper -c root list
 ```
 
-If `omarchy-setup-direct-boot` refuses to run, read which check stopped it — the message is specific, and two of them are deliberate refusals, not bugs:
+If `omarchy-setup-direct-boot` refuses to run, read which check stopped it. The message is specific, and two of them are deliberate refusals, not bugs:
 
 ```bash
 cat /sys/class/dmi/id/bios_vendor
@@ -1860,16 +1860,16 @@ cat /sys/class/dmi/id/bios_vendor
 sudo efibootmgr >/dev/null && echo "efibootmgr OK"
 ```
 
-`Error: No Omarchy UKI found in /boot/EFI/Linux/` means the probe genuinely matched nothing — it already runs as `sudo find`, so this is not a permissions artefact (that beta bug, issue #6651, is fixed). Check what is actually there:
+`Error: No Omarchy UKI found in /boot/EFI/Linux/` means the probe genuinely matched nothing. It already runs as `sudo find`, so this is not a permissions artefact (that beta bug, issue #6651, is fixed). Check what is actually there:
 
 ```bash
 findmnt /boot                        # is the ESP mounted where you think?
 sudo ls -l /boot/EFI/Linux/          # need a file matching omarchy*.efi
 ```
 
-If the listing is empty or the kernel is a separate vmlinuz + initramfs rather than a UKI, there is nothing for direct boot to point at — configure a UKI first (`limine-mkinitcpio-hook` / `limine-update`) instead of creating the entry by hand.
+If the listing is empty or the kernel is a separate vmlinuz + initramfs rather than a UKI, there is nothing for direct boot to point at, so configure a UKI first (`limine-mkinitcpio-hook` / `limine-update`) instead of creating the entry by hand.
 
-**Verify.** `sudo efibootmgr` no longer shows "Omarchy" first in `BootOrder`; rebooting shows the "Omarchy Bootloader" menu; snapshot entries with dates and the Omarchy version in the bottom-left corner are listed.
+**Verify.** `sudo efibootmgr` no longer shows "Omarchy" first in `BootOrder`. Rebooting shows the "Omarchy Bootloader" menu. Snapshot entries with dates and the Omarchy version in the bottom-left corner are listed.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-setup-direct-boot> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/limine/limine.conf> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-refresh-limine> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/6651> · <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots>
 
@@ -1889,11 +1889,11 @@ even though the installer clearly wrote a working `/boot/limine.conf`. Reported 
 
 **Cause.** The limine-snapper integration script has a fallback branch that assumes the config lives at `/boot/limine/limine.conf` (the BIOS layout). On installs where Limine's config was written to `/boot/limine.conf` (or `/boot/EFI/BOOT/limine.conf`), the path check misses and the script bails.
 
-> **Audit corrected this record.** The path confusion is real - /boot/limine.conf is Omarchy's actual location and a legacy /boot/limine/limine.conf reference does still exist in the tree (bin/omarchy-upgrade-to-quattro:476). But the proposed fix cannot work on a normal Omarchy install. /boot IS the EFI System Partition (record 9 in this same set mounts /dev/nvme0n1p1 at /mnt/boot), and the ESP is vfat. vfat does not support symbolic links, so `sudo ln -sf /boot/limine.conf /boot/limine/limine.conf` fails with 'Operation not permitted' - it will never satisfy the path check. A bind mount or a copy is required instead, and the copy has to be kept in sync or the bootloader reads a stale config.
+> **Audit corrected this record.** The path confusion is real. /boot/limine.conf is Omarchy's actual location and a legacy /boot/limine/limine.conf reference does still exist in the tree (bin/omarchy-upgrade-to-quattro:476). But the proposed fix cannot work on a normal Omarchy install. /boot IS the EFI System Partition (record 9 in this same set mounts /dev/nvme0n1p1 at /mnt/boot), and the ESP is vfat. vfat does not support symbolic links, so `sudo ln -sf /boot/limine.conf /boot/limine/limine.conf` fails with 'Operation not permitted'. It will never satisfy the path check. A bind mount or a copy is required instead, and the copy has to be kept in sync or the bootloader reads a stale config.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Do not move or delete the real limine.conf — symlink to it. Removing it leaves the machine unbootable.
+> ⚠️ **Risk.** Do not move or delete the real limine.conf. Symlink to it. Removing it leaves the machine unbootable.
 
 **Fix.**
 
@@ -1906,7 +1906,7 @@ findmnt /boot        # note the FSTYPE - on Omarchy this is usually vfat (the ES
 
 On Omarchy the real file is `/boot/limine.conf`.
 
-Do NOT try to symlink it into place. `/boot` is the EFI System Partition and is formatted vfat, which has no symlink support - `ln -s` there fails outright. If you need the legacy `/boot/limine/limine.conf` path to resolve, use a bind mount, which works on vfat and disappears on reboot (so it cannot silently rot):
+Do NOT try to symlink it into place. `/boot` is the EFI System Partition and is formatted vfat, which has no symlink support, so `ln -s` there fails outright. If you need the legacy `/boot/limine/limine.conf` path to resolve, use a bind mount, which works on vfat and disappears on reboot (so it cannot silently rot):
 
 ```bash
 sudo mkdir -p /boot/limine
@@ -1920,7 +1920,7 @@ omarchy update
 sudo umount /boot/limine/limine.conf
 ```
 
-The real fix is to update - the path detection was corrected upstream, and current Omarchy consistently uses `/boot/limine.conf`:
+The real fix is to update. The path detection was corrected upstream, and current Omarchy consistently uses `/boot/limine.conf`:
 
 ```bash
 omarchy update
@@ -2041,15 +2041,15 @@ Sources: <https://github.com/omacom/omarchy/issues/8832> · <https://github.com/
 
 **Symptom.** User edits a config file, everything works, then the next `omarchy update` silently reverts all of it. They report "my keybindings/theme tweaks keep getting wiped on every update." Usually they had edited something under ~/.local/share/omarchy/default/hypr/.
 
-**Cause.** Omarchy 4's defaults are pacman-owned and live at `/usr/share/omarchy` (the `omarchy` package). Edits there vanish because a package upgrade rewrites the files - not because of a git hard-sync; the `~/.local/share/omarchy` git checkout was Omarchy 3. The config is Lua and layered: `~/.config/hypr/hyprland.lua` does `dofile(OMARCHY_PATH .. "/default/hypr/bootstrap.lua")`, then `require("default.hypr.omarchy")`, then requires `hypr.monitors` / `hypr.input` / `hypr.bindings` / `hypr.looknfeel` / `hypr.autostart`, then `default.hypr.toggles`. The user files are loaded after the defaults so they win. Editing the defaults is always the wrong layer.
+**Cause.** Omarchy 4's defaults are pacman-owned and live at `/usr/share/omarchy` (the `omarchy` package). Edits there vanish because a package upgrade rewrites the files, not because of a git hard-sync. The `~/.local/share/omarchy` git checkout was Omarchy 3. The config is Lua and layered: `~/.config/hypr/hyprland.lua` does `dofile(OMARCHY_PATH .. "/default/hypr/bootstrap.lua")`, then `require("default.hypr.omarchy")`, then requires `hypr.monitors` / `hypr.input` / `hypr.bindings` / `hypr.looknfeel` / `hypr.autostart`, then `default.hypr.toggles`. The user files are loaded after the defaults so they win. Editing the defaults is always the wrong layer.
 
-> **Audit corrected this record.** The principle (never edit Omarchy's defaults, put overrides in the user layer) is correct and still correct. But essentially every specific in this record is obsolete, and the quoted load order is not real. Verified: config/hypr/hyprland.conf DOES NOT EXIST in the current repo - the quoted `source =` block cannot be reproduced from upstream. Current Omarchy uses Lua: ~/.config/hypr/hyprland.lua does `dofile(OMARCHY_PATH .. "/default/hypr/bootstrap.lua")`, then `require("default.hypr.omarchy")`, then requires hypr.monitors / hypr.input / hypr.bindings / hypr.looknfeel / hypr.autostart, then default.hypr.toggles. The defaults path is /usr/share/omarchy (pacman-owned), not a git checkout at ~/.local/share/omarchy - so the reason edits vanish is that a package upgrade overwrites them, not a git hard-sync. The `unbind = SUPER, K` conf syntax no longer applies; Omarchy 4 exposes `omarchy_default_bindings = false` and `omarchy_preinstalled_bindings = false` in hyprland.lua and uses `o.bind(...)`.
+> **Audit corrected this record.** The principle (never edit Omarchy's defaults, put overrides in the user layer) is correct and still correct. But essentially every specific in this record is obsolete, and the quoted load order is not real. Verified: config/hypr/hyprland.conf DOES NOT EXIST in the current repo, so the quoted `source =` block cannot be reproduced from upstream. Current Omarchy uses Lua: ~/.config/hypr/hyprland.lua does `dofile(OMARCHY_PATH .. "/default/hypr/bootstrap.lua")`, then `require("default.hypr.omarchy")`, then requires hypr.monitors / hypr.input / hypr.bindings / hypr.looknfeel / hypr.autostart, then default.hypr.toggles. The defaults path is /usr/share/omarchy (pacman-owned), not a git checkout at ~/.local/share/omarchy, so the reason edits vanish is that a package upgrade overwrites them, not a git hard-sync. The `unbind = SUPER, K` conf syntax no longer applies. Omarchy 4 exposes `omarchy_default_bindings = false` and `omarchy_preinstalled_bindings = false` in hyprland.lua and uses `o.bind(...)`.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
-Never edit anything under `/usr/share/omarchy` (older installs: `~/.local/share/omarchy`). On current Omarchy that directory is owned by the `omarchy` pacman package, so every upgrade overwrites it. Put overrides in the matching user file - they are loaded after Omarchy's defaults and therefore win:
+Never edit anything under `/usr/share/omarchy` (older installs: `~/.local/share/omarchy`). On current Omarchy that directory is owned by the `omarchy` pacman package, so every upgrade overwrites it. Put overrides in the matching user file, because they are loaded after Omarchy's defaults and therefore win:
 
 | Want to change | Edit |
 |---|---|
@@ -2078,7 +2078,7 @@ require("hypr.autostart")
 require("default.hypr.toggles")
 ```
 
-To replace a default keybinding, just bind the same key in `~/.config/hypr/bindings.lua` - it is loaded later and overrides:
+To replace a default keybinding, just bind the same key in `~/.config/hypr/bindings.lua`, which is loaded later and overrides:
 
 ```lua
 o.bind("SUPER + K", "My command", "your-command")
@@ -2132,7 +2132,7 @@ Hits `sudo pacman -Syu`, `yay -Syu`, `paru -Syu`, and any GUI frontend that shel
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Bypassing is the whole point of the message: you skip the snapshot (no rollback target if the upgrade breaks the desktop), the keyring refresh, the migrations and the post-update hooks. The usual result of repeated bypasses is a desktop that starts but with a broken bar, theme or portal, because configs written for the newer library versions never landed. Always follow a bypass with `omarchy-migrate`. Do not `rm` the hook file itself — the `/etc/pacman.d/hooks` symlink override is the reversible way, and deleting the packaged file just means the next upgrade silently restores the guard.
+> ⚠️ **Risk.** Bypassing is the whole point of the message: you skip the snapshot (no rollback target if the upgrade breaks the desktop), the keyring refresh, the migrations and the post-update hooks. The usual result of repeated bypasses is a desktop that starts but with a broken bar, theme or portal, because configs written for the newer library versions never landed. Always follow a bypass with `omarchy-migrate`. Do not `rm` the hook file itself. The `/etc/pacman.d/hooks` symlink override is the reversible way, and deleting the packaged file just means the next upgrade silently restores the guard.
 
 **Fix.**
 
@@ -2145,7 +2145,7 @@ omarchy update
 sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu
 ```
 
-**AUR helpers need a different approach.** Never run yay or paru under sudo — they refuse it and build as an unprivileged user by design. And exporting the variable in your own shell is not enough either: the helper invokes its own `sudo pacman -Syu`, and sudo's default `env_reset` strips the variable before pacman sees it, so the guard still aborts. Split the upgrade instead — `-Sua` is AUR-only and never triggers the guard:
+**AUR helpers need a different approach.** Never run yay or paru under sudo. They refuse it and build as an unprivileged user by design. And exporting the variable in your own shell is not enough either: the helper invokes its own `sudo pacman -Syu`, and sudo's default `env_reset` strips the variable before pacman sees it, so the guard still aborts. Split the upgrade instead: `-Sua` is AUR-only and never triggers the guard:
 
 ```bash
 # repo half (guard bypassed explicitly)
@@ -2175,7 +2175,7 @@ omarchy-migrate
 omarchy-hook post-update     # runs your ~/.config/omarchy/hooks/post-update{,.d}
 ```
 
-If you genuinely want the guard off permanently, do not delete the hook — it is package-owned and returns on the next `omarchy` upgrade. Shadow it from the higher-priority hook directory instead, which `alpm-hooks(5)` documents as the supported way ("Hooks may be disabled by overriding them with a symlink to /dev/null"):
+If you genuinely want the guard off permanently, do not delete the hook. It is package-owned and returns on the next `omarchy` upgrade. Shadow it from the higher-priority hook directory instead, which `alpm-hooks(5)` documents as the supported way ("Hooks may be disabled by overriding them with a symlink to /dev/null"):
 
 ```bash
 sudo mkdir -p /etc/pacman.d/hooks
@@ -2184,7 +2184,7 @@ sudo ln -sf /dev/null /etc/pacman.d/hooks/00-omarchy-update-guard.hook
 sudo rm /etc/pacman.d/hooks/00-omarchy-update-guard.hook
 ```
 
-**Verify.** `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu` runs the transaction; `omarchy-migrate --pending` prints nothing and exits non-zero once migrations are applied.
+**Verify.** `sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu` runs the transaction. `omarchy-migrate --pending` prints nothing and exits non-zero once migrations are applied.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-pacman-guard> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/libalpm/hooks/00-omarchy-update-guard.hook> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-migrate> · <https://man.archlinux.org/man/alpm-hooks.5.en> · <https://learn.omacom.io/2/the-omarchy-manual/68/updates>
 
@@ -2196,9 +2196,9 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 **Symptom.** User updates with `sudo pacman -Syu` or `yay -Syu` out of habit. Packages update fine, but afterwards the Omarchy menu has missing/renamed entries, keybindings from the release notes don't exist, themes look wrong, or the top bar shows an "emergency mode" banner. Re-running `pacman -Syu` says everything is up to date.
 
-**Cause.** Omarchy 4 is installed as pacman packages (`omarchy`, `omarchy-settings`) at `/usr/share/omarchy`, and ships numbered migration scripts in `/usr/share/omarchy/migrations` with applied-state in `~/.local/state/omarchy/migrations`. `omarchy update` runs those migrations after the package upgrade; a bare `pacman -Syu` / `yay -Syu` upgrades packages and never runs them, so config and packages drift apart. On current Omarchy this is largely prevented rather than merely warned about: `bin/omarchy-update-pacman-guard` is an ALPM pre-transaction hook that aborts any direct `-S` + `-u` transaction.
+**Cause.** Omarchy 4 is installed as pacman packages (`omarchy`, `omarchy-settings`) at `/usr/share/omarchy`, and ships numbered migration scripts in `/usr/share/omarchy/migrations` with applied-state in `~/.local/state/omarchy/migrations`. `omarchy update` runs those migrations after the package upgrade. A bare `pacman -Syu` / `yay -Syu` upgrades packages and never runs them, so config and packages drift apart. On current Omarchy this is largely prevented rather than merely warned about: `bin/omarchy-update-pacman-guard` is an ALPM pre-transaction hook that aborts any direct `-S` + `-u` transaction.
 
-> **Audit corrected this record.** The underlying advice (always update through Omarchy) is correct and manual/30-updates.md warns about it. But three things are wrong for current Omarchy. (1) The symptom is largely obsolete: bin/omarchy-update-pacman-guard is an ALPM pre-transaction hook that ABORTS any direct -S+-u transaction with a 'Woah partner...' message, so users can no longer silently drift this way. (2) The cause is obsolete: Omarchy 4 is installed as pacman packages (omarchy, omarchy-settings) at /usr/share/omarchy, not a git checkout at ~/.local/share/omarchy; migrations live in /usr/share/omarchy/migrations with state in ~/.local/state/omarchy/migrations. (3) Menu keybind is Super+Space, not Super+Alt+Space. Also, `omarchy-refresh-hyprland` is presented as a harmless repair but it OVERWRITES every user hypr config (monitors, bindings, input, looknfeel, autostart) with defaults - that needs a warning.
+> **Audit corrected this record.** The underlying advice (always update through Omarchy) is correct and manual/30-updates.md warns about it. But three things are wrong for current Omarchy. (1) The symptom is largely obsolete: bin/omarchy-update-pacman-guard is an ALPM pre-transaction hook that ABORTS any direct -S+-u transaction with a 'Woah partner...' message, so users can no longer silently drift this way. (2) The cause is obsolete: Omarchy 4 is installed as pacman packages (omarchy, omarchy-settings) at /usr/share/omarchy, not a git checkout at ~/.local/share/omarchy. Migrations live in /usr/share/omarchy/migrations with state in ~/.local/state/omarchy/migrations. (3) Menu keybind is Super+Space, not Super+Alt+Space. Also, `omarchy-refresh-hyprland` is presented as a harmless repair but it OVERWRITES every user hypr config (monitors, bindings, input, looknfeel, autostart) with defaults. That needs a warning.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
@@ -2214,7 +2214,7 @@ omarchy update
 
 or from the menu: `Super + Space` > **Update** > **Omarchy**.
 
-Note that on current Omarchy you generally cannot cause this drift any more - a direct `pacman -Syu` / `yay -Syu` is stopped by Omarchy's ALPM guard, which prints a message pointing you back at `omarchy update`. If you deliberately bypassed it with `OMARCHY_ALLOW_DIRECT_PACMAN=1`, just run the update once and pending migrations replay in order:
+Note that on current Omarchy you generally cannot cause this drift any more. A direct `pacman -Syu` / `yay -Syu` is stopped by Omarchy's ALPM guard, which prints a message pointing you back at `omarchy update`. If you deliberately bypassed it with `OMARCHY_ALLOW_DIRECT_PACMAN=1`, just run the update once and pending migrations replay in order:
 
 ```bash
 omarchy update
@@ -2226,7 +2226,7 @@ Check what is actually still pending before assuming config is the problem:
 omarchy-migrate --pending
 ```
 
-Only if the Hyprland configs are genuinely mangled, reset them - but be aware this is destructive:
+Only if the Hyprland configs are genuinely mangled, reset them, but be aware this is destructive:
 
 ```bash
 # WARNING: overwrites ~/.config/hypr/{hyprland,monitors,input,bindings,looknfeel,autostart}.lua
@@ -2315,15 +2315,15 @@ OzoneImageBacking::ProduceSkiaGanesh failed to create GL representation
 
 **Cause.** Chromium defaults to ANGLE (egl-angle) on Wayland. A Mesa/Wayland stack bump shipped by an Omarchy update broke the ANGLE -> EGLImage -> DMA-BUF video path on some GPU/driver combinations, so the compositor gets an unusable buffer.
 
-> **Audit corrected this record.** The symptom and ANGLE diagnosis are plausible, but the fix flag does not exist and the procedure will break the user's browser. Verified against chromium/chromium ui/gl/gl_switches.cc: the only valid --use-gl values are egl, angle, mock, stub, disabled. There is no 'desktop' value - it was removed. Forcing native GL instead of ANGLE's default backend is `--use-angle=gl` (valid ANGLE names include default, gl, gl-egl, gles, vulkan, swiftshader). `--disable-features=UseChromeOSDirectVideoDecoder` is a ChromeOS-only feature flag, is inert on Linux, and does not disable GPU rasterization as claimed. Most damaging: Omarchy SHIPS a populated ~/.config/chromium-flags.conf containing --ozone-platform=wayland, --ozone-platform-hint=wayland, --password-store=gnome-libsecret and --load-extension=... . Telling users to 'create the file ... one flag per line' invites them to overwrite it, which drops Chromium out of Wayland/ozone and breaks keyring-backed password storage.
+> **Audit corrected this record.** The symptom and ANGLE diagnosis are plausible, but the fix flag does not exist and the procedure will break the user's browser. Verified against chromium/chromium ui/gl/gl_switches.cc: the only valid --use-gl values are egl, angle, mock, stub, disabled. There is no 'desktop' value. It was removed. Forcing native GL instead of ANGLE's default backend is `--use-angle=gl` (valid ANGLE names include default, gl, gl-egl, gles, vulkan, swiftshader). `--disable-features=UseChromeOSDirectVideoDecoder` is a ChromeOS-only feature flag, is inert on Linux, and does not disable GPU rasterization as claimed. Most damaging: Omarchy SHIPS a populated ~/.config/chromium-flags.conf containing --ozone-platform=wayland, --ozone-platform-hint=wayland, --password-store=gnome-libsecret and --load-extension=... . Telling users to 'create the file ... one flag per line' invites them to overwrite it, which drops Chromium out of Wayland/ozone and breaks keyring-backed password storage.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 **Fix.**
 
-Force Chromium off ANGLE's default backend onto native desktop GL. The flag is `--use-angle=gl` - `--use-gl=desktop` was removed from Chromium and is silently ignored (the only valid `--use-gl` values today are `egl`, `angle`, `mock`, `stub`, `disabled`).
+Force Chromium off ANGLE's default backend onto native desktop GL. The flag is `--use-angle=gl`, because `--use-gl=desktop` was removed from Chromium and is silently ignored (the only valid `--use-gl` values today are `egl`, `angle`, `mock`, `stub`, `disabled`).
 
-Omarchy already ships a populated flags file, so **append** to it - never overwrite it. Overwriting drops `--ozone-platform=wayland` and `--password-store=gnome-libsecret` and will break Wayland rendering and your saved passwords.
+Omarchy already ships a populated flags file, so **append** to it, never overwrite it. Overwriting drops `--ozone-platform=wayland` and `--password-store=gnome-libsecret` and will break Wayland rendering and your saved passwords.
 
 For Chromium:
 
@@ -2338,7 +2338,7 @@ For Brave:
 echo '--use-angle=gl' >> ~/.config/brave-flags.conf
 ```
 
-Fully quit and relaunch - a background process keeps the old flags:
+Fully quit and relaunch, because a background process keeps the old flags:
 
 ```bash
 pkill -f chromium; pkill -f brave
@@ -2358,7 +2358,7 @@ If you already clobbered the flags file, restore Omarchy's defaults:
 omarchy-refresh-chromium
 ```
 
-**Verify.** Open `chrome://gpu` — the GL renderer no longer reports ANGLE — and a YouTube video renders instead of showing black.
+**Verify.** Open `chrome://gpu` and the GL renderer no longer reports ANGLE. A YouTube video renders instead of showing black.
 
 Sources: <https://github.com/basecamp/omarchy/issues/3891> · <https://github.com/basecamp/omarchy/issues/3899>
 
@@ -2450,15 +2450,15 @@ Sources: <https://github.com/omacom/omarchy/issues/8108> · <https://github.com/
 
 `dev-channel-broke-my-desktop` · severity: **medium** · frequency: **common** · applies to: `omarchy`
 
-**Symptom.** User switched to the `dev` or `edge` update channel (or a feature branch) to try something new, and now every `omarchy update` pulls half-finished code — the shell crashes, the menu is broken, or migrations fail. They want back on stable but don't know how.
+**Symptom.** User switched to the `dev` or `edge` update channel (or a feature branch) to try something new, and now every `omarchy update` pulls half-finished code: the shell crashes, the menu is broken, or migrations fail. They want back on stable but don't know how.
 
-**Cause.** Omarchy has four update channels: **stable** (default, packages roughly a month behind), **edge** (latest packages, stable Omarchy code), **rc** (pre-release validation) and **dev** (cutting-edge code *and* packages). `dev` is explicitly for experienced users and regularly ships breakage. `omarchy-channel-set` is the single entry point - there is no `omarchy-branch-set`, and the channel and the source checkout are not set independently: `omarchy-channel-set` moves the package repo and the dev checkout together, and on `dev` that checkout is at `~/omarchy`.
+**Cause.** Omarchy has four update channels: **stable** (default, packages roughly a month behind), **edge** (latest packages, stable Omarchy code), **rc** (pre-release validation) and **dev** (cutting-edge code *and* packages). `dev` is explicitly for experienced users and regularly ships breakage. `omarchy-channel-set` is the single entry point. There is no `omarchy-branch-set`, and the channel and the source checkout are not set independently: `omarchy-channel-set` moves the package repo and the dev checkout together, and on `dev` that checkout is at `~/omarchy`.
 
-> **Audit corrected this record.** The four channels are real and confirmed by manual/30-updates.md, and `omarchy-channel-set` is correct. But most of the commands are wrong for current Omarchy. `omarchy-branch-set` DOES NOT EXIST - there is no such file in bin/ (only omarchy-channel-set, omarchy-channel-current, omarchy-version-branch, omarchy-version-channel). Channel and branch are no longer set independently: omarchy-channel-set handles the package repo and the dev checkout together. The dev checkout is at `~/omarchy`, not `~/.local/share/omarchy` - the manual says 'the dev channel, which links Omarchy directly to a git checkout of the source code in ~/omarchy' - so every `git -C ~/.local/share/omarchy ...` command targets a directory that does not exist on Omarchy 4. `omarchy-channel-set stable` already ends by running `omarchy-update -y`, so the trailing `omarchy update` is redundant. `sudo pacman -Syyuu` is blocked by the update guard, and the downgrade is already performed for you by omarchy-refresh-pacman. Finally, channel repos are configured from default/pacman/pacman-{stable,rc,edge}.conf, so grepping /etc/pacman.d/mirrorlist is the wrong file.
+> **Audit corrected this record.** The four channels are real and confirmed by manual/30-updates.md, and `omarchy-channel-set` is correct. But most of the commands are wrong for current Omarchy. `omarchy-branch-set` DOES NOT EXIST. There is no such file in bin/ (only omarchy-channel-set, omarchy-channel-current, omarchy-version-branch, omarchy-version-channel). Channel and branch are no longer set independently: omarchy-channel-set handles the package repo and the dev checkout together. The dev checkout is at `~/omarchy`, not `~/.local/share/omarchy`. The manual says 'the dev channel, which links Omarchy directly to a git checkout of the source code in ~/omarchy', so every `git -C ~/.local/share/omarchy ...` command targets a directory that does not exist on Omarchy 4. `omarchy-channel-set stable` already ends by running `omarchy-update -y`, so the trailing `omarchy update` is redundant. `sudo pacman -Syyuu` is blocked by the update guard, and the downgrade is already performed for you by omarchy-refresh-pacman. Finally, channel repos are configured from default/pacman/pacman-{stable,rc,edge}.conf, so grepping /etc/pacman.d/mirrorlist is the wrong file.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** Downgrading from edge/dev to stable with `pacman -Syyuu` rolls packages backwards; a downgraded kernel plus an already-rebuilt DKMS module can break the next boot. Take a snapshot (`omarchy-snapshot create`) before switching channels.
+> ⚠️ **Risk.** Downgrading from edge/dev to stable with `pacman -Syyuu` rolls packages backwards. A downgraded kernel plus an already-rebuilt DKMS module can break the next boot. Take a snapshot (`omarchy-snapshot create`) before switching channels.
 
 **Fix.**
 
@@ -2469,15 +2469,15 @@ omarchy-channel-current
 omarchy-version-channel
 ```
 
-Switch back through the menu - `Super + Space` > **Setup** > **Channel** > *stable* - or from a terminal. One command does everything: it repoints the pacman channel, swaps the omarchy-dev packages back to the stable ones, unlinks any dev checkout, and finishes by running the update itself:
+Switch back through the menu, `Super + Space` > **Setup** > **Channel** > *stable*, or from a terminal. One command does everything: it repoints the pacman channel, swaps the omarchy-dev packages back to the stable ones, unlinks any dev checkout, and finishes by running the update itself:
 
 ```bash
 omarchy-channel-set stable
 ```
 
-Do not look for `omarchy-branch-set` - it no longer exists. Channel and branch are not set independently any more; `omarchy-channel-set` handles both.
+Do not look for `omarchy-branch-set`. It no longer exists. Channel and branch are not set independently any more. `omarchy-channel-set` handles both.
 
-Moving from dev/edge back to stable means *downgrading* packages. `omarchy-channel-set` already does this for you via `omarchy-refresh-pacman`, which runs a full `pacman -Syyuu` with the update guard bypassed. Do not run a bare `sudo pacman -Syyuu` yourself - Omarchy's ALPM guard will abort it.
+Moving from dev/edge back to stable means *downgrading* packages. `omarchy-channel-set` already does this for you via `omarchy-refresh-pacman`, which runs a full `pacman -Syyuu` with the update guard bypassed. Do not run a bare `sudo pacman -Syyuu` yourself, because Omarchy's ALPM guard will abort it.
 
 If you had actually been on the **dev** channel, the source checkout lives at `~/omarchy` (not `~/.local/share/omarchy`). If local edits there are getting in the way, deal with them before switching:
 
@@ -2486,7 +2486,7 @@ git -C ~/omarchy status
 git -C ~/omarchy stash
 ```
 
-Switching to stable unlinks that checkout automatically (`omarchy-dev-unlink`), leaving OMARCHY_PATH back at /usr/share/omarchy. A reboot is flagged as required - take it.
+Switching to stable unlinks that checkout automatically (`omarchy-dev-unlink`), leaving OMARCHY_PATH back at /usr/share/omarchy. A reboot is flagged as required. Take it.
 
 If the system is still inconsistent afterwards, the documented reset reinstalls the default packages, forces stable, downgrades anything too new, and rewrites every config file:
 
@@ -2506,17 +2506,17 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/68/updates> · <https://g
 
 **Symptom.** Enabling hibernation from *Setup > System Sleep* fails, or hibernate is offered under `Super + Esc` but the machine just powers off and cold-boots instead of restoring. On some laptops the hibernate image creation aborts partway.
 
-**Cause.** Hibernation writes the entire contents of RAM to disk. Omarchy's setup creates a `/swap` btrfs subvolume sized to physical RAM; if the drive doesn't have that much free space the swapfile can't be created or is too small, and the resume image never gets written. Firmware/ACPI quirks on some laptops also break the default `HibernateMode`.
+**Cause.** Hibernation writes the entire contents of RAM to disk. Omarchy's setup creates a `/swap` btrfs subvolume sized to physical RAM. If the drive doesn't have that much free space the swapfile can't be created or is too small, and the resume image never gets written. Firmware/ACPI quirks on some laptops also break the default `HibernateMode`.
 
-> **Audit corrected this record.** Largely accurate and the tooling checks out - bin/omarchy-hibernation-setup and bin/omarchy-hibernation-remove both exist, it does create a `/swap` btrfs subvolume with a swapfile sized to MemTotal via `btrfs filesystem mkswapfile -s`, and it writes resume params to the kernel cmdline through /etc/limine-entry-tool.d/resume.conf, so the `/proc/cmdline | grep resume` check is valid. One genuinely risky instruction: `sudo systemctl restart systemd-logind` is unnecessary here (systemd-sleep reads /etc/systemd/sleep.conf at hibernate time, not from logind) and restarting logind can tear down the running graphical session and any active user sessions. Also /etc/systemd/sleep.conf is a package-managed file - a drop-in under /etc/systemd/sleep.conf.d/ is the correct place for the override. Minor: the menu is reached via Super + Space.
+> **Audit corrected this record.** Largely accurate and the tooling checks out: bin/omarchy-hibernation-setup and bin/omarchy-hibernation-remove both exist, it does create a `/swap` btrfs subvolume with a swapfile sized to MemTotal via `btrfs filesystem mkswapfile -s`, and it writes resume params to the kernel cmdline through /etc/limine-entry-tool.d/resume.conf, so the `/proc/cmdline | grep resume` check is valid. One genuinely risky instruction: `sudo systemctl restart systemd-logind` is unnecessary here (systemd-sleep reads /etc/systemd/sleep.conf at hibernate time, not from logind) and restarting logind can tear down the running graphical session and any active user sessions. Also /etc/systemd/sleep.conf is a package-managed file, and a drop-in under /etc/systemd/sleep.conf.d/ is the correct place for the override. Minor: the menu is reached via Super + Space.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** The swap subvolume consumes RAM-sized disk space permanently (32 GB RAM = 32 GB gone). A wrong `resume_offset` in the kernel cmdline causes a failed resume that discards the session — save work before testing.
+> ⚠️ **Risk.** The swap subvolume consumes RAM-sized disk space permanently (32 GB RAM = 32 GB gone). A wrong `resume_offset` in the kernel cmdline causes a failed resume that discards the session. Save work before testing.
 
 **Fix.**
 
-Check RAM and free space first - you need at least RAM-size free:
+Check RAM and free space first. You need at least RAM-size free:
 
 ```bash
 free -h
@@ -2547,7 +2547,7 @@ sudo mkdir -p /etc/systemd/sleep.conf.d
 printf '[Sleep]\nHibernateMode=shutdown\n' | sudo tee /etc/systemd/sleep.conf.d/omarchy-hibernate.conf
 ```
 
-Then just try it - do NOT restart systemd-logind, which will kill your graphical session and is not needed (systemd-sleep reads this config at hibernate time):
+Then just try it. Do NOT restart systemd-logind, which will kill your graphical session and is not needed (systemd-sleep reads this config at hibernate time):
 
 ```bash
 sudo systemctl hibernate
@@ -2569,15 +2569,15 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/103/system-sleep> · <htt
 
 `omarchy-in-vm-no-gpu-acceleration` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
 
-**Symptom.** Omarchy installed in VirtualBox / VMware / a generic QEMU VM boots to a black screen, or the desktop appears but is unusably slow — dragging a window takes seconds, animations stutter, video is a slideshow. Sometimes Hyprland exits immediately with an EGL/DRM error.
+**Symptom.** Omarchy installed in VirtualBox / VMware / a generic QEMU VM boots to a black screen, or the desktop appears but is unusably slow: dragging a window takes seconds, animations stutter, video is a slideshow. Sometimes Hyprland exits immediately with an EGL/DRM error.
 
-**Cause.** Hyprland requires a DRM device with working GL/EGL. Many hypervisor display adapters expose no usable 3D acceleration, so either no DRM node is found (black screen) or everything falls back to software rendering (slow). Note that Hyprland is no longer a wlroots compositor - it uses its own Aquamarine backend - so the old wlroots software-rendering escape hatches do not exist, and the compositor reads its environment at process start, before any config is applied, so a variable set from the Hyprland config cannot affect its own startup. Omarchy's own docs acknowledge VirtualBox works but "performance probably won't be great".
+**Cause.** Hyprland requires a DRM device with working GL/EGL. Many hypervisor display adapters expose no usable 3D acceleration, so either no DRM node is found (black screen) or everything falls back to software rendering (slow). Note that Hyprland is no longer a wlroots compositor. It uses its own Aquamarine backend, so the old wlroots software-rendering escape hatches do not exist, and the compositor reads its environment at process start, before any config is applied, so a variable set from the Hyprland config cannot affect its own startup. Omarchy's own docs acknowledge VirtualBox works but "performance probably won't be great".
 
-> **Audit corrected this record.** The problem is real and manual/49-omarchy-on.md acknowledges VirtualBox and VMware with the 'performance probably won't be great' caveat. But the technical framing and the fallback are obsolete. Hyprland is no longer a wlroots compositor - it moved to its own Aquamarine backend - and `WLR_RENDERER_ALLOW_SOFTWARE` is a dead wlroots variable: a code search across the entire hyprwm org returns zero occurrences of it (and zero for LIBGL_ALWAYS_SOFTWARE). Beyond being obsolete, the delivery mechanism cannot work: `env`/`hl.env` in monitors.conf/monitors.lua exports variables to clients Hyprland launches, but the compositor's own renderer reads its environment at process start, before the config is applied - so setting a software-rendering variable there cannot affect Hyprland's own startup. It must be set in the session environment before Hyprland launches. Minor: `glxinfo -B` needs mesa-utils (not mentioned), and `journalctl --user -b -u hyprland` matches nothing because under uwsm the unit is wayland-wm@hyprland.service.
+> **Audit corrected this record.** The problem is real and manual/49-omarchy-on.md acknowledges VirtualBox and VMware with the 'performance probably won't be great' caveat. But the technical framing and the fallback are obsolete. Hyprland is no longer a wlroots compositor. It moved to its own Aquamarine backend, and `WLR_RENDERER_ALLOW_SOFTWARE` is a dead wlroots variable: a code search across the entire hyprwm org returns zero occurrences of it (and zero for LIBGL_ALWAYS_SOFTWARE). Beyond being obsolete, the delivery mechanism cannot work: `env`/`hl.env` in monitors.conf/monitors.lua exports variables to clients Hyprland launches, but the compositor's own renderer reads its environment at process start, before the config is applied, so setting a software-rendering variable there cannot affect Hyprland's own startup. It must be set in the session environment before Hyprland launches. Minor: `glxinfo -B` needs mesa-utils (not mentioned), and `journalctl --user -b -u hyprland` matches nothing because under uwsm the unit is wayland-wm@hyprland.service.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** `LIBGL_ALWAYS_SOFTWARE=1` disables all GPU acceleration system-wide for the session — remove it once real acceleration works, or video playback and browsers will stay unusable.
+> ⚠️ **Risk.** `LIBGL_ALWAYS_SOFTWARE=1` disables all GPU acceleration system-wide for the session. Remove it once real acceleration works, or video playback and browsers will stay unusable.
 
 **Fix.**
 
@@ -2590,7 +2590,7 @@ glxinfo -B | grep -E 'renderer|OpenGL version'
 journalctl --user -b -u wayland-wm@hyprland.service --no-pager | tail -40
 ```
 
-If `/dev/dri/` is empty there is no DRM node at all and no environment variable will help - you must give the VM a virtual GPU.
+If `/dev/dri/` is empty there is no DRM node at all and no environment variable will help. You must give the VM a virtual GPU.
 
 **QEMU/KVM (best option):** give the guest virtio-gpu with venus/virgl and enough VRAM. In virt-manager set Video model to **Virtio** and tick **3D acceleration**, and set Display to **SPICE** with OpenGL enabled. In the guest:
 
@@ -2601,7 +2601,7 @@ sudo systemctl enable --now qemu-guest-agent spice-vdagentd
 
 **VirtualBox / VMware:** enable EFI, allocate 128 MB video memory, enable 3D acceleration, and install guest additions.
 
-If you need software rendering, note that `WLR_RENDERER_ALLOW_SOFTWARE` does nothing - Hyprland dropped wlroots for its own Aquamarine backend and never reads that variable. Use the Mesa variable, and set it in the **session environment before Hyprland starts**, not in monitors.lua (variables set there go to the apps Hyprland launches, not to the compositor itself):
+If you need software rendering, note that `WLR_RENDERER_ALLOW_SOFTWARE` does nothing. Hyprland dropped wlroots for its own Aquamarine backend and never reads that variable. Use the Mesa variable, and set it in the **session environment before Hyprland starts**, not in monitors.lua (variables set there go to the apps Hyprland launches, not to the compositor itself):
 
 ```bash
 mkdir -p ~/.config/uwsm
@@ -2610,7 +2610,7 @@ echo 'export LIBGL_ALWAYS_SOFTWARE=1' >> ~/.config/uwsm/env
 
 Then log out and back in. Expect llvmpipe-class performance.
 
-Set a fixed resolution rather than `preferred` - virtual displays often report a useless preferred mode. In `~/.config/hypr/monitors.lua`:
+Set a fixed resolution rather than `preferred`, because virtual displays often report a useless preferred mode. In `~/.config/hypr/monitors.lua`:
 
 ```lua
 hl.monitor({ output = "", mode = "1920x1080@60", position = "auto", scale = 1 })
@@ -2626,11 +2626,11 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/79/omarchy-on> · <https:
 
 `snapshot-restore-does-not-restore-home` · severity: **medium** · frequency: **common** · applies to: `omarchy`
 
-**Symptom.** User rolls back to a pre-update Limine snapshot to escape a broken update, but the desktop is still broken in the same way — the theme is still wrong, the top bar still misbehaves, the same keybindings are still missing.
+**Symptom.** User rolls back to a pre-update Limine snapshot to escape a broken update, but the desktop is still broken in the same way. The theme is still wrong, the top bar still misbehaves, the same keybindings are still missing.
 
-**Cause.** Omarchy snapshots cover the root subvolume only. Everything under /home — including ~/.config/hypr, ~/.config/waybar, ~/.config/omarchy — is untouched by a restore. Migrations that rewrote files in ~/.config are therefore still applied after the rollback, so package state and user config are now mismatched in the opposite direction.
+**Cause.** Omarchy snapshots cover the root subvolume only. Everything under /home, including ~/.config/hypr, ~/.config/waybar, ~/.config/omarchy, is untouched by a restore. Migrations that rewrote files in ~/.config are therefore still applied after the rollback, so package state and user config are now mismatched in the opposite direction.
 
-> **Audit corrected this record.** The cause is exactly right and confirmed almost verbatim by manual/47-system-snapshots.md ('This will restore your root filesystem, but not your /home ... your ~/.config directory is kept as-is') and by default/snapper/root which sets SUBVOLUME="/". Only the file names are stale: current Omarchy uses Lua Hyprland configs, so `omarchy-refresh-config hypr/bindings.conf` and `hypr/looknfeel.conf` will not resolve - they are now hypr/bindings.lua and hypr/looknfeel.lua. Minor: the manual `cp -r` backup is redundant because omarchy-refresh-config already writes a timestamped .bak beside each file and deletes it again if nothing changed.
+> **Audit corrected this record.** The cause is exactly right and confirmed almost verbatim by manual/47-system-snapshots.md ('This will restore your root filesystem, but not your /home ... your ~/.config directory is kept as-is') and by default/snapper/root which sets SUBVOLUME="/". Only the file names are stale: current Omarchy uses Lua Hyprland configs, so `omarchy-refresh-config hypr/bindings.conf` and `hypr/looknfeel.conf` will not resolve. They are now hypr/bindings.lua and hypr/looknfeel.lua. Minor: the manual `cp -r` backup is redundant because omarchy-refresh-config already writes a timestamped .bak beside each file and deletes it again if nothing changed.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -2659,7 +2659,7 @@ If you are on an older Omarchy 3 install these are still `.conf` (hypr/bindings.
 ls ~/.config/hypr/
 ```
 
-Because of this root-only split, back up your dotfiles independently of snapshots - keep ~/.config in a git repo or use GNU stow.
+Because of this root-only split, back up your dotfiles independently of snapshots. Keep ~/.config in a git repo or use GNU stow.
 
 **Verify.** `diff -r ~/.config/hypr ~/.local/share/omarchy/config/hypr` shows only your intentional overrides, and the desktop matches the rolled-back version.
 
@@ -2791,7 +2791,7 @@ ls -l ~/.local/state/omarchy/current/theme/colors.toml
 ls -l ~/.config/omarchy/themed/*.tpl 2>/dev/null
 ```
 
-**Verify.** `omarchy theme current` prints the theme you asked for; `readlink -f ~/.local/state/omarchy/current/background` resolves to a real image file; `ls ~/.local/state/omarchy/current/theme` contains `colors.toml` plus the generated `shell.toml`, `btop.theme` and `hyprland.lua`; `pgrep -f omarchy-theme-set` prints nothing, so the swap finished.
+**Verify.** `omarchy theme current` prints the theme you asked for. `readlink -f ~/.local/state/omarchy/current/background` resolves to a real image file. `ls ~/.local/state/omarchy/current/theme` contains `colors.toml` plus the generated `shell.toml`, `btop.theme` and `hyprland.lua`. `pgrep -f omarchy-theme-set` prints nothing, so the swap finished.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-set> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-refresh> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-list> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-remove> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-reinstall-configs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/theming.md> · <https://github.com/basecamp/omarchy/issues/7116> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-templates> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-refresh> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-current> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-browser> · <https://github.com/omacom/omarchy/issues/7116>
 
@@ -2816,13 +2816,13 @@ exec setsid uwsm-app -- $(sed -n 's/^Exec=\([^ ]*\).*/\1/p' \
   {~/.local,~/.nix-profile,/usr}/share/applications/$browser 2>/dev/null | head -1) --app="$1" "${@:2}"
 ```
 
-With Firefox default and Chromium uninstalled, `chromium.desktop` does not exist, the command substitution yields an empty binary path, and `uwsm-app` treats `--app=...` as the executable (issue #7034). With Opera default, it *is* whitelisted so the launch "succeeds" — but Opera ignores `--app=`, so the flag is dropped and you get the start page (issue #8298).
+With Firefox default and Chromium uninstalled, `chromium.desktop` does not exist, the command substitution yields an empty binary path, and `uwsm-app` treats `--app=...` as the executable (issue #7034). With Opera default, it *is* whitelisted so the launch "succeeds", but Opera ignores `--app=`, so the flag is dropped and you get the start page (issue #8298).
 
-> **Audit corrected this record.** Cause is exact. `bin/omarchy-launch-webapp` is reproduced character for character, including the whitelist `google-chrome* | brave* | microsoft-edge* | opera* | vivaldi* | helium*`, the `*) browser="chromium.desktop"` fallback, and the `exec setsid uwsm-app -- $(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/$browser 2>/dev/null | head -1) --app="$1" "${@:2}"` line — so the empty-command-substitution analysis and the Opera-is-whitelisted-but-ignores---app analysis are both right. `bin/omarchy-webapp-install` writes `EXEC_COMMAND="${CUSTOM_EXEC:-omarchy-launch-webapp $APP_URL}"` into `Exec=`, its documented args really are `[name url icon-url-or-name [custom-exec] [mime-types]]` (so the 4th-argument override is correct), and it really does refuse a name containing '/' with that exact rationale. Issues #7034 and #8298 exist with titles matching the two failure modes; omarchy-webapp-remove and omarchy-install-browser exist. The keybinds are right too: `default/hypr/bindings/applications.lua` has `SUPER + SHIFT + A` ChatGPT, `SUPER + SHIFT + ALT + A` Grok, `SUPER + SHIFT + X` X. But that is exactly the defect: those binds do not go through any .desktop file. `default/hypr/helpers.lua` resolves `{ webapp = url }` to the literal string `"omarchy-launch-webapp " .. shell_quote(url)` (or `omarchy-launch-or-focus-webapp` for sole-instance apps), so editing `~/.local/share/applications/ChatGPT.desktop` or reinstalling with a custom exec fixes the launcher icon and leaves Super+Shift+A just as broken. The record leads with the keybinds in its symptom and then offers a fix that cannot address them, so a Firefox/Opera user following it will conclude the fix failed.
+> **Audit corrected this record.** Cause is exact. `bin/omarchy-launch-webapp` is reproduced character for character, including the whitelist `google-chrome* | brave* | microsoft-edge* | opera* | vivaldi* | helium*`, the `*) browser="chromium.desktop"` fallback, and the `exec setsid uwsm-app -- $(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/$browser 2>/dev/null | head -1) --app="$1" "${@:2}"` line, so the empty-command-substitution analysis and the Opera-is-whitelisted-but-ignores---app analysis are both right. `bin/omarchy-webapp-install` writes `EXEC_COMMAND="${CUSTOM_EXEC:-omarchy-launch-webapp $APP_URL}"` into `Exec=`, its documented args really are `[name url icon-url-or-name [custom-exec] [mime-types]]` (so the 4th-argument override is correct), and it really does refuse a name containing '/' with that exact rationale. Issues #7034 and #8298 exist with titles matching the two failure modes, and omarchy-webapp-remove and omarchy-install-browser exist. The keybinds are right too: `default/hypr/bindings/applications.lua` has `SUPER + SHIFT + A` ChatGPT, `SUPER + SHIFT + ALT + A` Grok, `SUPER + SHIFT + X` X. But that is exactly the defect: those binds do not go through any .desktop file. `default/hypr/helpers.lua` resolves `{ webapp = url }` to the literal string `"omarchy-launch-webapp " .. shell_quote(url)` (or `omarchy-launch-or-focus-webapp` for sole-instance apps), so editing `~/.local/share/applications/ChatGPT.desktop` or reinstalling with a custom exec fixes the launcher icon and leaves Super+Shift+A just as broken. The record leads with the keybinds in its symptom and then offers a fix that cannot address them, so a Firefox/Opera user following it will conclude the fix failed.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** `omarchy-webapp-remove-all` deletes every web-app launcher in `~/.local/share/applications`, including ones you wrote by hand, and `omarchy-remove-preinstalls` has been reported to remove user-created web apps too (issue #4830) — copy `~/.local/share/applications` somewhere safe first. Never put a `/` in a web app name: it creates a nested `.desktop` path that `omarchy-webapp-remove` cannot delete, leaving an entry stuck in the launcher (issue #7914). Editing a `.desktop` by hand means an `omarchy update` that regenerates preinstalled web apps can overwrite it — keep custom apps under names Omarchy does not ship.
+> ⚠️ **Risk.** `omarchy-webapp-remove-all` deletes every web-app launcher in `~/.local/share/applications`, including ones you wrote by hand, and `omarchy-remove-preinstalls` has been reported to remove user-created web apps too (issue #4830). Copy `~/.local/share/applications` somewhere safe first. Never put a `/` in a web app name: it creates a nested `.desktop` path that `omarchy-webapp-remove` cannot delete, leaving an entry stuck in the launcher (issue #7914). Editing a `.desktop` by hand means an `omarchy update` that regenerates preinstalled web apps can overwrite it, so keep custom apps under names Omarchy does not ship.
 
 **Fix.**
 
@@ -2838,7 +2838,7 @@ ls /usr/share/applications | grep -iE 'chromium|brave|vivaldi|edge'
 xdg-settings set default-web-browser chromium.desktop     # use the id you saw above
 ```
 
-To keep Firefox or Opera as your default browser you have to fix **two separate things** — the keybinds and the launcher entries do not share a code path.
+To keep Firefox or Opera as your default browser you have to fix **two separate things**: the keybinds and the launcher entries do not share a code path.
 
 **a) The keybinds (Super+Shift+A and friends).** These are Lua, not .desktop files: `{ webapp = "..." }` expands to a direct `omarchy-launch-webapp <url>` call, so no amount of .desktop editing reaches them. Rebind them in `~/.config/hypr/bindings.lua`:
 
@@ -2898,7 +2898,7 @@ omarchy-webapp-remove "ChatGPT"
 omarchy-webapp-install            # interactive; it refuses names containing '/'
 ```
 
-**Verify.** `omarchy-launch-webapp https://example.com` opens an app-mode window on that URL; `gio launch ~/.local/share/applications/ChatGPT.desktop` opens ChatGPT, not a start page.
+**Verify.** `omarchy-launch-webapp https://example.com` opens an app-mode window on that URL. `gio launch ~/.local/share/applications/ChatGPT.desktop` opens ChatGPT, not a start page.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-launch-webapp> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-webapp-install> · <https://github.com/basecamp/omarchy/issues/7034> · <https://github.com/basecamp/omarchy/issues/8298> · <https://github.com/basecamp/omarchy/issues/7914> · <https://github.com/basecamp/omarchy/issues/4830>
 
@@ -3044,15 +3044,15 @@ UEFI capsule updates not available or enabled in firmware setup
 file system is read-only
 ```
 
-or — most confusingly — reports success, prompts for a reboot, and after the reboot `fwupdmgr get-devices` still shows the old firmware version. On some laptops the reboot shows a black screen with no messages for minutes.
+or, most confusingly, reports success, prompts for a reboot, and after the reboot `fwupdmgr get-devices` still shows the old firmware version. On some laptops the reboot shows a black screen with no messages for minutes.
 
-**Cause.** `omarchy-update-firmware` installs `fwupd` if missing, copies `/usr/lib/fwupd/efi/fwupdx64.efi` to `/boot/EFI/arch/fwupdx64.efi` when booted UEFI, then runs `fwupdmgr refresh --force` and `sudo fwupdmgr update`. Peripheral firmware (docks, SSDs, mice, Thunderbolt) is applied live. BIOS/UEFI firmware is **not**: fwupd stages a capsule on the ESP and the firmware applies it during the next boot. That staging silently fails or is ignored when the ESP is small or full, when the directory is `efi/` rather than uppercase `EFI/`, when `/boot` is a bind mount (fwupd deduces the wrong mount point and reports a misleading read-only error), when efivars are unavailable, or when the firmware's boot order is locked so the capsule loader never runs — the classic "no error but no upgrade on reboot".
+**Cause.** `omarchy-update-firmware` installs `fwupd` if missing, copies `/usr/lib/fwupd/efi/fwupdx64.efi` to `/boot/EFI/arch/fwupdx64.efi` when booted UEFI, then runs `fwupdmgr refresh --force` and `sudo fwupdmgr update`. Peripheral firmware (docks, SSDs, mice, Thunderbolt) is applied live. BIOS/UEFI firmware is **not**: fwupd stages a capsule on the ESP and the firmware applies it during the next boot. That staging silently fails or is ignored when the ESP is small or full, when the directory is `efi/` rather than uppercase `EFI/`, when `/boot` is a bind mount (fwupd deduces the wrong mount point and reports a misleading read-only error), when efivars are unavailable, or when the firmware's boot order is locked so the capsule loader never runs: the classic "no error but no upgrade on reboot".
 
-> **Audit corrected this record.** Cause is accurate against `bin/omarchy-update-firmware`, which is exactly: install fwupd if `omarchy-cmd-missing fwupdmgr`, then when `/sys/firmware/efi` exists `sudo install -D /usr/lib/fwupd/efi/fwupdx64.efi /boot/EFI/arch/fwupdx64.efi`, then `fwupdmgr refresh --force` and `sudo fwupdmgr update`. Every failure mode is corroborated by ArchWiki's Fwupd page: the uppercase-EFI warning verbatim ("The EFI directory must be in all upper-case; if you used lower-case, fwupd may detect the esp as esp/efi/"), the bind-mount trap verbatim ("deduces the wrong mount point if bind is used to mount the EFI system partition to /boot... results in a (misleading) file system is read-only error"), "In BIOS settings changing the boot order must be allowed" as the cause of a silent no-op, and the stuck/black reboot. The Secure Boot block is quoted correctly too: `sbctl sign -s -o /usr/lib/fwupd/efi/fwupdx64.efi.signed /usr/lib/fwupd/efi/fwupdx64.efi`, and `[uefi_capsule] DisableShimForSecureBoot=true` is the current fwupd-1.9+ location in /etc/fwupd/fwupd.conf (the wiki notes the pre-1.9 uefi_capsule.conf path). Two concrete defects. (1) `sudo tee -a /etc/fwupd/fwupd.conf` appends a second `[uefi_capsule]` group to a file that already ships that section — the wiki presents this as a config-file edit, not an append, and duplicating a group in a GKeyFile is at best undefined and at worst leaves the key silently inert, which is indistinguishable from the very symptom the record is diagnosing. Edit the existing section. (2) `sudo fwupdmgr update <update_ID>` is not a real argument: `fwupdmgr update` takes a DEVICE-ID or GUID from `get-devices`/`get-updates`; `get-history` shows what was attempted, not ids to feed back to update. The record also omits `EspLocation`, which the wiki gives as the fix for the "ESP not detected" case it raises in its own cause.
+> **Audit corrected this record.** Cause is accurate against `bin/omarchy-update-firmware`, which is exactly: install fwupd if `omarchy-cmd-missing fwupdmgr`, then when `/sys/firmware/efi` exists `sudo install -D /usr/lib/fwupd/efi/fwupdx64.efi /boot/EFI/arch/fwupdx64.efi`, then `fwupdmgr refresh --force` and `sudo fwupdmgr update`. Every failure mode is corroborated by ArchWiki's Fwupd page: the uppercase-EFI warning verbatim ("The EFI directory must be in all upper-case; if you used lower-case, fwupd may detect the esp as esp/efi/"), the bind-mount trap verbatim ("deduces the wrong mount point if bind is used to mount the EFI system partition to /boot... results in a (misleading) file system is read-only error"), "In BIOS settings changing the boot order must be allowed" as the cause of a silent no-op, and the stuck/black reboot. The Secure Boot block is quoted correctly too: `sbctl sign -s -o /usr/lib/fwupd/efi/fwupdx64.efi.signed /usr/lib/fwupd/efi/fwupdx64.efi`, and `[uefi_capsule] DisableShimForSecureBoot=true` is the current fwupd-1.9+ location in /etc/fwupd/fwupd.conf (the wiki notes the pre-1.9 uefi_capsule.conf path). Two concrete defects. (1) `sudo tee -a /etc/fwupd/fwupd.conf` appends a second `[uefi_capsule]` group to a file that already ships that section. The wiki presents this as a config-file edit, not an append, and duplicating a group in a GKeyFile is at best undefined and at worst leaves the key silently inert, which is indistinguishable from the very symptom the record is diagnosing. Edit the existing section. (2) `sudo fwupdmgr update <update_ID>` is not a real argument: `fwupdmgr update` takes a DEVICE-ID or GUID from `get-devices`/`get-updates`. `get-history` shows what was attempted, not ids to feed back to update. The record also omits `EspLocation`, which the wiki gives as the fix for the "ESP not detected" case it raises in its own cause.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Never power-cycle, force-reset or unplug the machine during a firmware flash, even if the screen stays black for several minutes — that is how a board gets bricked. Run it only on AC power with a charged battery. A UEFI firmware update can discard existing NVRAM boot entries: after a successful BIOS update be ready to recreate one, e.g. `sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label Omarchy --loader '\EFI\Linux\omarchy_linux.efi'`, or boot the removable `/EFI/BOOT/BOOTX64.EFI` fallback. This is not part of the normal `omarchy update` pipeline and should not be run casually.
+> ⚠️ **Risk.** Never power-cycle, force-reset or unplug the machine during a firmware flash, even if the screen stays black for several minutes. That is how a board gets bricked. Run it only on AC power with a charged battery. A UEFI firmware update can discard existing NVRAM boot entries: after a successful BIOS update be ready to recreate one, e.g. `sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label Omarchy --loader '\EFI\Linux\omarchy_linux.efi'`, or boot the removable `/EFI/BOOT/BOOTX64.EFI` fallback. This is not part of the normal `omarchy update` pipeline and should not be run casually.
 
 **Fix.**
 
@@ -3079,7 +3079,7 @@ fwupdmgr get-devices            # copy the Device ID of the device you want
 sudo fwupdmgr update <DEVICE-ID>   # apply one device at a time
 ```
 
-In the firmware setup, enable "allow boot order change" / disable "boot order lock" — a locked boot order is the standard reason the capsule silently never runs.
+In the firmware setup, enable "allow boot order change" / disable "boot order lock". A locked boot order is the standard reason the capsule silently never runs.
 
 If fwupd cannot find the ESP (or picks one on another disk), pin it in the `[uefi_capsule]` section of `/etc/fwupd/fwupd.conf`:
 
@@ -3088,13 +3088,13 @@ If fwupd cannot find the ESP (or picks one on another disk), pin it in the `[uef
 EspLocation=/boot
 ```
 
-On Secure Boot systems fwupd chainloads through shim; with your own keys, sign it and tell fwupd to skip shim:
+On Secure Boot systems fwupd chainloads through shim. With your own keys, sign it and tell fwupd to skip shim:
 
 ```bash
 sudo sbctl sign -s -o /usr/lib/fwupd/efi/fwupdx64.efi.signed /usr/lib/fwupd/efi/fwupdx64.efi
 ```
 
-Then **edit the `[uefi_capsule]` section that already exists** in `/etc/fwupd/fwupd.conf` — do not append a second copy of the section header, or the key may never be read:
+Then **edit the `[uefi_capsule]` section that already exists** in `/etc/fwupd/fwupd.conf`. Do not append a second copy of the section header, or the key may never be read:
 
 ```bash
 sudo grep -n '\[uefi_capsule\]\|DisableShimForSecureBoot' /etc/fwupd/fwupd.conf
@@ -3106,7 +3106,7 @@ sudo systemctl restart fwupd.service
 
 (On installs predating fwupd 1.9 this option lives in `/etc/fwupd/uefi_capsule.conf` instead.)
 
-**Verify.** `fwupdmgr get-devices` shows the new version string for the device; `fwupdmgr get-history` lists the update with `Status: Success`.
+**Verify.** `fwupdmgr get-devices` shows the new version string for the device. `fwupdmgr get-history` lists the update with `Status: Success`.
 
 Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-firmware> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://wiki.archlinux.org/title/Fwupd>
 
@@ -3118,13 +3118,13 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 **Symptom.** After an `omarchy update` and reboot, all browser login sessions are gone, `gh auth status` says not logged in, and a dialog asks the user to *create a new keyring*. Looking in `~/.local/share/keyrings` shows a freshly written `default` file and a new `Default_Keyring_1.keyring` next to the older keyring files.
 
-**Cause.** gnome-keyring's `default` pointer file was rewritten during the update/session change, so the daemon created and selected a brand-new empty keyring instead of unlocking the existing one. The old secrets are still on disk — they're just no longer the default.
+**Cause.** gnome-keyring's `default` pointer file was rewritten during the update/session change, so the daemon created and selected a brand-new empty keyring instead of unlocking the existing one. The old secrets are still on disk. They're just no longer the default.
 
-> **Audit corrected this record.** The mechanism (gnome-keyring's `default` pointer file selecting the wrong keyring) is real, and 'do NOT delete anything' is good advice. But the key value is wrong for Omarchy. Verified in install/user/default-keyring.sh: Omarchy creates `~/.local/share/keyrings/Default_keyring.keyring` and writes `Default_keyring` (with a trailing newline) into the `default` file. It is deliberately a passwordless keyring - install/login/sddm.sh strips the pam_gnome_keyring lines from /etc/pam.d/sddm specifically to 'prevent password-based SDDM logins from creating an encrypted login keyring that conflicts with Omarchy's passwordless default keyring behavior'. So pointing `default` at `login` is exactly the keyring Omarchy avoids creating, and on most Omarchy machines no `login` keyring exists at all - the fix would leave the user worse off. Also `systemctl --user restart gnome-keyring-daemon.service` is not how gnome-keyring runs here; the pkill fallback is the real path.
+> **Audit corrected this record.** The mechanism (gnome-keyring's `default` pointer file selecting the wrong keyring) is real, and 'do NOT delete anything' is good advice. But the key value is wrong for Omarchy. Verified in install/user/default-keyring.sh: Omarchy creates `~/.local/share/keyrings/Default_keyring.keyring` and writes `Default_keyring` (with a trailing newline) into the `default` file. It is deliberately a passwordless keyring, and install/login/sddm.sh strips the pam_gnome_keyring lines from /etc/pam.d/sddm specifically to 'prevent password-based SDDM logins from creating an encrypted login keyring that conflicts with Omarchy's passwordless default keyring behavior'. So pointing `default` at `login` is exactly the keyring Omarchy avoids creating, and on most Omarchy machines no `login` keyring exists at all, so the fix would leave the user worse off. Also `systemctl --user restart gnome-keyring-daemon.service` is not how gnome-keyring runs here. The pkill fallback is the real path.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> ⚠️ **Risk.** Never delete files in ~/.local/share/keyrings — the old secrets are unrecoverable without them. Always copy `default` aside before editing.
+> ⚠️ **Risk.** Never delete files in ~/.local/share/keyrings: the old secrets are unrecoverable without them. Always copy `default` aside before editing.
 
 **Fix.**
 
@@ -3135,9 +3135,9 @@ ls -la ~/.local/share/keyrings/
 cat ~/.local/share/keyrings/default
 ```
 
-The `default` file contains a bare keyring name with no `.keyring` suffix. On Omarchy the correct value is **`Default_keyring`** (matching `Default_keyring.keyring`) - not `login`. Omarchy deliberately uses a passwordless default keyring and strips pam_gnome_keyring from /etc/pam.d/sddm, so a `login` keyring usually does not exist on these systems.
+The `default` file contains a bare keyring name with no `.keyring` suffix. On Omarchy the correct value is **`Default_keyring`** (matching `Default_keyring.keyring`), not `login`. Omarchy deliberately uses a passwordless default keyring and strips pam_gnome_keyring from /etc/pam.d/sddm, so a `login` keyring usually does not exist on these systems.
 
-Pick whichever keyring file actually holds your secrets - check sizes and dates in the listing above - and point `default` at its name minus the `.keyring` suffix:
+Pick whichever keyring file actually holds your secrets (check sizes and dates in the listing above) and point `default` at its name minus the `.keyring` suffix:
 
 ```bash
 cp ~/.local/share/keyrings/default ~/.local/share/keyrings/default.bak
@@ -3419,7 +3419,7 @@ An Omarchy update is already running.
 
 Nothing is updating, `ps` shows no `omarchy-update` or `pacman`, a reboot fixes it for exactly one run and then it comes back after the next update. The pending-migrations notification at login also stops appearing.
 
-**Cause.** `omarchy-update-lock run` opens `${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock`, takes a non-blocking `flock`, exports the descriptor number and `exec`s the update — without `FD_CLOEXEC`. Every child of the update therefore inherits the locked descriptor. Any process started during the update that daemonises and does not close inherited fds keeps the flock alive after the update itself is long gone. The reported case is `adb` started by a `flutter-beta` AUR rebuild during `omarchy-update-aur-pkgs` (`yay -Sua`), which reparents onto the user's systemd and holds `/run/user/1000/omarchy-update.lock` indefinitely (issue #8077). The same happens with any sticky helper an AUR build leaves behind, and after an update that was killed mid-run. `omarchy-migrate-notify` reads the same lock to decide whether to stay quiet, so a stale lock also suppresses the login prompt to run pending migrations.
+**Cause.** `omarchy-update-lock run` opens `${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock`, takes a non-blocking `flock`, exports the descriptor number and `exec`s the update, without `FD_CLOEXEC`. Every child of the update therefore inherits the locked descriptor. Any process started during the update that daemonises and does not close inherited fds keeps the flock alive after the update itself is long gone. The reported case is `adb` started by a `flutter-beta` AUR rebuild during `omarchy-update-aur-pkgs` (`yay -Sua`), which reparents onto the user's systemd and holds `/run/user/1000/omarchy-update.lock` indefinitely (issue #8077). The same happens with any sticky helper an AUR build leaves behind, and after an update that was killed mid-run. `omarchy-migrate-notify` reads the same lock to decide whether to stay quiet, so a stale lock also suppresses the login prompt to run pending migrations.
 
 > **Audit corrected this record.** Re-audited on omarchy 4.0.2-1. The first-pass note holds in full: I diffed `/usr/share/omarchy/bin/omarchy-update-lock` on this machine against the quattro tree and it is byte identical, so the path is still `${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock`, it still does `exec {OMARCHY_UPDATE_LOCK_FD}>"$lock_path"` then `flock -n`, still prints exactly "An Omarchy update is already running.", and still `export`s the descriptor and `exec`s. The `held` subcommand still validates the inherited fd through `/proc/$$/fd/$OMARCHY_UPDATE_LOCK_FD`, which is the direct evidence that the descriptor crosses the exec. `bin/omarchy-migrate-notify` on this machine still tests the same lock with `! flock -n "$lock" true` and exits 0 when held, so the suppressed-notification half stands, and `bin/omarchy-migrate` is byte identical to quattro with `--pending` exiting 0 only when something is pending, so the record's step 4 is right. I read omacom/omarchy issue 8077 in full: it is OPEN, titled exactly as the first pass quoted, and its body matches the record's account including the `flutter-beta` and `adb` details. Two defects the first pass did not catch, both in the safety step that is the whole point of the record. First, the `pgrep` pattern is wrong. `omarchy-update-system-pkgs` on 4.0.2-1 runs `sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm`, so argv[0] is `pacman` and the process command line has no directory component, which means `pgrep -af '/usr/bin/pacman'` returns nothing while a real system upgrade is running. The same is true on quattro HEAD, where the call has moved into a new `bin/omarchy-update-pacman` wrapper that still ends in `exec sudo env ... pacman "$@"`. A reader who trusted that check would delete a live lock. Second, the record never mentions `/var/lib/pacman/db.lck`, which is the authoritative live-transaction indicator and is used for exactly that purpose by Omarchy itself: `omarchy-migrate`'s `wait_for_pacman_transaction` polls that file for 900 seconds. I added it as the first check and flagged the stale-db.lck case as a different problem. I also corrected the `danger`, whose stated mechanism was wrong: it claimed concurrent writers can corrupt `/var/lib/pacman`, but pacman's own db.lck prevents a second pacman transaction, so the real cost of deleting a live Omarchy lock is a second update pipeline racing the first on snapshots, cache pruning, migration markers and AUR builds. `symptom`, `cause` and `verify` are accurate and I left them unchanged, so `cause_reconciled` should stay unset. Not exercised: I did not run an update, did not delete or create any lock, and did not reproduce the adb leak, so the leak mechanism is confirmed from the script source and the issue rather than from a live reproduction on this machine. `fuser`, `lsof`, `yay` and `flock` are all installed here (psmisc 23.7-2, lsof 4.99.7-1, yay 13.0.1-1), so the fix's commands exist on a stock Omarchy 4.
 >
@@ -3479,11 +3479,11 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 `caps-lock-does-nothing` · severity: **low** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `wayland`
 
-**Symptom.** Caps Lock appears dead — pressing it doesn't toggle capitals, and the LED doesn't light. Users assume the keyboard or the install is broken.
+**Symptom.** Caps Lock appears dead: pressing it doesn't toggle capitals, and the LED doesn't light. Users assume the keyboard or the install is broken.
 
 **Cause.** Omarchy remaps Caps Lock to the XCompose key by default (`kb_options = compose:caps`), so it can be used for emoji and special-character sequences. It is intentionally no longer Caps Lock.
 
-> **Audit corrected this record.** Cause is exactly right and confirmed - default/hypr/input.lua sets kb_options with a comment reading 'CapsLock is the compose key, so Caps Lock itself has to live somewhere else', and manual/45-troubleshooting.md documents the same remap. Only the config format is stale: current Omarchy uses ~/.config/hypr/input.lua with an hl.config() call, not the `input { }` .conf block. One substantive omission: the actual default is `compose:caps,shift:both_capslock_cancel`, so replacing kb_options with just `compose:ralt` silently drops the shift:both_capslock_cancel behavior. Also worth noting Omarchy appends `grp:alts_toggle` automatically when multiple layouts are configured.
+> **Audit corrected this record.** Cause is exactly right and confirmed: default/hypr/input.lua sets kb_options with a comment reading 'CapsLock is the compose key, so Caps Lock itself has to live somewhere else', and manual/45-troubleshooting.md documents the same remap. Only the config format is stale: current Omarchy uses ~/.config/hypr/input.lua with an hl.config() call, not the `input { }` .conf block. One substantive omission: the actual default is `compose:caps,shift:both_capslock_cancel`, so replacing kb_options with just `compose:ralt` silently drops the shift:both_capslock_cancel behavior. Also worth noting Omarchy appends `grp:alts_toggle` automatically when multiple layouts are configured.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
@@ -3499,7 +3499,7 @@ hl.config({
 })
 ```
 
-Note that Omarchy's real default is `compose:caps,shift:both_capslock_cancel` - if you want to keep the second behavior (both Shift keys cancel Caps Lock), carry it over:
+Note that Omarchy's real default is `compose:caps,shift:both_capslock_cancel`. If you want to keep the second behavior (both Shift keys cancel Caps Lock), carry it over:
 
 ```lua
 hl.config({
@@ -3548,17 +3548,17 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/88/troubleshooting> · <h
 
 `everything-too-big-gdk-scale` · severity: **low** · frequency: **very-common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
-**Symptom.** Right after first boot every application is enormous — text, buttons, the file manager, Spotify. Windows spill off the screen. Users on 1080p/1440p monitors say "Omarchy looks like it's zoomed to 200%".
+**Symptom.** Right after first boot every application is enormous: text, buttons, the file manager, Spotify. Windows spill off the screen. Users on 1080p/1440p monitors say "Omarchy looks like it's zoomed to 200%".
 
-**Cause.** Omarchy defaults `GDK_SCALE` to 2 so 4K panels are legible out of the box, and on a standard-DPI display that doubles every GTK app. Only `GDK_SCALE` causes the oversizing - `config/hypr/monitors.lua` leaves the Hyprland monitor scale at `"auto"`, not 2. The knob is `local omarchy_gdk_scale = 2` in that same file. GTK honours only whole numbers, so a fractional `GDK_SCALE` is parsed as an integer and silently becomes 1.
+**Cause.** Omarchy defaults `GDK_SCALE` to 2 so 4K panels are legible out of the box, and on a standard-DPI display that doubles every GTK app. Only `GDK_SCALE` causes the oversizing, because `config/hypr/monitors.lua` leaves the Hyprland monitor scale at `"auto"`, not 2. The knob is `local omarchy_gdk_scale = 2` in that same file. GTK honours only whole numbers, so a fractional `GDK_SCALE` is parsed as an integer and silently becomes 1.
 
-> **Audit corrected this record.** Real problem, and manual/45-troubleshooting.md confirms it - but nearly every specific is wrong. Verified against config/hypr/monitors.lua: the monitor scale default is `"auto"`, NOT 2, so the claim that 'Hyprland's monitor scale' is 2 is false; only GDK_SCALE=2 causes the oversizing. The file is monitors.lua, not monitors.conf, and the knob is `local omarchy_gdk_scale = 2`. Critically, `env = GDK_SCALE,1.75` is invalid - upstream's own comment in monitors.lua states 'GTK only honors whole numbers, so use the nearest integer to the monitor scale.' A fractional GDK_SCALE is parsed as an integer and silently becomes 1. The monitor scale 1.666667 is also wrong: upstream's commented fractional example uses 1.6, because Hyprland rejects scales that do not yield integer pixel dimensions. 'Older installs may carry GDK_SCALE=2 in hyprland.conf' is wrong - it lives in monitors.conf. And `Super + /` scale cycling and `Ctrl + Alt + Del` closing all windows do not exist in the bindings (the only Delete binding is SUPER+CTRL+ALT+Delete for display mirroring); those appear fabricated.
+> **Audit corrected this record.** Real problem, and manual/45-troubleshooting.md confirms it, but nearly every specific is wrong. Verified against config/hypr/monitors.lua: the monitor scale default is `"auto"`, NOT 2, so the claim that 'Hyprland's monitor scale' is 2 is false. Only GDK_SCALE=2 causes the oversizing. The file is monitors.lua, not monitors.conf, and the knob is `local omarchy_gdk_scale = 2`. Critically, `env = GDK_SCALE,1.75` is invalid. Upstream's own comment in monitors.lua states 'GTK only honors whole numbers, so use the nearest integer to the monitor scale.' A fractional GDK_SCALE is parsed as an integer and silently becomes 1. The monitor scale 1.666667 is also wrong: upstream's commented fractional example uses 1.6, because Hyprland rejects scales that do not yield integer pixel dimensions. 'Older installs may carry GDK_SCALE=2 in hyprland.conf' is wrong. It lives in monitors.conf. And `Super + /` scale cycling and `Ctrl + Alt + Del` closing all windows do not exist in the bindings (the only Delete binding is SUPER+CTRL+ALT+Delete for display mirroring). Those appear fabricated.
 >
 > *The Cause above was rewritten on 2026-08-30 to match this note. The Fix was corrected by the audit itself.*
 
 **Fix.**
 
-Omarchy assumes a 2x HiDPI display. The compositor's monitor scale is already `"auto"` - the thing making apps enormous on a 1x display is `GDK_SCALE`, which Omarchy sets to 2 for GTK/XWayland windows.
+Omarchy assumes a 2x HiDPI display. The compositor's monitor scale is already `"auto"`. The thing making apps enormous on a 1x display is `GDK_SCALE`, which Omarchy sets to 2 for GTK/XWayland windows.
 
 Edit `~/.config/hypr/monitors.lua` and change the GDK scale to 1:
 
@@ -3567,7 +3567,7 @@ local omarchy_gdk_scale = 1
 hl.env("GDK_SCALE", tostring(omarchy_gdk_scale))
 ```
 
-GDK_SCALE is integer-only - GTK honors whole numbers and nothing else, so never set 1.5 or 1.75 (they are read as 1). Use the nearest integer to your monitor scale.
+GDK_SCALE is integer-only. GTK honors whole numbers and nothing else, so never set 1.5 or 1.75 (they are read as 1). Use the nearest integer to your monitor scale.
 
 For a 27"/32" 4K panel where 2x is too big and 1x is too small, use a fractional *monitor* scale with an integer GDK scale. Hyprland rejects fractional scales that do not produce whole-pixel dimensions, so use 1.6 (upstream's own suggested value), not 1.666667:
 

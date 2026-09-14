@@ -35,7 +35,7 @@ Last updated: 2026-09-13
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
 >    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 is
 >    finished across twelve categories, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,366 dashes across 335 records, item 6, and is now the next corpus job
+>    2026-09-11. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -99,6 +99,96 @@ The governing rule now lives outside this repo, as `attribution/crediting-third-
 in the `standards.engineering` lane of Substrata, drafted this session from the OFL 1.1 text
 and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
 NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
+
+## Session of 2026-09-13 (sixth): the corpus prose goes through the writing standard
+
+Item 6, the last body of prose in this repo that had not been held to
+`writing-and-responding`. Two passes, 25 agent batches, a mechanical verifier between the agents and
+the corpus. **1,366 em and en dashes, 613 semicolons and 183 spaced hyphens removed**, across 1,347
+field rewrites. 28 occurrences deliberately survive and are listed below.
+
+| | Before | After |
+| --- | ---: | ---: |
+| Em and en dashes | 1,366 | 8 |
+| Semicolons | 613 | 12 |
+| Spaced hyphens | 183 | 10 |
+
+### The fenced-code exemption protected almost nothing
+
+The note left here beforehand warned that `fix` is mostly fenced commands, so a blind pass would
+corrupt them. Measured: **1,364 of the 1,366 dashes were in prose.** They sit in the paragraphs
+around the commands, not in the commands. The exemption still had to be enforced, and it was, but it
+removed two dashes from scope rather than half the job. Worth knowing before estimating the next
+pass of this kind.
+
+### What made it safe was the verifier, not the prompt
+
+Every batch was checked before it touched `problems.jsonl`, and nothing merged on an agent's word:
+
+- every fenced block and inline code span byte-identical, compared as a multiset so a legitimate
+  sentence reorder is allowed and a changed command is not,
+- no dash, semicolon or spaced hyphen left in unquoted prose,
+- no banned replacement introduced, so a batch cannot trade a dash for a semicolon,
+- no significant token dropped, which is what catches a lost clause,
+- length within bounds, which catches a silent truncation.
+
+It earned its keep twice. It caught a field where the code spans had moved, which turned out to be a
+command relocated to a trailing sentence with every span byte-identical, and it caught eleven fields
+that looked like dropped technical tokens and were all the checker attaching trailing punctuation,
+`NVIDIA` against `NVIDIA.`. Both were false alarms, and both had to be looked at to know that.
+
+### 28 survivors, and they are the pass-through rule working
+
+These are not misses. **If this count ever reads zero, something has edited a quotation.**
+
+- **Quoted source material**: two GitHub issue titles, a `logind.conf(5)` sentence, an Arch wiki
+  sentence on fwupd's upper-case ESP, kernel documentation on `tcp_mtu_probing`, the hypridle wiki,
+  the Arch System_maintenance line on `pacman -Sy`, a DMI string from `rtw_pci_quirks[]`, and the
+  boot error `"UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY"`, which is in a record **title**.
+- **Unbackticked syntax**, where the character is not punctuation: `COLORFGBG=15;0`, the portal list
+  `Screenshot;ScreenCast;GlobalShortcuts;InputCapture`, a Lua `package.path`, the sentence
+  `modprobe treats - and _ interchangeably`, and the GitHub discussion category `Bugs - DRM`.
+
+That last group is the one a future pass will get wrong. The prose filter protects backticked and
+fenced regions, and none of those are backticked. The agents were told to watch for it and caught
+every instance. A purely mechanical pass would have corrupted all five.
+
+### Two defects found, one of them mine
+
+`gtk-file-chooser-does-nothing-xwayland` had `the part worth removing.Updated on 2026-09-13:` with no
+space. That is mine, from the merge pass earlier the same day: the repointing edit appended a
+paragraph with `.lstrip("\\n")` on the wrong side and glued it to the preceding sentence. An agent
+found it, correctly declined to fix it inside a punctuation pass, and reported it. Fixed here.
+
+The other is unfixed and left deliberately: two dashes remain inside fenced shell comments, for
+example `# ~/.config/fontconfig/conf.d/99-emoji.conf  — same <alias>/<prefer> blocks as before`.
+Code is exempt by rule, and a pass over comments inside fences is a different job that is probably
+not worth doing.
+
+### An agent clobbered the orchestrator's tooling
+
+One batch wrote its own `scan.py`, `apply.py` and `verify.py` into the shared job directory, and
+`verify.py` overwrote the verifier this session was using. The next verification run silently
+reported one batch's result, `problems: 0 records: 27`, instead of ten batches' results, and it was
+only obvious because the output format was wrong. The tooling now lives somewhere the agent prompts
+never name. **Agents share the job's tmp directory and will write helper scripts into it**, so an
+orchestrator's tools do not belong on a path an agent has been told about. The same shape appeared
+earlier in the day when a batch left a `build_v1.py` in an output directory.
+
+### Where to pick this up
+
+1. The corpus now meets the writing standard on every axis the standard names. The mechanical check
+   in CLAUDE.md covers tracked markdown, and the corpus needs the prose-aware scan used here,
+   because a naive grep counts code and quotations.
+2. Three upstream reports are owed and none is written: the enterprise Wi-Fi profile with no
+   certificate validation, the Intel video-acceleration installer matching graphics by marketing
+   name, and the resume hook ordering asserted by issues 8471, 8888 and 10375.
+3. The Haswell gap still owes the corpus a new record.
+4. `pacman-file-exists-in-filesystem-omarchy` expires at the next Omarchy release, per upstream
+   commit f5194e3f.
+5. O7, teaching the lint to skip a warning and a labelled branch, is still open and now has a second
+   argument for it: the baseline holds 157 records and most of the recent additions are records the
+   audits improved.
 
 ## Session of 2026-09-13 (fifth): the four merges O3 left behind
 
@@ -3821,7 +3911,28 @@ Three were updated when `cause_reconciled` landed and one was missed.
 Full detail in
 [writeups/2026-09-01-merge-gapfill-silent-defects.md](writeups/2026-09-01-merge-gapfill-silent-defects.md).
 
-### 6. The corpus prose has not been through the writing standard
+### 6. The corpus prose has not been through the writing standard (**DONE 2026-09-13**)
+
+Closed. `research/data/problems.jsonl` was the last body of prose in the repo that had not been
+through `writing-and-responding`, and it is now. Two passes: **1,366 em and en dashes across 335
+records**, then **613 semicolons and 183 spaced hyphens across 273 records**. See the sixth session
+of 2026-09-13.
+
+The three worries recorded here before the work turned out to matter in different proportions than
+expected, which is worth keeping:
+
+- **"It edits the source of truth" was the easy part.** Every change went through
+  `corpus.write_jsonl`, and `research/docs/` was regenerated in the same commit, exactly as the
+  150-title pass of 2026-09-03 did.
+- **"`audit_note` is the auditors' own words" was resolved by including it.** The objection was that
+  one note claimed the verdict following it was verbatim. That note was on the record retired in the
+  merge pass hours earlier, and a scan for self-referential reproduction claims returned zero, so the
+  objection was void. What the notes did need was a rule the reader-facing fields did not: they quote
+  wiki sentences, log lines and issue titles, so a dash inside quoted material stays.
+- **"A dash inside a fenced block is exempt" protected almost nothing.** 1,364 of the 1,366 dashes
+  were in prose. They sit in the paragraphs around the commands, not in the commands.
+
+Original text follows.
 
 Everything outside `research/data/problems.jsonl` was audited against
 `writing-and-responding` on 2026-09-03 and is clean. **The corpus itself was deliberately
