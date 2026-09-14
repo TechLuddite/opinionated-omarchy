@@ -22,19 +22,20 @@ Last updated: 2026-09-13
 >    applied on 2026-09-06 (second session below), and all four unaudited records turned
 >    out to be wrong. What remains is the larger point: `audit_status: ok` still means
 >    "matches its sources", which the first live scenario showed is not "true on Omarchy
->    4", and 95 records still carry that status on one source pass. **146 records have now been
->    re-audited that way and 144 of them needed correcting**, across `boot-kernel` (10),
+>    4", and 82 records still carry that status on one source pass. **O3 IS COMPLETE: 159 records
+>    have been re-audited that way and 157 of them needed correcting**, across `boot-kernel` (10),
 >    `pacman-aur` (22), `gpu-drivers` (14), `apps-services` (23), `network` (15),
->    `power-suspend` (16), `omarchy-theming` (15), `hyprland-config` (13), `wayland-compat` (9)
->    and `audio-input` (9). Two passed:
+>    `power-suspend` (16), `omarchy-theming` (15), `hyprland-config` (13), `wayland-compat` (9),
+>    `audio-input` (9), `omarchy-core` (8) and `display-monitors` (5). That is every `ok` record
+>    carrying a `danger` that applies to Omarchy. Two passed:
 >    `mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`.
 >    One was rejected as a problem that does not exist, and was kept and rewritten by hand
 >    to say so rather than retired. Hand the brief to agents directly, one
 >    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
->    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 has cleared ten
->    categories with 21 records left, only 7 of them new work, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose has 1,405 dashes across 345 records, item 6
+>    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 is
+>    finished across twelve categories, and O4 is finished, its 36 records audited and merged on
+>    2026-09-11. The corpus prose has 1,367 dashes across 336 records, item 6, and is now the next corpus job
 >    under "What's left", and is its own job.
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -93,6 +94,132 @@ The governing rule now lives outside this repo, as `attribution/crediting-third-
 in the `standards.engineering` lane of Substrata, drafted this session from the OFL 1.1 text
 and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
 NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
+
+## Session of 2026-09-13 (fourth): O3 finishes, and the last 13 were wrong too
+
+13 records, 7 agent batches, `omarchy-core` and `display-monitors`. **13 corrected, all at high
+confidence.** The corpus is 492 records, `ok` 82 / `corrected` 410, from 1,510 distinct sources,
+with 177 `cause_reconciled` stamps. 13 citations removed.
+
+**O3 is complete.** Every `ok` record that carried a `danger` and applied to Omarchy has now been
+through a second pass: 159 records across ten categories, of which **157 needed correcting**. Two
+survived, `mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`.
+The 8 records still matching `ok` plus `danger` are those two plus six the earlier passes judged
+general Arch rather than Omarchy-specific.
+
+### A first-pass note that was wrong when it was written
+
+Three records in this batch carried detailed first-pass notes claiming line-by-line verification.
+Two held up: `omarchy-update-requires-free-space` and `omarchy-update-lock` are byte-identical to
+`quattro` on 4.0.2-1, so their thresholds, messages and env-var escapes all still stand. What those
+notes missed was scope rather than fact, and the gap was serious in both cases.
+
+The third was not stale. It was wrong at the time. `aur-updates-silently-skipped` carried a note
+calling `omarchy-update-aur-pkgs` "a five-line script whose else-branch prints". It is neither five
+lines nor that command: it runs
+`yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs`, and that `--ignore` predates the
+first audit by seven months. It makes the record's verify step false, because `gcc14` and
+`gcc14-libs` are real AUR packages that stay in `yay -Qua` forever by design. **A confident
+first-pass note is not evidence**, which is the whole premise of O3 and is now demonstrated rather
+than assumed.
+
+### The free-space check measures the wrong filesystem
+
+`update-blocked-insufficient-free-space` is about a 10 GiB threshold on `/`. The check reads `/`
+only, so a full ESP sails through it and the update dies later with the same
+`No space left on device`. On Omarchy the ESP fills from the very snapshots the record is about,
+because `limine-snapper-sync` copies each snapshot's kernel there under `LIMIT_USAGE_PERCENT=85`.
+The corrected record splits root from `/boot` and reclaims ESP space by deleting snapshots rather
+than files, and warns that `paccache -rk1` spends the cache that `omarchy-update-pkg-prune` treats
+as the only offline downgrade path.
+
+`stale-omarchy-update-lock` had the same shape of defect in its safety step: `pgrep -af
+'/usr/bin/pacman'` matches nothing during a real upgrade, because `omarchy-update-system-pkgs` runs
+`sudo env ... pacman -Syu` so argv[0] is bare `pacman`. It never mentioned `/var/lib/pacman/db.lck`,
+which is the authoritative live-transaction indicator and the one Omarchy's own `omarchy-migrate`
+polls for 900 seconds.
+
+### A recovery that locks you out of the recovery
+
+`omarchy-restart-shell` on 4.0.2-1 no longer merely refuses on a locked session. It sets `relock=1`
+and polls for 30 seconds until the session is secure again, so the obvious fix for a stale lock,
+restarting the shell over ssh, hands you a fresh lock you still cannot release. This is now in
+CLAUDE.md's domain facts, because it is a trap for the test VMs and the agentic lane and not only
+for a reader. The same audit found `~/.cache/quickshell/crashes` does not exist on a working machine
+and the Wayland-fatal path writes no report by design, so the record's step 1 pointed at an empty
+directory.
+
+### A fix that burns a keyslot for nothing
+
+`bluetooth-keyboard-cannot-unlock-luks` offered `systemd-cryptenroll` with FIDO2 as an alternative
+unlock. That writes a `systemd-fido2` LUKS2 token which only `systemd-cryptsetup` consumes, and
+Omarchy 4 assigns the busybox `encrypt` hook wholesale in `omarchy_hooks.conf`.
+`/usr/lib/initcpio/install/encrypt` copies none of the token plugins, libfido2 or ask-password units
+that `sd-encrypt` would, so the reader spends a keyslot and gets nothing. The record also guessed
+`/dev/nvme0n1p2` where `/proc/cmdline` carries `cryptdevice=PARTUUID=...:root`.
+
+`secure-boot-blocks-omarchy-install` reached the right conclusion from two wrong premises: nothing
+on Omarchy 4 is sealed to the TPM, and `CONFIG_MODULE_SIG_FORCE` is unset with
+`/sys/kernel/security/lockdown` reading `[none]`, so unsigned DKMS modules are not what Secure Boot
+rejects. The unsigned Limine `BOOTX64.EFI` and the UKI are. Its danger also omitted BitLocker, which
+is the one step in that record that actually locks a reader out of another operating system, and it
+offered no recovery at all.
+
+### The distribution already self-heals one of these
+
+`monitor-powered-off-at-boot-black-0x0` describes a panel that was asleep at boot returning a
+mode-less EDID. Omarchy 4 already recovers it: `omarchy-hyprland-monitor-watch`, running here as
+PID 2316 from `autostart.lua`, calls `recover_modeless` and reloads Hyprland on a backoff capped at
+60 seconds until a mode appears, and Hyprland itself retries three times at one second. The
+record's `off`/`on`/`detect` sysfs dance is also actively risky: per `drm_sysfs.c`, only `detect` is
+needed, while `off` and `on` set `DRM_FORCE_OFF` and `DRM_FORCE_ON` and stick.
+
+### The lint caught a defect an auditor introduced
+
+`bluetooth-keyboard-cannot-unlock-luks` came back with `sudo omarchy-bluetooth-power on` in its
+fix. `sudo` strips `OMARCHY_PATH`, so every `omarchy` subcommand then fails with
+`find: '/themes/': No such file or directory`, which is exactly what the `sudo-omarchy-cmd` lint
+pattern exists to catch. The script calls `rfkill unblock bluetooth` itself and takes no sudo, and
+the sibling record `bluetoothctl-no-default-controller`, corrected the same day, already called it
+without. Fixed by hand after the merge and recorded in the `audit_note`.
+
+That is the first time in this programme the lint has caught a **new** defect rather than an
+inherited one, and it is worth setting against O7: the same check that has been collecting false
+positives all session also caught the one thing seven auditors' worth of prose got wrong.
+
+### Two domain facts changed, both outside the corpus
+
+- **`omarchy-restart-shell` re-locks**, as above.
+- **`OMARCHY_PATH` in a non-interactive ssh is probably no longer unset.** CLAUDE.md has said flatly
+  that it is, and that anything driving a VM over ssh needs `bash -lc`. On omarchy-settings 4.0.2-1
+  `~/.bashrc` line 2 sources `default/bash/env-bootstrap` **above** the `[[ $- != *i* ]] && return`
+  guard, under the comment "needed even for non-interactive shells", and `default/bash/envs`
+  re-sources it saying the same. Bash reads `~/.bashrc` for a non-interactive shell started by sshd,
+  so it should now be set. **Not confirmed**: this workstation has no key for itself, and both test
+  VMs are shut off and run 4.0.1-1 so they would not settle a 4.0.2-1 claim. `ssh <host> 'echo
+  $OMARCHY_PATH'` from any second machine settles it. The entry now says so rather than stating the
+  old claim flatly, and `bash -lc` stays the recommended form because it works either way.
+
+### Where to pick this up
+
+1. **O3 is done. The next corpus job is item 6, the dashes**: 1,367 em and en dashes across 336 of
+   492 records. It edits the source of truth and must regenerate `research/docs/` in the same
+   commit, and the 150-title pass of 2026-09-03 is the precedent to copy.
+2. **Four operator decisions are banked**, none carryable by a verdict field, all wanting a merge or
+   a rename on the mDNS precedent: the resume-hook slug that names a non-defect,
+   `xwayland-apps-blurry-hidpi` duplicating `xwayland-blurry-on-fractional-scale`,
+   `hyprland-055-lua-config-input-ignored` filed under `audio-input`, and
+   `nvidia-black-screen-external-after-suspend` being the same problem as
+   `nvidia-suspend-resume-black-screen-vram`, which is strictly better. That last record's
+   `applies_to` also still carries `systemd-boot` and `grub`, which are wrong for Omarchy.
+3. Three upstream reports are owed and none is written: the enterprise Wi-Fi profile with no
+   certificate validation, the Intel video-acceleration installer matching graphics by marketing
+   name, and the resume hook ordering asserted by issues 8471, 8888 and 10375.
+4. The Haswell gap still owes the corpus a new record.
+5. One record is already known to expire: upstream commit f5194e3f, landed 2026-09-13, replaces the
+   inline pacman call in `pacman-file-exists-in-filesystem-omarchy` with a `bin/omarchy-update-pacman`
+   wrapper run under `systemd-run --scope`. It is absent from 4.0.2-1, so the record goes stale at
+   the next release.
 
 ## Session of 2026-09-13 (third): O3 clears `wayland-compat` and `audio-input`, all 18 wrong
 
@@ -3677,11 +3804,10 @@ again.
   brief. STARTED 2026-09-06. Six categories are complete: `boot-kernel` and `pacman-aur` on
   2026-09-06 and 2026-09-07, `gpu-drivers`, `apps-services` and `network` on 2026-09-11, and
   `power-suspend` on 2026-09-12, and `omarchy-theming`, `hyprland-config`, `wayland-compat` and
-  `audio-input` on 2026-09-13. 21 remain: `omarchy-core` 8, `display-monitors` 5, `gpu-drivers` 4,
-  `boot-kernel` 2, `omarchy-theming` 1, `network` 1. Only about 7 of those are new work, since the
-  last four groups are records already through a second pass or ones an earlier pass judged not
-  Omarchy-specific. O3 is effectively done after `display-monitors` and the `omarchy-core`
-  remainder. About 750k to 900k tokens per
+  `audio-input`, `omarchy-core` and `display-monitors` on 2026-09-13. **DONE.** 159 records
+  re-audited, 157 corrected, 2 passed. The 8 records still matching `ok` plus `danger` are those two
+  plus six that earlier passes judged general Arch rather than Omarchy-specific, so there is nothing
+  left in this option to run. About 750k to 900k tokens per
   ten records, one agent per two records, through `merge_gapfill.py` with the
   dry-run-then-diff discipline.
 - **O4. Harvest from `omacom/omarchy` issues rather than the web.** STARTED and paused

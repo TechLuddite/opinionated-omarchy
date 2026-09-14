@@ -433,42 +433,78 @@ Sources: <https://github.com/basecamp/omarchy/issues/7228> · <https://github.co
 
 `monitor-powered-off-at-boot-black-0x0` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
 
-**Symptom.** A monitor that was switched off (or on a different input) when you booted stays black forever afterwards, even once you power it on. `hyprctl monitors all` lists it as enabled but with a size of `0x0`, and no amount of replugging brings it up.
+**Symptom.** A monitor that was switched off, or on a different input, when you booted stays black afterwards even once you power it on. `hyprctl monitors all -j` lists it as enabled with a width and height of 0. Pressing the monitor's own power button changes nothing, because that fires no hotplug event. Unplugging and replugging the cable often does recover it, since that does fire a hotplug, but on a laptop dock or a panel you cannot reach that is not an option.
 
-**Cause.** A powered-off display answers the DDC probe with a partial EDID that carries no video modes. Hyprland brings the output up anyway, at 0x0, and nothing in the compositor fires an event for that state, so it never retries. Omarchy ships `omarchy-hyprland-monitor-modeless` specifically to detect it.
+**Cause.** A display that is switched off, or on another input, answers the probe with a partial EDID that carries no video modes. Hyprland brings the output up anyway with no mode, so it reports 0x0 and stays black. It does retry, but only three times at one second intervals (`CMonitor::scheduleModeRetry`, `MAX_MODE_RETRIES = 3`, `src/output/Monitor.cpp` on v0.56.2), and then gives up for good. Powering the panel on afterwards fires no DRM hotplug event, so nothing asks the compositor to look again, and a reload is the only thing that re-reads the connector. Omarchy 4 fills that gap in userspace: `omarchy-hyprland-monitor-watch` runs a `recover_modeless` loop that polls `omarchy-hyprland-monitor-modeless` and issues `hyprctl reload` on an exponential backoff capped at 60 seconds until the output reports a mode.
 
-> ⚠️ **Risk.** Editing kernel parameters touches the bootloader (systemd-boot: /boot/loader/entries/*.conf, GRUB: /etc/default/grub + grub-mkconfig). A typo in the loader entry can leave the machine unbootable — keep a known-good entry and a live USB handy.
+> **Audit corrected this record.** Checked against Hyprland v0.56.2 source, the kernel DRM sysfs source, the installed omarchy 4.0.2-1 package on this workstation, and the Arch KMS wiki. Four defects. First, the `danger` names systemd-boot `/boot/loader/entries/*.conf` and GRUB `/etc/default/grub`, neither of which exists on a stock Omarchy 4 install. Confirmed on this machine that Omarchy 4 boots a UKI through Limine: `/etc/limine-entry-tool.d/omarchy-defaults.conf` and `omarchy-uki.conf` are owned by omarchy-settings 4.0.2-1 and carry `KERNEL_CMDLINE[default]+=`, and `/usr/lib/limine/limine-common-functions` lines 99 to 129 load `/usr/share/limine-entry-tool.d/*.conf`, then `/etc/limine-entry-tool.d/*.conf`, then `/etc/default/limine` at highest priority. `/usr/bin/limine-update` runs `limine-install --no-efi-register` and `limine-mkinitcpio`, which is what rebuilds the UKI. Second, the cause claims Hyprland never retries. It retries three times at one second intervals: `CMonitor::scheduleModeRetry` in `src/output/Monitor.cpp` with `MAX_MODE_RETRIES = 3`, then gives up permanently. More importantly the record omits that Omarchy 4 already recovers this by itself. `omarchy-hyprland-monitor-watch` is launched from `/usr/share/omarchy/default/hypr/autostart.lua`, and its `recover_modeless` function polls `omarchy-hyprland-monitor-modeless` and issues `hyprctl reload` on a backoff capped at 60 seconds until a mode appears. That process is live here as PID 2316. Third, the `off` then `on` then `detect` sysfs sequence is wrong and dangerous. `status_store` in `drivers/gpu/drm/drm_sysfs.c` maps `off` to `DRM_FORCE_OFF`, `on` to `DRM_FORCE_ON` and `detect` to clearing the force, and re-probes whenever the force changed or is zero, so only the final `detect` does useful work while the first two leave a connector forced until something writes `detect` back. That same function emits no hotplug event, which is exactly why the record's `hyprctl reload` is needed and why powering a panel on changes nothing on its own. Fourth, the record gave no route in when the black monitor is the only one, which is the whole point of the problem. On duplication with `monitor-config-ignored-name-or-mode`: only the cause sentence overlaps. This record uniquely holds the detection test, the DRM re-probe, the kernel `video=` pin and the Omarchy watcher. The sibling holds mode and scale matching for rules that are accepted but ignored. Merging is an operator call, but they are not the same failure. `omarchy-hw-recover-internal-monitor` is NOT the recovery for this and is not cited here, correctly: read in full, it only removes `~/.local/state/omarchy/toggles/hypr/internal-monitor-disable.lua` when `omarchy-hw-external-monitors` reports no external panel, driven by the oneshot user unit `omarchy-recover-internal-monitor.service` before `graphical-session-pre.target`. It has nothing to do with a modeless output. Confirmed live on this machine: the four DRM connectors are `card1-DP-1`, `card1-DP-2`, `card1-DP-3` and `card1-HDMI-A-1`, only HDMI-A-1 connected, and `hyprctl monitors all -j` carries the `name`, `width`, `height` and `disabled` fields the detection and verify commands read. NOT exercised: nothing was written, no reload or re-probe was run, and no monitor was powered off, so the recovery sequence itself is reasoned from source rather than performed. I also could not list `/boot` to confirm the Limine fallback entry, because it is a vfat ESP mounted dmask=0077 and I was not to use sudo.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Editing kernel parameters touches the bootloader, and a mistake there can stop the machine booting. On Omarchy 4 that is Limine with a UKI: the drop-ins are `/etc/limine-entry-tool.d/*.conf` and `/etc/default/limine`, and `sudo limine-update` rebuilds `/boot/EFI/Linux/omarchy_linux.efi`. There is no `/boot/loader/entries` and no `/etc/default/grub` on a stock Omarchy 4 install, so advice naming those paths is written for a different system. Omarchy's `/etc/limine-entry-tool.d/omarchy-uki.conf` sets `ENABLE_LIMINE_FALLBACK=yes` and a `BOOT_ORDER` that includes fallback and Snapper snapshot entries, so the boot menu should offer something older, but keep a live USB handy rather than relying on that. Separately, writing `off` or `on` to a connector's `/sys/class/drm/*/status` forces that connector's state until you write `detect` back or reboot. Aim it at the wrong connector and you blank a monitor that was working.
 
 **Fix.**
 
-Detect it:
+**On Omarchy 4 this usually recovers itself.** `omarchy-hyprland-monitor-watch` is started from `/usr/share/omarchy/default/hypr/autostart.lua` and runs for the life of the session. Power the monitor on, or select the right input, and wait up to a minute. Check the watcher is alive first, from a working screen or over ssh:
+
+```bash
+pgrep -af omarchy-hyprland-monitor-watch
+```
+
+**Detect the state.** This is the exact test Omarchy's own `omarchy-hyprland-monitor-modeless` runs, and it works on any Hyprland:
 
 ```bash
 hyprctl monitors all -j | jq -c '.[] | select(.disabled != true and (.width == 0 or .height == 0)) | {name,width,height}'
 ```
 
-Power the monitor on / select the right input, then force a re-probe and reload:
+**If the black monitor is your only screen, you need another way in.** The session is running fine and only that output has no mode, so ssh from another machine is the reliable route. `Ctrl+Alt+F2` is not: the console draws on the same dead connector, so the TTY is black too.
+
+**Manual recovery on any Hyprland 0.55+ with a Lua config.** Power the monitor on, then reload. A reload is what re-reads the connector, and it needs no root:
 
 ```bash
-CONN=$(ls -d /sys/class/drm/card*-HDMI-A-1)   # substitute your connector
-echo off    | sudo tee $CONN/status
-sleep 1
-echo on     | sudo tee $CONN/status
-echo detect | sudo tee $CONN/status
 hyprctl reload
 ```
 
-If it still comes up modeless, pin an explicit mode in `~/.config/hypr/monitors.lua` so Hyprland does not depend on the EDID:
+**If a reload is not enough, force a DRM re-probe.** This needs root. Write `detect` and nothing else: per `status_store` in `drivers/gpu/drm/drm_sysfs.c`, `detect` clears any forced state and re-probes, while `off` sets `DRM_FORCE_OFF` and `on` sets `DRM_FORCE_ON` and either one sticks until something writes `detect` back. List your real connector names first:
+
+```bash
+for p in /sys/class/drm/*/status; do echo "$p: $(cat "$p")"; done
+```
+
+```bash
+echo detect | sudo tee /sys/class/drm/card1-HDMI-A-1/status   # use your own connector
+hyprctl reload
+```
+
+The write re-probes but sends no hotplug event, so the `hyprctl reload` is still needed.
+
+**Pin an explicit mode** in `~/.config/hypr/monitors.lua` so Hyprland does not depend on the EDID. When the named resolution is in no driver mode list, Hyprland falls through to trying it as a custom DRM mode, which the driver may still reject:
 
 ```lua
 hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60", position = "auto", scale = 1 })
 ```
 
-As a last resort, force the mode from the kernel command line so it is set before the compositor starts: add `video=HDMI-A-1:1920x1080@60` to your kernel parameters.
+**Last resort: force the mode from the kernel command line**, so it is set before the compositor starts:
 
-**Verify.** `hyprctl monitors all -j | jq -c '.[] | {name,width,height}'` reports a non-zero width and height for the output.
+```
+video=HDMI-A-1:1920x1080@60
+```
 
-Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-modeless> · <https://wiki.archlinux.org/title/Kernel_mode_setting>
+*Omarchy 4 (Limine with a UKI).* Add a drop-in rather than editing a packaged file. `/etc/limine-entry-tool.d/*.conf` and `/etc/default/limine` are both read by `/usr/lib/limine/limine-common-functions`, the latter at highest priority:
+
+```bash
+printf 'KERNEL_CMDLINE[default]+=" video=HDMI-A-1:1920x1080@60"\n' \
+  | sudo tee /etc/limine-entry-tool.d/99-force-monitor-mode.conf
+sudo limine-update
+```
+
+`limine-update` runs `limine-install --no-efi-register` and `limine-mkinitcpio`, which rebuilds the UKI at `/boot/EFI/Linux/omarchy_linux.efi` with the new command line. Confirm afterwards with `cat /proc/cmdline` on the next boot.
+
+*Plain Arch.* systemd-boot: append it to the `options` line in `/boot/loader/entries/*.conf`. GRUB: append it to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then run `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
+
+**Verify.** `hyprctl monitors all -j | jq -c '.[] | {name,width,height}'` reports a non-zero width and height for the output, and the screen shows a picture. On Omarchy 4, `omarchy-hyprland-monitor-modeless` exits 1 when no enabled output is modeless, 0 while one still is, and 2 when the compositor cannot answer.
+
+Sources: <https://wiki.archlinux.org/title/Kernel_mode_setting> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-modeless> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-watch> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/output/Monitor.cpp> · <https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/plain/drivers/gpu/drm/drm_sysfs.c?h=v6.17>
 
 ---
 
@@ -476,41 +512,88 @@ Sources: <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-hyprland-
 
 `nvidia-black-screen-external-after-suspend` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `systemd-boot`, `wayland`
 
-**Symptom.** Wake the machine from suspend and the external monitor (or all monitors) stays black, or comes back with corrupted garbage. Sometimes only a full reboot recovers it. NVIDIA GPU.
+**Symptom.** Wake the machine from suspend and an external monitor, or every monitor, stays black or comes back with corrupted garbage. The machine itself is often still alive: you can ssh in, and `hyprctl monitors` still answers. Sometimes only a reboot recovers the picture. NVIDIA GPU.
 
-**Cause.** NVIDIA does not preserve video memory across suspend unless explicitly told to, and the suspend/resume helper services must be enabled. Without them the driver loses the framebuffer contents and cannot re-modeset the outputs on resume.
+**Cause.** Two different faults are being run together under one symptom, and only one of them is about video memory.
 
-> ⚠️ **Risk.** Editing bootloader entries or GRUB config can make the system unbootable if you break the line. Copy the existing entry to a backup first, and never edit only /etc/default/grub without re-running grub-mkconfig.
+**The display side.** An output that is dark after a wake is often not a memory problem at all. The compositor can come back with the panel in DPMS off, or with the sink having dropped off the bus so the monitor is re-enumerated with an EDID carrying no modes, or on a hybrid machine with the external head attached to a GPU that Aquamarine did not select. All three leave a live session you can reach over ssh, with `hyprctl monitors` reporting either `dpmsStatus` false or a monitor sitting at 0x0.
+
+**The driver side.** The NVIDIA driver has to save and restore video memory across a suspend cycle, and the mechanism changed in the 595 series. On 595 and newer, which is everything Omarchy 4 installs on Turing and later, `NVreg_UseKernelSuspendNotifiers=1` handles it and the `nvidia-suspend`, `nvidia-hibernate` and `nvidia-resume` services are deliberately disabled by upstream. Arch ships the parameter in `/usr/lib/modprobe.d/nvidia-sleep.conf`, so preservation works out of the box and there is nothing to add to the kernel command line. Only the 430 to 590 branch, which is the `nvidia-580xx` driver Omarchy installs on Maxwell, Pascal and Volta, needs `NVreg_PreserveVideoMemoryAllocations=1` together with those three services. Omarchy 4 crosses the two paths, because `gpu-screen-recorder` is in the base package set and its `/usr/lib/modprobe.d/gsr-nvidia.conf` turns `PreserveVideoMemoryAllocations` on for every NVIDIA machine while the installer never enables the services that parameter then requires. That configuration decision, and the hibernation cost attached to it, is the subject of `nvidia-suspend-resume-black-screen-vram` and is not repeated here.
+
+> **Audit corrected this record.** Re-audited on this Omarchy 4.0.2-1 workstation, which has an NVIDIA card running nvidia-open-dkms 610.57.04-1 on hyprland 0.56.2-1 and kernel 7.1.9, against the Arch NVIDIA/Tips_and_tricks wikitext, the Hyprland wiki and the Hyprland 0.56.2 source. The symptom is real, but the record's cause is stale by a whole driver branch and its fix would make a current machine worse. Five defects. First, the cause says NVIDIA does not preserve video memory "unless explicitly told to, and the suspend/resume helper services must be enabled". That is true only of the 430 to 590 branch. The Arch wiki states that `NVreg_PreserveVideoMemoryAllocations` was succeeded by `NVreg_UseKernelSuspendNotifiers` on 595 and newer, and that the three services are disabled by default on 595 and newer per upstream requirements. Confirmed on this machine: `/usr/lib/modprobe.d/nvidia-sleep.conf` from nvidia-utils sets `NVreg_UseKernelSuspendNotifiers=1` and `NVreg_TemporaryFilePath=/var/tmp`, `/proc/driver/nvidia/params` reports both, and `systemctl is-enabled` returns `disabled` for nvidia-suspend, nvidia-hibernate, nvidia-resume and nvidia-suspend-then-hibernate. Second, the fix's `sudo systemctl enable nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service` is therefore a regression on every machine Omarchy 4 installs nvidia-open-dkms on, which is Turing and later. Third, the kernel parameter step is wrong twice over: the parameter is superseded, and the two bootloaders named do not exist here. Confirmed on this machine that `/etc/default/grub` is absent, that `/etc/limine-entry-tool.d/` holds the three cmdline drop-ins Omarchy uses (omarchy-defaults.conf, omarchy-uki.conf, resume.conf), and that `/proc/cmdline` carries no nvidia parameter at all while preservation is nonetheless on. That last point condemns the record's `verify` field directly: `cat /proc/cmdline | grep NVreg` returns nothing on a correctly configured box, so the record's own success test reports failure. I could not prove `/boot/loader/entries` is absent, because the ESP is mounted dmask=0077 and the listing returns Permission denied, but Omarchy boots a UKI through Limine so the systemd-boot path is wrong regardless. Fourth, `sudo mkinitcpio -P` rebuilds nothing on Omarchy 4: `/etc/mkinitcpio.d/` contains zero files here, so the command aborts with no presets found. Fifth, the danger field is entirely about breaking a GRUB or systemd-boot line and misses the real hazard, which is that `PreserveVideoMemoryAllocations=1` on Omarchy's early KMS layout makes hibernate resume fail and discard the image. On duplication, which the orchestrator asked about explicitly. This record is NOT a duplicate of `nvidia-hyprland-modeset-cursors-mgpu`: that record covers four separate NVIDIA and Hyprland faults (DRM modeset, driver package choice, multi-GPU output selection, cursor planes) and touches suspend only in its step 6. It IS the same problem as `nvidia-suspend-resume-black-screen-vram` in gpu-drivers. Both are "NVIDIA monitors black or corrupted after suspend", both blame video memory preservation, both name the same parameter and the same three services. That record is strictly better: it is already `corrected` with `cause_reconciled` 2026-09-11, it knows the gpu-screen-recorder trap, it splits the open and 580xx branches, and it carries the hibernation data-loss danger. Read as originally written, this record holds nothing the other two lack except the suggestion to swap between nvidia-open-dkms and the fully proprietary driver, and a symptom framing about an external head staying black while the internal panel works, which is really output selection and belongs to the mgpu record. So I have rewritten it to the job it can do on its own: the display-side triage after a wake, which neither sibling covers, with the video memory decision deferred by slug to `nvidia-suspend-resume-black-screen-vram` rather than restated wrongly. Cross-referencing by slug is already the corpus convention, 21 records do it. Whether to merge the two instead is an operator decision and I have not made it. Two smaller notes. `dpmsStatus` is a boolean in the `-j` output and an integer in the text output, so the fix reads `dpms=false`, verified by running both here. `hl.dsp.dpms({ action = "on" })` is correct: `Internal::parseToggleStr` in `src/config/lua/bindings/LuaBindingsInternal.cpp` at v0.56.2 maps both "on" and "enable" to TOGGLE_ACTION_ENABLE. I read that from source rather than running the dispatcher, because on 0.56 `hyprctl dispatch` evaluates its argument and would have changed the operator's live session. The record's `applies_to` still carries the `systemd-boot` and `grub` tags, which are now wrong for the Omarchy branch and right for the Arch one, and there is no corrected field for that, so it is flagged here instead. On sources, the record's only source is a hyprland-wiki blob URL that 404s, confirmed with curl, because the content moved to `content/nvidia/`. It goes in `sources_remove` and is replaced. Severity `high` and frequency `common` both stand and are left alone. NOT exercised: I did not suspend this machine, which is the operator's daily workstation driving real monitors, so every claim about what happens across a resume comes from the driver README, the Arch wiki, the shipped modprobe and unit files and the sibling audit, not from a wake I watched. I set no mode, ran no `hyprctl keyword`, `reload` or `dispatch`, and changed nothing.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** The display checks in steps 1 to 3 are read only and safe. The risk is entirely in step 4. On Omarchy's early KMS layout, running with `NVreg_PreserveVideoMemoryAllocations=1` makes resume from hibernation fail and discard the image, which costs every unsaved thing that was open, and Omarchy configures hibernation out of the box through `HOOKS+=(resume)` in `/etc/mkinitcpio.conf.d/omarchy_resume.conf`. Read `nvidia-suspend-resume-black-screen-vram` before touching that parameter or those services, because suspend and hibernate are mutually exclusive under it. Any change under `/etc/modprobe.d` needs the initramfs rebuilt, since the NVIDIA modules are early loaded, and an interrupted `sudo limine-mkinitcpio` leaves an unbootable UKI, so do not power cycle while it runs.
 
 **Fix.**
 
-On Arch these are usually already in place, but verify:
+**1. Find out whether the session is alive.** From another machine over ssh, or from a TTY:
 
 ```bash
+hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate) dpms=\(.dpmsStatus) disabled=\(.disabled)"'
+```
+
+- Nothing answers and the machine is unreachable: the driver or the kernel is gone. Go to step 4.
+- A monitor is listed with `dpms=false`: the panel is asleep. Step 2.
+- A monitor is listed at `0x0`: it came back with an EDID carrying no modes. Step 3.
+- Everything reads correctly and the screen is still black or garbled: step 4.
+
+**2. Wake the output.** On Hyprland 0.56 `hyprctl dispatch` evaluates its argument as Lua, so a bare dispatcher name fails with a parse error:
+
+```bash
+hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
+```
+
+`"on"` and `"enable"` are the same value to the parser.
+
+**3. Re-detect a monitor that came back with no modes.** Omarchy ships a check for exactly this state:
+
+```bash
+omarchy-hyprland-monitor-modeless; echo $?   # 0 means an enabled monitor has no modes
+```
+
+Power cycle the monitor, or unplug and replug the cable. Hyprland re-reads the EDID on hotplug. If the head never reappears on a hybrid machine, it is wired to a GPU the compositor did not pick, which is an `AQ_DRM_DEVICES` problem rather than a suspend one.
+
+**4. Only now look at video memory preservation.** Read what the driver is actually doing. None of this needs root:
+
+```bash
+sort /proc/driver/nvidia/params | grep -E 'PreserveVideoMemoryAllocations|UseKernelSuspendNotifiers|TemporaryFilePath'
 systemctl is-enabled nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service
-sudo systemctl enable nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service
+pacman -Qs 'nvidia-open-dkms|nvidia-580xx-dkms'
 ```
 
-Add the kernel parameter that keeps video memory across suspend:
+On a current Omarchy 4 or Arch install running `nvidia-open-dkms`, the correct state is `UseKernelSuspendNotifiers: 1`, `TemporaryFilePath: "/var/tmp"` and three `disabled` services. Enabling those services on this branch would be a regression. Nothing goes on the kernel command line for this on 595 and newer, so an empty `grep NVreg /proc/cmdline` is not a fault.
 
-- systemd-boot: append to the `options` line in `/boot/loader/entries/<entry>.conf`
-- GRUB: append inside `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then `sudo grub-mkconfig -o /boot/grub/grub.cfg`
+If the three services read `disabled` while `PreserveVideoMemoryAllocations: 1`, the machine is in the inconsistent state Omarchy ships by default. Read `nvidia-suspend-resume-black-screen-vram` before changing anything: it carries both consistent configurations and the reason one of them costs you hibernation.
 
-```
-nvidia.NVreg_PreserveVideoMemoryAllocations=1
-```
-
-Reboot and check it took:
+**5. Check the journal from the suspend you are debugging.**
 
 ```bash
-cat /proc/cmdline | tr ' ' '\n' | grep NVreg
+journalctl -b -k | grep -iE 'Xid \(PCI|nvidia-modeset: ERROR|Failed detecting connected display'
 ```
 
-If resume-from-hibernation stops working after this, disable early KMS (remove the nvidia entries from `MODULES=()` in `/etc/mkinitcpio.conf` and run `sudo mkinitcpio -P`) — early module loading and hibernate resume conflict. If you are on `nvidia-open-dkms` and still broken, the fully proprietary driver is worth a try, and vice versa.
+Use `journalctl -b -1 -k` instead only when the machine had to be power cycled.
 
-**Verify.** `systemctl suspend`, wake, and all monitors light up with the right modes; `cat /proc/cmdline` contains `NVreg_PreserveVideoMemoryAllocations=1`.
+**On Omarchy 4 there is no GRUB and no systemd-boot.** It boots a unified kernel image through Limine. Kernel command line changes go in a drop-in under `/etc/limine-entry-tool.d/`, `/etc/default/grub` does not exist, and `sudo mkinitcpio -P` aborts because `/etc/mkinitcpio.d/` holds no presets. The rebuild command is `sudo limine-mkinitcpio`. On plain Arch with systemd-boot or GRUB the older instructions still apply, and there `sudo mkinitcpio -P` is correct.
 
-Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Nvidia/_index.md>
+**Verify.** Read the driver state back, no root needed, and confirm it matches the branch you are on:
+
+```bash
+sort /proc/driver/nvidia/params | grep -E 'UseKernelSuspendNotifiers|TemporaryFilePath'
+systemctl is-enabled nvidia-suspend.service nvidia-resume.service
+```
+
+Then suspend once, wake, and confirm every output came back with the mode you expect:
+
+```bash
+hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate) dpms=\(.dpmsStatus)"'
+journalctl -b -k | grep -iE 'Xid \(PCI|nvidia-modeset: ERROR'
+```
+
+The last command should print nothing.
+
+Sources: <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks> · <https://wiki.hypr.land/Nvidia/> · <https://wiki.hypr.land/configuring/core/dispatchers/> · <https://download.nvidia.com/XFree86/Linux-x86_64/610.57.04/README/powermanagement.html> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsInternal.cpp>
 
 ---
 
@@ -761,9 +844,13 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/
 
 `mirroring-a-display-and-hidden-mirror-outputs` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `omarchy-4`, `wayland`
 
-**Symptom.** I need to mirror my laptop screen onto a projector for a presentation, or mirror the internal panel while docked. Giving both monitors the same `position = "0x0"` doesn't mirror anything — Hyprland just warns that the monitors overlap and shoves one aside. And once I do get a mirror working, the mirrored output disappears completely from `hyprctl monitors`, so my status bar and my own scripts think the monitor was unplugged. `hl.get_monitors()` in Lua doesn't list it either, and `hl.get_monitor(id)` on it returns nil.
+**Symptom.** I need to mirror my laptop screen onto a projector for a presentation, or mirror the internal panel while docked. Giving both monitors the same `position = "0x0"` does not mirror anything. Hyprland raises a warning notification that the layout is invalid and then leaves both outputs sitting on top of each other. And once I do get a real mirror working, the mirrored output disappears completely from `hyprctl monitors`, so my status bar and my own scripts think the monitor was unplugged. `hl.get_monitors()` in Lua does not list it either, and `hl.get_monitor(id)` on it returns nil.
 
 **Cause.** Mirroring is not done with positions — it is a dedicated `mirror` field on the monitor rule that names the output to copy. Once an output is mirroring another it is no longer an independent output in the layout, so Hyprland deliberately omits it from `hyprctl monitors`; it only appears in `hyprctl monitors all`. The same applies to the Lua API: `hl.get_monitors()` returns only enabled, non-mirrored outputs, which is why `HL.Monitor.is_mirror` reads as useless (hyprwm/Hyprland discussion #14645). Mirroring is also a straight scanout copy, not a re-render: a 1080p source mirrored onto a 4K panel stays 1080p, and mismatched aspect ratios get squished or stretched.
+
+> **Audit corrected this record.** Re-checked every claim against Hyprland v0.56.2 source rather than only the wiki, plus the installed omarchy 4.0.2-1 and hyprland 0.56.2-1 packages on this workstation. The core of the record holds and is now proven at source level, not just documented. `hyprctl monitors` really does hide mirrors: `monitorsRequest` in `src/debug/HyprCtl.cpp` line 327 picks `allMonitors()` for `monitors all` and `monitors()` otherwise, and `CMonitorStateTracker` in `src/state/MonitorState.cpp` lines 33 to 36 erases anything where `isMirror()` is true and skips outputs that are not enabled or are mirrors. The Lua half holds too: `hlGetMonitors` in `src/config/lua/bindings/LuaBindingsQuery.cpp` iterates `monitors()`, so mirrors and disabled outputs are absent, and the shipped stub `/usr/share/hypr/stubs/hl.meta.lua` line 847 declares `get_monitors fun(): HL.Monitor[]` with no argument, confirming PR 14693 (merged 2026-08-21) is still not in a tagged release. v0.56.2 released 2026-08-05 is still the newest upstream release, so the first-pass note's forward-looking warning is still true and worth keeping. Discussion 14645 was read in full and does support the claim: the author reports `hl.get_monitor(id)` returning nil for a mirrored output, and a commenter states `hl.get_monitors()` only lists enabled monitors. The `mirror` field and both example forms match `content/configuring/core/monitors/_index.md` in the wiki repo, including the 'will not re-render' and squish-and-stretch wording, and the stub carries `---@field mirror? string` at line 579. Reading `/usr/share/omarchy/bin/omarchy-hyprland-monitor-internal-mirror` on the installed package confirms on, off, toggle and recover, the `^(eDP|LVDS|DSI)-` exclusion, the `internal-monitor-mirror.lua` state file, forcing the `internal-monitor-disable` toggle off first, and the trailing `hyprctl reload`. The keybind is at `default/hypr/bindings/utilities.lua` line 33 as claimed. `omarchy-hyprland-toggle-enabled` is a one-line file test on the flag path, so the verify claim is exact. Two defects. First, the symptom says overlapping positions make Hyprland 'shove one aside'. It does not. `CMonitorLayoutController::checkOverlapsAndNotify` in `src/state/MonitorLayoutController.cpp` logs an error and raises a 15 second warning notification, then breaks. The overlap is left in place, which is worse than the record implies, because the user sees a warning and two genuinely overlapping outputs. Second, the record presents the Omarchy toggle as the Omarchy 4 way to mirror without saying it is laptop only. `omarchy-hyprland-monitor-laptop` returns the first output matching `^(eDP|LVDS|DSI)-`, so on a desktop `INTERNAL` is empty and the script exits 1 with a 'No laptop monitor found to mirror' notification. The menu entry at `default/omarchy/omarchy-menu.jsonc` line 70 is gated on `omarchy-hw-laptop`, but the keybind is not, so a desktop user following this record gets a failure notification and no explanation. The hand-written `mirror` rule is the answer on a desktop. One dead source found and replaced: the cited raw wiki URL under `content/Configuring/Basics/Monitors.md` returns 404 because the wiki was reorganised to `content/configuring/core/monitors/_index.md`. The three `basecamp/omarchy` raw URLs still redirect and still serve, but the repo was renamed to `omacom/omarchy`, so they are swapped for canonical ones rather than deleted. NOT exercised: nothing was configured, no mirror was enabled, no reload or dispatch was run, and this workstation has a single connected output (HDMI-A-1, Microstep MSI G274QPF), so the disappearance from `hyprctl monitors` was confirmed from source and from Omarchy's own comment, not observed live.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
 > ⚠️ **Risk.** If you write a `mirror` rule for the only external output and then disable the source panel (e.g. the internal-display toggle), you can end up with no monitor showing anything. Omarchy guards against this by forcing the `internal-monitor-disable` toggle off before enabling the mirror; if you hand-roll it, keep a TTY available (`Ctrl+Alt+F2`) and be ready to run `hyprctl reload` after reverting monitors.lua. A catch-all `output = ""` mirror rule also captures every future display, including a second desk monitor you wanted as an extended screen.
 
@@ -779,7 +866,9 @@ hl.monitor({ output = "eDP-1",    mode = "preferred", position = "0x0",  scale =
 hl.monitor({ output = "HDMI-A-1", mode = "preferred", position = "auto", scale = 1, mirror = "eDP-1" })
 ```
 
-A catch-all so *any* newly plugged screen mirrors the internal panel (useful for projectors whose connector name you don't know in advance):
+On a desktop the same shape works with two external outputs. Read your own connector names out of `hyprctl monitors all` first rather than copying `eDP-1`.
+
+A catch-all so *any* newly plugged screen mirrors the source (useful for projectors whose connector name you do not know in advance):
 
 ```lua
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1, mirror = "eDP-1" })
@@ -791,14 +880,14 @@ Apply without restarting the session:
 hyprctl reload
 ```
 
-**On Omarchy 4** there is a shipped toggle — `Super + Ctrl + Alt + Delete`, or from a terminal:
+**On Omarchy 4 there is a shipped toggle, but it is laptop only.** It mirrors the internal panel onto the first external output, so it does nothing on a desktop. `Super + Ctrl + Alt + Delete`, or from a terminal:
 
 ```bash
 omarchy-hyprland-monitor-internal-mirror toggle   # on/off/toggle/recover
 ```
 
-It picks the first active non-`eDP`/`LVDS`/`DSI` output, writes a generated rule to
-`~/.local/state/omarchy/toggles/hypr/internal-monitor-mirror.lua`, and runs `hyprctl reload`.
+It reads the internal panel from `omarchy-hyprland-monitor-laptop`, which matches `^(eDP|LVDS|DSI)-`. With no such output it sends a "No laptop monitor found to mirror" notification and exits 1. Otherwise it picks the first active non-`eDP`/`LVDS`/`DSI` output, forces the `internal-monitor-disable` toggle off, writes a generated rule to `~/.local/state/omarchy/toggles/hypr/internal-monitor-mirror.lua`, and runs `hyprctl reload`. The Omarchy menu entry for it is gated on `omarchy-hw-laptop` and is hidden on a desktop, but the keybind is not gated, so pressing it on a desktop just produces the notification.
+
 Turn it off explicitly with:
 
 ```bash
@@ -809,22 +898,18 @@ omarchy-hyprland-monitor-internal-mirror off
 
 ```bash
 hyprctl monitors all
-hyprctl monitors all -j | jq -r '.[] | "\(.name)\tdisabled=\(.disabled)\t\(.width)x\(.height)@\(.refreshRate)"'
+hyprctl monitors all -j | jq -r '.[] | "\(.name)\tdisabled=\(.disabled)\tmirrorOf=\(.mirrorOf)\t\(.width)x\(.height)@\(.refreshRate)"'
 ```
 
-Omarchy's own `omarchy-hyprland-monitor-modeless` does exactly this and documents why:
-*"Mirrors are absent from plain `monitors`, hence `all` plus an explicit disabled filter."*
-Any script of yours that counts monitors must use `monitors all` too, or it will conclude a
-mirrored screen is gone.
+This is not an accident of the CLI. In Hyprland 0.56.2 the compositor keeps two lists, and the one behind plain `monitors` has every disabled and every mirroring output removed from it. `hyprctl monitors all` reads the other list. Omarchy's own `omarchy-hyprland-monitor-modeless` documents the same thing: *"Mirrors are absent from plain `monitors`, hence `all` plus an explicit disabled filter."* Any script of yours that counts monitors must use `monitors all` too, or it will conclude a mirrored screen is gone.
 
-**Expectation setting:** the mirror is not re-rendered. Mirroring 1920x1080 onto a 3840x2160
-panel gives you a 1080p image, and mirroring 16:10 onto 16:9 will stretch. If you need a
-sharp image on the projector, set both outputs to the same mode instead of mirroring, or
-accept the source resolution.
+The Lua API has the same blind spot and no `all` option in 0.56.2: `hl.get_monitors()` takes no arguments and returns only enabled, non-mirrored outputs, and `hl.get_monitor(id)` on a mirror returns nil. Track mirror state yourself, for example by testing for the Omarchy toggle file, until a release ships the table form of `hl.get_monitors`.
+
+**Expectation setting:** the mirror is a scanout copy, not a re-render. Mirroring 1920x1080 onto a 3840x2160 panel gives you a 1080p image, and mirroring 16:10 onto 16:9 will stretch. If you need a sharp image on the projector, set both outputs to the same mode instead of mirroring, or accept the source resolution.
 
 **Verify.** `hyprctl monitors` should now list only the source output, while `hyprctl monitors all` lists both. Confirm the copy is live by moving a window — it should appear on both screens simultaneously. On Omarchy, `omarchy-hyprland-toggle-enabled internal-monitor-mirror` exits 0 while mirroring is on.
 
-Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Monitors.md> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://github.com/hyprwm/Hyprland/discussions/14645> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-hyprland-monitor-internal-mirror> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-hyprland-monitor-modeless> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/hypr/bindings/utilities.lua>
+Sources: <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://github.com/hyprwm/Hyprland/discussions/14645> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/monitors/_index.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/state/MonitorState.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/state/MonitorLayoutController.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/debug/HyprCtl.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsQuery.cpp> · <https://github.com/hyprwm/Hyprland/pull/14693> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-internal-mirror> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-modeless> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/utilities.lua>
 
 ---
 
@@ -832,43 +917,102 @@ Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Co
 
 `monitor-stuck-at-60hz-high-refresh` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`
 
-**Symptom.** A 120/144/165/240 Hz panel runs at 60 Hz. `hyprctl monitors` lists `1920x1080@180.00Hz` under `availableModes`, but setting `mode = "1920x1080@180"` in the config is simply ignored and the current mode stays `1920x1080@60`. Motion feels sluggish and mouse movement stutters.
+**Symptom.** A 120, 144, 165 or 240 Hz panel runs at 60 Hz, or at some rate below the one the panel is sold at. `hyprctl monitors` reports the low rate as the current mode. Two different shapes look identical from the chair: either the fast mode is missing from `availableModes` entirely, or it is listed there and a matching `mode` in the config still does not take. There is no config error and no message on screen. Motion feels sluggish and mouse movement stutters.
 
-**Cause.** `preferred` uses the display's EDID preferred timing, which on many panels (and on almost everything behind the NVIDIA proprietary driver) is the 60 Hz DTD, not the fast one. On NVIDIA 595.x/610.x specifically, Hyprland 0.55.x/0.56.x has been reported to ignore an explicit `mode` and fall back to the EDID preferred timing anyway.
+**Cause.** Four different faults land on the same low refresh rate, and they need different answers.
 
-> ⚠️ **Risk.** Regenerating the initramfs (`mkinitcpio -P`) while a driver rebuild is half-finished can leave an unbootable initramfs. Do it after a completed `pacman -Syu`, never in the middle of a partial upgrade, and keep the fallback initramfs entry available in your bootloader.
+1. **The link cannot carry the mode.** HDMI 2.0b carries about 14.4 Gbps of payload, which is not enough for 2560x1440 at 165 Hz, and a DisplayPort link that trains at fewer lanes or a lower bit rate loses its top modes. A marginal cable can train and then fail the modeset. When the link is the limit the fast mode is usually absent from `availableModes` altogether, because the kernel filters modes the link cannot carry.
+
+2. **The EDID does not offer the mode.** A monitor powered off at boot answers with a partial EDID carrying no video modes at all, which is the case Omarchy detects with `omarchy-hyprland-monitor-modeless`. A KVM, a splitter or a long passive adapter can present a reduced EDID the same way.
+
+3. **Hyprland is asked for a mode it cannot set and silently lands on a neighbour.** On 0.56.2 an explicit `mode` is not ignored. `CMonitor::applyMonitorRule` in `src/output/Monitor.cpp` sorts every driver mode by closeness to the request, keeps the best three, appends the exact request as a custom mode when the closest match is more than 1 off, then tries them in reverse order and takes the first that passes the atomic test. A request for `@144` that fails the test therefore lands on 120 or on 143.91, and `@165` on a link that tops out at 144 lands on 144, with no config error either way. The rejected attempts are logged at error level as `Monitor <name>: REJECTED available mode ...`.
+
+4. **No `mode` is set, so `preferred` is in force.** With no resolution in the rule, Hyprland tries the EDID preferred timing first and then the first three modes the driver reports. On many panels the preferred timing is the 60 Hz descriptor rather than the fast one. Omarchy 4 ships `mode = "preferred"` in the catch-all rule of `/usr/share/omarchy/config/hypr/monitors.lua`, so this is the state out of the box. A request to change that default to `highrr` was opened as omarchy pull request 161 and closed without merging.
+
+> **Audit corrected this record.** Re-audited on this Omarchy 4.0.2-1 workstation (hyprland 0.56.2-1, kernel 7.1.9, nvidia-open-dkms 610.57.04-1) against the Hyprland 0.56.2 source, the current Hyprland wiki and the two cited GitHub threads read in full. The problem is real and very common, but the record's diagnosis is wrong in a way that sends the reader to the wrong fix, and three of its commands do not work as written. First, the mechanism. The cause claims Hyprland 0.55.x/0.56.x ignores an explicit `mode` on NVIDIA. It does not. Read at tag v0.56.2, `src/output/Monitor.cpp` lines 757 to 940 sort every driver mode by closeness to the requested one, keep the best three, append the exact request as a custom mode when the closest is more than 1 off, try them in reverse and take the first that passes `m_state.test()`. A request that fails the atomic test silently lands on a neighbouring mode, which is exactly why a bad `@144` shows up as 120 or 143.91 and looks ignored. The same file shows `preferred` is not only the EDID preferred timing either: with no resolution in the rule it also queues the first three driver modes behind it, and there is a final catch-all that will try any mode at all. Second, the cause omits the two commonest real reasons a panel sits at 60, and they are the ones with different answers: a link that cannot carry the mode, and an EDID that does not offer it. This machine demonstrates the first. `hyprctl monitors all` here reports a 165 Hz Microstep MSI G274QPF on HDMI-A-1 whose `availableModes` top out at `2560x1440@144.00Hz`, with no 165 Hz entry anywhere, because HDMI 2.0b cannot carry it. Current mode reads `2560x1440@144.00101`. The record as written would have a reader edit monitors.lua forever chasing a mode the kernel never exposed. The modeless EDID case is real enough that Omarchy ships a detector for it, `/usr/share/omarchy/bin/omarchy-hyprland-monitor-modeless`, whose own comment says a monitor powered off at boot answers with a partial EDID carrying no video modes. Third, three command defects. `cat /sys/module/nvidia_drm/parameters/modeset` returns `Permission denied` unprivileged, confirmed by running it here, because the file is `-r-------- root root`. `sudo mkinitcpio -P` rebuilds nothing on Omarchy 4, confirmed here: `/etc/mkinitcpio.d/` contains zero files, so the command aborts with no presets found. The rebuild is `sudo limine-mkinitcpio`. And the danger field tells the reader to run `pacman -Syu`, which the Omarchy ALPM guard blocks. Fourth, an omission the reader will trip on: `highrr` sorts by rounded refresh rate first and resolution second, confirmed in the `addBest3Modes` lambda, so on a panel offering 1080p240 and 1440p165 it silently drops the resolution, and the wiki states the predefined modes cannot be combined. Fifth, the whole NVIDIA modeset step is now largely obsolete: Arch has enabled DRM since nvidia-utils 560.35.03-5, the 610 module default is on, and Omarchy's installer writes the file anyway. On sources, both hyprland-wiki blob URLs 404, confirmed with curl: the content moved to `content/configuring/core/monitors/` and `content/nvidia/`, so both go in `sources_remove` and are replaced with the canonical pages that return 200. The two kept sources do support the symptom but need reading with care and the record should not lean on either as a mechanism. omarchy pull request 161 is real, it reports exactly this (`preferred` landing on 60 Hz on a 4090 with a 120 Hz panel, `highrr` fixing it), and it is CLOSED and never merged, which is confirmed by Omarchy 4 still shipping `mode = "preferred"` in `/usr/share/omarchy/config/hypr/monitors.lua`, read on disk here. Hyprland issue 15210 exists but was auto-closed by the github-actions bot with "Users are no longer allowed to open issues themselves" fourteen seconds after it was opened, so it carries no maintainer triage and its own root cause analysis is a user's guess that the source contradicts. Severity `medium` and frequency `very-common` both stand and are left alone. NOT exercised: I changed no mode, scale or config on this workstation and ran no `hyprctl keyword`, `reload` or `dispatch`, so the corrected fix is argued from the 0.56.2 source, the wiki and read-only `hyprctl monitors` output rather than from a mode I set and watched. I also could not observe a `REJECTED available mode` line here, because every mode this box uses applies cleanly and the compositor log had rotated past session start. The commands in steps 1 to 3 were each run read-only on this machine and produce the output described.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Only the NVIDIA branch touches anything risky. Rebuilding the initramfs while a DKMS driver build is half finished can leave an image referencing a module that does not exist, which boots to a black screen, so confirm `dkms status` reports `installed` for every kernel first. Direct `pacman -Syu` is blocked on Omarchy by an ALPM guard and a bare `pacman -Sy` is a partial upgrade, so update with `omarchy update` and rebuild only after it has finished. An interrupted `sudo limine-mkinitcpio` leaves an unbootable UKI, so do not power cycle while it runs. Changing a monitor mode itself is safe and reversible: a mode the hardware cannot set is rejected and the compositor falls back to a working one rather than blanking permanently.
 
 **Fix.**
 
-First try `highrr`, which asks for the highest supported refresh rate rather than the preferred one. In `~/.config/hypr/monitors.lua`:
+**1. List every mode the driver actually offers.** This is the command that settles which of the four causes you have, and it needs no root:
+
+```bash
+hyprctl monitors all -j | jq -r '.[] | "\(.name)  \(.description)", (.availableModes[] | "    \(.)")'
+```
+
+**2. Read that list before editing any config.**
+
+- **The fast mode is absent.** The link or the EDID is the limit, not Hyprland, and no config line conjures a mode the kernel did not expose. Check the physical path: a 165 Hz 1440p panel needs DisplayPort, because HDMI 2.0b cannot carry that mode at all. Try a shorter or certified cable, try a different port, and power the monitor on before the machine boots.
+- **`availableModes` is empty, or the monitor sits at 0x0.** That is the modeless EDID case. Omarchy ships a check for it:
+
+```bash
+omarchy-hyprland-monitor-modeless; echo $?   # 0 means an enabled monitor has no modes
+```
+
+  Power cycle the monitor and replug the cable. Hyprland re-reads the EDID on hotplug.
+- **The fast mode is listed.** Go to step 3.
+
+**3. Ask for a mode that is in the list, copied verbatim.** The refresh rate has to match a listed rate, not the number printed on the box. In `~/.config/hypr/monitors.lua`:
+
+```lua
+hl.monitor({ output = "DP-1", mode = "2560x1440@143.91", position = "0x0", scale = 1 })
+```
+
+On Hyprland 0.54 and older, in `monitors.conf`: `monitor=DP-1,2560x1440@143.91,0x0,1`.
+
+Then read back what was actually set, because the fallback is silent:
+
+```bash
+hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate)"'
+```
+
+If the rate that comes back is not the one you asked for, the mode failed the atomic test rather than being ignored. The compositor log names what it rejected:
+
+```bash
+grep -E 'REJECTED|using available mode|using custom mode' "$XDG_RUNTIME_DIR"/hypr/*/hyprland.log
+```
+
+A mode that is listed but rejected is almost always bandwidth. Step one rate down the list and see whether that holds.
+
+**4. `highrr` is a shortcut with a cost.** It picks the highest refresh rate and only then the resolution, so on a panel offering both `1920x1080@240` and `2560x1440@165` it gives you the 1080p mode. The predefined modes cannot be combined, so there is no way to ask for highest resolution and highest rate together. Use it only when you have read the mode list and know the top rate belongs to the resolution you want:
 
 ```lua
 hl.monitor({ output = "", mode = "highrr", position = "auto", scale = 1 })
 ```
 
-On Hyprland <= 0.54 (`monitors.conf`): `monitor=,highrr,auto,1`.
-
-If you need a specific rate, copy the string verbatim out of `availableModes` — the refresh must match a listed mode:
+**5. NVIDIA: DRM mode setting is rarely the fault any more.** Arch has enabled it since `nvidia-utils` 560.35.03-5, the 610 series module defaults to on in the driver itself, and Omarchy's installer writes `/etc/modprobe.d/nvidia.conf` regardless. The parameter file is mode 0400, so an unprivileged `cat` returns `Permission denied` rather than an answer:
 
 ```bash
-hyprctl monitors all -j | jq -r '.[] | .name, (.availableModes[])'
+sudo cat /sys/module/nvidia_drm/parameters/modeset   # Y
 ```
 
-```lua
-hl.monitor({ output = "DP-1", mode = "2560x1440@164.96", position = "0x0", scale = 1 })
-```
-
-On NVIDIA, make sure DRM modesetting is actually on before chasing anything else:
+Only if that prints `N`, write the file and rebuild the initramfs:
 
 ```bash
-cat /sys/module/nvidia_drm/parameters/modeset   # must print Y
+sudo tee /etc/modprobe.d/nvidia.conf >/dev/null <<'EOF'
+options nvidia_drm modeset=1
+EOF
 ```
 
-If it prints `N`, create `/etc/modprobe.d/nvidia.conf` with `options nvidia_drm modeset=1`, then `sudo mkinitcpio -P` and reboot.
+The rebuild command is not the same on both systems:
 
-**Verify.** `hyprctl monitors | grep -A1 '^Monitor'` shows the high rate as the *current* mode, not just in `availableModes`.
+```bash
+sudo limine-mkinitcpio   # Omarchy 4, which boots a UKI through Limine
+sudo mkinitcpio -P       # plain Arch, which has presets in /etc/mkinitcpio.d/
+```
 
-Sources: <https://github.com/basecamp/omarchy/pull/161> · <https://github.com/hyprwm/Hyprland/issues/15210> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/Basics/Monitors.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Nvidia/_index.md>
+On Omarchy 4, `mkinitcpio -P` aborts with no presets found because `/etc/mkinitcpio.d/` is empty, so it rebuilds nothing and the reboot changes nothing.
+
+**Verify.** ```bash
+hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate)"'
+```
+
+The rate you asked for has to come back as the *current* mode. Finding it in `availableModes` proves only that the driver offers it, which was true before the change as well.
+
+Sources: <https://github.com/basecamp/omarchy/pull/161> · <https://github.com/hyprwm/Hyprland/issues/15210> · <https://wiki.hypr.land/configuring/core/monitors/> · <https://wiki.hypr.land/configuring/core/monitors/modes/> · <https://wiki.hypr.land/Nvidia/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/output/Monitor.cpp> · <https://github.com/omacom/omarchy/pull/161> · <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks>
 
 ---
 
@@ -1036,40 +1180,109 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/
 
 **Symptom.** You add `env = GDK_SCALE,2` or an `export` to your Hyprland config, reload, and nothing changes. Apps launched from the app launcher or from systemd user services never see the variable, though a terminal you open from a keybind sometimes does.
 
-**Cause.** Omarchy and the recommended Arch setup start Hyprland through `uwsm`. Variables set inside the compositor config only reach clients Hyprland itself spawns, not the systemd user session that launches most apps. The Arch wiki explicitly says not to put environment variables in `hyprland.lua` under uwsm.
+**Cause.** Omarchy 4 keeps three separate environment stores, and a variable is only seen by the programs whose store it reached.
 
-> ⚠️ **Risk.** Do not bind `hl.dsp.exit()` or kill the Hyprland process under uwsm — it bypasses the normal shutdown. Use `uwsm stop` or `loginctl terminate-user ""`.
+1. The Hyprland process environment. `hl.env("NAME", "VALUE")` in a loaded Lua file sets it here, and every client Hyprland itself spawns inherits it.
+2. The systemd user manager environment, which starts user services and anything launched through `uwsm app`. Read it with `systemctl --user show-environment`.
+3. The D-Bus activation environment, which starts D-Bus activated services such as the `xdg-desktop-portal` processes. It is a different store from the systemd one, and that is why a portal or a user service can see a different environment from a terminal.
+
+Generic uwsm advice, including the Arch wiki's Hyprland page, says not to put environment variables in `hyprland.lua` at all. That advice is written for a bare Hyprland plus uwsm install, where Hyprland pushes only seven fixed names into the other two stores (`DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME PATH XDG_DATA_DIRS`, in `src/Compositor.cpp`), so anything else set with `hl.env` would stop at store 1.
+
+Omarchy 4 closes that gap and the advice therefore does not transfer unchanged. `/usr/share/omarchy/default/hypr/autostart.lua` runs `systemctl --user import-environment $(env | cut -d'=' -f 1)` and `dbus-update-activation-environment --systemd --all` on the `hyprland.start` event, so on a stock install a variable set with `hl.env` reaches all three stores. Omarchy relies on this for its own defaults in `/usr/share/omarchy/default/hypr/envs.lua`.
+
+Three things still produce the symptom:
+
+- The import fires on `hyprland.start` only, never on `config.reloaded`. A variable added after login reaches Hyprland's own newly spawned children after a reload, but the systemd and D-Bus stores keep the old value until the next login.
+- `~/.config/hypr/envs.lua` is never loaded. `~/.config/hypr/hyprland.lua` requires exactly five user modules: `hypr.monitors`, `hypr.input`, `hypr.bindings`, `hypr.looknfeel` and `hypr.autostart`. There is no `hypr.envs`, so `hl.env()` lines placed in `envs.lua` are a silent no-op.
+- Running `systemctl --user import-environment NAME` by hand from an already open terminal imports that terminal's value, which is the value from before the edit.
+
+> **Audit corrected this record.** Re-audited against this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, hyprland 0.56.2-1, uwsm 0.26.7-1) and against upstream source. The record's `fix` files are real and its `danger` is a faithful reading of the Arch wiki, which at `Hyprland` says verbatim not to put environment variables in `hyprland.lua` under uwsm and names `~/.config/uwsm/env` and `~/.config/uwsm/env-hyprland`. The `cause` is wrong for Omarchy 4. It claims variables set in the compositor config never reach the systemd user session. On this machine `systemctl --user show-environment` carries `GDK_SCALE`, `XCOMPOSEFILE`, `OMARCHY_PATH`, `QT_QPA_PLATFORMTHEME` and the whole `GUM_*` block, and the environ of all three running `xdg-desktop-portal` processes (pids 2556, 2701, 2756) carries the same names, yet none of them is in Hyprland's own import list. I read that list in `src/Compositor.cpp` at v0.56.2: it is exactly seven names (`DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME PATH XDG_DATA_DIRS`). The variables get there because `/usr/share/omarchy/default/hypr/autostart.lua` runs `systemctl --user import-environment $(env | cut -d'=' -f 1)` and `dbus-update-activation-environment --systemd --all` on `hyprland.start`, so the generic uwsm advice does not transfer to Omarchy unchanged and the record was presenting a symptom that a stock Omarchy install mostly does not have.
+
+I replaced the cause and fix with the three-store model and an ordered decision procedure covering all four places a reader might put a variable, because this record is the one other records should point at. Three mechanisms were added, each confirmed at source rather than assumed. `~/.config/hypr/envs.lua` is never loaded: both `/usr/share/omarchy/config/hypr/hyprland.lua` and the live `~/.config/hypr/hyprland.lua` require exactly five user modules and none is `hypr.envs`, so `hl.env()` lines there are a silent no-op. `hl.env` takes a third boolean on 0.56.2 which makes Hyprland run `systemctl --user import-environment '<name>'` and `dbus-update-activation-environment --systemd '<name>'` itself, read in `src/config/lua/bindings/LuaBindingsConfigRules.cpp` around line 525. And `hyprland.start` and `config.reloaded` are distinct events in `src/config/lua/LuaEventHandler.cpp` (lines 151 and 165), so a reload re-applies `hl.env` inside Hyprland but does not refresh the systemd or D-Bus stores, which is the residual failure the record should have described.
+
+Three smaller corrections. The record framed `~/.config/uwsm/env` as the Arch path and `~/.config/uwsm/env.d/20-user` as the Omarchy one. That split is false: `/usr/lib/uwsm/prepare-env.sh` sources `uwsm/env`, `uwsm/env.d/*`, `uwsm/env-${desktop}` and `uwsm/env-${desktop}.d/*` from every rung of `$XDG_CONFIG_HOME:$XDG_CONFIG_DIRS:$XDG_DATA_DIRS`, so all four shapes work identically on both, and uwsm's own README says the same at the "where to put a user-level var" summary. The record called `GDK_SCALE` in `monitors.lua` an exception, when it is the general Omarchy pattern, and upstream ships `local omarchy_gdk_scale = 2` there, which I confirmed on `quattro`. The record never mentioned `~/.config/environment.d/`, which is the correct answer for a systemd-user-only variable and which Omarchy itself uses at `/usr/share/omarchy/default/environment.d/10-omarchy-fcitx.conf`. I added the D-Bus activation environment as a named separate store and put a read of it into `verify`, since the record previously checked only the systemd store. I also rewrote `danger` to drop an em dash. Its content is unchanged and still matches the wiki.
+
+Severity and frequency left at `medium` / `common`. The consequence is a variable that silently does nothing, not a broken machine, and the question of where to put one is asked constantly even though the stock install absorbs most cases.
+
+Not exercised: I changed nothing and logged out of nothing, so the claim that a fresh uwsm env file is picked up at the next login is from `prepare-env.sh` and the uwsm README rather than from a session restart on this box. I did not run `systemctl --user import-environment`, `dbus-update-activation-environment`, `hyprctl reload` or any `hyprctl keyword`. The `env-hyprland` filename is derived from `prepare-env.sh` lowercasing `XDG_CURRENT_DESKTOP`, which is `Hyprland` here, rather than from a file that exists on this machine. `~/.config/uwsm/` does not exist on this install, so the user-side uwsm paths are documented rather than observed in use.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Do not bind `hl.dsp.exit()` and do not kill the Hyprland process directly under uwsm. Either one bypasses the normal shutdown of the session units. Use `uwsm stop` or `loginctl terminate-user ""` instead.
+
+```lua
+hl.bind("SUPER + M", hl.dsp.exec_cmd("uwsm stop"))
+```
 
 **Fix.**
 
-Put session-wide variables in the uwsm env files, one `export KEY=VALUE` per line, no comments:
+Pick the location by who has to see the variable. The first match wins.
+
+**1. Everything in the graphical session, including systemd user services and D-Bus activated services.** Use a uwsm env file. This is the most robust choice on both Omarchy and plain Arch, and it is what Omarchy's own `/usr/share/uwsm/env.d/10-omarchy` points users at.
 
 ```sh
-# ~/.config/uwsm/env  (Arch)  or  ~/.config/uwsm/env.d/20-user  (Omarchy)
+# ~/.config/uwsm/env.d/20-user     (create ~/.config/uwsm/env.d first)
+# or ~/.config/uwsm/env            for a single file
 export QT_AUTO_SCREEN_SCALE_FACTOR=1
 export QT_ENABLE_HIGHDPI_SCALING=1
 export GDK_DPI_SCALE=1
 ```
 
-Hyprland-only / aquamarine variables (`HYPR*`, `AQ_*`) go in the Hyprland-specific file:
+uwsm sources `uwsm/env`, `uwsm/env.d/*`, `uwsm/env-${desktop}` and `uwsm/env-${desktop}.d/*` from every directory in `$XDG_CONFIG_HOME:$XDG_CONFIG_DIRS:$XDG_DATA_DIRS`, so both file shapes work on Arch and on Omarchy. They are POSIX shell, one `export KEY=VALUE` per line. The Arch wiki asks for no comments in them.
+
+**2. Hyprland and Aquamarine only** (`HYPR*`, `AQ_*`). Keep these out of the common file so another compositor does not inherit them.
 
 ```sh
 # ~/.config/uwsm/env-hyprland
 export AQ_DRM_DEVICES=/dev/dri/card1:/dev/dri/card0
 ```
 
-The exception on Omarchy is `GDK_SCALE`, which the display tooling manages for you in `~/.config/hypr/monitors.lua`:
+**3. The systemd user manager, including sessions that are not graphical.**
+
+```sh
+# ~/.config/environment.d/50-user.conf     KEY=VALUE, no `export`, no shell
+GDK_DPI_SCALE=1
+```
+
+This is read by the user manager at start, so it reaches user services and anything it activates. It does not reach a login shell or a plain ssh command. Omarchy uses this path itself for input method variables in `/usr/share/omarchy/default/environment.d/10-omarchy-fcitx.conf`.
+
+**4. Terminals and shell scripts only.** `~/.bashrc`, or `~/.profile` for login shells. Nothing graphical that was already running will see it.
+
+**On Omarchy specifically**, `hl.env()` in one of the five loaded user modules also works, because `default/hypr/autostart.lua` imports the whole environment into systemd and D-Bus at session start. Omarchy's own display tooling uses this for `GDK_SCALE` in `~/.config/hypr/monitors.lua`:
 
 ```lua
 local omarchy_gdk_scale = 2
 hl.env("GDK_SCALE", tostring(omarchy_gdk_scale))
 ```
 
-These files are read at session start — log out and back in (`uwsm stop`), a `hyprctl reload` is not enough.
+If you use `hl.env` for a variable of your own and want it pushed to the other two stores without waiting for the next login, pass the third argument, which Hyprland 0.56 added. It makes Hyprland run `systemctl --user import-environment` and `dbus-update-activation-environment --systemd` for that one name:
 
-**Verify.** After re-login, `systemctl --user show-environment | grep QT_ENABLE_HIGHDPI_SCALING` shows the value, and apps launched from the launcher pick it up.
+```lua
+hl.env("MY_VAR", "1", true)
+```
 
-Sources: <https://wiki.archlinux.org/title/Hyprland> · <https://github.com/basecamp/omarchy/blob/quattro/default/uwsm/env.d/10-omarchy> · <https://github.com/basecamp/omarchy/blob/quattro/config/hypr/monitors.lua>
+**Do not use `~/.config/hypr/envs.lua`.** Nothing loads it. Put `hl.env()` lines in one of the five modules `hyprland.lua` actually requires, or better, in a uwsm env file.
+
+Whichever you pick, **log out and back in** with `uwsm stop`. A `hyprctl reload` re-runs `hl.env` inside Hyprland but does not refresh the systemd or D-Bus stores, because Omarchy's import is bound to `hyprland.start` and not to `config.reloaded`.
+
+**Verify.** Check all three stores, because a variable can be in one and not the others.
+
+```sh
+# 1. systemd user manager
+systemctl --user show-environment | grep QT_ENABLE_HIGHDPI_SCALING
+
+# 2. D-Bus activation environment, read through a service it started
+tr '\0' '\n' < /proc/$(pgrep -f /usr/lib/xdg-desktop-portal | head -1)/environ \
+  | grep QT_ENABLE_HIGHDPI_SCALING
+
+# 3. Hyprland's own process environment
+tr '\0' '\n' < /proc/$(pgrep -x Hyprland | head -1)/environ \
+  | grep QT_ENABLE_HIGHDPI_SCALING
+```
+
+A value present in 3 but missing from 1 and 2 means you set it with `hl.env` and have only reloaded, not logged out. A value missing from all three after a re-login means the file you edited is not being read, most often `~/.config/hypr/envs.lua`, which nothing loads.
+
+Sources: <https://wiki.archlinux.org/title/Hyprland> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/autostart.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/envs.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/monitors.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/uwsm/env.d/10-omarchy> · <https://github.com/omacom/omarchy/blob/quattro/default/environment.d/10-omarchy-fcitx.conf> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/Compositor.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsConfigRules.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/LuaEventHandler.cpp> · <https://wiki.hypr.land/Configuring/Core/Environment-variables/> · <https://github.com/Vladimir-csp/uwsm>
 
 ---
 
