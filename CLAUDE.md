@@ -494,12 +494,14 @@ an auditor who judged a severity wrong, and one who found a cited issue number t
 is really a discussion, could each say so only in prose, and both changes had to be
 applied by hand after the merge. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
-merge. 95 `ok` records remain on one source pass, and 21 of them carry a `danger` and
-apply to Omarchy. `gpu-drivers`, `apps-services` and `network` were all cleared on 2026-09-11,
+merge. 82 `ok` records remain on one source pass. **The O3 re-audit is complete**: every one of
+them that carried a `danger` and applied to Omarchy has now been through a second pass. The 8 that
+still match `ok` plus `danger` are the two records that passed their re-audit and six the earlier
+passes judged general Arch rather than Omarchy-specific. `gpu-drivers`, `apps-services` and `network` were all cleared on 2026-09-11,
 52 records, of which **51 were wrong**, and `power-suspend` on 2026-09-12, 16 records, of which
 15 were wrong and 1 was rejected as a problem that does not exist and rewritten by hand to say so,
-and on 2026-09-13 `omarchy-theming`, `hyprland-config`, `wayland-compat` and `audio-input`, 46
-records, of which 45 were wrong. The one that passed, `mt7921e-dead-after-suspend-aspm`,
+and on 2026-09-13 `omarchy-theming`, `hyprland-config`, `wayland-compat`, `audio-input`,
+`omarchy-core` and `display-monitors`, 59 records, of which 58 were wrong. The one that passed, `mt7921e-dead-after-suspend-aspm`,
 still counts in that 69, because the backlog is defined by `audit_status: ok` and a record
 re-audited and confirmed keeps it: the count will never reach zero, and the journal names which
 records have actually been through the second pass.
@@ -517,8 +519,9 @@ records, 16 more by the re-audit of the 23 `apps-services` records and 12 more b
 the 15 `network` records, and 10 more on 2026-09-12 by the re-audit of the 16 `power-suspend`
 records and 1 by the hand-written rewrite of the rejected record, and on 2026-09-13 13 more by
 the re-audit of the 15 `omarchy-theming` records 11 more by the re-audit of the 13
-`hyprland-config` records and 13 more by the re-audit of the 18 `wayland-compat` and `audio-input`
-records, so **167 records carry the stamp across seven dates**. **The disclaimer printed under the audit
+`hyprland-config` records 13 more by the re-audit of the 18 `wayland-compat` and `audio-input`
+records and 10 more by the final 13 `omarchy-core` and `display-monitors` records, so **177 records
+carry the stamp across seven dates**. **The disclaimer printed under the audit
 note is conditional on this field** in both `ask.py` and the generated markdown. If you
 reconcile more causes, set the field rather than editing the cause silently, or you
 destroy the distinction between "checked and correct" and "never revisited".
@@ -583,15 +586,23 @@ against primary sources during the research and repeatedly caught stale advice.
   `hl.dispatch(<your text>)`. Correct forms are `hl.dsp.exec_cmd("foo")` and
   `hl.dsp.dpms({ action = "on" })`. To launch a GUI app on a VM's session from ssh it is
   simpler to skip hyprctl entirely and set `WAYLAND_DISPLAY=wayland-1`.
-- **`OMARCHY_PATH` is unset in a non-interactive ssh**, so every `omarchy` subcommand then
-  fails with `find: '/themes/': No such file or directory`. Anything driving a VM over ssh must
-  use a **login shell** (`bash -lc`). Two sources set it and neither reaches that shell:
-  `~/.bashrc` for interactive shells, and `/usr/share/uwsm/env.d/10-omarchy`, which sources
-  `default/bash/env-bootstrap` for the graphical session, so `systemctl --user show-environment`
-  **does** carry `OMARCHY_PATH` there and user units started by that session see it (checked on
-  4.0.2-1 on 2026-09-11). It is absent in a lingering or ssh-started user manager. This also
-  catches tmux: a window inherits the tmux *server's* environment, and a server started by a
-  systemd user unit has no profile sourced at all.
+- **`OMARCHY_PATH` in a non-interactive ssh: this entry is being revised, and the old advice is
+  probably now wrong.** It used to say the variable is unset there, so every `omarchy` subcommand
+  fails with `find: '/themes/': No such file or directory`, and that anything driving a VM over ssh
+  must use a **login shell** (`bash -lc`). On omarchy-settings 4.0.2-1 that looks stale:
+  `~/.bashrc` line 2 sources `/usr/share/omarchy/default/bash/env-bootstrap` **above** the
+  `[[ $- != *i* ]] && return` guard, under the comment "needed even for non-interactive shells",
+  and `/usr/share/omarchy/default/bash/envs` re-sources it saying the same thing. Bash reads
+  `~/.bashrc` for a non-interactive shell started by sshd, so the variable should now be set.
+  **Not confirmed by a live ssh**: this workstation has no key for itself and both test VMs are shut
+  off and run 4.0.1-1, so they would not settle a 4.0.2-1 claim. One command settles it from any
+  second machine: `ssh <host> 'echo $OMARCHY_PATH'`. Until someone runs it, `bash -lc` remains the
+  safe form because it works either way. What is confirmed and unchanged:
+  `/usr/share/uwsm/env.d/10-omarchy` sources `env-bootstrap` for the graphical session, so
+  `systemctl --user show-environment` **does** carry `OMARCHY_PATH` there and user units started by
+  that session see it (checked on 4.0.2-1 on 2026-09-11), and it is absent in a lingering or
+  ssh-started user manager. This also catches tmux: a window inherits the tmux *server's*
+  environment, and a server started by a systemd user unit has no profile sourced at all.
 - **Omarchy 4's lock screen cannot be released headlessly, and it outlives its client.**
   It is an `ext-session-lock` surface drawn by `omarchy-shell` (Quickshell). `hyprlock` is
   not even installed. Its IPC exposes `lock()`, `status()`, `isLocked()` and deliberately
@@ -600,6 +611,15 @@ against primary sources during the research and repeatedly caught stale advice.
   stale frame, which `omarchy-hyprland-session-locked` documents as the case worth
   detecting (`LOCK` in `solitaryBlockedBy`). Prevention is the only real fix:
   `omarchy-toggle-idle stay-awake`, as `tools/provision-bench-vm.sh` does.
+- **`omarchy-restart-shell` will RE-LOCK a session whose locker has died.** Found on 4.0.2-1 by the
+  2026-09-13 re-audit of `omarchy-shell-bar-crash-loop`. It no longer merely refuses on a locked
+  session: it sets `relock=1` and polls for 30 seconds until the session is secure again. So the
+  obvious recovery for a stale lock, restarting the shell over ssh, hands you a fresh lock you
+  still cannot release, and that is worse than the state you started in. This matters for the test
+  VMs and the agentic lane, not only for a reader: never call it from a headless or ssh recovery
+  path. The same audit found `~/.cache/quickshell/crashes` does not exist on a working machine and
+  the Wayland-fatal path writes no report by design, so a crash recipe that starts by reading that
+  directory starts at an empty one.
 
 ## Fetching sources
 
@@ -691,8 +711,8 @@ Three things are specific to this repo and are the ones that get got wrong:
   description, a bullet list of three introduced as "two ways", and a `README` recipe
   naming the workflow that does the opposite of what it claimed.
 
-**`research/data/problems.jsonl` is deliberately excluded for now.** 1,405 em and en dashes
-sit across 345 of its 492 records as of 2026-09-13 (the records rewritten by the re-audits carry
+**`research/data/problems.jsonl` is deliberately excluded for now.** 1,367 em and en dashes
+sit across 336 of its 492 records as of 2026-09-13 (the records rewritten by the re-audits carry
 none, and neither do the 36 merged from the issue harvest, which is where the denominator moved), and cleaning them means rewriting the source of truth
 and regenerating `research/docs/` in the same commit. Tracked in
 [JOURNAL.md](JOURNAL.md) under "What's left". Until that lands, do not fix corpus prose

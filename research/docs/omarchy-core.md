@@ -713,36 +713,114 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-
 
 **Symptom.** The Omarchy ISO won't boot at all ("Security Violation", "Invalid signature detected", or it drops straight back to the firmware menu), or the install completes but the machine refuses to boot the new Limine entry afterwards.
 
-**Cause.** Omarchy ships an unsigned bootloader and unsigned DKMS kernel modules. Secure Boot rejects them. TPM-backed measurements can also invalidate the boot chain after the installer rewrites the ESP. The install docs state Secure Boot and/or TPM must be off.
+**Cause.** Omarchy ships an unsigned boot chain. Secure Boot in user mode refuses to execute an EFI binary it cannot verify, and on Omarchy 4 that is Limine's `BOOTX64.EFI` and the unified kernel image at `/boot/EFI/Linux/omarchy_linux.efi`. That is what produces "Security Violation" or "Invalid signature detected", both for the ISO and for the installed system.
 
-> ⚠️ **Risk.** Switching an existing Windows install from Intel RST to AHCI will make Windows blue-screen on boot unless you enable safe-mode first. Omarchy's installer also WIPES the selected drive and applies full-disk encryption — back up before selecting a disk that has data on it.
+Unsigned DKMS modules are **not** the reason. Arch's kernel is built with `CONFIG_MODULE_SIG_FORCE` unset and does not enter lockdown under Secure Boot, so unsigned out-of-tree modules still load. Nor is anything on Omarchy 4 sealed to the TPM: the root is unlocked by passphrase through the busybox `encrypt` hook, with `cryptdevice=PARTUUID=...:root` in `/etc/kernel/cmdline`, so no PCR change can invalidate the boot chain. Omarchy's manual asks for TPM to be off alongside Secure Boot, and gives the reason as these being Microsoft security schemes rather than any measurement Omarchy depends on.
+
+> **Audit corrected this record.** Checked on this Omarchy 4.0.2-1 workstation (limine 12.6.0-1, limine-mkinitcpio-hook 1.37.1-1, systemd 261.2-1, kernel 7.1.9) and against upstream. The record's central advice is right and is upstream's own position: the getting-started manual page says "You must turn off Secure Boot and/or TPM in the BIOS", and the manual-installation page says "remember to turn off Secure Boot in the BIOS". Both cited learn.omacom.io URLs return HTTP 200 and both contain that text, so they stand. Two claims in the cause are wrong. Unsigned DKMS modules are not what Secure Boot rejects: `zgrep MODULE_SIG /proc/config.gz` on this machine shows CONFIG_MODULE_SIG_FORCE unset and /sys/kernel/security/lockdown reads [none], so Arch's kernel does not enforce module signatures under Secure Boot. What is rejected is the unsigned EFI binary, Limine's BOOTX64.EFI and the UKI. The TPM-measurement claim is also wrong for Omarchy 4: /etc/kernel/cmdline reads cryptdevice=PARTUUID=...:root and /etc/mkinitcpio.conf.d/omarchy_hooks.conf uses the busybox `encrypt` hook, so nothing is sealed to the TPM and no PCR change can lock anyone out. In the fix, `mokutil --sb-state` is not available: `pacman -Q mokutil` returns not found, and mokutil targets shim, which Omarchy does not ship. I replaced it with the EFI variable read that Limine's own /usr/lib/limine/limine-common-functions:271 performs, and confirmed the encoding on this box (the variable reads 0, Secure Boot off). Two gaps mattered more than the errors. First, the danger omitted BitLocker, which is the real lockout risk: disabling Secure Boot or TPM triggers a BitLocker recovery prompt, and upstream's dual-boot manual page requires BitLocker off for a free-space install. Second, the record offered no recovery if the installed machine does not boot, so I added the three real routes read off this machine: Limine's Snapshots submenu (BOOT_ORDER="*, *fallback, Snapshots" in /etc/limine-entry-tool.d/omarchy-defaults.conf), the \EFI\BOOT\BOOTX64.EFI fallback path (ENABLE_LIMINE_FALLBACK=yes), and /usr/share/omarchy/bin/omarchy-setup-direct-boot, whose source I read and which refuses on AMI and Apple firmware. I also added a labelled section on running with Secure Boot on, because it is achievable: limine-common-functions defines sb_sign and calls it on the Limine binary, limine-mkinitcpio-install line 186 notes the UKI is signed by sbctl's own mkinitcpio hook, sbctl 0.18-2 is in extra, and sbctl upstream ships contrib/mkinitcpio/sbctl and contrib/pacman/ZZ-sbctl.hook. That section is ordered so that signing completes before Secure Boot is re-enabled, which is the sequence that avoids an unbootable machine. `grep -rni 'secure.boot|tpm' /usr/share/omarchy` returns only an unrelated blog link in install/hardware/fix-surface-keyboard.sh, so Omarchy itself documents no position beyond the manual. I confirmed the pacman guard (/usr/bin/omarchy-update-pacman-guard) blocks only -S combined with -u, so `pacman -S --needed sbctl` is allowed. Dropped the GitHub issue search URL, which is a live query rather than a page and asserts nothing checkable. Not exercised: I ran no sbctl command, enrolled no key, touched no firmware setting, and could not list /boot because it is a vfat ESP mounted dmask=0077, so the UKI path comes from /usr/share/omarchy/bin/omarchy-setup-direct-boot and the environment notes rather than a directory listing. Severity high and frequency very-common both still fit.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** **BitLocker.** If this machine also boots Windows, turning Secure Boot or TPM off will trigger a BitLocker recovery prompt, because BitLocker seals its key to firmware state. Have the recovery key in hand, or better, turn BitLocker off in Windows first under **Settings > Privacy & Security > Device encryption**. Omarchy's dual-boot manual page requires this anyway: a free-space install is not compatible with BitLocker, which encrypts the whole drive rather than a partition.
+
+**Intel RST to AHCI.** Switching an existing Windows install from Intel RST to AHCI makes Windows blue-screen on boot unless you enable safe-mode boot in Windows first.
+
+**The installer wipes the drive.** The full-disk option erases the selected drive and applies full-disk encryption. Back up before selecting a disk that has data on it, and use the free-space install if you mean to keep another OS.
+
+**Enrolling Secure Boot keys.** `sbctl enroll-keys` without `-m` removes Microsoft's keys, which can brick a graphics card whose option ROM is signed by them. Never re-enable Secure Boot before `sbctl verify` reports every EFI binary signed, or the machine will not boot. Recovery from that is turning Secure Boot back off in firmware, which always works, so keep the firmware password handy if you have set one.
 
 **Fix.**
 
-Enter firmware setup (usually `F2`/`Del`/`F10` at power-on) and:
+## Turn Secure Boot off, which is the supported path
 
-1. Set **Secure Boot** to *Disabled* (some vendors require setting **OS Type** to *Other OS* first, or clearing the Secure Boot keys with "Delete all Secure Boot variables" / "Reset to Setup Mode").
+Omarchy's manual is explicit: "You must turn off Secure Boot and/or TPM in the BIOS. You have to turn these off to be able to install Omarchy." Read the BitLocker warning under `danger` first if this machine also boots Windows.
+
+Enter firmware setup (usually `F2`, `Del` or `F10` at power-on) and:
+
+1. Set **Secure Boot** to *Disabled*. Some vendors require setting **OS Type** to *Other OS* first, or clearing the keys with "Delete all Secure Boot variables" or "Reset to Setup Mode".
 2. Disable **TPM / PTT / fTPM** if present.
-3. Set SATA/NVMe mode to **AHCI**, not *RAID*/*Intel RST* — Linux cannot see the disk in RST mode.
+3. Set SATA/NVMe mode to **AHCI**, not *RAID* or *Intel RST*. Linux cannot see the disk in RST mode.
 4. Disable **Fast Boot**.
 5. Save and exit, then boot the USB.
 
-Confirm from a live shell that Secure Boot is actually off:
+Confirm from the live shell that it really is off. `systemd` is always present, so this needs no extra package:
 
 ```bash
 bootctl status | grep -i 'secure boot'
-# expect: Secure Boot: disabled
+# expect: Secure Boot: disabled (disabled)
 ```
 
-Or:
+The dependency-free equivalent is to read the EFI variable directly. This is the exact check Limine's own tooling makes in `/usr/lib/limine/limine-common-functions`:
 
 ```bash
-mokutil --sb-state
+od -An -t u1 -j4 -N1 \
+  /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
+# 0 = disabled, 1 = enabled
 ```
 
-**Verify.** `bootctl status` reports `Secure Boot: disabled`, the ISO boots to the installer, and after install the Limine entry appears and boots.
+Do not use `mokutil --sb-state` on Omarchy 4. `mokutil` is not installed, and it is a tool for shim, which Omarchy does not ship.
 
-Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <https://learn.omacom.io/2/the-omarchy-manual/96/manual-installation> · <https://github.com/basecamp/omarchy/issues?q=is%3Aissue+installer+fails+sort%3Acomments-desc>
+## If the installed machine will not boot afterwards
+
+Omarchy 4 boots a UKI through Limine, so there is no GRUB to reinstall and no `/boot/loader/entries` to repair. Three routes back, in order of least effort:
+
+1. Pick an older entry from Limine's **Snapshots** submenu. `/etc/limine-entry-tool.d/omarchy-defaults.conf` sets `BOOT_ORDER="*, *fallback, Snapshots"`. There is no fallback initramfs behind that: `MKINITCPIO_FALLBACK` is unset and `limine-mkinitcpio-install` deletes a fallback UKI when it is, so the snapshot entries are the recovery route.
+2. If the firmware dropped the Limine boot entry, Limine is also installed at the default fallback path `\EFI\BOOT\BOOTX64.EFI` (`ENABLE_LIMINE_FALLBACK=yes` in the same file), so selecting the disk itself in the firmware boot menu still reaches it.
+3. Register the UKI as its own EFI entry, which helps on firmware that keeps discarding custom entries:
+
+```bash
+omarchy-setup-direct-boot
+```
+
+It refuses on American Megatrends and Apple firmware by design, and it warns that snapshot booting then has to go through the firmware boot menu.
+
+## Running with Secure Boot on, which Omarchy does not support but which does work
+
+Omarchy documents no Secure Boot position and ships no signing setup. The Limine hook it uses does: `/usr/lib/limine/limine-common-functions` defines `is_sb_installed` and `sb_sign`, and signs the Limine binary with `sbctl` whenever it deploys one, while `/usr/share/libalpm/scripts/limine-mkinitcpio-install` notes the UKI is signed by sbctl's own mkinitcpio hook. So once sbctl is set up, signatures survive kernel and Limine updates without further work.
+
+**Order matters, and getting it backwards leaves an unbootable machine.** Install, enrol and sign while Secure Boot is still **off**, and turn it back on in firmware only after `sbctl verify` is clean.
+
+```bash
+omarchy update                      # bring the system and the pacman databases current
+sudo pacman -S --needed sbctl       # allowed: the guard only blocks -S combined with -u
+```
+
+Put the firmware in Setup Mode (the "Delete all Secure Boot variables" or "Reset to Setup Mode" option), boot back in, then:
+
+```bash
+sudo sbctl status
+sudo sbctl create-keys
+sudo sbctl enroll-keys -m           # -m keeps Microsoft's keys
+sudo sbctl verify                   # lists every unsigned EFI file on the ESP
+```
+
+Sign each path `sbctl verify` names, then run it again until it reports nothing unsigned:
+
+```bash
+sudo sbctl sign -s <path reported by sbctl verify>
+sudo sbctl verify
+```
+
+Only then re-enable Secure Boot in firmware. Enrolling without `-m` drops Microsoft's keys, which can brick option ROMs on some cards, so keep `-m` unless you know the hardware.
+
+**Verify.** `bootctl status` reports `Secure Boot: disabled (disabled)`, or the EFI variable reads 0:
+
+```bash
+bootctl status | grep -i 'secure boot'
+od -An -t u1 -j4 -N1 \
+  /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
+```
+
+The ISO then boots to the installer, and after the install the machine comes up in Limine with an **Omarchy** entry. Confirm the UKI it booted:
+
+```bash
+sudo ls /boot/EFI/Linux/
+# expect omarchy_linux.efi
+```
+
+If you took the sbctl route instead, `sudo sbctl verify` reports every EFI binary signed and `bootctl status` reports `Secure Boot: enabled (user)`.
+
+Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <https://learn.omacom.io/2/the-omarchy-manual/96/manual-installation> · <https://github.com/omacom/omarchy/blob/quattro/manual/02-getting-started.md> · <https://github.com/omacom/omarchy/blob/quattro/manual/50-dual-boot-install.md> · <https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot> · <https://github.com/Foxboron/sbctl>
 
 ---
 
@@ -750,44 +828,84 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <h
 
 `bluetooth-keyboard-cannot-unlock-luks` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
 
-**Symptom.** Fresh install boots to the full-disk-encryption passphrase prompt and the Bluetooth keyboard is completely unresponsive — no characters appear. The same keyboard works fine once the desktop is up. Also reported at the SDDM login screen.
+**Symptom.** A fresh install boots to the full-disk-encryption passphrase prompt and the Bluetooth keyboard is completely unresponsive, with no characters appearing. The same keyboard works fine once the desktop is up. On an install made without encryption, the same dead-keyboard window is also reported at the SDDM greeter.
 
-**Cause.** The LUKS prompt runs from the initramfs, before userspace, so the Bluetooth stack (bluetoothd, pairing keys) does not exist yet. Bluetooth keyboards physically cannot type the passphrase. The same limitation hits the display manager on some setups because Bluetooth input devices aren't reconnected before it starts. Omarchy's install docs call this out as a hard prerequisite.
+**Cause.** The passphrase prompt runs from the initramfs, long before userspace exists. Omarchy 4 builds that initramfs with the busybox `encrypt` hook: HOOKS are assigned wholesale in `/etc/mkinitcpio.conf.d/omarchy_hooks.conf` as `base udev plymouth keyboard autodetect microcode modconf kms keymap consolefont block encrypt filesystems fsck btrfs-overlayfs`. The `keyboard` hook it pairs with adds only USB host controllers, `usbhid`, and the HID and serio input modules (`/usr/lib/initcpio/install/keyboard`). Nothing in that image runs `bluetoothd`, and a paired Bluetooth keyboard needs its link keys from `/var/lib/bluetooth`, which sits on the encrypted root that has not been unlocked yet. The dependency is circular, so adding modules or firmware to the initramfs cannot fix it. Omarchy's own manual states the limit as a prerequisite and tells you to use a wired or 2.4 GHz keyboard.
 
-> ⚠️ **Risk.** `systemd-cryptenroll` modifies LUKS keyslots. Verify you still have a working passphrase keyslot (`cryptsetup luksDump /dev/nvme0n1p2`) before rebooting, and keep a header backup.
+A separate problem can appear at the SDDM greeter on an install made **without** encryption, where the adapter has not powered up and reconnected the keyboard before the greeter draws. On an encrypted install the ISO writes `/etc/sddm.conf.d/autologin.conf`, so there is no greeter prompt at all and that second problem does not arise.
+
+> **Audit corrected this record.** Checked on this Omarchy 4.0.2-1 workstation (mkinitcpio 41.1-1, cryptsetup 2.8.7-1, kernel 7.1.9) and against upstream. The core claim holds and is stated by upstream itself: the getting-started manual page says "The full-disk encryption won't allow you to enter the password from a Bluetooth keyboard at startup" and tells you to use a 2.4 GHz dongle or a cable, and the manual-installation page repeats it. Both cited learn.omacom.io URLs return HTTP 200 and both contain that text, so they stand. Three things in the record are wrong for Omarchy 4. First, the FIDO2 advice cannot work: `systemd-cryptenroll --fido2-device=auto` writes a systemd-fido2 LUKS2 token that only `systemd-cryptsetup` can consume, and Omarchy 4 assigns HOOKS wholesale in /etc/mkinitcpio.conf.d/omarchy_hooks.conf with the busybox `encrypt` hook. I diffed the two build hooks on this machine: /usr/lib/initcpio/install/sd-encrypt copies libcryptsetup-token-systemd-fido2.so, the tpm2 plugin, libfido2 and the ask-password units, and /usr/lib/initcpio/install/encrypt copies none of them. The Arch wiki Systemd-cryptenroll page says mkinitcpio users must enable the `systemd` and `sd-encrypt` hooks for this, and upstream's own hardware-authentication manual page says its Fido2 setup covers sudo "not unlocking your computer". So the record sent a reader to burn a LUKS keyslot for no effect. Second, the AutoEnable=true edit contradicts Omarchy's deliberate design: /usr/share/omarchy/install/hardware/bluetooth.sh says AutoEnable stays at its stock default on purpose and /usr/share/omarchy/migrations/1786380259.sh reverts an AutoEnable=false line, because the power state lives in the rfkill soft block behind `omarchy-bluetooth-power`. bluetooth.service is already enabled by the installer (confirmed `systemctl is-enabled bluetooth.service` returns enabled here). Third, /dev/nvme0n1p2 is a guess. The real device is in /proc/cmdline, which reads `cryptdevice=PARTUUID=...:root` on this box. The SDDM half turned out to be right in a way the record did not explain: Omarchy 4 does ship and enable SDDM (sddm 0.21.0-7 active, /usr/share/omarchy/install/login/sddm.sh), but on an encrypted install the ISO writes /etc/sddm.conf.d/autologin.conf, so there is no greeter prompt and the login-screen symptom only applies to unencrypted installs. I rewrote cause, symptom, fix, danger and verify to say plainly that a Bluetooth keyboard cannot work here at all, and to keep the one no-typing route the shipped hook does support, the `cryptkey=` keyfile, flagged as a security trade. Dropped the GitHub issue search URL, which is a live query rather than a page and asserts nothing checkable. Not exercised: I did not rebuild an initramfs, did not run systemd-cryptenroll, did not boot with a Bluetooth keyboard, and could not list /boot because it is a vfat ESP mounted dmask=0077. Severity high and frequency common both still fit: the machine will not boot until a wired keyboard is found, but no data is at risk.
+
+Applied by hand after the merge on 2026-09-13: the verdict's fix wrote `sudo omarchy-bluetooth-power on`, and sudo strips OMARCHY_PATH, so every omarchy subcommand then fails with `find: '/themes/': No such file or directory`. The lint caught it. /usr/share/omarchy/bin/omarchy-bluetooth-power calls `rfkill unblock bluetooth` itself and takes no sudo, and the sibling record bluetoothctl-no-default-controller, corrected the same day, already called it without.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** `systemd-cryptenroll` writes to the LUKS header. On a stock Omarchy 4 it buys you nothing at boot, because the `encrypt` hook cannot use the token it creates, so the only thing it reliably does is consume a keyslot. If you run it anyway, back the header up first and confirm a passphrase keyslot survives:
+
+```bash
+sudo cryptsetup luksHeaderBackup /dev/disk/by-partuuid/<uuid> \
+  --header-backup-file ~/luks-header.img
+sudo cryptsetup luksDump /dev/disk/by-partuuid/<uuid>
+```
+
+Never remove the passphrase keyslot. It is the only one the shipped initramfs can use, and removing it locks you out of the disk permanently. If an initramfs or cmdline change does leave the machine unbootable, recover by picking an older entry from Limine's `Snapshots` submenu at boot, which `/etc/limine-entry-tool.d/omarchy-defaults.conf` enables. There is no fallback UKI to fall back to: `MKINITCPIO_FALLBACK` is unset and `limine-mkinitcpio-install` deletes a fallback UKI when it is.
 
 **Fix.**
 
-Use a wired USB keyboard, or a 2.4 GHz dongle keyboard (which enumerates as a plain USB HID device and works in the initramfs), for the passphrase prompt.
+## Use a wired or 2.4 GHz keyboard for the passphrase prompt
 
-Check what the initramfs will actually see:
+This is Omarchy's own answer, and on a stock install it is the only one that works. A 2.4 GHz dongle keyboard enumerates as a plain USB HID device, which the `keyboard` hook already covers. A Bluetooth keyboard does not, and cannot be made to.
 
-```bash
-lsusb
-```
-
-If you must keep Bluetooth, enrol a TPM2 or FIDO2 token so the disk unlocks without typing (note: Omarchy asks you to disable TPM at install, so this needs a deliberate change):
+Confirm which device the prompt is unlocking before you change anything. Do not copy a device path out of a guide, read it off this machine:
 
 ```bash
-sudo systemd-cryptenroll --fido2-device=auto /dev/nvme0n1p2
+cat /proc/cmdline | tr ' ' '\n' | grep cryptdevice
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS
 ```
 
-For the *login* screen specifically, make Bluetooth start early and auto-power the adapter — in `/etc/bluetooth/main.conf`:
+On an Omarchy 4 install that prints something of the form `cryptdevice=PARTUUID=<uuid>:root`. Use `/dev/disk/by-partuuid/<uuid>` in any command below.
 
-```
-[Policy]
-AutoEnable=true
-```
+## FIDO2 and TPM2 unlock do not work on a stock Omarchy 4
 
-then:
+Do not reach for `systemd-cryptenroll` here. It writes a `systemd-fido2` or `systemd-tpm2` LUKS2 token, and only `systemd-cryptsetup`, which the `sd-encrypt` hook installs, can use one. Omarchy 4 ships `encrypt`, not `sd-encrypt`. Compare the two build hooks and the difference is explicit: `/usr/lib/initcpio/install/sd-encrypt` copies `/usr/lib/cryptsetup/libcryptsetup-token-systemd-fido2.so`, the TPM2 token plugin, `libfido2`, the TPM character-device modules and the systemd ask-password units into the image, while `/usr/lib/initcpio/install/encrypt` copies none of them. Enrolling a token on a stock Omarchy 4 therefore spends a keyslot and changes nothing at boot. Omarchy's manual says the same thing from the other end: its FIDO2 setup covers `sudo` and authorization prompts, "not unlocking your computer".
+
+Check which hook you actually have before believing any guide on this:
 
 ```bash
-sudo systemctl enable --now bluetooth.service
+grep -o 'HOOKS=([^)]*)' /etc/mkinitcpio.conf.d/omarchy_hooks.conf
 ```
 
-**Verify.** Typing at the LUKS prompt echoes asterisks/characters and the disk unlocks; `bluetoothctl devices Connected` lists the keyboard after login.
+Switching to `sd-encrypt` means adding a later-sorting drop-in (mkinitcpio concatenates `/etc/mkinitcpio.conf.d/*.conf` in version-sorted order, so a file such as `zz-user-hooks.conf` overrides `omarchy_hooks.conf`), adding the `systemd` hook, changing the kernel cmdline in `/etc/kernel/cmdline` from `cryptdevice=` to `rd.luks.name=`, and rebuilding. Get any one of those out of step and the machine stops at a busybox prompt. It is not worth it to avoid plugging in a cable, and it is not what this record recommends.
 
-Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <https://learn.omacom.io/2/the-omarchy-manual/96/manual-installation> · <https://github.com/basecamp/omarchy/issues?q=is%3Aissue+bluetooth+OR+wifi+not+working>
+## The one no-typing route the shipped hook does support
+
+The busybox `encrypt` hook reads `cryptkey=device:fstype:path` from the kernel cmdline and will unlock from a keyfile on a USB stick (`/usr/lib/initcpio/hooks/encrypt`). That works on a stock Omarchy 4, but it moves the secret onto removable media, so anyone who takes the stick and the laptop has both halves. Treat it as a deliberate trade, not a convenience.
+
+## For the SDDM greeter on an unencrypted install
+
+Do not edit `/etc/bluetooth/main.conf`. Omarchy leaves `AutoEnable` at its stock default on purpose (`/usr/share/omarchy/install/hardware/bluetooth.sh`), and migration `/usr/share/omarchy/migrations/1786380259.sh` actively reverts an `AutoEnable=false` line back to a comment, because the power state is held in the rfkill soft block instead. `bluetooth.service` is already enabled by the installer. If the adapter comes up off, turn it on through Omarchy's own control:
+
+```bash
+omarchy-bluetooth-power is-on
+omarchy-bluetooth-power on
+```
+
+Or use _Update > Hardware > Bluetooth_ in the Omarchy menu (`Super + Space`).
+
+**Verify.** Typing on the wired or 2.4 GHz keyboard at the passphrase prompt echoes and the disk unlocks. Confirm the shipped setup is the busybox `encrypt` hook rather than `sd-encrypt`, which is what rules FIDO2 and TPM2 out:
+
+```bash
+grep -o 'HOOKS=([^)]*)' /etc/mkinitcpio.conf.d/omarchy_hooks.conf
+```
+
+Expect `... block encrypt filesystems fsck btrfs-overlayfs`. After login, the Bluetooth keyboard should be back:
+
+```bash
+bluetoothctl devices Connected
+omarchy-bluetooth-power is-on
+```
+
+Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <https://learn.omacom.io/2/the-omarchy-manual/96/manual-installation> · <https://github.com/omacom/omarchy/blob/quattro/manual/02-getting-started.md> · <https://github.com/omacom/omarchy/blob/quattro/manual/37-hardware-authentication.md> · <https://wiki.archlinux.org/title/Systemd-cryptenroll>
 
 ---
 
@@ -1128,55 +1246,117 @@ omarchy-shell[2888127]: Omarchy shell exited with status 255; relaunching.
 omarchy-shell[…]: Giving up on the Omarchy shell after 6 relaunches in under a minute.
 ```
 
+You will see five `relaunching` lines before that one. The supervisor increments to 6 and then refuses, so the sixth relaunch never happens.
+
+There is a second, quieter shape of the same problem: the bar is gone and the journal says **nothing**. The supervisor checks the compositor before spending an attempt, and when `hyprctl -j monitors` fails three times it exits silently without logging. Do not read an empty journal as proof the shell never died.
+
 Other fatal lines seen right before it dies:
 
 ```
 WARN quickshell.hyprland.ipc: Got removal for monitor "FALLBACK" which was not previously tracked.
 WARN: The Wayland connection experienced a fatal error: Invalid argument
 FATAL: Tried to show lockscreen surfaces without active lock
+quickshell: symbol lookup error: undefined symbol: … Qt_6_PRIVATE_API
 ```
 
 Often Wi-Fi, Bluetooth or audio appear dead at the same time simply because their bar controls are gone.
 
-**Cause.** Omarchy 4 dropped Waybar — the bar, tray, notifications, launcher, menu and lock screen are all one Quickshell process, `omarchy-shell`, launched and supervised by `omarchy-launch-shell`. That supervisor relaunches on any non-zero exit but gives up after 5 relaunches inside a 60-second window, which is when the bar stays gone. Documented triggers: (1) a `quickshell`/Qt upgrade landing while the old shell is still running — updates rewrite `$OMARCHY_PATH/shell`, and `omarchy-update-restart` restarts the shell unconditionally for exactly this reason; (2) DPMS wake / monitor hotplug where Hyprland emits a removal for a transient `FALLBACK` output Quickshell never recorded as added, desyncing its surface bookkeeping into a fatal Wayland protocol error (issue #7380); (3) the lockscreen `qFatal` after the quickshell 0.3.1 / Qt 6.11.2 update (issue #8647); (4) a broken user plugin under `~/.config/omarchy/plugins`.
+**Cause.** Omarchy 4 dropped Waybar. The bar, tray, notifications, launcher, menu and lock screen are all one Quickshell process, `omarchy-shell`, launched and supervised by `omarchy-launch-shell`. That supervisor relaunches on a non-zero exit, but gives up once the failure count passes 5 inside a 60 second window:
 
-> ⚠️ **Risk.** `omarchy-restart-shell` deliberately refuses when the session is genuinely locked — "Refusing to restart Omarchy shell while the session is locked." — because killing a live locker leaves you behind Hyprland's failsafe with no way to authenticate. Do not force past that guard; use a TTY or reboot. If you move `~/.config/omarchy/plugins` aside, remember to move it back after testing, and note that saving a file under that directory while the session is locked has itself been reported to strand the session (issue #7106).
+```bash
+if (( SECONDS - window_started > 60 )); then attempts=0; window_started=$SECONDS; fi
+if (( ++attempts > 5 )); then
+  logger -t omarchy-shell "Giving up on the Omarchy shell after $attempts relaunches in under a minute."
+  exit 1
+fi
+```
+
+Two consequences follow from that shape. The window resets, so a shell dying slower than once a minute never exhausts the budget and flaps forever instead of stopping. And a preceding `compositor_alive || exit 0` makes the supervisor leave silently, with no log line, when `hyprctl -j monitors` fails three times, which is the case where the bar is gone and the journal is empty.
+
+Four distinct triggers, with four different fixes. Tell them apart from the journal before acting.
+
+1. **A `quickshell` or Qt upgrade landing while the old shell is still running.** Updates rewrite `$OMARCHY_PATH/shell`, and `omarchy-update-restart` restarts the shell unconditionally for exactly this reason. If the journal carries `undefined symbol: … Qt_6_PRIVATE_API`, this is the packaged-ABI mismatch and the fix is `omarchy update`, not a reboot. That case has its own record, `omarchy-shell-quickshell-undefined-symbol-qt-private-api`.
+2. **DPMS wake or monitor hotplug.** Hyprland emits a removal for a transient `FALLBACK` output Quickshell never recorded as added, desyncing its surface bookkeeping into a fatal Wayland protocol error (issue #7380). On its own this self-heals in about a second, so it only produces a bar that stays gone when it fires six times inside a minute.
+3. **The lockscreen `qFatal` after the quickshell 0.3.1 / Qt 6.11.2 update** (issue #8647).
+4. **Broken user code the shell loads.** A third-party plugin under `~/.config/omarchy/plugins`, which runs unsandboxed inside `omarchy-shell`, or a broken template under `~/.config/omarchy/themed`. `omarchy-theme-set-templates` globs the user template directory before the shipped one and lets the user copy win, so a bad `shell.toml.tpl` there writes a broken generated `shell.toml` into the staged theme that the shell then loads. Resetting `shell.json` does not touch it.
+
+> **Audit corrected this record.** Re-read /usr/share/omarchy/bin/omarchy-launch-shell, omarchy-restart-shell, omarchy-refresh-config, omarchy-theme-set-templates and omarchy-update-restart on this workstation at omarchy 4.0.2-1, quickshell 0.3.1-1, hyprland 0.56.2-1, and re-read omacom/omarchy issues 7380 and 8647 in full. The first-pass audit note still holds on the supervisor: the budget is exactly `if (( ++attempts > 5 ))` inside a `SECONDS - window_started > 60` window, both logger lines are verbatim, and the shell really is `systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell"`. Confirmed on this machine that the journal tag is live and current: `journalctl --user -t omarchy-shell` returns Quickshell's own WARN output, and `hyprctl layers` shows the `omarchy-bar` namespace the verify step names. Four things the note missed. First, `omarchy-restart-shell` on 4.0.2-1 no longer only refuses on a locked session: when `omarchy-hyprland-session-locked` is true but `omarchy-shell lock status` reports neither `.secure` nor `.requested`, it sets `relock=1`, restarts the shell, and then calls `relock_session()`, which requests a lock and polls up to 30 seconds, so the record's own step 2 can deliberately lock a session the reader is recovering over ssh or on a headless machine, and Omarchy 4's lock cannot be released headlessly. Second, `~/.cache/quickshell/crashes` does not exist on this machine at all, and the launcher's own comment says the Wayland-fatal path leaves through `_exit()` raising no signal and therefore writing no crash report, so for the record's own lead trigger that directory is empty by design. Third, the record bisects plugins and `shell.json` but has no branch for a broken theme or template: `omarchy-theme-set-templates` globs `$HOME/.config/omarchy/themed/*.tpl` before the shipped templates and user templates win, so a broken user template writes a broken generated `shell.toml` into the staged theme that the shell then loads, and `omarchy-refresh-config omarchy/shell.json` does not touch it. Fourth, two supervisor exits are unmentioned and both change what the reader sees: `compositor_alive || exit 0` takes three `hyprctl -j monitors` tries and then exits silently with no journal line at all, and the 60 second window resets `attempts=0`, so a shell dying slower than once a minute flaps forever and never logs the give-up line. Also cross-referenced: trigger (1) and trigger (3) are the version-mismatch case already covered by `omarchy-shell-quickshell-undefined-symbol-qt-private-api`, whose fix is `omarchy update` rather than the reboot at step 6, and issue 7380's own body says it self-heals in about a second, so it only produces this record's symptom when it fires six times inside a minute. NOT exercised: nothing was restarted, no theme command was run, no unit was touched, and `/etc/sudoers.d/` is unreadable unprivileged so the passwordless rules were not inspected. The 22 shipped themes and the helper scripts were listed, not executed.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** **`omarchy-restart-shell` can lock the session on you.** On 4.0.2-1 it only refuses when a locker is alive and reports the lock secure or in progress:
+
+```
+Refusing to restart Omarchy shell while the session is locked.
+```
+
+When the session is compositor-locked but the locker is dead, which is the common case after this crash, it does the opposite: it restarts the shell and then deliberately re-acquires the lock, polling up to 30 seconds until the session reports secure. Omarchy 4's lock screen is an `ext-session-lock` surface with no `unlock()` IPC, so on a headless or ssh-only machine you cannot get back out except by typing the password at the console or rebooting. Check with `omarchy-hyprland-session-locked` before you run it, and if you have no console, reboot instead.
+
+Do not force past the refusal branch either. Killing a live locker leaves you behind Hyprland's failsafe with no way to authenticate.
+
+If you move `~/.config/omarchy/plugins` or `~/.config/omarchy/themed` aside, move them back after testing. Saving a file under the plugins directory while the session is locked has itself been reported to strand the session (issue #7106).
 
 **Fix.**
 
 ```bash
-# 1. Read why it died (this is the only durable log - Quickshell's own log is on tmpfs)
+# 1. Read why it died. The journal is the durable log: Quickshell's own log
+#    lives on the instance runtime tmpfs and is gone after a reboot.
 journalctl --user -b -t omarchy-shell -n 200 --no-pager
-ls -t ~/.cache/quickshell/crashes | head
 
+# A crash report exists only when Quickshell caught a signal. The Wayland
+# fatal-error path leaves through _exit() and writes nothing, and the
+# directory itself is absent until the first report, so an empty result here
+# is not evidence.
+ls -t ~/.cache/quickshell/crashes 2>/dev/null | head
+```
+
+Pick the branch the journal points at.
+
+**`undefined symbol: … Qt_6_PRIVATE_API`** is the packaged-ABI mismatch, not this problem. Run `omarchy update` and see the `omarchy-shell-quickshell-undefined-symbol-qt-private-api` record.
+
+Otherwise:
+
+```bash
 # 2. Bring it back without logging out. Works from a terminal or over ssh.
+#    READ THE DANGER FIELD FIRST: on a session that is compositor-locked with
+#    no live locker, this re-locks the session on purpose.
 omarchy-restart-shell                 # menu: Update > Process > Shell
 
 # 3. Dies again straight away? Take user plugins out of the picture.
 mv ~/.config/omarchy/plugins ~/.config/omarchy/plugins.off
 omarchy-restart-shell
 
-# 4. Reset the shell config to the shipped default (saves yours as .bak.<epoch>)
+# 4. Still dying? Take user theme templates out of the picture. These override
+#    the shipped ones and generate the shell.toml the shell reads.
+ls ~/.config/omarchy/themed/*.tpl 2>/dev/null
+mv ~/.config/omarchy/themed ~/.config/omarchy/themed.off
+omarchy-theme-refresh
+omarchy-restart-shell
+
+# 5. Reset the shell config to the shipped default (saves yours as .bak.<epoch>)
 omarchy-refresh-config omarchy/shell.json
 omarchy-restart-shell
 
-# 5. Hardware whose only visible control went with the bar - the Update > Hardware
-#    menu items, runnable directly:
+# 6. Hardware whose only visible control went with the bar. These are the
+#    Update > Hardware menu items, runnable directly:
 omarchy-restart-wifi        # rfkill unblock wifi; nmcli radio wifi on; rescan
 omarchy-restart-bluetooth   # rfkill unblock bluetooth
 omarchy-restart-audio       # restart wireplumber/pipewire/pipewire-pulse, unstick USB cards
 omarchy-restart-trackpad
 
-# 6. If quickshell/Qt were upgraded under the running session, reboot - the shell
-#    cannot be made consistent with a half-swapped QML tree.
+# 7. If quickshell/Qt were upgraded under the running session and step 2 did
+#    not hold, reboot. The shell cannot be made consistent with a half-swapped
+#    QML tree.
 omarchy-system-reboot
 ```
 
-No graphical session left at all? Switch to a TTY with `Ctrl+Alt+F2`, log in, and run `omarchy-restart-shell` there — it derives `HYPRLAND_INSTANCE_SIGNATURE` from the newest instance runtime dir on its own.
+Move `plugins.off` and `themed.off` back once you know which one it was.
+
+No graphical session left at all? Switch to a TTY with `Ctrl+Alt+F2`, log in, and run `omarchy-restart-shell` there. It derives `HYPRLAND_INSTANCE_SIGNATURE` from the newest instance runtime dir on its own, and takes `OMARCHY_PATH` from `systemctl --user show-environment`, so it works without a login shell.
 
 **Verify.** `omarchy-shell shell ping` returns; `hyprctl layers | grep omarchy-bar` shows the layer; `journalctl --user -b -t omarchy-shell` stops emitting "relaunching" lines.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-restart> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-audio> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-wifi> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-bluetooth> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/7380> · <https://github.com/basecamp/omarchy/issues/8647>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-restart> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-audio> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-wifi> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-bluetooth> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/7380> · <https://github.com/basecamp/omarchy/issues/8647> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-templates> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-refresh-config> · <https://github.com/omacom/omarchy/issues/7380> · <https://github.com/omacom/omarchy/issues/8647> · <https://github.com/omacom/omarchy/issues/7106>
 
 ---
 
@@ -1265,44 +1445,111 @@ Errors occurred, no packages were upgraded.
 
 Run through `omarchy update` you may instead see it recover by itself with a yellow "Taking over files pacman doesn't own yet:" block. Run by hand with `pacman -Syu` there is no recovery and every subsequent attempt fails the same way. A different, easily confused error is `:: package X and package Y are in conflict. Remove Y? [y/N]`, where `--noconfirm` answers No and the whole upgrade stops.
 
-**Cause.** pacman refuses by design to install over a file that no package owns. On Omarchy this is common because `/usr/share/omarchy` gets written by installers, migrations and hand edits as well as by the `omarchy` package, and because pre-Quattro installs left files behind that the packaged layout now claims. Omarchy's own path already anticipates this: `omarchy-update-system-pkgs` runs `pacman -Syu --noconfirm --overwrite '/usr/share/omarchy/*'`, and on failure execs `omarchy-update-system-pkgs-when-conflicted`, which greps the pacman stderr report for `^omarchy(-dev|-settings|-settings-dev)?: <path> exists in filesystem`, re-checks each path with `pacman -Qo`, moves the unowned ones under `/var/lib/omarchy/replaced/<original path>`, retries once, and puts them back if the retry did not claim them. A *package-vs-package* conflict is a decision rather than a cleanup, so it is deliberately handed back to you for an interactive answer and is never auto-resolved under `-y`.
+**Cause.** pacman refuses by design to install over a file that no package owns. On Omarchy this is common because `/usr/share/omarchy` gets written by installers, migrations and hand edits as well as by the `omarchy` package, and because pre-Quattro installs left files behind that the packaged layout now claims. Omarchy's own path already anticipates this: `omarchy-update-system-pkgs` runs `pacman -Syu --noconfirm --overwrite '/usr/share/omarchy/*'`, and on failure execs `omarchy-update-system-pkgs-when-conflicted`, which greps the pacman stderr report for `^omarchy(-dev|-settings|-settings-dev)?: <path> exists in filesystem`, re-checks each path with `pacman -Qo`, moves the unowned ones under `/var/lib/omarchy/replaced/<original path>`, retries once, and puts them back if the retry did not claim them.
+
+That recovery is narrower than it looks, and its two limits decide whether you get it at all. The regex matches only those four Omarchy package names, so a conflict reported against any other package is never a candidate. And the handler is all or nothing: it compares the number of unowned Omarchy paths it found against `grep -c ' exists in filesystem'` over the whole report and exits without moving anything unless the two match. One conflict from another package in the same report therefore disables the recovery for every path in it, and you see the raw pacman failure with no yellow banner.
+
+A package-vs-package conflict is a decision rather than a cleanup, so it is deliberately handed back to you for an interactive answer and is never auto-resolved under `-y`.
+
+> **Audit corrected this record.** Re-audited against the scripts as installed on this workstation (omarchy 4.0.2-1, omarchy-settings 4.0.2-1, kernel 7.1.9-arch1-2) and against omacom/omarchy@quattro. The core of the record held. Confirmed on this machine: the primary transaction really is `sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm --overwrite '/usr/share/omarchy/*'`, and step 3's one-liner is byte-for-byte the conflict handler's interactive last resort in `/usr/share/omarchy/bin/omarchy-update-system-pkgs`. The `-Qo` first step, the "report it, do not delete" instinct, the scoped glob, the ban on `--overwrite '*'` and the corrupt-local-database remedy all match the ArchWiki Pacman page, which warns against `--overwrite` generally and recommends `pacman -Qo` then rename. `/usr/share/libalpm/hooks/00-omarchy-update-guard.hook` triggers on `Operation = Upgrade` and `omarchy-update-pacman-guard` needs both a sync and a sysupgrade flag, so the record's `pacman -S --overwrite ... omarchy` passes the guard and starts no partial upgrade. Three things were wrong. First, the verify step: run unprivileged as written, `pacman -Qkk omarchy omarchy-settings` reported `omarchy-settings: 629 total files, 4 altered files` on this machine, all four being permission-denied warnings on `/etc/sudoers.d/omarchy-*`, so the reader sees a failure that is not one. Second, the cause said the handler "moves the unowned ones" and omitted its two hard limits, which I read in the script: the regex recognises only the four `omarchy*` package names, and the all-or-none gate `((${#leftovers[@]} == $(grep -c ' exists in filesystem' "$errors")))` aborts the whole recovery if any line in the report is not one of them. Third, `applies_to` claims arch, endeavouros, cachyos and manjaro, but every step after step 1 referenced `omarchy update`, `/var/lib/omarchy/replaced` or `OMARCHY_UPDATE_PACMAN=1`, none of which exist there, and there was no branch for a conflict on an Omarchy box whose path lies outside `/usr/share/omarchy`, where the scoped glob does nothing. The fix now labels those branches. One forward-looking note, not a defect today: upstream commit f5194e3f of 2026-09-13 replaces the inline `sudo env OMARCHY_UPDATE_PACMAN=1 pacman` call with a new `bin/omarchy-update-pacman` wrapper that runs the transaction under `systemd-run --scope` so a systemd upgrade's user-manager reexec cannot kill pacman mid-transaction. That binary is not in 4.0.2-1 (`ls /usr/share/omarchy/bin/omarchy-update-pacman` fails, and `pacman -Ql omarchy` lists only the guard), so the record's command is still correct for the shipping release and will need revisiting after the next one. NOT exercised: I ran no upgrade, induced no conflict, and did not watch the handler quarantine a file, so the recovery path is read from source rather than observed.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
 > ⚠️ **Risk.** Never widen the glob to `--overwrite '*'` — it will silently clobber files owned by other packages and is the single fastest way to make a system unrepairable. Only overwrite a path you have confirmed with `pacman -Qo` is unowned. Move conflicting files instead of deleting them: on this system `sddm.conf.d` and `systemd/system-sleep` are read wholesale, so a copy left *beside* the original would still be live, which is exactly why Omarchy quarantines to a mirrored path under `/var/lib/omarchy/replaced` rather than renaming in place.
 
 **Fix.**
 
 ```bash
-# 1. Does a package own it? If yes, this is a packaging bug - report it, do not delete.
+# 1. ALWAYS first: does a package own the file?
+#    Owned    -> this is a packaging bug. Report it upstream, do not delete.
+#    Unowned  -> it is a leftover and is yours to move aside.
 pacman -Qo /usr/share/omarchy/bin/omarchy-foo
+```
 
-# 2. Unowned: move it aside (do NOT delete) exactly the way Omarchy does, then retry.
+**A. Unowned, and the path is under `/usr/share/omarchy` (Omarchy 4)**
+
+Move it aside the way the updater does, into a mirrored path, then retry. Do not
+delete it and do not leave a copy beside the original.
+
+```bash
 sudo mkdir -p /var/lib/omarchy/replaced/usr/share/omarchy/bin
 sudo mv -T --backup=numbered /usr/share/omarchy/bin/omarchy-foo \
         /var/lib/omarchy/replaced/usr/share/omarchy/bin/omarchy-foo
 omarchy update
+```
 
-# 3. For conflicts confined to Omarchy's own tree, the supported one-liner
-#    (this is the exact command the updater uses, guard flag included):
+If you want the one-liner instead, this is exactly the command the conflict
+handler runs as its interactive last resort on 4.0.2-1, guard flag included. The
+glob is scoped to Omarchy's own tree on purpose:
+
+```bash
 sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --overwrite '/usr/share/omarchy/*'
+```
 
-# 4. For a package-vs-package conflict, run the update interactively so you can
-#    answer the prompt. Never use -y here - it promises not to ask, so the step
-#    reports and skips instead.
-omarchy update
+**B. Unowned, but the path is NOT under `/usr/share/omarchy`, or you are on
+plain Arch, EndeavourOS, CachyOS or Manjaro**
 
-# 5. See what was quarantined on your behalf and clean up once you are happy
+There is no automatic recovery for this and the one-liner above will not help,
+because its glob does not cover the path. `omarchy-update-system-pkgs-when-conflicted`
+only recognises paths reported against `omarchy`, `omarchy-dev`, `omarchy-settings`
+and `omarchy-settings-dev`, and it refuses to move anything unless every
+`exists in filesystem` line in the report is one of those, so a single conflict
+from another package turns the recovery off for the whole run. Do it by hand,
+naming the exact path:
+
+```bash
+# Rename, never widen the overwrite glob to cover someone else's files.
+sudo mv -T --backup=numbered /path/to/conflicting/file /path/to/conflicting/file.bak
+
+# Then re-run the upgrade the way your system expects:
+omarchy update            # Omarchy 4
+sudo pacman -Syu          # plain Arch, EndeavourOS, CachyOS, Manjaro
+```
+
+Once the upgrade has succeeded and the package has claimed the path, the `.bak`
+copy can be removed.
+
+**C. A package-vs-package conflict**
+
+`:: package X and package Y are in conflict. Remove Y? [y/N]` is a decision, not
+a cleanup. Run the update interactively so you can answer. Never use `-y` here:
+it promises not to ask, so the step reports and skips instead.
+
+```bash
+omarchy update            # Omarchy 4, no -y
+sudo pacman -Syu          # plain Arch
+```
+
+**D. A corrupt local package database entry**
+
+The classic ArchWiki case is an empty or missing
+`/var/lib/pacman/local/<pkg>-<ver>/files`, which makes one package report
+conflicts on files it already owns. Reinstall that one package with a scoped
+overwrite. `pacman -S` carries no sysupgrade flag, so it passes the Omarchy
+guard on its own:
+
+```bash
+sudo pacman -S --overwrite '/usr/share/omarchy/*' omarchy   # Omarchy 4
+sudo pacman -S --overwrite '/usr/lib/foo/*' foo             # plain Arch, scoped to that package
+```
+
+**E. See what was quarantined on your behalf (Omarchy 4 only)**
+
+```bash
 sudo find /var/lib/omarchy/replaced -type f -o -type l
 ```
 
-If the conflict is caused by a corrupt local package database entry rather than a stray file (the classic ArchWiki case — an empty or missing `/var/lib/pacman/local/<pkg>-<ver>/files`), reinstall that one package with a scoped overwrite:
+**Verify.** Run the file check as **root**. `pacman -Qkk` counts a file it cannot read as altered, so an unprivileged run is misleading: on this Omarchy 4.0.2-1 workstation `pacman -Qkk omarchy omarchy-settings` as a normal user reports `omarchy-settings: 629 total files, 4 altered files`, and all four are permission-denied warnings on `/etc/sudoers.d/omarchy-*`.
 
 ```bash
-sudo env OMARCHY_UPDATE_PACMAN=1 pacman -S --overwrite '/usr/share/omarchy/*' omarchy
+sudo pacman -Qkk omarchy omarchy-settings
+omarchy update
+sudo find /var/lib/omarchy/replaced -type f -o -type l
 ```
 
-**Verify.** `pacman -Qkk omarchy omarchy-settings` reports no missing or altered files; `omarchy update` completes; `sudo find /var/lib/omarchy/replaced -type f` shows only files you expect to have been taken over.
+Expect `0 altered files` for both packages, `omarchy update` to complete, and `find` to list only files you expect to have been taken over. On plain Arch and the other derivatives, use `sudo pacman -Qkk <package>` and `sudo pacman -Syu`. There is no `/var/lib/omarchy/replaced` to check.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-system-pkgs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-system-pkgs-when-conflicted> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://wiki.archlinux.org/title/Pacman>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-system-pkgs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-system-pkgs-when-conflicted> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://wiki.archlinux.org/title/Pacman> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-system-pkgs> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-system-pkgs-when-conflicted> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-pacman> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-pacman-guard> · <https://github.com/omacom/omarchy/commit/f5194e3f>
 
 ---
 
@@ -1413,22 +1660,40 @@ You need at least 10 GiB free to safely update Omarchy.
 
 On a btrfs root the confusing part is that `df -h /` can still show a couple of gigabytes free while `sudo btrfs filesystem usage /` shows the device is effectively full, and an update that is forced through then dies later with `No space left on device` out of mkinitcpio or pacman.
 
+A second case produces the same `No space left on device` and never produces this message. `omarchy-update-requires-free-space` measures `/` and nothing else, so when the vfat ESP at `/boot` is the filesystem that is full the check passes, the update starts, and mkinitcpio or the Limine hook dies while `df -h /` still shows hundreds of gigabytes free. Look at both filesystems before believing either.
+
 **Cause.** `omarchy-update-requires-free-space` runs `df --output=avail --block-size=1 /` and aborts below 10 GiB (10737418240 bytes). On Omarchy's default btrfs layout that space is usually not "used by files" at all: `install/config/snapper.sh` installs a snapper `root` config with `NUMBER_LIMIT=5` / `NUMBER_LIMIT_IMPORTANT=5`, and `omarchy update` creates a pre-update snapshot on every run. Those five snapshots pin every block that any deleted file used to occupy, including `/var/cache/pacman/pkg`, which lives on the same snapshotted subvolume — which is exactly why `omarchy-update-pkg-prune` runs `paccache -rk2` *before* the snapshot rather than after. Deleting files inside the live root therefore frees nothing until the snapshots holding them age out.
 
-> ⚠️ **Risk.** `snapper delete` is permanent — those snapshots are the rollback targets you would boot to from Limine if the update breaks the desktop, so never delete the newest one and never delete the snapshot you are currently booted into. `OMARCHY_UPDATE_FORCE=1` on a genuinely full root is how you get a truncated `vmlinuz`/initramfs written mid-transaction and an unbootable machine; only use it when you have verified the free space yourself. `btrfs balance` is I/O-heavy and must not be interrupted by a power loss — run it on AC.
+> **Audit corrected this record.** Re-audited on omarchy 4.0.2-1, kernel 7.1.9. The first-pass note is still true line for line: I diffed `/usr/share/omarchy/bin/omarchy-update-requires-free-space`, `bin/omarchy-update-pkg-prune` and `default/snapper/root` on this machine against the quattro tree and all three are byte identical, so `df --output=avail --block-size=1 /`, the `(( available_bytes < 10 * 1024 * 1024 * 1024 ))` test, the exact message, the `OMARCHY_UPDATE_FORCE=1` early exit, `paccache -rk2`, and `NUMBER_LIMIT=5` / `NUMBER_LIMIT_IMPORTANT=5` / `TIMELINE_CREATE=no` all hold. `bin/omarchy-update` still calls `omarchy-update-pkg-prune` before `omarchy-snapshot create`. `paccache -rk1` and `paccache -ruk0` are on the Arch Wiki Pacman page verbatim. The rollback claim in `danger` checks out: `limine-snapper-sync` 1.31.0-1 is installed from the `omarchy` repo and `omarchy-snapshot restore` calls `limine-snapper-restore`. What the first pass did not cover is the filesystem the check does not measure. The script looks at `/` only, and on this install `/boot` is a separate vfat ESP (`findmnt` reports `dmask=0077`, 2.0 GiB, 428 MiB used), so a full ESP sails past the 10 GiB check and kills the update later with the same `No space left on device` the symptom attributes to a full root. That case is Omarchy specific rather than generic: `/etc/limine-snapper-sync.conf` as shipped sets `LIMIT_USAGE_PERCENT=85` with `MAX_SNAPSHOT_ENTRIES` left at `auto`, and the upstream comments say new snapshot entries stop being added at that limit, so the same snapshots the record is about also consume ESP space. `/usr/lib/snapper/plugins/10-limine-snapper-sync` acts on the delete operation and re-runs `limine-snapper-sync`, which is why deleting snapshots is the safe way to reclaim the ESP and hand deletion of files there is not. I rewrote `symptom`, `fix`, `danger` and `verify` for that branch, added the warning that `paccache -rk1` and `yay -Sc` spend the cache that `omarchy-update-pkg-prune`'s own comment calls the only offline downgrade path, corrected the fix's claim that `yay -Sc` only clears build trees (it also clears pacman's cache of packages no longer installed), and reworded "df lies on btrfs" into what actually happens, which is that df reports against allocated chunks. The `cause` is correct as written and I left it alone, so `cause_reconciled` should stay unset. Two things I did not exercise: I ran no update and deleted no snapshot, cache or journal file, so the remedies are verified by reading sources and not by execution, and I could not list `/boot/EFI/Linux` because the ESP is `dmask=0077` and I am not permitted to use sudo here. One thing I cannot fix from a verdict: `applies_to` lists `arch`, `cachyos` and `endeavouros`, but the symptom, the threshold and the bypass variable are all `omarchy update` and exist nowhere else, so only the btrfs and snapper halves carry over to those systems.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** `snapper delete` is permanent, and those snapshots are the rollback targets you would boot to from Limine if the update breaks the desktop, so never delete the newest one and never delete the snapshot you are currently booted into. Never delete files from `/boot` by hand to make room: the ESP holds the kernel or UKI you are running and `limine.conf`, and removing the wrong file leaves the machine unbootable with no recovery entry to fall back to. Reclaim ESP space by deleting snapshots and letting `limine-snapper-sync` remove their copies. `paccache -rk1` and `yay -Sc` shrink the pacman cache, which `omarchy-update-pkg-prune` calls the only offline downgrade path, so after them you have nothing to downgrade to if the update itself is what breaks the machine. `OMARCHY_UPDATE_FORCE=1` on a genuinely full root is how you get a truncated kernel or initramfs written mid-transaction and an unbootable machine, so only use it when you have verified the free space yourself. `btrfs balance` is I/O heavy and must not be interrupted by a power loss, so run it on AC.
 
 **Fix.**
 
 ```bash
-# 1. Get the truth. df lies on btrfs; use btrfs's own accounting.
+# 0. Which filesystem is actually full? The 10 GiB check only ever looks at /.
+df -h / /boot
+```
+
+If `/` is the tight one, work through steps 1 to 5. If `/boot` is the tight one, skip to the boot partition section at the end.
+
+```bash
+# 1. Get the truth on root. On btrfs, df reports free space from the chunks
+#    already allocated, so it can read low or fail with ENOSPC while raw device
+#    space is unused. Use btrfs's own accounting.
 sudo btrfs filesystem usage /
 df -h /
 sudo du -xhd1 /var | sort -h | tail
 
-# 2. Pacman + AUR caches (Omarchy keeps 2 versions; drop to 1 to reclaim more)
+# 2. Pacman and AUR caches. omarchy-update-pkg-prune runs `paccache -rk2` and
+#    keeps two versions on purpose, because the cache is the only offline
+#    downgrade path, so dropping to one costs you the spare.
 sudo paccache -rk1
 sudo paccache -ruk0          # drop every cached version of uninstalled packages
-yay -Sc --noconfirm          # ~/.cache/yay build trees
+yay -Sc --noconfirm          # yay's build trees under ~/.cache/yay, and also
+                             # pacman's cache of packages no longer installed
 
 # 3. Journal
 journalctl --disk-usage
@@ -1452,15 +1717,32 @@ sudo btrfs balance start -dusage=20 -musage=20 /
 sudo btrfs filesystem usage /
 ```
 
+**When `/boot` is the full one (Omarchy 4).** Omarchy installs `limine-snapper-sync`, which copies each snapshot's kernel and initramfs onto the ESP so that snapshot can be selected from Limine's Snapshots menu. `/etc/limine-snapper-sync.conf` ships `LIMIT_USAGE_PERCENT=85` and leaves `MAX_SNAPSHOT_ENTRIES` at `auto`, so it drops the oldest snapshot boot entries once the ESP passes 85 percent used and warns only when there are none left to drop. The ESP is mounted `dmask=0077`, so listing it needs root.
+
+```bash
+df -h /boot
+sudo ls -la /boot/EFI /boot/EFI/Linux
+```
+
+Free it by deleting snapshots, not by deleting files on the ESP. The snapper plugin at `/usr/lib/snapper/plugins/10-limine-snapper-sync` runs on delete and re-syncs the ESP, so the copies go with the snapshots:
+
+```bash
+sudo snapper -c root list
+sudo snapper -c root delete --sync 12 13 14
+df -h /boot
+```
+
+On plain Arch with no `limine-snapper-sync`, the ESP holds only the current kernels and there is nothing snapshot-related to reclaim. Check for images belonging to kernels that `pacman -Q` no longer lists before touching anything.
+
 Only when you are certain the 10 GiB figure is wrong for your layout (for example `/var` is a separate filesystem with plenty of room), bypass the check:
 
 ```bash
 OMARCHY_UPDATE_FORCE=1 omarchy update
 ```
 
-**Verify.** `df -h /` shows more than 10 GiB available on `/`, `sudo btrfs filesystem usage /` shows free (estimated) well above that, and `omarchy update` reaches its confirmation prompt.
+**Verify.** `df -h / /boot` shows more than 10 GiB available on `/` and `/boot` below 85 percent used, `sudo btrfs filesystem usage /` shows free (estimated) well above that, and `omarchy update` reaches its confirmation prompt.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-requires-free-space> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-pkg-prune> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/snapper/root> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/install/config/snapper.sh> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://wiki.archlinux.org/title/Snapper>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-requires-free-space> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-pkg-prune> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/snapper/root> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/install/config/snapper.sh> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://wiki.archlinux.org/title/Snapper> · <https://gitlab.com/Zesko/limine-snapper-sync/-/raw/master/install/arch-linux/etc/limine-snapper-sync.conf> · <https://wiki.archlinux.org/title/Pacman>
 
 ---
 
@@ -2389,18 +2671,31 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots> · 
 
 `theme-state-broken-after-failed-update` · severity: **medium** · frequency: **common** · applies to: `omarchy-4`
 
-**Symptom.** After an interrupted `omarchy update` or a theme switch that died partway, the desktop is visually inconsistent: terminal, bar and GTK apps disagree on colors, window borders are the wrong accent, the wallpaper is missing or reverts to the default. Diagnostics:
+**Symptom.** After an interrupted `omarchy update` or a theme switch that died partway, the desktop is visually inconsistent: terminal, bar and GTK apps disagree on colors, window borders are the wrong accent, the wallpaper is missing or reverts to the default.
+
+The common shape. `theme.name` is written only after the swap completes, so it still holds the **previous** theme and the staged theme directory is simply gone:
+
+```
+$ omarchy theme current
+Gruvbox                      # the theme you were on, not the one you asked for
+$ ls ~/.local/state/omarchy/current/theme
+ls: cannot access '...': No such file or directory
+$ readlink ~/.local/state/omarchy/current/background
+/home/you/.local/state/omarchy/current/theme/backgrounds/1-quattro.jpg
+$ readlink -f ~/.local/state/omarchy/current/background
+            # resolves to nothing - dangling
+```
+
+The rarer shape, where `theme.name` itself is gone, usually because someone deleted `current/`:
 
 ```
 $ omarchy theme current
 Unknown
 $ omarchy theme bg current
 Unknown
-$ readlink ~/.local/state/omarchy/current/background
-/home/you/.local/state/omarchy/current/theme/backgrounds/1-quattro.jpg
-$ readlink -f ~/.local/state/omarchy/current/background
-            # resolves to nothing - dangling
 ```
+
+The two matter because `omarchy-theme-refresh` works in the first and silently does nothing in the second.
 
 A git-installed theme can also produce "my theme's terminal colors and window borders are wrong", with this on stderr from the theme set:
 
@@ -2409,54 +2704,96 @@ Ignored in /home/you/.config/omarchy/themes/foo: hyprland.lua alacritty.toml
 A theme installed from a git repo cannot supply Lua, a terminal config, or vscode.json.
 ```
 
-**Cause.** `omarchy-theme-set` stages into `~/.local/state/omarchy/current/next-theme`, then `rm -rf`s `~/.local/state/omarchy/current/theme` and `mv`s the staging dir into place. Interrupted between those two steps, `current/theme` is gone while `current/background` still points inside it — hence the dangling symlink and `theme.name` no longer matching what is on disk. The same end state is reached deliberately when a theme ships no `backgrounds/` directory: the notification says "No background was found for theme" and returns without touching `current/background`, but the previous wallpaper lived inside the directory that was just deleted (issue #7116). Note the path moved in Omarchy 4: the live theme state is `~/.local/state/omarchy/current/`, not `~/.config/omarchy/current/`.
+**Cause.** `omarchy-theme-set` stages into `~/.local/state/omarchy/current/next-theme`, then swaps:
 
-Per-app files (`btop.theme`, `shell.toml`, `hyprland.lua`, `chromium.theme`, `helix.toml`, `icons.theme`…) are rendered from `/usr/share/omarchy/default/themed/*.tpl` **only when the staged theme has a `colors.toml`** — a theme without one leaves those files stale. And a theme cloned by `omarchy theme install <git-url>` has every `*.lua`, `alacritty.toml`, `foot.ini`, `ghostty.conf`, `kitty.conf` and `vscode.json` dropped at staging time on purpose (those run code), with the generated template used instead, so it can legitimately look different from the author's screenshots.
+```bash
+rm -rf "$CURRENT_THEME_PATH"
+mv "$NEXT_THEME_PATH" "$CURRENT_THEME_PATH"
+echo "$THEME_NAME" >"$HOME/.local/state/omarchy/current/theme.name"
+```
 
-> ⚠️ **Risk.** Do not `rm -rf ~/.local/state/omarchy/current` while the shell is running — delete only `next-theme` and re-apply with `omarchy theme set`. Reach for `omarchy-reinstall-configs` only as a last resort: it replays `/etc/skel` over your entire `$HOME` (`cp -af /etc/skel/. ~/`) and overwrites every Omarchy-shipped user config, including your `~/.config/hypr/*.lua` overrides, with no backup. `omarchy theme remove` is an unconditional `rm -rf` of `~/.config/omarchy/themes/<name>` — commit any local edits to that theme first.
+Interrupted between the first two lines, `current/theme` is gone while `current/background` still points inside it, which is the dangling symlink, and `theme.name` was never updated so it still names the theme you were on. The same end state is reached deliberately when a theme ships no `backgrounds/` directory: the notification says "No background was found for theme" and returns without touching `current/background`, but the previous wallpaper lived inside the directory that was just deleted (issue #7116). All 22 shipped themes do ship backgrounds, so that branch only bites on a user or git-installed theme. Note the path moved in Omarchy 4: the live theme state is `~/.local/state/omarchy/current/`, not `~/.config/omarchy/current/`.
+
+`omarchy-theme-current` prints `Unknown` only when `theme.name` is absent, and `omarchy-theme-bg-current` prints `Unknown` because `readlink -f` on a dangling link yields nothing. Those are two different failures and the recoveries differ.
+
+Per-app files (`btop.theme`, `shell.toml`, `hyprland.lua`, `chromium.theme`, `helix.toml`, `neovim.lua`, `pi.json`…) are rendered from `/usr/share/omarchy/default/themed/*.tpl` **only when the staged theme has a `colors.toml`**, so a theme without one leaves those files stale. `icons.theme` is not one of them: there is no `icons.theme.tpl`, and the file is shipped by the theme itself and copied at staging. A template of the same name under `~/.config/omarchy/themed/` overrides the shipped one, so a broken user template silently produces a broken generated file.
+
+A theme cloned by `omarchy theme install <git-url>` has every `*.lua`, `alacritty.toml`, `foot.ini`, `ghostty.conf`, `kitty.conf` and `vscode.json` dropped at staging time on purpose, because those name a program to run, with the generated template used instead, so it can legitimately look different from the author's screenshots.
+
+Theme changes serialise on a lock at `${XDG_RUNTIME_DIR:-/tmp}/omarchy-theme-set.lock`, held across the staging and swap and released before the app retint hooks. A second theme change issued during a swap waits rather than racing it.
+
+> **Audit corrected this record.** Re-read /usr/share/omarchy/bin/omarchy-theme-set, omarchy-theme-current, omarchy-theme-bg-current, omarchy-theme-refresh, omarchy-theme-remove, omarchy-theme-set-templates, omarchy-theme-set-browser, omarchy-theme-set-browser-policy and omarchy-reinstall-configs on this workstation at omarchy 4.0.2-1, and re-read omacom/omarchy issues 7116 and 8262 in full. Most of the first-pass note holds on 4.0.2-1: the interrupted-swap window is still the two adjacent lines `rm -rf "$CURRENT_THEME_PATH"` then `mv "$NEXT_THEME_PATH" "$CURRENT_THEME_PATH"` with `theme.name` written afterwards, the three paths are correct, the no-backgrounds branch really notifies and returns without touching the link, `INSTALLED_THEME_DENIED=(alacritty.toml foot.ini ghostty.conf kitty.conf vscode.json)` and both stderr lines are verbatim, and the colors.toml gate is real (`if [[ -f $COLORS_FILE ]]` wraps the whole template loop). Confirmed on this machine that all 22 shipped themes ship a `backgrounds/` directory, so step 2's claim that any shipped theme rebuilds everything holds for shipped themes only. Five defects. First, the record contradicts itself: `omarchy-theme-current` prints `Unknown` only when `~/.local/state/omarchy/current/theme.name` is absent, and the `rm -rf` deletes `current/theme`, not `current/theme.name`, so an interrupted swap leaves theme.name holding the **previous** name and `omarchy theme current` prints that. `Unknown` is a different and rarer state. Second, and following from it, `omarchy-theme-refresh` is a no-op in exactly the state the symptom describes: it is `if [[ -f $THEME_NAME_PATH ]]; then OMARCHY_THEME_SKIP_BACKGROUND=1 omarchy-theme-set "$(cat $THEME_NAME_PATH)"; fi`, so with theme.name missing it exits 0 and changes nothing, and it is not a lighter operation than a set because it re-runs the same `rm -rf` of `current/theme`. Third, the record's own step 2 is the trap the danger should have named: a bare `rm -rf .../current/next-theme` while a theme change is actually running, which is what an interrupted `omarchy update` means, deletes the staging directory out from under it, and the subsequent `mv` then fails after `current/theme` has already been removed, leaving you worse off than you started. Fourth, `omarchy-theme-set-browser` at step 6 hangs: `refresh_running_browser` runs `"$command" --refresh-platform-policy --no-startup-window &>/dev/null` in the **foreground** with no timeout (`&>` is a redirect, not a background), and it first calls `omarchy-theme-set-browser-policy`, which re-execs itself privileged. Fifth, the cause lists `icons.theme` among files rendered from `default/themed/*.tpl`, and there is no `icons.theme.tpl`: `/usr/share/omarchy/themes/gruvbox/icons.theme` is shipped by the theme and copied at staging. The first auditor spotted this and left it. Also new on 4.0.2-1 and unmentioned: theme changes serialise on `flock` at `${XDG_RUNTIME_DIR:-/tmp}/omarchy-theme-set.lock`, released before the app retint hooks. Source 8262 is being removed: it resolves, but its title and body are about the theme switcher menu never rendering a layer surface and the menu action failing to invoke omarchy-theme-set, which is a shell IPC problem and supports no claim in this record. NOT exercised: no theme command was run, nothing was deleted, no browser was refreshed, and `/etc/sudoers.d/` is unreadable unprivileged so I could not confirm from here whether the browser policy helper's privilege escalation is passwordless or prompts.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** **Do not `rm -rf` the staging directory while a theme change is running.** That is how a bad state becomes a worse one: `omarchy-theme-set` deletes `current/theme` and then `mv`s `next-theme` into its place, so removing `next-theme` under a live swap makes the `mv` fail after `current/theme` is already gone, and you lose the theme you still had. Run `pgrep -a -f omarchy-theme-set` first, and never do this while an `omarchy update` is still in progress.
+
+Never `rm -rf ~/.local/state/omarchy/current` while the shell is running. Delete only `next-theme`, and re-apply with `omarchy theme set`.
+
+**Do not run `omarchy-theme-set-browser` by hand to retint a browser.** It calls a privileged helper that writes the enterprise policy directories under `/etc`, and it then runs `brave --refresh-platform-policy --no-startup-window` in the foreground with no timeout, so on some machines it simply never returns and your terminal sits there. Let `omarchy theme set` run it as one of its own parallel hooks, and if a browser did not retint, restart the browser instead.
+
+Reach for `omarchy-reinstall-configs` only as a last resort: it replays `/etc/skel` over your entire `$HOME` (`cp -af /etc/skel/. ~/`) and overwrites every Omarchy-shipped user config, including your `~/.config/hypr/*.lua` overrides, with no backup.
+
+`omarchy theme remove` is an unconditional `rm -rf` of `~/.config/omarchy/themes/<name>`. Commit any local edits to that theme first.
 
 **Fix.**
 
 ```bash
-# 1. See what state it is actually in
-ls -l ~/.local/state/omarchy/current/
-cat  ~/.local/state/omarchy/current/theme.name
-readlink -f ~/.local/state/omarchy/current/background   # empty output = dangling
-ls ~/.local/state/omarchy/current/theme/                # colors.toml + generated files
+# 1. Make sure nothing is mid-swap before you touch anything. An interrupted
+#    `omarchy update` may still be running one.
+pgrep -a -f omarchy-theme-set
 
-# 2. Clear any half-written staging directory, then re-apply cleanly
+# 2. See what state it is actually in
+ls -l ~/.local/state/omarchy/current/
+cat  ~/.local/state/omarchy/current/theme.name       # absent = the rarer shape
+readlink -f ~/.local/state/omarchy/current/background   # empty output = dangling
+ls ~/.local/state/omarchy/current/theme/            # colors.toml + generated files
+```
+
+```bash
+# 3. Only once step 1 printed nothing, clear any half-written staging
+#    directory and re-apply cleanly. omarchy-theme-set removes next-theme
+#    itself, so this is only for the case where it died holding one.
 rm -rf ~/.local/state/omarchy/current/next-theme
 omarchy theme list
-omarchy theme set "Tokyo Night"          # any shipped theme rebuilds everything
+omarchy theme set "Tokyo Night"   # any SHIPPED theme rebuilds everything,
+                                  # including the background link
+```
 
-# 3. Already on the theme you want - just regenerate the per-app files
+```bash
+# 4. Already on the theme you want, per `omarchy theme current`, and only the
+#    per-app files are stale. This re-runs the full set minus the background,
+#    and does nothing at all if theme.name is missing.
 omarchy-theme-refresh
 
-# 4. Wallpaper only
+# 5. Wallpaper only
 omarchy theme bg next
 omarchy theme bg current
 
-# 5. Half-installed / broken third-party theme
+# 6. Half-installed or broken third-party theme
 omarchy theme remove <name>
 omarchy theme install https://github.com/author/omarchy-<name>-theme.git
+```
 
-# 6. Apps that did not retint (they are restarted in parallel by omarchy-theme-set)
+```bash
+# 7. Apps that did not retint. omarchy-theme-set runs these in parallel itself,
+#    so reach for them only when one of them is the thing that failed.
 omarchy-restart-terminal
 omarchy-restart-hyprctl        # window borders / gradients
 omarchy-restart-btop
 omarchy-theme-set-gnome        # GTK apps
-omarchy-theme-set-browser
 ```
 
-If a shipped theme still will not render its per-app files, check that `colors.toml` reached the staged theme — without it no template runs at all:
+If a shipped theme still will not render its per-app files, check that `colors.toml` reached the staged theme, and that no broken user template is overriding a shipped one. Without `colors.toml` no template runs at all:
 
 ```bash
 ls -l ~/.local/state/omarchy/current/theme/colors.toml
+ls -l ~/.config/omarchy/themed/*.tpl 2>/dev/null
 ```
 
-**Verify.** `omarchy theme current` prints the theme name; `readlink -f ~/.local/state/omarchy/current/background` resolves to a real image file; `ls ~/.local/state/omarchy/current/theme` contains `colors.toml` plus the generated `shell.toml`, `btop.theme`, `hyprland.lua` etc.
+**Verify.** `omarchy theme current` prints the theme you asked for; `readlink -f ~/.local/state/omarchy/current/background` resolves to a real image file; `ls ~/.local/state/omarchy/current/theme` contains `colors.toml` plus the generated `shell.toml`, `btop.theme` and `hyprland.lua`; `pgrep -f omarchy-theme-set` prints nothing, so the swap finished.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-set> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-refresh> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-list> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-remove> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-reinstall-configs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/theming.md> · <https://github.com/basecamp/omarchy/issues/7116> · <https://github.com/basecamp/omarchy/issues/8262>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-set> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-refresh> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-list> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-theme-remove> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-reinstall-configs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/theming.md> · <https://github.com/basecamp/omarchy/issues/7116> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-templates> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-refresh> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-current> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-browser> · <https://github.com/omacom/omarchy/issues/7116>
 
 ---
 
@@ -2571,24 +2908,49 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 `aur-updates-silently-skipped` · severity: **medium** · frequency: **occasional** · applies to: `omarchy-3`, `omarchy-4`
 
-**Symptom.** `omarchy update` finishes successfully but AUR/foreign packages never move — for weeks or months. The only sign is one red line buried in the transcript:
+**Symptom.** `omarchy update` finishes successfully but AUR/foreign packages never move, for weeks or months. In the common case the only sign is one red line buried in the transcript:
 
 ```
 AUR is unavailable (so skipping updates)
 ```
 
-Run `yay -Qua` afterwards and it lists updates the run should have installed. Eventually a stale AUR package breaks against a newer library and the user reports it as a broken update, not as a skipped one.
+In the worse cases there is no line at all: the AUR step can also do nothing when `yay` is missing or its build fails, and when you have no explicitly installed foreign packages. Either way the run ends on the green success banner. Eventually a stale AUR package breaks against a newer library and the user reports it as a broken update, not as a skipped one.
 
-**Cause.** `omarchy-update-aur-pkgs` only runs `yay -Sua` if `omarchy-pkg-aur-accessible` succeeds. That helper is a single probe:
+**Cause.** `omarchy-update-aur-pkgs` is the entire AUR step, and it can decline to do anything in four different ways. All four leave `omarchy update` exiting 0 with its success banner, because the script sets no `set -e` and both branches end on a zero-status `echo`. On 4.0.2-1 and on `quattro` HEAD it is:
+
+```bash
+if pacman -Qem >/dev/null; then
+  if omarchy-pkg-aur-accessible; then
+    echo -e "\e[32m\nUpdate AUR packages\e[0m"
+    yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs
+    echo
+  else
+    echo -e "\e[31m\nAUR is unavailable (so skipping updates)\e[0m"
+    echo
+  fi
+fi
+```
+
+1. **The reachability probe fails.** `omarchy-pkg-aur-accessible` is one request:
 
 ```bash
 curl -sf --connect-timeout 30 --retry 3 --retry-delay 3 -A "omarchy-update" \
   "https://aur.archlinux.org/rpc/?v=5&type=info&arg=base"
 ```
 
-Any AUR outage, DNS failure, captive portal, corporate proxy, VPN/Tailscale split-DNS, or firewall rule blocking that one request makes the whole AUR step a no-op — and the step is not `set -e` guarded, so `omarchy update` still exits 0 and prints its success banner. It probes `aur.archlinux.org` only; `yay` may well be able to reach the package git repos fine.
+Any AUR outage, DNS failure, captive portal, corporate proxy, VPN or Tailscale split-DNS, or firewall rule blocking that single request makes the whole step a no-op. It probes `aur.archlinux.org` only, so `yay` may well be able to reach the package git repos fine. This is the only case that prints the red line.
 
-> ⚠️ **Risk.** Use `yay -Sua` (AUR only), never `yay -Syu` — the latter is a full system upgrade and will be aborted by the Omarchy pacman guard, or, if you bypass the guard, will skip migrations and post-update hooks. If a DKMS AUR package rebuilds here, it builds against the *installed* kernel headers; if you have not rebooted since a kernel upgrade you can end up with a module built for a kernel you are not running. Reboot after DKMS rebuilds.
+2. **`yay` fails and nothing notices.** A failed build, a PGP key it cannot import, or `yay` not being installed at all, all pass for success, because the trailing `echo` sets the exit status. `yay` is **not** a dependency of the `omarchy` package. It appears only as a name in `/usr/share/omarchy/install/omarchy-base.packages`, so `pacman -R yay` is not blocked, and nothing under `/usr/share/omarchy` ever calls `paru`.
+
+3. **`gcc14` and `gcc14-libs` are permanently excluded** by `--ignore gcc14,gcc14-libs`. Upstream does that on purpose, because they are source builds of gcc. It does mean an empty `yay -Qua` is the wrong success test on any machine that has them.
+
+4. **`pacman -Qem` finds nothing** and the step is skipped with no output whatever. That is usually right, but `-Qem` is explicitly installed foreign packages only, so a machine whose AUR packages are all dependency-installed (`pacman -Qdm`) never reaches the AUR step at all.
+
+> **Audit corrected this record.** Re-audited against `/usr/share/omarchy/bin/omarchy-update-aur-pkgs`, `omarchy-pkg-aur-accessible`, `omarchy-hook` and `omarchy-update` as installed on this workstation (omarchy 4.0.2-1, kernel 7.1.9-arch1-2), and against the same files at omacom/omarchy@quattro, which are identical for the AUR pair. What held, confirmed on this machine: the probe is character for character the single `curl -sf --connect-timeout 30 --retry 3 --retry-delay 3 -A "omarchy-update" "https://aur.archlinux.org/rpc/?v=5&type=info&arg=base"` the record quotes, the red line is verbatim, `/tmp/omarchy-update.log` is the real transcript path (`exec env OMARCHY_UPDATE_LOGGED=1 script -qefc "$script_command" "/tmp/omarchy-update.log"`), `omarchy-hook` really runs `~/.config/omarchy/hooks/<name>.d/*` skipping `.sample`, and `omarchy-notification-send "headline" "description"` is the real positional signature. `yay -Sua` carries no sysupgrade flag on pacman's own command line, so it does not trip `omarchy-update-pacman-guard`, whose hook `/usr/share/libalpm/hooks/00-omarchy-update-guard.hook` needs both a sync and a sysupgrade flag. Four things were wrong. First and worst, the fix's `warn-stale-aur` drop-in cannot work: `omarchy-update` runs `omarchy-hook post-update` on the line BEFORE `omarchy-update-aur-pkgs` (confirmed in the installed script and in quattro), so it reports the pre-update pending count on every run, and `yay -Qua` needs the AUR RPC to answer (`yay(8)`: `-S, -Si, -Sl, -Ss, -Su, -Sc, -Qu ... extended to support both AUR and repo packages`), so during the outage the record is about it returns nothing and the warning never fires. It is broken in both directions. Second, the first-pass note called this a five-line script verified character for character and missed the actual command, which is `yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs`. That `--ignore` predates 2026-02-02 (upstream commit 88784781 changed the line and the flag was already there), so it was present when the record was first audited. It makes the record's `verify` field false on any machine with those packages: both are real AUR packages (AUR RPC reports gcc14 and gcc14-libs at 14.3.1+r516+g5998566829ee-1, package base gcc14) and they stay pending forever by design, so a reader concludes the skip is happening when it is not. Third, the record names one silent-skip condition where there are four, and the one it omits that matters most is `yay` failing or being absent: the script has no `set -e` and its then-branch ends on a bare `echo`, so the exit status is 0 whatever yay did, and `yay` is not a dependency of `omarchy` (`pacman -Qi omarchy` Depends On has no yay, `pacman -Qi yay` shows Required By: None, and `yay` appears in `/usr/share/omarchy/install/omarchy-base.packages` only). Nothing under `/usr/share/omarchy` mentions `paru`, so a user who switched helpers loses the step silently. Fourth, step 3's hand-run `yay -Sua --cleanafter` dropped the `--ignore` and would start the gcc source build upstream avoids. Severity and frequency left alone: the extra paths widen the record but I have no measurement to justify moving either. NOT exercised: I ran no `omarchy update`, no `yay` command of any kind, and no pacman transaction, so every behavioural claim here is read from the shipping scripts and from yay(8) rather than observed. This machine has zero foreign packages (`pacman -Qm` is empty), so condition 4 is the one it would hit and I could not have tested the others here anyway.
+>
+> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+
+> ⚠️ **Risk.** Use `yay -Sua` (AUR only), never `yay -Syu`. The latter is a full system upgrade and will be aborted by the Omarchy pacman guard, or, if you bypass the guard, will skip migrations and post-update hooks. Keep `--ignore gcc14,gcc14-libs` when you run the step by hand: dropping it starts a source build of gcc from scratch, which is exactly why upstream excludes it. If a DKMS AUR package rebuilds here, it builds against the **installed** kernel headers, so if you have not rebooted since a kernel upgrade you can end up with a module built for a kernel you are not running. Reboot after DKMS rebuilds.
 
 **Fix.**
 
@@ -2598,40 +2960,75 @@ curl -sf --connect-timeout 30 -A omarchy-update \
   "https://aur.archlinux.org/rpc/?v=5&type=info&arg=base" >/dev/null \
   && echo AUR-REACHABLE || echo AUR-BLOCKED
 
-# 2. What is actually stale?
-pacman -Qem          # foreign (AUR/manually built) packages
-yay -Qua             # pending AUR updates
+# 2. Read the last run's transcript. This is the reliable detector, because it
+#    records what the run DID rather than what is pending now.
+grep -nE 'Update AUR packages|AUR is unavailable' /tmp/omarchy-update.log
 
-# 3. If the probe fails but the AUR is reachable for you, do the step by hand.
-#    -Sua is AUR-only and does NOT trip the Omarchy pacman guard.
-yay -Sua --cleanafter
+# 3. What is installed from outside the repos, and what is pending?
+pacman -Qm           # ALL foreign packages, dependency-installed ones included
+pacman -Qem          # only the explicitly installed ones the updater gates on
+yay -Qua             # pending AUR updates. Needs the AUR reachable to answer.
 
-# 4. Chase the network cause
+# 4. Is yay even there? Nothing in Omarchy drives the AUR without it.
+pacman -Q yay
+
+# 5. If the probe fails but the AUR is reachable for you, do the step by hand.
+#    -Sua is AUR only and does not trip the Omarchy pacman guard. Keep
+#    upstream's --ignore, or you start a source build of gcc.
+yay -Sua --cleanafter --ignore gcc14,gcc14-libs
+
+# 6. Chase the network cause
 resolvectl query aur.archlinux.org
 curl -sI https://aur.archlinux.org | head -1
-tailscale status                 # exit node / MagicDNS hijacking resolution?
+tailscale status                 # exit node or MagicDNS hijacking resolution?
 cat /etc/resolv.conf
-
-# 5. Confirm what the last run actually did
-grep -n 'Update AUR packages\|AUR is unavailable' /tmp/omarchy-update.log
 ```
 
-Make the silence loud — a post-update hook that warns you when foreign packages are behind:
+**Make the silence loud, but not with a `post-update` hook.** Two things stop that working. `omarchy-update` runs its steps in this order:
+
+```
+omarchy-update-system-pkgs
+omarchy-migrate
+omarchy-hook post-update
+omarchy-update-aur-pkgs
+```
+
+so a `post-update` hook fires **before** the AUR step and can only see the state going in. And `yay -Qua` queries the AUR RPC itself, so during the very outage you want flagged it returns nothing and the warning never fires.
+
+Check the transcript after the update instead:
 
 ```bash
-mkdir -p ~/.config/omarchy/hooks/post-update.d
-cat > ~/.config/omarchy/hooks/post-update.d/warn-stale-aur <<'EOF'
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/check-aur-skipped <<'EOF'
 #!/bin/bash
-pending=$(yay -Qua 2>/dev/null | wc -l)
-(( pending > 0 )) && omarchy-notification-send "AUR packages stale" "$pending pending update(s)"
+# Did the last omarchy update actually run its AUR step?
+log=/tmp/omarchy-update.log
+[[ -r $log ]] || { echo "no update transcript at $log"; exit 0; }
+if grep -q 'AUR is unavailable (so skipping updates)' "$log"; then
+  omarchy-notification-send "AUR step skipped" \
+    "The last omarchy update could not reach the AUR"
+elif ! grep -q 'Update AUR packages' "$log"; then
+  omarchy-notification-send "AUR step never ran" \
+    "No explicitly installed foreign packages, or the step was not reached"
+fi
 exit 0
 EOF
-chmod +x ~/.config/omarchy/hooks/post-update.d/warn-stale-aur
+chmod +x ~/.local/bin/check-aur-skipped
 ```
 
-**Verify.** `yay -Qua` prints nothing after an update, and `/tmp/omarchy-update.log` contains the green "Update AUR packages" heading rather than "AUR is unavailable (so skipping updates)".
+Run `check-aur-skipped` once the update has finished. `/tmp/omarchy-update.log` is the live transcript of the run in progress, which is the other reason a hook cannot read it usefully.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-aur-pkgs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-pkg-aur-accessible> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md>
+**Verify.** Read the transcript, not the pending list:
+
+```bash
+grep -nE 'Update AUR packages|AUR is unavailable' /tmp/omarchy-update.log
+```
+
+A good run shows the green `Update AUR packages` heading and no `AUR is unavailable (so skipping updates)`. **Neither** line means the step never ran at all, so then check `pacman -Qm` for foreign packages and `pacman -Q yay`.
+
+Do not use an empty `yay -Qua` as the test. `gcc14` and `gcc14-libs` sit on upstream's permanent `--ignore` list, so on a machine that has them they stay listed after every successful update, and `yay -Qua` cannot answer at all while the AUR is unreachable.
+
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-aur-pkgs> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-pkg-aur-accessible> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-aur-pkgs> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-pkg-aur-accessible> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-hook> · <https://github.com/omacom/omarchy/commit/88784781> · <https://aur.archlinux.org/packages/gcc14>
 
 ---
 
@@ -3024,7 +3421,11 @@ Nothing is updating, `ps` shows no `omarchy-update` or `pacman`, a reboot fixes 
 
 **Cause.** `omarchy-update-lock run` opens `${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock`, takes a non-blocking `flock`, exports the descriptor number and `exec`s the update — without `FD_CLOEXEC`. Every child of the update therefore inherits the locked descriptor. Any process started during the update that daemonises and does not close inherited fds keeps the flock alive after the update itself is long gone. The reported case is `adb` started by a `flutter-beta` AUR rebuild during `omarchy-update-aur-pkgs` (`yay -Sua`), which reparents onto the user's systemd and holds `/run/user/1000/omarchy-update.lock` indefinitely (issue #8077). The same happens with any sticky helper an AUR build leaves behind, and after an update that was killed mid-run. `omarchy-migrate-notify` reads the same lock to decide whether to stay quiet, so a stale lock also suppresses the login prompt to run pending migrations.
 
-> ⚠️ **Risk.** Only remove the lock file after `pgrep -af 'omarchy-update|/usr/bin/pacman|yay'` returns nothing. Deleting it while a real update is mid-transaction lets a second pacman run start alongside the first — concurrent writers to `/var/lib/pacman` can corrupt the local package database, which is far worse than the blocked update. Note the lock lives in `$XDG_RUNTIME_DIR` (tmpfs), so it never survives a reboot; if it comes back after a reboot, a process is re-leaking it and you need to find that process, not keep deleting the file.
+> **Audit corrected this record.** Re-audited on omarchy 4.0.2-1. The first-pass note holds in full: I diffed `/usr/share/omarchy/bin/omarchy-update-lock` on this machine against the quattro tree and it is byte identical, so the path is still `${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock`, it still does `exec {OMARCHY_UPDATE_LOCK_FD}>"$lock_path"` then `flock -n`, still prints exactly "An Omarchy update is already running.", and still `export`s the descriptor and `exec`s. The `held` subcommand still validates the inherited fd through `/proc/$$/fd/$OMARCHY_UPDATE_LOCK_FD`, which is the direct evidence that the descriptor crosses the exec. `bin/omarchy-migrate-notify` on this machine still tests the same lock with `! flock -n "$lock" true` and exits 0 when held, so the suppressed-notification half stands, and `bin/omarchy-migrate` is byte identical to quattro with `--pending` exiting 0 only when something is pending, so the record's step 4 is right. I read omacom/omarchy issue 8077 in full: it is OPEN, titled exactly as the first pass quoted, and its body matches the record's account including the `flutter-beta` and `adb` details. Two defects the first pass did not catch, both in the safety step that is the whole point of the record. First, the `pgrep` pattern is wrong. `omarchy-update-system-pkgs` on 4.0.2-1 runs `sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm`, so argv[0] is `pacman` and the process command line has no directory component, which means `pgrep -af '/usr/bin/pacman'` returns nothing while a real system upgrade is running. The same is true on quattro HEAD, where the call has moved into a new `bin/omarchy-update-pacman` wrapper that still ends in `exec sudo env ... pacman "$@"`. A reader who trusted that check would delete a live lock. Second, the record never mentions `/var/lib/pacman/db.lck`, which is the authoritative live-transaction indicator and is used for exactly that purpose by Omarchy itself: `omarchy-migrate`'s `wait_for_pacman_transaction` polls that file for 900 seconds. I added it as the first check and flagged the stale-db.lck case as a different problem. I also corrected the `danger`, whose stated mechanism was wrong: it claimed concurrent writers can corrupt `/var/lib/pacman`, but pacman's own db.lck prevents a second pacman transaction, so the real cost of deleting a live Omarchy lock is a second update pipeline racing the first on snapshots, cache pruning, migration markers and AUR builds. `symptom`, `cause` and `verify` are accurate and I left them unchanged, so `cause_reconciled` should stay unset. Not exercised: I did not run an update, did not delete or create any lock, and did not reproduce the adb leak, so the leak mechanism is confirmed from the script source and the issue rather than from a live reproduction on this machine. `fuser`, `lsof`, `yay` and `flock` are all installed here (psmisc 23.7-2, lsof 4.99.7-1, yay 13.0.1-1), so the fix's commands exist on a stock Omarchy 4.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** Only remove the lock file after you have checked both `/var/lib/pacman/db.lck` and `pgrep -af 'omarchy-update|omarchy-migrate|pacman|yay'`. Do not use `/usr/bin/pacman` as the pattern: `omarchy-update-system-pkgs` runs pacman through `sudo env`, so the command line carries no directory and the pattern misses exactly the case you are trying to detect. Deleting the Omarchy lock during a live update does not corrupt the pacman database, because pacman takes `/var/lib/pacman/db.lck` itself and a second pacman refuses with "unable to lock database" rather than writing alongside the first. What it does is let a whole second `omarchy update` pipeline run beside the first: another pre-update snapshot, `paccache -rk2` pruning the cache the running transaction is installing from, two `omarchy-migrate` runs racing on the same marker files under `~/.local/state/omarchy/migrations`, and interleaved `yay` builds. A half-applied migration is harder to unpick than a blocked update. Note the lock lives in `$XDG_RUNTIME_DIR` (tmpfs), so it never survives a reboot. If it comes back after a reboot, a process is re-leaking it and you need to find that process rather than keep deleting the file.
 
 **Fix.**
 
@@ -3038,10 +3439,23 @@ sudo lsof "${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock"
 #   /run/user/1000/omarchy-update.lock:
 #                        you  139567 F.... adb
 
-# 2. Prove no real update is in flight before touching anything
-pgrep -af 'omarchy-update|omarchy-migrate|/usr/bin/pacman|yay'
+# 2. Prove no real update is in flight before touching anything.
+#    Start with pacman's own database lock. It is a different file from the
+#    Omarchy lock and it is the one that says a transaction is live.
+ls -l /var/lib/pacman/db.lck
 
-# 3a. Kill the leftover holder (preferred - it also stops it re-leaking)
+#    Then the processes. Match `pacman` unanchored: omarchy-update-system-pkgs
+#    runs `sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu ...`, so the
+#    command line is `pacman -Syu` with no directory, and a pattern of
+#    `/usr/bin/pacman` matches nothing while an upgrade is running.
+pgrep -af 'omarchy-update|omarchy-migrate|pacman|yay'
+
+# If /var/lib/pacman/db.lck exists and pgrep found nothing, stop. That is a
+# stale pacman lock, which is a separate problem from this one, and it also
+# stalls omarchy-migrate, which waits on that exact file for 900 seconds.
+# Removing the Omarchy lock will not help until it is resolved.
+
+# 3a. Kill the leftover holder (preferred, it also stops it re-leaking)
 adb kill-server            # for the adb case
 kill 139567                # generic
 
@@ -3057,7 +3471,7 @@ To stop it recurring, keep sticky build daemons out of the update: `adb kill-ser
 
 **Verify.** `fuser -v "${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock"` prints nothing, and `omarchy update` reaches its confirmation prompt.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-lock> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://github.com/basecamp/omarchy/issues/8077>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-lock> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/docs/update-process.md> · <https://github.com/basecamp/omarchy/issues/8077> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-system-pkgs> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-migrate> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-update-pacman> · <https://github.com/omacom/omarchy/issues/8077>
 
 ---
 

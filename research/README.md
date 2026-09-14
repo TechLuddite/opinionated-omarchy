@@ -8,22 +8,23 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**492 problems across 12 categories**, drawn from 1,474 distinct sources. Every record
+**492 problems across 12 categories**, drawn from 1,510 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
-| `ok` | 95 | audited and confirmed accurate |
-| `corrected` | 397 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `ok` | 82 | audited and confirmed accurate |
+| `corrected` | 410 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
 
 So all 492 records have been through an adversarial audit. That audit checked each record
-against its cited sources, which is a weaker claim than it reads as. **146 records have since been
-checked against what Omarchy 4 actually ships, and 144 of them needed correcting**: 10
+against its cited sources, which is a weaker claim than it reads as. **159 records have since been
+checked against what Omarchy 4 actually ships, and 157 of them needed correcting**: 10
 `boot-kernel` and 22 `pacman-aur` on 2026-09-06 and 2026-09-07, then 14 `gpu-drivers`, 23
 `apps-services` and 15 `network` on 2026-09-11, then 16 `power-suspend` on 2026-09-12 and 15
-`omarchy-theming`, 13 `hyprland-config` and 18 across `wayland-compat` and `audio-input` on
-2026-09-13. Two records passed:
+`omarchy-theming`, 13 `hyprland-config`, 18 across `wayland-compat` and `audio-input`, and a final
+13 across `omarchy-core` and `display-monitors` on 2026-09-13. **That is every `ok` record carrying
+a `danger` that applies to Omarchy, so this pass is complete.** Two records passed:
 `mt7921e-dead-after-suspend-aspm` and `shell-section-override-ignored-without-colors-toml`. The 100th was a reject, meaning the
 problem it describes does not exist. It was kept rather than retired, because its page is
 published, and rewritten by hand to say so and to warn against the fix that circulates for it. Its
@@ -188,8 +189,9 @@ tracker **25** more, and the same day's re-audits of the 14 `gpu-drivers` record
 the 23 `apps-services` records **16** more and the 15 `network` records **12** more, and the
 2026-09-12 re-audit of the 16 `power-suspend` records **11** more and the 2026-09-13 re-audits of
 the 15 `omarchy-theming` records **13** more and the 13 `hyprland-config` records **11** more and the 18
-`wayland-compat` and `audio-input` records **13** more, so 167 records carry `cause_reconciled`
-across seven dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
+`wayland-compat` and `audio-input` records **13** more and the final 13 `omarchy-core` and
+`display-monitors` records **10** more, so 177 records carry `cause_reconciled` across seven
+dates. From that pass onward the stamp is applied by `merge_gapfill.py` itself
 whenever an auditor supplies a `corrected_cause`. It previously rewrote the cause and
 left the field unset, which made the renderers below assert the opposite of what had
 happened. See
