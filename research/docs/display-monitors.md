@@ -1,6 +1,6 @@
 # Displays & monitors
 
-35 problems. Sorted by severity, then by how often users hit it.
+34 problems. Sorted by severity, then by how often users hit it.
 
 ## Stop closing the lid from killing every GUI app at once
 
@@ -505,95 +505,6 @@ sudo limine-update
 **Verify.** `hyprctl monitors all -j | jq -c '.[] | {name,width,height}'` reports a non-zero width and height for the output, and the screen shows a picture. On Omarchy 4, `omarchy-hyprland-monitor-modeless` exits 1 when no enabled output is modeless, 0 while one still is, and 2 when the compositor cannot answer.
 
 Sources: <https://wiki.archlinux.org/title/Kernel_mode_setting> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-modeless> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-watch> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/output/Monitor.cpp> · <https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/plain/drivers/gpu/drm/drm_sysfs.c?h=v6.17>
-
----
-
-## Fix NVIDIA monitors staying black or corrupted after suspend
-
-`nvidia-black-screen-external-after-suspend` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `systemd-boot`, `wayland`
-
-**Symptom.** Wake the machine from suspend and an external monitor, or every monitor, stays black or comes back with corrupted garbage. The machine itself is often still alive: you can ssh in, and `hyprctl monitors` still answers. Sometimes only a reboot recovers the picture. NVIDIA GPU.
-
-**Cause.** Two different faults are being run together under one symptom, and only one of them is about video memory.
-
-**The display side.** An output that is dark after a wake is often not a memory problem at all. The compositor can come back with the panel in DPMS off, or with the sink having dropped off the bus so the monitor is re-enumerated with an EDID carrying no modes, or on a hybrid machine with the external head attached to a GPU that Aquamarine did not select. All three leave a live session you can reach over ssh, with `hyprctl monitors` reporting either `dpmsStatus` false or a monitor sitting at 0x0.
-
-**The driver side.** The NVIDIA driver has to save and restore video memory across a suspend cycle, and the mechanism changed in the 595 series. On 595 and newer, which is everything Omarchy 4 installs on Turing and later, `NVreg_UseKernelSuspendNotifiers=1` handles it and the `nvidia-suspend`, `nvidia-hibernate` and `nvidia-resume` services are deliberately disabled by upstream. Arch ships the parameter in `/usr/lib/modprobe.d/nvidia-sleep.conf`, so preservation works out of the box and there is nothing to add to the kernel command line. Only the 430 to 590 branch, which is the `nvidia-580xx` driver Omarchy installs on Maxwell, Pascal and Volta, needs `NVreg_PreserveVideoMemoryAllocations=1` together with those three services. Omarchy 4 crosses the two paths, because `gpu-screen-recorder` is in the base package set and its `/usr/lib/modprobe.d/gsr-nvidia.conf` turns `PreserveVideoMemoryAllocations` on for every NVIDIA machine while the installer never enables the services that parameter then requires. That configuration decision, and the hibernation cost attached to it, is the subject of `nvidia-suspend-resume-black-screen-vram` and is not repeated here.
-
-> **Audit corrected this record.** Re-audited on this Omarchy 4.0.2-1 workstation, which has an NVIDIA card running nvidia-open-dkms 610.57.04-1 on hyprland 0.56.2-1 and kernel 7.1.9, against the Arch NVIDIA/Tips_and_tricks wikitext, the Hyprland wiki and the Hyprland 0.56.2 source. The symptom is real, but the record's cause is stale by a whole driver branch and its fix would make a current machine worse. Five defects. First, the cause says NVIDIA does not preserve video memory "unless explicitly told to, and the suspend/resume helper services must be enabled". That is true only of the 430 to 590 branch. The Arch wiki states that `NVreg_PreserveVideoMemoryAllocations` was succeeded by `NVreg_UseKernelSuspendNotifiers` on 595 and newer, and that the three services are disabled by default on 595 and newer per upstream requirements. Confirmed on this machine: `/usr/lib/modprobe.d/nvidia-sleep.conf` from nvidia-utils sets `NVreg_UseKernelSuspendNotifiers=1` and `NVreg_TemporaryFilePath=/var/tmp`, `/proc/driver/nvidia/params` reports both, and `systemctl is-enabled` returns `disabled` for nvidia-suspend, nvidia-hibernate, nvidia-resume and nvidia-suspend-then-hibernate. Second, the fix's `sudo systemctl enable nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service` is therefore a regression on every machine Omarchy 4 installs nvidia-open-dkms on, which is Turing and later. Third, the kernel parameter step is wrong twice over: the parameter is superseded, and the two bootloaders named do not exist here. Confirmed on this machine that `/etc/default/grub` is absent, that `/etc/limine-entry-tool.d/` holds the three cmdline drop-ins Omarchy uses (omarchy-defaults.conf, omarchy-uki.conf, resume.conf), and that `/proc/cmdline` carries no nvidia parameter at all while preservation is nonetheless on. That last point condemns the record's `verify` field directly: `cat /proc/cmdline | grep NVreg` returns nothing on a correctly configured box, so the record's own success test reports failure. I could not prove `/boot/loader/entries` is absent, because the ESP is mounted dmask=0077 and the listing returns Permission denied, but Omarchy boots a UKI through Limine so the systemd-boot path is wrong regardless. Fourth, `sudo mkinitcpio -P` rebuilds nothing on Omarchy 4: `/etc/mkinitcpio.d/` contains zero files here, so the command aborts with no presets found. Fifth, the danger field is entirely about breaking a GRUB or systemd-boot line and misses the real hazard, which is that `PreserveVideoMemoryAllocations=1` on Omarchy's early KMS layout makes hibernate resume fail and discard the image. On duplication, which the orchestrator asked about explicitly. This record is NOT a duplicate of `nvidia-hyprland-modeset-cursors-mgpu`: that record covers four separate NVIDIA and Hyprland faults (DRM modeset, driver package choice, multi-GPU output selection, cursor planes) and touches suspend only in its step 6. It IS the same problem as `nvidia-suspend-resume-black-screen-vram` in gpu-drivers. Both are "NVIDIA monitors black or corrupted after suspend", both blame video memory preservation, both name the same parameter and the same three services. That record is strictly better: it is already `corrected` with `cause_reconciled` 2026-09-11, it knows the gpu-screen-recorder trap, it splits the open and 580xx branches, and it carries the hibernation data-loss danger. Read as originally written, this record holds nothing the other two lack except the suggestion to swap between nvidia-open-dkms and the fully proprietary driver, and a symptom framing about an external head staying black while the internal panel works, which is really output selection and belongs to the mgpu record. So I have rewritten it to the job it can do on its own: the display-side triage after a wake, which neither sibling covers, with the video memory decision deferred by slug to `nvidia-suspend-resume-black-screen-vram` rather than restated wrongly. Cross-referencing by slug is already the corpus convention, 21 records do it. Whether to merge the two instead is an operator decision and I have not made it. Two smaller notes. `dpmsStatus` is a boolean in the `-j` output and an integer in the text output, so the fix reads `dpms=false`, verified by running both here. `hl.dsp.dpms({ action = "on" })` is correct: `Internal::parseToggleStr` in `src/config/lua/bindings/LuaBindingsInternal.cpp` at v0.56.2 maps both "on" and "enable" to TOGGLE_ACTION_ENABLE. I read that from source rather than running the dispatcher, because on 0.56 `hyprctl dispatch` evaluates its argument and would have changed the operator's live session. The record's `applies_to` still carries the `systemd-boot` and `grub` tags, which are now wrong for the Omarchy branch and right for the Arch one, and there is no corrected field for that, so it is flagged here instead. On sources, the record's only source is a hyprland-wiki blob URL that 404s, confirmed with curl, because the content moved to `content/nvidia/`. It goes in `sources_remove` and is replaced. Severity `high` and frequency `common` both stand and are left alone. NOT exercised: I did not suspend this machine, which is the operator's daily workstation driving real monitors, so every claim about what happens across a resume comes from the driver README, the Arch wiki, the shipped modprobe and unit files and the sibling audit, not from a wake I watched. I set no mode, ran no `hyprctl keyword`, `reload` or `dispatch`, and changed nothing.
->
-> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
-
-> ⚠️ **Risk.** The display checks in steps 1 to 3 are read only and safe. The risk is entirely in step 4. On Omarchy's early KMS layout, running with `NVreg_PreserveVideoMemoryAllocations=1` makes resume from hibernation fail and discard the image, which costs every unsaved thing that was open, and Omarchy configures hibernation out of the box through `HOOKS+=(resume)` in `/etc/mkinitcpio.conf.d/omarchy_resume.conf`. Read `nvidia-suspend-resume-black-screen-vram` before touching that parameter or those services, because suspend and hibernate are mutually exclusive under it. Any change under `/etc/modprobe.d` needs the initramfs rebuilt, since the NVIDIA modules are early loaded, and an interrupted `sudo limine-mkinitcpio` leaves an unbootable UKI, so do not power cycle while it runs.
-
-**Fix.**
-
-**1. Find out whether the session is alive.** From another machine over ssh, or from a TTY:
-
-```bash
-hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate) dpms=\(.dpmsStatus) disabled=\(.disabled)"'
-```
-
-- Nothing answers and the machine is unreachable: the driver or the kernel is gone. Go to step 4.
-- A monitor is listed with `dpms=false`: the panel is asleep. Step 2.
-- A monitor is listed at `0x0`: it came back with an EDID carrying no modes. Step 3.
-- Everything reads correctly and the screen is still black or garbled: step 4.
-
-**2. Wake the output.** On Hyprland 0.56 `hyprctl dispatch` evaluates its argument as Lua, so a bare dispatcher name fails with a parse error:
-
-```bash
-hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
-```
-
-`"on"` and `"enable"` are the same value to the parser.
-
-**3. Re-detect a monitor that came back with no modes.** Omarchy ships a check for exactly this state:
-
-```bash
-omarchy-hyprland-monitor-modeless; echo $?   # 0 means an enabled monitor has no modes
-```
-
-Power cycle the monitor, or unplug and replug the cable. Hyprland re-reads the EDID on hotplug. If the head never reappears on a hybrid machine, it is wired to a GPU the compositor did not pick, which is an `AQ_DRM_DEVICES` problem rather than a suspend one.
-
-**4. Only now look at video memory preservation.** Read what the driver is actually doing. None of this needs root:
-
-```bash
-sort /proc/driver/nvidia/params | grep -E 'PreserveVideoMemoryAllocations|UseKernelSuspendNotifiers|TemporaryFilePath'
-systemctl is-enabled nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service
-pacman -Qs 'nvidia-open-dkms|nvidia-580xx-dkms'
-```
-
-On a current Omarchy 4 or Arch install running `nvidia-open-dkms`, the correct state is `UseKernelSuspendNotifiers: 1`, `TemporaryFilePath: "/var/tmp"` and three `disabled` services. Enabling those services on this branch would be a regression. Nothing goes on the kernel command line for this on 595 and newer, so an empty `grep NVreg /proc/cmdline` is not a fault.
-
-If the three services read `disabled` while `PreserveVideoMemoryAllocations: 1`, the machine is in the inconsistent state Omarchy ships by default. Read `nvidia-suspend-resume-black-screen-vram` before changing anything: it carries both consistent configurations and the reason one of them costs you hibernation.
-
-**5. Check the journal from the suspend you are debugging.**
-
-```bash
-journalctl -b -k | grep -iE 'Xid \(PCI|nvidia-modeset: ERROR|Failed detecting connected display'
-```
-
-Use `journalctl -b -1 -k` instead only when the machine had to be power cycled.
-
-**On Omarchy 4 there is no GRUB and no systemd-boot.** It boots a unified kernel image through Limine. Kernel command line changes go in a drop-in under `/etc/limine-entry-tool.d/`, `/etc/default/grub` does not exist, and `sudo mkinitcpio -P` aborts because `/etc/mkinitcpio.d/` holds no presets. The rebuild command is `sudo limine-mkinitcpio`. On plain Arch with systemd-boot or GRUB the older instructions still apply, and there `sudo mkinitcpio -P` is correct.
-
-**Verify.** Read the driver state back, no root needed, and confirm it matches the branch you are on:
-
-```bash
-sort /proc/driver/nvidia/params | grep -E 'UseKernelSuspendNotifiers|TemporaryFilePath'
-systemctl is-enabled nvidia-suspend.service nvidia-resume.service
-```
-
-Then suspend once, wake, and confirm every output came back with the mode you expect:
-
-```bash
-hyprctl -j monitors | jq -r '.[] | "\(.name) \(.width)x\(.height)@\(.refreshRate) dpms=\(.dpmsStatus)"'
-journalctl -b -k | grep -iE 'Xid \(PCI|nvidia-modeset: ERROR'
-```
-
-The last command should print nothing.
-
-Sources: <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks> · <https://wiki.hypr.land/Nvidia/> · <https://wiki.hypr.land/configuring/core/dispatchers/> · <https://download.nvidia.com/XFree86/Linux-x86_64/610.57.04/README/powermanagement.html> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsInternal.cpp>
 
 ---
 
