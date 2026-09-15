@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-13
+Last updated: 2026-09-15
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -48,6 +48,14 @@ Last updated: 2026-09-13
 > The recipe is in the 2026-09-05 fourth session. `omarchy-agentic-published-wrong` is not
 > calibrated. The chat-lane result (+22.6 to +28.8 pt on four models, controls flat) and
 > the n=31 agentic null (DiD +0.2, p=0.98) stand.
+>
+> **The four upstream reports owed since 2026-09-11 are filed** (2026-09-14/15): the resume hook
+> ordering on #8471, #10375 and PR #8888, ESP free space as #11821, the Intel VA-API comment on
+> #7866 back on 2026-09-11, and the enterprise Wi-Fi finding through upstream's private security
+> channel (see `writeups/upstream/05-WITHHELD.md`, which is deliberately not the report). Three of
+> the four were materially wrong before adversarial review and one of our own diagnostic
+> instructions turned out to be broken. Read the 2026-09-14/15 session before writing anything
+> upstream again.
 >
 > **Four merges landed on 2026-09-13** and the corpus is 489 records, not 492: three retirements
 > (`omarchy-resume-hook-appended-after-filesystems`, `xwayland-apps-blurry-hidpi`,
@@ -100,6 +108,113 @@ in the `standards.engineering` lane of Substrata, drafted this session from the 
 and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
 NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
 
+## Session of 2026-09-14/15: four upstream reports, and the reviews that rewrote three of them
+
+The reports owed since 2026-09-11 are filed. Four went out: three public, one through upstream's
+private security channel. Every one was adversarially reviewed before submission, and **three of the
+four were materially wrong before that review**. That is the story of this session, more than the
+reports themselves.
+
+| Report | Where | Outcome |
+| --- | --- | --- |
+| Resume hook ordering | [#8471](https://github.com/omacom/omarchy/issues/8471), [#10375](https://github.com/omacom/omarchy/issues/10375), [PR #8888](https://github.com/omacom/omarchy/pull/8888) | posted, one substantive reply |
+| ESP free space | [#11821](https://github.com/omacom/omarchy/issues/11821) | filed, one substantive reply |
+| Enterprise Wi-Fi, no CA validation | private advisory, see `writeups/upstream/05-WITHHELD.md` | `state: triage` |
+| Intel VA-API Haswell | [#7866](https://github.com/omacom/omarchy/issues/7866) | posted 2026-09-11, already discharged |
+
+### What the pre-submission reviews caught
+
+Each report was drafted, then handed to an agent told to falsify it rather than proofread it. The
+instruction that did the work was "assume the draft is wrong until each claim survives", plus a
+named list of the claims most likely to be false.
+
+- **The resume-hook comment invented two of its three arguments.** It stated that the upstream
+  threads recommend deleting `omarchy_resume.conf`, copying `grep -h '^HOOKS'` output into a
+  hand-written array, and publishing an array that omits `plymouth`. None of that is in any of the
+  three threads. It came from **our own retired corpus record's** bad fix, carried across as though
+  it described what the reporters had written. 8471 actually proposes a clean positioning drop-in and
+  its diagnostic array contains `plymouth`. PR #8888 keeps the drop-in and updates both hibernation
+  scripts, with a migration and a test.
+- **The ESP issue's central mechanism was false.** The draft said the ESP fills from the very
+  snapshots the guard protects. Upstream already prevents that three ways: `LIMIT_USAGE_PERCENT=85`
+  in `limine-snapper-sync.conf`, `MAX_SNAPSHOT_ENTRIES=6` in `omarchy-defaults.conf`, and
+  hash-deduplicated snapshot kernels. The filed issue credits all three and asks only about the gap
+  that survives, which is that the UKI is written by a `PostTransaction` hook after the transaction
+  commits and nothing measures the ESP.
+- **The security report had the wrong package, the wrong line numbers, an overstated claim about
+  what credential is at risk, and a citation that did not support it.** It also missed that a third
+  party had filed [#11791](https://github.com/omacom/omarchy/issues/11791) hours earlier, naming the
+  same code and describing it in passing as "no CA cert, no domain match".
+
+Only the Haswell comment, written on 2026-09-11, needed nothing.
+
+### The reply round, and the finding that matters most
+
+Both public reports drew a substantive reply within hours. Those replies were answered after a second
+review round, this time by **Claude Fable 5.1** rather than Opus 5, and it found the worst error of
+the session.
+
+**Our own diagnostic instruction was broken.** The first comment on #10375 asked jorgenfoss to run
+`journalctl -b -1 -k | grep -i "PM: hibernation"`. The kernel prints the message that matters from
+`kernel/power/swap.c` under `pr_fmt "PM: "`, so it reads `PM: Image not found (code -22)` and
+contains no "hibernation". Verified here: on this workstation, where the hook demonstrably ran and
+logged that exact line, **that grep returns nothing**. So the reporter's "no resume attempt logged at
+all" is also what our instruction produces on a machine where the attempt happened. We may have
+handed them a false negative and then argued from it.
+
+The follow-up retracts it, and retracts a second theory with it: the idea that jorgenfoss's fix was
+really the rebuild rather than the reorder does not hold, because `omarchy-hibernation-setup` writes
+the drop-in at line 89 and runs `sudo limine-mkinitcpio` at line 125 in the same invocation. Their
+image was rebuilt either way.
+
+The review also replaced the proposed test. Asking them to reorder, rebuild, hibernate and revert
+costs a hibernated session and is not even decisive under the broken grep. Omarchy keeps a persistent
+journal, so the pre-fix failed boot is probably still on disk and `journalctl --list-boots` settles it
+at no risk.
+
+### Two things the reply round got right that are worth keeping
+
+- **devYRPauli's `set -e` catch was real, but our concession to it was not.** The reply was about to
+  agree that sourcing `/etc/default/limine` pollutes the guard's scope and could collide. It cannot:
+  the sketch used `$( . file; echo ... )`, a command substitution, so the subshell's variables never
+  reach the caller. The real hazard is different and better: `sed` reads the file, sourcing executes
+  it, and the file is not guaranteed to parse as bash, since the README's own example
+  `KERNEL_CMDLINE[kernel-6.10.1]=` dies on arithmetic evaluation of the subscript. **Agreeing
+  wrongly is still being wrong.**
+- **A question we could not answer was answered from source.** devYRPauli asked whether
+  `limine-mkinitcpio-install` copies onto the existing UKI or writes beside it and renames, which
+  decides whether peak ESP demand is one UKI or two. `strings` on `limine-entry-tool` is useless
+  because it is a GraalVM native image whose `rename` symbols are JDK internals. Cloning the upstream
+  source at tag 1.37.1 settles it in three hops: `LimineManager.java:256` calls
+  `copyFileIfMissingOrDifferent`, which blake2-compares and then calls `copyFile`, which is
+  `Files.copy(source, target, REPLACE_EXISTING)` at `processes/Utility.java:185`. Copy onto the
+  destination, multiplier 1, and an `ENOSPC` part-way leaves the ESP with no UKI at all.
+
+### Method notes worth carrying
+
+- **Two review rounds by different models beat one.** Opus 5 caught the fabricated arguments, and Fable
+  5.1 caught the broken grep, the false concession, and the tone problems. Neither found the other's
+  headline error.
+- **Tell the reviewer which claim is most likely to be wrong.** Every prompt named one and said to
+  spend its effort there. In all four cases the named claim was where the failure was.
+- **Reviews caught social errors as well as technical ones.** The operator had already handed the
+  #10375 thread over publicly, so a fourth comment reopening the argument and handing off again would
+  have read badly. And asking a commenter whether they use AI tooling, in a reply that sits directly
+  beneath a stray line of leaked tooling in their own comment, reads as an insinuation rather than
+  curiosity. Both were caught by review, not by us.
+- **Model disclosure was included in both replies**, naming Opus 5 for drafting and Fable 5.1 for
+  review, and saying what each caught. Both replies ask about method, not about tooling.
+
+### Where to pick this up
+
+1. No reply yet on #8471 or PR #8888. The #8471 comment argues the ordering is not load-bearing and
+   jorgenfoss's observation sits against it, unresolved until someone reads a pre-fix boot journal.
+2. The private advisory is `state: triage`, `submission.accepted: false`, which is the normal
+   pre-triage state and not a rejection. Do not chase it.
+3. The Haswell gap still owes the corpus a new record. This is the oldest open item in this file.
+4. `pacman-file-exists-in-filesystem-omarchy` expires at the next Omarchy release, per upstream commit
+   f5194e3f.
+5. O7, teaching the lint to skip a warning and a labelled branch, is still open.
 ## Session of 2026-09-13 (sixth): the corpus prose goes through the writing standard
 
 Item 6, the last body of prose in this repo that had not been held to
