@@ -219,11 +219,19 @@ running that command.
    before, or the site publishes an empty category page.
 4. Budget: O3 ran 750k to 900k tokens per ten records, so tier 1 is roughly 1.7 to 2.0M for
    harvest plus audit. Check `/usage-credits` first.
-5. Open, and needing a person: the `standards.security` amendment is proposed at seq 3 and
-   the lane is review gated, so it is a draft until published. `work.decisions` still holds
-   no disclosure record for the 802.1X report, which its own standard requires. The report's
-   path is recorded two ways, `~/Documents/...` and `~/.local/share/omarchy-security-reports/`,
-   and one is stale.
+5. **The path was never a discrepancy, and reading the filed report found something worse.**
+   `~/Documents/` holds the 2026-09-12 pre-submission drafts. The report that actually went to
+   the maintainer on 2026-09-14 lives exactly where `writeups/upstream/05-WITHHELD.md` says it
+   does, mode 0600 in a 0700 directory. The standard's Sources line was the thing that was
+   wrong, and it is fixed. Two real gaps came out of reading it: **the report states no
+   disclosure window at all**, so step 6 of that standard has never been exercised and no date
+   exists on which publishing becomes automatically acceptable, and **its prior-disclosure
+   section names the third party's issue but not our own earlier and fuller publication**. A
+   maintainer reading it would conclude the only public description is somebody else's passing
+   mention. A one paragraph follow-up in the advisory thread closes that, and it is the highest
+   value thing left in this thread. The disclosure decision record its own standard requires now
+   exists in `work.decisions` at `proposed`, and the `standards.security` amendment is at
+   `proposed` too. Ratifying either is the one step that asserts a person has read it.
 6. CLAUDE.md's mechanical writing check excludes `research/README.md` through the
    `research/[^/]+\.md` pattern meant for the loose wiki pages. That file is a published page
    and carries dashes and semicolons at lines 18, 37, 65, 80 and 85.
