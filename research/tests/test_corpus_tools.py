@@ -62,6 +62,7 @@ def a_full_record(slug="fixture-every-field"):
         "audit_note": "FIXTURE_NOTE",
         "cause_reconciled": "2026-08-30",
         "sources": ["https://example.invalid/fixture"],
+        "checked_against": "4.0.2-1 2026-09-16",
     }
 
 
@@ -101,7 +102,7 @@ class TestFieldsAgreesWithItsConsumers(unittest.TestCase):
                          f"records on disk carry keys corpus.FIELDS does not name: {sorted(missing)}")
 
     def test_field_order_matches_the_corpus_on_disk(self):
-        """Reordering FIELDS rewrites all 492 lines and hides the real diff."""
+        """Reordering FIELDS rewrites all 489 lines and hides the real diff."""
         first = next(iter(corpus.read_jsonl(ROOT / "data" / "problems.jsonl")))
         self.assertEqual(list(first.keys()), corpus.FIELDS)
 
@@ -126,6 +127,17 @@ class TestEveryFieldSurvivesAWrite(unittest.TestCase):
             back = corpus.read_jsonl(path)
         self.assertEqual(len(back), 1)
         self.assertEqual(back[0], rec)
+
+    def test_checked_against_survives_a_round_trip(self):
+        """`checked_against` (added 2026-09-16) is a plain FIELDS entry, but pin it by
+        name: a field added at the end of FIELDS is exactly the shape that would go
+        missing if a writer ever reverted to projecting onto a private copy."""
+        rec = a_full_record()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "problems.jsonl"
+            corpus.write_jsonl(path, [rec])
+            back = corpus.read_jsonl(path)
+        self.assertEqual(back[0]["checked_against"], "4.0.2-1 2026-09-16")
 
     def test_written_bytes_are_lf_and_utf8(self):
         """CLAUDE.md calls both load-bearing: docs/ is tracked and fully regenerated."""
@@ -187,6 +199,13 @@ class TestIngestReplacePath(unittest.TestCase):
             back = self._run([dict(rec)], td)
         self.assertEqual(back[0], rec)
 
+    def test_checked_against_survives_an_ingest(self):
+        """Same shape as the cause_reconciled regression: a field added to FIELDS but
+        missed by a consumer's own private list vanishes silently on the REPLACE path."""
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([a_full_record()], td)
+        self.assertEqual(back[0]["checked_against"], "4.0.2-1 2026-09-16")
+
 
 class TestMergeExtendPath(unittest.TestCase):
     """merge_gapfill.py EXTENDS the corpus in place, and applies audit verdicts."""
@@ -213,6 +232,20 @@ class TestMergeExtendPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             back = self._run([keep], payload, td)
         self.assertEqual(back["untouched-record"], keep)
+
+    def test_checked_against_survives_a_merge_that_does_not_mention_it(self):
+        """A merge auditing a different category must not disturb checked_against on a
+        record it never touches, the same byte-identical guarantee as the test above."""
+        keep = a_full_record("has-been-checked")
+        keep["category"] = "pacman-aur"
+        payload = {"results": [{"category": "omarchy-core",
+                                "gapfill": {"problems": [a_full_record("brand-new-2")]},
+                                "gapfillAudit": {"verdicts": [
+                                    {"slug": "brand-new-2", "status": "ok", "confidence": "high"}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([keep], payload, td)
+        self.assertEqual(back["has-been-checked"]["checked_against"], "4.0.2-1 2026-09-16")
+        self.assertEqual(back["has-been-checked"], keep)
 
     def test_a_corrected_cause_is_stamped_with_cause_reconciled(self):
         """The second silent defect from the writeup: rewriting a cause unstamped makes

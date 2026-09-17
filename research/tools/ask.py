@@ -17,6 +17,15 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# `checked_against` stores data, "<pacman version> <YYYY-MM-DD>". Readers want a
+# sentence, so the display inserts the preposition rather than the field carrying
+# it. A value that does not split that way is printed as it stands, because a
+# malformed provenance string is worth showing rather than swallowing.
+def _ca(value):
+    ver, _, day = (value or "").rpartition(" ")
+    return f"{ver} on {day}" if ver else value
+
+
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "data" / "problems.db"
 
@@ -102,6 +111,10 @@ def show(conn, row, verbose):
         else:
             print(f"  {CYAN}          (CAUSE above was not rewritten; "
                   f"FIX below is corrected){RESET}")
+    # Independent of audit_status: whether this was held against a real install,
+    # not whether it matches its cited sources. Print only when set.
+    if row["checked_against"]:
+        print(f"  {CYAN}~~ CHECKED against Omarchy {_ca(row['checked_against'])}{RESET}")
     if row["danger"]:
         print(f"  {YELLOW}!! RISK  {row['danger']}{RESET}")
     if row["audit_status"] in ("unaudited", "gapfill-unaudited"):

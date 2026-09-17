@@ -755,6 +755,18 @@ the command prints is a regression.
 - Fixes must be concrete: real commands, real paths, real config in fenced blocks. "Check
   your configuration" is not a fix and the audit rejects it.
 - Fill `danger` whenever a fix can lose data, break boot, or cause a partial upgrade.
+- **A `security` record is a disclosure.** Three gates, all three required, written out in
+  [research/README.md](research/README.md) under "Security records and disclosure": the
+  mechanism is already public and someone else made it public, the record says no more than
+  its cited source, and the record gives a mitigation rather than a reproduction. A candidate
+  that fails the first gate is reported privately and held unpublished, never written into
+  the corpus or the journal. The gates key on what the record discloses, not on whose fault
+  the defect is, because the common case in that category is a bad default upstream chose
+  and a user can change. The governing standard is `disclosure/reporting-upstream` in
+  Substrata's `standards.security` lane, which is restricted and was a draft reviewed by no
+  person as of 2026-09-16, so say that when you rely on it. Read the code before believing an
+  issue: two of the first fourteen candidates for this category were already fixed upstream
+  while their issues stayed open.
 - The corpus is research, not a warranty. Anything touching pacman, the bootloader,
   initramfs, or partitions deserves a confirmation against the cited source before it
   runs as root.

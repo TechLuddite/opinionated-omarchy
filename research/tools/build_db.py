@@ -17,6 +17,15 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+# `checked_against` stores data, "<pacman version> <YYYY-MM-DD>". Readers want a
+# sentence, so the display inserts the preposition rather than the field carrying
+# it. A value that does not split that way is printed as it stands, because a
+# malformed provenance string is worth showing rather than swallowing.
+def _ca(value):
+    ver, _, day = (value or "").rpartition(" ")
+    return f"{ver} on {day}" if ver else value
+
+
 ROOT = Path(__file__).resolve().parent.parent
 JSONL = ROOT / "data" / "problems.jsonl"
 DB = ROOT / "data" / "problems.db"
@@ -96,6 +105,7 @@ def norm(rec, coercions):
         danger=(rec.get("danger") or "").strip() or None,
         audit_note=(rec.get("audit_note") or "").strip() or None,
         cause_reconciled=(rec.get("cause_reconciled") or "").strip() or None,
+        checked_against=(rec.get("checked_against") or "").strip() or None,
         tags=clean_tags,
         sources=clean_sources,
     )
@@ -128,12 +138,12 @@ def build(records, categories):
             """INSERT INTO problems
                (id, slug, title, category, symptom, cause, fix, verify,
                 severity, frequency, danger, audit_status, audit_confidence, audit_note,
-                cause_reconciled)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                cause_reconciled, checked_against)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (pid, r["slug"], r["title"], r["category"], r["symptom"], r["cause"],
              r["fix"], r["verify"], r["severity"], r["frequency"], r["danger"],
              r["audit_status"], r["audit_confidence"], r["audit_note"],
-             r["cause_reconciled"]),
+             r["cause_reconciled"], r["checked_against"]),
         )
         conn.executemany(
             "INSERT OR IGNORE INTO problem_tags (problem_id, tag) VALUES (?, ?)",
@@ -228,6 +238,13 @@ def write_docs(conn, categories):
                     out.append("> *The Cause above was not rewritten and may still "
                                "contain the error described. The Fix below is the "
                                "corrected version.*")
+                out.append("")
+            # `checked_against` is independent of audit_status: it says whether
+            # the record's claims were held against a real Omarchy install, not
+            # whether they match the sources cited. Print it beside the other
+            # audit provenance whenever it is set; say nothing when it is not.
+            if r["checked_against"]:
+                out.append(f"> *Checked against Omarchy {_ca(r['checked_against'])}.*")
                 out.append("")
             if r["danger"]:
                 out.append(f"> ⚠️ **Risk.** {r['danger']}")
