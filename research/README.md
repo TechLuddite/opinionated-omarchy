@@ -247,6 +247,53 @@ editing four things by hand (`schema.sql`, `build_db.py`, `ask.py`, `corpus.py`)
 `tests/` now asserts `FIELDS` against both `schema.sql` and the live corpus, so the
 2026-08-30 mistake fails the suite instead of destroying data.
 
+## Security records and disclosure
+
+The `security` category carries a gate the other twelve do not. This repository is public
+and the corpus is published as a website, so a security record is a disclosure whatever
+else it is.
+
+Three gates. A record enters the public corpus only if it passes all three.
+
+1. **The mechanism is already public, and someone else made it public.** An upstream issue,
+   an upstream code discussion, or a third party's report, published before this repository
+   wrote anything about it. Our own earlier publication does not count. Treating it as
+   public is laundering, because it turns a disclosure we chose to make into a fact we
+   merely observed.
+2. **The record says no more than its cited source.** The `cause` field is bounded by what
+   the public source states. A record may add the fix and the severity rank. It may not add
+   the mechanism.
+3. **The record gives a mitigation, not a reproduction.** It stops at the defect. A reader
+   gets how to close the hole, not how to walk through it.
+
+A candidate that fails gate 1 does not go in the corpus, and does not go in the journal
+either. Report it privately, record the send date, channel and window, and hold the record
+somewhere unpublished until upstream ships a fix or the window closes. The default window
+is 90 days, stated in the report itself. Public text comes from the report's own
+paste-ready version rather than being rewritten afterwards from memory.
+
+Note what these gates do not ask: whose fault the defect is. A permissive `ufw` rule a user
+typed and a permissive `ufw` rule the installer wrote are the same disclosure to the same
+reader. Sorting by blame gives the wrong answer for the most common case in this category,
+which is a bad default that upstream chose and a user can change.
+
+**Evidence before assertion.** Confirm the defect at a pinned upstream commit and on an
+installed version, and record both. `checked_against` is where the installed version goes.
+An open issue is not evidence that a problem is current: two of the first fourteen
+candidates for this category were already fixed in code while their issues stayed open. Read
+the code, not the issue state.
+
+**The precedent, stated accurately, because it is not a clean one.** On 2026-09-11 this
+repository published the mechanism of an Omarchy enterprise Wi-Fi weakness in
+`wpa2-enterprise-8021x-connect-from-cli`, citing the two upstream source files that
+implement it, and described it again in `JOURNAL.md`. The private report to upstream went on
+2026-09-14, three days later, and is still in triage.
+[writeups/upstream/05-WITHHELD.md](../writeups/upstream/05-WITHHELD.md) records the caveat
+honestly: only the exploitability analysis was ever private. The record stays up, because
+withdrawing a published mitigation takes away a protection readers already have and
+advertises the thing the withdrawal is meant to keep quiet. Gate 1 exists so that this order
+does not happen again.
+
 ## What is tracked, and what you build
 
 `data/problems.jsonl` is the source of truth and is tracked. `docs/*.md` is generated and
