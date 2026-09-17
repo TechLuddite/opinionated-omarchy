@@ -150,11 +150,16 @@ which is both kinds at once.
 **The named precedent was checkably false on the live site.** The draft said the enterprise
 Wi-Fi finding is "deliberately absent from the corpus". It is not absent.
 `wpa2-enterprise-8021x-connect-from-cli` cites `shell/plugins/panels/network/Model.js` and
-`Panel.qml`, the two upstream files that implement the weakness, and landed in `c8cf051` on
-2026-09-11 at 20:47. `JOURNAL.md` line 1115 names `Model.js:319-326`. The private report to
-upstream went on 2026-09-14, three days later. **This repository published the mechanism and
-then reported it privately.** `writeups/upstream/05-WITHHELD.md` had recorded that caveat
-honestly all along, and nobody had read it against the rule being drafted.
+`Panel.qml`, the two upstream files that implement the weakness, and reached the public site at
+2026-09-12 03:55 UTC through PR #58. `JOURNAL.md` line 1115 names `Model.js:319-326`. The first
+private report to upstream followed at 2026-09-12 15:34 UTC, **eleven hours and forty minutes
+later**, and a second report on the same defect went on 2026-09-14. **This repository published
+the mechanism and then reported it privately**, and neither report names the publication.
+`writeups/upstream/05-WITHHELD.md` had recorded that caveat honestly all along, and nobody had
+read it against the rule being drafted.
+
+An earlier version of this entry said three days. That was wrong. It measured the second report
+rather than the first, because the first had not been found yet. See the correction below.
 
 The rule now states that history instead of claiming the opposite, and keys on what a record
 discloses rather than on whose fault the defect is. Three gates, all required, in
@@ -219,7 +224,22 @@ running that command.
    before, or the site publishes an empty category page.
 4. Budget: O3 ran 750k to 900k tokens per ten records, so tier 1 is roughly 1.7 to 2.0M for
    harvest plus audit. Check `/usage-credits` first.
-5. **The path was never a discrepancy, and reading the filed report found something worse.**
+5. **There are two advisories for this one defect, and finding the second corrected a figure
+   this journal had already published.** `GHSA-3v6r-47cg-h3qp` was filed at 2026-09-12 15:34 UTC
+   and `GHSA-7v99-3429-4q3x` at 2026-09-14 16:43 UTC, both by us, both still `state: triage`,
+   both untouched by a maintainer since creation, rated medium and high. The first is the text
+   in `~/Documents/`, which this journal wrongly called a pre-submission draft: it is a filed
+   report sitting at mode 0644. Because only the second was known, the gap between publishing
+   and reporting was written up as three days. Measured against the first it is eleven hours and
+   forty minutes. The rule is unchanged by this and every number attached to it was not.
+   **Two live advisories for one defect is noise for a maintainer**, so decide which is canonical
+   and withdraw or cross-reference the other before adding anything else to either thread.
+   Neither report names this repository's own publication, and the first describes the source as
+   "a third-party Omarchy troubleshooting corpus", which reads as though the reporter is not the
+   corpus maintainer. The second fixes the attribution and cites the third party's #11791, but
+   still omits ours.
+
+6. **The path was never a discrepancy, and reading the filed report found something worse.**
    `~/Documents/` holds the 2026-09-12 pre-submission drafts. The report that actually went to
    the maintainer on 2026-09-14 lives exactly where `writeups/upstream/05-WITHHELD.md` says it
    does, mode 0600 in a 0700 directory. The standard's Sources line was the thing that was
@@ -232,7 +252,7 @@ running that command.
    value thing left in this thread. The disclosure decision record its own standard requires now
    exists in `work.decisions` at `proposed`, and the `standards.security` amendment is at
    `proposed` too. Ratifying either is the one step that asserts a person has read it.
-6. CLAUDE.md's mechanical writing check excludes `research/README.md` through the
+7. CLAUDE.md's mechanical writing check excludes `research/README.md` through the
    `research/[^/]+\.md` pattern meant for the loose wiki pages. That file is a published page
    and carries dashes and semicolons at lines 18, 37, 65, 80 and 85.
 

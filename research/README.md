@@ -283,11 +283,13 @@ An open issue is not evidence that a problem is current: two of the first fourte
 candidates for this category were already fixed in code while their issues stayed open. Read
 the code, not the issue state.
 
-**The precedent, stated accurately, because it is not a clean one.** On 2026-09-11 this
-repository published the mechanism of an Omarchy enterprise Wi-Fi weakness in
-`wpa2-enterprise-8021x-connect-from-cli`, citing the two upstream source files that
-implement it, and described it again in `JOURNAL.md`. The private report to upstream went on
-2026-09-14, three days later, and is still in triage.
+**The precedent, stated accurately, because it is not a clean one.** This repository published
+the mechanism of an Omarchy enterprise Wi-Fi weakness in
+`wpa2-enterprise-8021x-connect-from-cli`, citing the two upstream source files that implement
+it, and described it again in `JOURNAL.md`. That went live at 2026-09-12 03:55 UTC. The first
+private report to upstream followed at 2026-09-12 15:34 UTC, eleven hours and forty minutes
+later. A second report on the same defect went on 2026-09-14. Both are still in triage and
+neither names this repository's own earlier publication.
 [writeups/upstream/05-WITHHELD.md](../writeups/upstream/05-WITHHELD.md) records the caveat
 honestly: only the exploitability analysis was ever private. The record stays up, because
 withdrawing a published mitigation takes away a protection readers already have and
