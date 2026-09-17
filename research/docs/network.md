@@ -2676,7 +2676,7 @@ If that panel keeps showing `NOT CONNECTED` while `nmcli` reports the connection
 
 **Verify.** `nmcli -f GENERAL.STATE connection show eduroam` reports `activated` and `ip addr show <device>` has an address. Take the device name from `nmcli -f DEVICE,TYPE device status | grep wifi` rather than assuming `wlan0`. `nmcli -f 802-1x connection show eduroam` lists the EAP settings, and both `802-1x.ca-cert` and `802-1x.domain-suffix-match` must be non-empty there. On Omarchy 4 ignore the bar panel's connected indicator for this check and trust `nmcli`.
 
-Sources: <https://github.com/omacom/omarchy/issues/2382> · <https://github.com/omacom/omarchy/issues/7257> · <https://man.archlinux.org/man/nm-settings-nmcli.5> · <https://man.archlinux.org/man/nmcli.1> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Model.js> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/network.sh> · <https://wiki.archlinux.org/title/NetworkManager>
+Sources: <https://github.com/omacom/omarchy/issues/2382> · <https://github.com/omacom/omarchy/issues/7257> · <https://man.archlinux.org/man/nm-settings-nmcli.5> · <https://man.archlinux.org/man/nmcli.1> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Model.js> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/network.sh> · <https://wiki.archlinux.org/title/NetworkManager> · <https://github.com/omacom/omarchy/issues/11791>
 
 ---
 

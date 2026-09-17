@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-15
+Last updated: 2026-09-17
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -34,9 +34,16 @@ Last updated: 2026-09-15
 >    per one or two records, which is what the last five batches did, and use
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
 >    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 is
->    finished across twelve categories, and O4 is finished, its 36 records audited and merged on
->    2026-09-11. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
+>    finished across twelve categories, O4 is finished, its 36 records audited and merged on
+>    2026-09-11, and O5 (`checked_against`) landed on 2026-09-16. O6 is still open and still
+>    blocks any full harvest. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
 >    under "What's left", and is its own job.
+> 1b. **The `security` category is next, and it is gated.** 41 topics are curated in
+>    `research/raw/security-topics.md`, 22 at tier 1. Three disclosure gates now sit in
+>    `research/README.md` and a Conventions bullet in `CLAUDE.md`. Write
+>    `research/tools/security-harvest-brief.md` before harvesting: no existing brief holds an
+>    agent to those gates. See the 2026-09-16/17 session.
+>
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
 >    now says in public that the skill is vaporware. Make that stop being true in that
@@ -107,6 +114,119 @@ The governing rule now lives outside this repo, as `attribution/crediting-third-
 in the `standards.engineering` lane of Substrata, drafted this session from the OFL 1.1 text
 and FAQ, the MIT text, Creative Commons' TASL attribution practice, REUSE 3.3, the Apache
 NOTICE guidance and Debian's copyright format 1.0. Draft, not ratified, not human reviewed.
+
+## Session of 2026-09-16/17: the security category gets a gate, and the gate's own precedent was false
+
+The corpus is about to gain a 13th category, `security`. Two things had to exist before a
+single record could be harvested, and neither was the harvest.
+
+### O5 is done: `checked_against`
+
+`audit_status: ok` has always meant "matches its cited sources", which the O3 re-audit
+proved is a different question from "true on what Omarchy ships": 159 records re-audited,
+157 corrected. `checked_against` holds the pacman package version and the date a record was
+held against a real install, `"<version> <YYYY-MM-DD>"`, or null.
+
+Five consumers, not the four CLAUDE.md names, because `build_site.py` reads the corpus too.
+`ingest.py` and `merge_gapfill.py` needed nothing: both already import `corpus.FIELDS`
+instead of keeping a private copy, which is what that module was built for. Three tests in
+the shape of the `cause_reconciled` ones. The 489 line diff is the whole corpus gaining one
+null key, verified by stripping the key back off and diffing against the previous file.
+
+It turned out to be a dependency rather than a nicety. The governing security standard
+requires two point confirmation before a finding is asserted at all, a pinned upstream
+commit and an installed version, and `checked_against` is where the second one goes.
+
+### The disclosure rule, and the precedent that was not true
+
+First draft sorted candidates by fault: user misconfiguration publishes, upstream defect
+does not. An adversarial review by Fable 5.1 killed it on two counts, and both were right.
+
+**The split cannot classify the work.** Every one of the 13 Omarchy candidates is an open
+upstream issue with no fix, so under the draft the whole section was unpublishable. And the
+most common case in this category is a bad default upstream chose and a user can change,
+which is both kinds at once.
+
+**The named precedent was checkably false on the live site.** The draft said the enterprise
+Wi-Fi finding is "deliberately absent from the corpus". It is not absent.
+`wpa2-enterprise-8021x-connect-from-cli` cites `shell/plugins/panels/network/Model.js` and
+`Panel.qml`, the two upstream files that implement the weakness, and landed in `c8cf051` on
+2026-09-11 at 20:47. `JOURNAL.md` line 1115 names `Model.js:319-326`. The private report to
+upstream went on 2026-09-14, three days later. **This repository published the mechanism and
+then reported it privately.** `writeups/upstream/05-WITHHELD.md` had recorded that caveat
+honestly all along, and nobody had read it against the rule being drafted.
+
+The rule now states that history instead of claiming the opposite, and keys on what a record
+discloses rather than on whose fault the defect is. Three gates, all required, in
+`research/README.md`: the mechanism is already public and somebody other than us made it
+public, the record says no more than its cited source, and the record gives a mitigation
+rather than a reproduction. Gate 1 excludes our own prior publication deliberately. Counting
+it would turn a disclosure we chose to make into a fact we merely observed.
+
+### Nothing was retracted, and that is the considered answer
+
+Checked on 2026-09-17. A third party, `pixelsandpointers`, filed
+[#11791](https://github.com/omacom/omarchy/issues/11791) on 2026-09-14 naming the same code,
+and it is still open. So the mechanism is public three ways and withdrawing ours would leave
+the defect described by somebody else with no mitigation attached, remove a protection
+readers already have, and advertise the withdrawal. The record stays up and now cites
+#11791, which is the third party public reference gate 1 wants and which did not exist when
+the record was written.
+
+### 41 topics, from 48 candidates
+
+In `research/raw/security-topics.md`. 12 Omarchy specific, 5 package and key trust, 6
+privilege, 3 boot integrity, 2 SSH, 13 network. 22 at tier 1. Every drop carries its reason.
+
+Five research agents gathered them and one review agent corrected five. What the checking
+caught is the point:
+
+- **LLMNR is false for Omarchy 4.** `/etc/systemd/resolved.conf.d/10-disable-multicast.conf`,
+  owned by `omarchy-settings 4.0.2-1`, sets `LLMNR=no` and `MulticastDNS=no`. The topic was
+  dropped and the neighbouring mDNS topic had to be rewritten around `avahi` instead.
+- **Two issues are fixed in code while still open.** `omarchy setup security sshd` (#8363,
+  fixed by #9267 and #9255) and `[omarchy]` carrying `SigLevel = Optional TrustAll` (#9199).
+  Citing issue state rather than reading the code is the same failure that produced 157
+  corrections in O3.
+- **PR #7807 merged on 2026-09-15**, one day before the list was written, so the
+  `omarchy-update-keyring` topic is true on 4.0.2-1 and false on the next release. It is the
+  first real user of `checked_against`.
+- **The reviewer was wrong once too.** It concluded `omarchy-sudo-passwordless` was generic
+  sudo behaviour after grepping for `NOPASSWD` in `/usr/share/omarchy`. The script is there
+  and at HEAD, and builds the sudoers line at runtime. The topic stayed. It was right that
+  the note attached to it was wrong.
+
+### Method note, because it repeats the 2026-09-14 lesson
+
+Sonnet 5 did all five gathering and implementation tasks, each with a hard oracle behind it:
+a test suite that must go green, or "cite only URLs you actually fetched". Fable 5.1 got the
+one task whose failure mode is a confident claim with nothing to check it against, and found
+the defect in our own reasoning. Every prompt named the claim most likely to be false, and in
+each case that is where the failure was. Three times an agent was wrong or two agents
+disagreed, and each took one local command to settle. Do not merge an agent's finding without
+running that command.
+
+### Where to pick this up
+
+1. **Write `research/tools/security-harvest-brief.md` before harvesting anything.** The three
+   existing briefs hold agents to what Omarchy 4 ships. None holds them to the disclosure
+   gates, and none asks the question an auditor tuned to "is the fix right" will miss: does
+   the `cause` field say more than its cited source.
+2. **Harvest tier 1 only, 22 topics, in batches of two or three per agent**, the shape the
+   last five O3 batches used. Not `harvest-workflow.js`: it routes through `ingest.py`, which
+   replaces the corpus and would discard all 407 corrections. O6 is still not done.
+3. **Add `security` to `categories.json` in the same commit as the first records**, never
+   before, or the site publishes an empty category page.
+4. Budget: O3 ran 750k to 900k tokens per ten records, so tier 1 is roughly 1.7 to 2.0M for
+   harvest plus audit. Check `/usage-credits` first.
+5. Open, and needing a person: the `standards.security` amendment is proposed at seq 3 and
+   the lane is review gated, so it is a draft until published. `work.decisions` still holds
+   no disclosure record for the 802.1X report, which its own standard requires. The report's
+   path is recorded two ways, `~/Documents/...` and `~/.local/share/omarchy-security-reports/`,
+   and one is stale.
+6. CLAUDE.md's mechanical writing check excludes `research/README.md` through the
+   `research/[^/]+\.md` pattern meant for the loose wiki pages. That file is a published page
+   and carries dashes and semicolons at lines 18, 37, 65, 80 and 85.
 
 ## Session of 2026-09-14/15: four upstream reports, and the reviews that rewrote three of them
 
@@ -4141,8 +4261,11 @@ again.
   list, now 25 entries, is re-audit fuel for O3 and names four records the tracker contradicts,
   one of which sends readers to a hypridle config file that does not exist on Omarchy 4.
 - **O5. Add a `checked_against` field** (Omarchy package version and date) so "matches
-  its sources" and "true on 4.0.2" stop sharing one status. Schema change, four
-  consumers, covered by the `FIELDS` tests. Not started.
+  its sources" and "true on 4.0.2" stop sharing one status. **DONE 2026-09-16.** Five
+  consumers rather than four, because `build_site.py` reads the corpus too. Format is
+  `"<version> <YYYY-MM-DD>"`, null until somebody checks. Three tests in the shape of the
+  `cause_reconciled` ones. The first record that needs it is the `omarchy-update-keyring`
+  topic, true on 4.0.2-1 and false once PR #7807 ships.
 - **O6. Make the harvest extend rather than replace.** `harvest-workflow.js` output goes
   through `ingest.py`, which replaces the corpus and would discard every correction and
   `cause_reconciled` stamp. Route it through the merge path with slug-collision
