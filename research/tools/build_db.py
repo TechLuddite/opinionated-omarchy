@@ -112,6 +112,29 @@ def norm(rec, coercions):
     return out
 
 
+def unknown_categories(records, categories):
+    """Return {category key: record count} for any category a record carries that
+    is absent from categories.json.
+
+    schema.sql declares problems.category TEXT REFERENCES categories(key), so an
+    INSERT naming a category outside categories.json fails the foreign key check
+    before any row is written. That check is correct: it is what stops the DB
+    silently disagreeing with the site's category list. But its native error is a
+    bare sqlite3.IntegrityError: FOREIGN KEY constraint failed, which names neither
+    the record nor the category, and a future session adding a new category with
+    no matching categories.json entry would have no way to tell what broke. Found
+    this way: a dry run of merge_gapfill.py against a payload that introduced a new
+    "security" category (2026-09-17). Check before build() ever calls INSERT, so
+    the failure names its cause instead of its symptom.
+    """
+    counts = Counter()
+    for rec in records:
+        cat = (rec.get("category") or "").strip()
+        if cat and cat not in categories:
+            counts[cat] += 1
+    return counts
+
+
 def build(records, categories):
     DB.parent.mkdir(parents=True, exist_ok=True)
     if DB.exists():
@@ -277,6 +300,18 @@ def main():
     records, parse_errors = load(JSONL)
     cat_path = ROOT / "data" / "categories.json"
     categories = json.loads(cat_path.read_text(encoding="utf-8")) if cat_path.exists() else {}
+
+    unknown = unknown_categories(records, categories)
+    if unknown:
+        detail = ", ".join(
+            f"{cat!r} ({n} record{'s' if n != 1 else ''})" for cat, n in sorted(unknown.items())
+        )
+        sys.exit(
+            f"unknown categor{'y' if len(unknown) == 1 else 'ies'} not in data/categories.json: "
+            f"{detail}\nAdd each key and a display label to data/categories.json, then rerun "
+            f"tools/build_db.py. Refusing to build rather than dropping the records or "
+            f"inserting a placeholder category."
+        )
 
     conn, skipped, coercions = build(records, categories)
     by_cat = write_docs(conn, categories)

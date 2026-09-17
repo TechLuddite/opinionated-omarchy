@@ -1,10 +1,11 @@
 # security category: curated harvest topic list (draft, 2026-09-16)
 
-41 topics kept from 48 candidates, after an adversarial review corrected five of them.
+41 topics listed, from 48 candidates. **One is blocked and four are probable duplicates**, so the
+realistic harvest is smaller than the count. Two adversarial reviews corrected nine entries.
 Every topic must pass the three gates in research/README.md before a record is written. Tier 1 harvests first. Every entry needs a fetched
 source before a record is written. Slugs are indicative, the harvester picks the final one.
 
-## A. Omarchy-specific (13). Source: omacom/omarchy quattro HEAD plus a public issue.
+## A. Omarchy-specific (12). Source: omacom/omarchy at a pinned sha, plus a public issue.
 
 | # | Topic | Tier | Note |
 |---|---|---|---|
@@ -25,8 +26,8 @@ source before a record is written. Slugs are indicative, the harvester picks the
 
 | # | Topic | Tier | Note |
 |---|---|---|---|
-| PK1 | marginal or unknown trust signature blocks an update | 1 | bad fix SigLevel=TrustAll must be named as a trap |
-| PK2 | archlinux-keyring chicken-and-egg after a long gap | 1 | the thread's own fix is a partial upgrade, do not reproduce |
+| PK1 | marginal or unknown trust signature blocks an update | 2 | **Already covered** by `signature-unknown-trust-keyring-out-of-date`, whose danger names the TrustAll trap. Propose an edit |
+| PK2 | archlinux-keyring chicken-and-egg after a long gap | 2 | **Already covered** by `archlinux-keyring-outdated-blocks-every-upgrade` and `omarchy-keyring-signature-unknown-trust`. Propose an edit |
 | PK3 | omarchy-update-keyring reported success when key ops failed | 2 | FIXED by PR #7807 merged 2026-09-15. Dated record, needs checked_against |
 | PK4 | AUR has shipped real malware, twice | 1 | Arch's own advisory |
 | PK5 | what reviewing a PKGBUILD actually means | 1 | helper diffs miss reordered logic |
@@ -57,19 +58,19 @@ source before a record is written. Slugs are indicative, the harvester picks the
 | SSH1 | REMOTE HOST IDENTIFICATION HAS CHANGED after an algorithm-order change | 1 | fix must stay narrow, not StrictHostKeyChecking=no |
 | SSH2 | legacy kex or ssh-rsa refused after an upgrade | 1 | re-enabling must be scoped to one Host block |
 
-## F. Network security (14)
+## F. Network security (13)
 
 | # | Topic | Tier | Note |
 |---|---|---|---|
-| NET1 | 802.1X profile with no CA cert and no domain-suffix-match connects anyway | 1 | merge of two candidates. Overlaps the danger field of wpa2-enterprise-8021x-connect-from-cli |
+| NET1 | 802.1X profile with no CA cert and no domain-suffix-match connects anyway | **BLOCKED** | **Fails gate 1.** This repository published the mechanism first, on 2026-09-12. Edit `wpa2-enterprise-8021x-connect-from-cli` instead. Do not write a new record |
 | NET2 | libvirt FORWARD rules are invisible to ufw's INPUT view | 1 | this project's own VMs |
 | NET3 | WireGuard has no kill switch, suspend and resume leaks the real IP | 1 | |
-| NET4 | wg-quick DNS silently reverted by NetworkManager or a DHCP client | 1 | tunnel healthy, DNS in the clear |
+| NET4 | wg-quick DNS silently reverted by NetworkManager or a DHCP client | 2 | **Overlaps** `wireguard-dns-resolvconf-missing`, whose danger already names the leak. Check before writing |
 | NET5 | IPv6 leaks around a v4-only commercial VPN config | 2 | blog-tier source, needs a primary |
 | NET6 | systemd-resolved DNSSEC off by default and incomplete when on | 2 | |
 | NET7 | DNSOverTLS=opportunistic falls back to plaintext silently | 2 | NOT a default. omarchy-dns writes it only when the user picks Cloudflare or Google |
 | NET8 | resolv.conf is not the stub symlink, so resolved policy has no effect | 2 | |
-| NET9 | avahi advertises this host on a hotel or cafe network | 1 | must name avahi, NOT systemd-resolved. avahi installed and enabled on 4.0.2-1 |
+| NET9 | avahi advertises this host on a hotel or cafe network | 1 | must name avahi, NOT systemd-resolved. **Overlaps** `mdns-local-hostname-not-resolving`, which already names Avahi as the Omarchy 4 stack |
 | NET11 | Samba example config shares $HOME writable to the LAN | 2 | samba not installed on a stock box, record must say so |
 | NET12 | cups-browsed auto-creates queues for anything advertised | 2 | cups-browsed not installed on a stock box, record must say so |
 | NET13 | Bluetooth re-powers on resume, DiscoverableTimeout=0 never times out | 2 | the wiki itself suggests the bad setting |
@@ -119,3 +120,23 @@ Verified on this workstation at omarchy 4.0.2-1 on 2026-09-16.
   installed system and at HEAD. OM9 stays. The review was right that the note attached to it
   was wrong, because `tools/provision-bench-vm.sh:110` writes its own sudoers line and never
   calls that command.
+
+## Second review pass, 2026-09-17
+
+A review of the harvest brief against this list found five more problems, all now applied above.
+
+- **NET1 fails gate 1 and cannot be written.** The mechanism was published by this repository
+  on 2026-09-12, before either upstream report. Gate 1 excludes our own prior publication, so
+  the only legitimate outcome is an edit to the existing record. It was listed at tier 1 with
+  no note, which would have made gate 1 decorative on its first outing.
+- **Four topics already exist in the corpus with their traps named.** PK1, PK2, NET4 and NET9.
+  All five referenced slugs were confirmed present. Marked as edits rather than new records.
+- **Both section headers miscounted**, A by one and F by one, from the two topics dropped in
+  the first review. The total of 41 was right.
+- **Gate 1 as originally worded passed only 13 of these 41.** It was drafted for discovered
+  defects, and most of this category is documented defaults that nobody ever "reported". The
+  published gate now has a second clause for documented defaults, cited. NET2, NET5 and PR6
+  still fail it and stay listed only so nobody re-proposes them without noticing.
+- **The category test rejected six tier 1 topics.** "It works and it is wrong" excludes SSH1,
+  SSH2, PK1, PK2, PR1 and PR5, which are all ordinary breakage whose common fix disables a
+  control. The brief now names three kinds of record instead, and that is the third.

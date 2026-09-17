@@ -253,18 +253,36 @@ The `security` category carries a gate the other twelve do not. This repository 
 and the corpus is published as a website, so a security record is a disclosure whatever
 else it is.
 
-Three gates. A record enters the public corpus only if it passes all three.
+Three gates. Gate 1 decides whether a topic may be written at all. Gates 2 and 3 decide what
+the record may say, so a draft that fails one of those is rewritten rather than abandoned.
 
-1. **The mechanism is already public, and someone else made it public.** An upstream issue,
-   an upstream code discussion, or a third party's report, published before this repository
-   wrote anything about it. Our own earlier publication does not count. Treating it as
-   public is laundering, because it turns a disclosure we chose to make into a fact we
-   merely observed.
-2. **The record says no more than its cited source.** The `cause` field is bounded by what
-   the public source states. A record may add the fix and the severity rank. It may not add
-   the mechanism.
-3. **The record gives a mitigation, not a reproduction.** It stops at the defect. A reader
-   gets how to close the hole, not how to walk through it.
+1. **The weakness is already public, and we are not the ones who made it public.** Either it
+   appears in an upstream issue, an upstream code discussion, or a third party's report,
+   published before this repository wrote anything about it, **or** the behaviour is the
+   documented default, stated in the software's own documentation, its manual page, or the
+   Arch wiki, and cited. Our own earlier publication counts as neither. Treating it as public
+   turns a disclosure we chose to make into a fact we merely observed.
+
+   The second clause carries most of this category, and it is not a loophole. Nobody
+   "reported" that systemd-resolved ships with DNSSEC off, or that Avahi advertises a laptop
+   on a hotel network. Those are documented defaults. A gate written only for discovered
+   defects would block two thirds of the work while stopping none of the laundering it exists
+   to stop.
+2. **No field states a condition, input or sequence that its cited source does not.** The
+   bound is on the whole record rather than on `cause` alone, because a mechanism moved into
+   `symptom`, `title`, `danger` or `verify` is published just the same. Mechanism means the
+   conditions or steps by which the weakness is used. One sentence of consequence in general
+   terms, who can do what, is not mechanism. A record that cannot say why a setting matters
+   is useless.
+3. **The record gives a mitigation, not a reproduction.** It stops at the defect: name the
+   setting that is missing, the port that is open, the code path that does not validate its
+   input. Never a walkthrough, never a working exploit, never a step that only helps somebody
+   attacking a machine they do not own.
+
+**Verification is bound by the same rule as the text.** Checking a security claim means
+reading the setting or reading the code, on this workstation or a test VM. It never means
+exercising the weakness. `verify` confirms the control is now present, not that an attack now
+fails.
 
 A candidate that fails gate 1 does not go in the corpus, and does not go in the journal
 either. Report it privately, record the send date, channel and window, and hold the record
