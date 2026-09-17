@@ -42,7 +42,13 @@ CREATE TABLE problems (
     -- Date the `cause` was reconciled against `audit_note`, or NULL. The first
     -- harvest's auditors could only rewrite `fix`, so a `corrected` record could
     -- keep a cause its own note disproved. Set => the cause reflects the note.
-    cause_reconciled TEXT
+    cause_reconciled TEXT,
+    -- Omarchy pacman package version and date this record was held against a
+    -- real install, "<version> <YYYY-MM-DD>", or NULL. `audit_status: ok` only
+    -- means the record matches its cited sources, not that it is still true on
+    -- whatever Omarchy ships today; this is the field that answers that second
+    -- question. NULL means nobody has checked it against a live machine.
+    checked_against  TEXT
 );
 
 CREATE INDEX idx_problems_category  ON problems(category);

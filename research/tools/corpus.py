@@ -25,8 +25,8 @@ import json
 
 # The canonical record schema, in the order records are written.
 #
-# ORDER IS LOAD-BEARING: it is the key order of every one of the 492 records in
-# data/problems.jsonl. Reordering this list rewrites all 492 lines, turning the
+# ORDER IS LOAD-BEARING: it is the key order of every one of the 489 records in
+# data/problems.jsonl. Reordering this list rewrites all 489 lines, turning the
 # next merge into a whole-corpus diff that hides the records actually touched.
 # Append new fields; do not reorder existing ones.
 #
@@ -34,10 +34,18 @@ import json
 # schema.sql, build_db.py, ask.py, and this list. tests/test_corpus_tools.py
 # asserts this list against schema.sql and against the live corpus, so a field
 # added to one and forgotten in the other fails loudly instead of vanishing.
+#
+# `checked_against`, appended at the end on 2026-09-16, is a different kind of
+# provenance than `audit_status`. `audit_status: ok` means a record matches the
+# sources it cites; it says nothing about whether those sources still describe
+# Omarchy 4. `checked_against` records the package version and date a record's
+# claims were held against a real install: "<pacman version> <YYYY-MM-DD>", e.g.
+# "4.0.2-1 2026-09-16". NULL/absent means nobody has done that yet. It is a
+# single free-text field on purpose -- see the 2026-09-16 note in CLAUDE.md.
 FIELDS = ["slug", "title", "category", "symptom", "cause", "fix", "verify",
           "applies_to", "severity", "frequency", "danger",
           "audit_status", "audit_confidence", "audit_note", "cause_reconciled",
-          "sources"]
+          "sources", "checked_against"]
 
 
 # Keys the harvest and gap-fill workflows put on records that are deliberately NOT

@@ -40,6 +40,15 @@ import urllib.parse
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath
 
+# `checked_against` stores data, "<pacman version> <YYYY-MM-DD>". Readers want a
+# sentence, so the display inserts the preposition rather than the field carrying
+# it. A value that does not split that way is printed as it stands, because a
+# malformed provenance string is worth showing rather than swallowing.
+def _ca(value):
+    ver, _, day = (value or "").rpartition(" ")
+    return f"{ver} on {day}" if ver else value
+
+
 ROOT = Path(__file__).resolve().parent.parent          # research/
 REPO = ROOT.parent
 OUT = REPO / "docs"
@@ -455,7 +464,10 @@ def record_page(r, cats, corpus):
                   for s in (r.get("sources") or []))
     tags = "".join(f'<span class="tag">{e(t)}</span>' for t in (r.get("applies_to") or []))
 
-    prov = f'<div class="prov {cls}"><span class="led"></span><b>{label}</b> {e(meaning)}</div>'
+    checked = r.get("checked_against")
+    prov = (f'<div class="prov {cls}"><span class="led"></span><b>{label}</b> {e(meaning)}'
+            + (f' &middot; checked against Omarchy {e(_ca(checked))}' if checked else "")
+            + '</div>')
     if note:
         # The disclaimer under an audit note is conditional on cause_reconciled in ask.py and
         # in the generated markdown. Keep it conditional here too, or the site tells a reader
