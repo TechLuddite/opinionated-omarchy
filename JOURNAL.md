@@ -38,11 +38,15 @@ Last updated: 2026-09-18
 >    2026-09-11, and O5 (`checked_against`) landed on 2026-09-16. O6 is still open and still
 >    blocks any full harvest. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
 >    under "What's left", and is its own job.
-> 1b. **The `security` category is next, and it is gated.** 41 topics are curated in
->    `research/raw/security-topics.md`, 22 at tier 1. Three disclosure gates now sit in
->    `research/README.md` and a Conventions bullet in `CLAUDE.md`. Write
->    `research/tools/security-harvest-brief.md` before harvesting: no existing brief holds an
->    agent to those gates. See the 2026-09-16/17 session.
+> 1b. **The `security` category EXISTS as of 2026-09-18**, 16 records, all 16 corrected by
+>    audit. Tier 1 is done except NET1 (blocked at gate 1, this repository published the
+>    mechanism first) and NET2 (fails gate 1). **Tier 2 and 3 are untouched**, 23 topics in
+>    `research/raw/security-topics.md`, and the brief and the gates now have one real outing
+>    behind them. **The open debt is the 4.0.4 re-check**: the harvest was held against
+>    4.0.2-1 on a workstation whose sync database was dated 2026-09-05, and upstream had
+>    shipped 4.0.3 and 4.0.4. `checked_against` says 4.0.2-1 on all 16 honestly, the audit
+>    already folded in the two consequences it found, and OM1, OM2, OM6, OM7 and the Omarchy
+>    half of PK5 still rest on 4.0.2 blobs. See the 2026-09-18 session.
 >
 > 3. **Then the skill.** The design is settled in `opinionated-omarchy/CLAUDE.md` and does
 >    not need re-deriving; it needs a corpus worth retrieving from. The root `README.md`
@@ -72,6 +76,134 @@ Last updated: 2026-09-18
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-18: the security category exists, and all 16 records were wrong
+
+16 records merged, 505 in the corpus, 13 categories. The category the last two sessions
+built the gates for is now published. Eight agents harvested the tier 1 topics against
+`research/tools/security-harvest-brief.md`, eight more audited them adversarially, and
+**every single record came back corrected. Zero passed clean.**
+
+That is the third batch in a row at essentially 100%, after O3's 157 of 159 and the issue
+harvest's 36 of 36. It is no longer a surprising result and should stop being budgeted as
+one: **a harvest is a draft, and the audit is half the work.**
+
+### What the audit caught, and why each one matters
+
+Severity moved on 9 of 16 and **every move was downward**. The harvest rated 12 of 16
+`high`. Security writing inflates severity, the brief has a four-level scale written for
+this category, and an auditor told to argue against the scale rather than against how
+alarming a thing sounds moved most of them to `medium` or `low`. Prompt the next audit the
+same way.
+
+Nine records had their `fix` rewritten, so none of them would have been right as
+published. The four worth remembering as shapes:
+
+- **`luks-keyfile-on-esp-defeats-encryption` gave a fix that cannot work on Omarchy, and
+  its own cited page said why.** Omarchy unlocks root in the initramfs with the busybox
+  `encrypt` hook and `cryptdevice=`, so `/etc/crypttab` is read after root is mounted and a
+  TPM2 unlock needs `sd-encrypt`. The fix also never removed the existing keyslot or
+  rebuilt the UKI. A reader would have believed they had closed a hole they had not.
+- **`omarchy-remove-security-sshd-edits-root-authorized-keys` inverted its own source.** It
+  said upstream's `SKILL.md` tells an agent to `pkexec` the command. The same sentence says
+  the opposite, "Do not wrap commands that already manage privilege elevation themselves".
+  Reaching the defect takes acting against instruction, so frequency dropped to `rare`.
+- **`wireguard-networkmanager-no-kill-switch` rested on a comparison that does not hold.**
+  The framing was that `wg-quick` has a firewall kill switch NetworkManager lacks.
+  `wg-quick`'s rule is an inbound anti-spoof drop plus CONNMARK, and its own manual
+  documents the kill switch as an optional `PostUp` the user adds, so both have the same
+  gap. Rebuilt on two third-party NetworkManager issues instead of on an argument from
+  silence.
+- **`pkgbuild-review-before-building-from-aur` gained the finding that makes it
+  Omarchy-specific.** `omarchy-pkg-aur-install` and `omarchy-update-aur-pkgs` both pass
+  `--noconfirm`, and yay's `--noconfirm` with no `--answerdiff` returns an empty default
+  answer that selects zero packages to diff. So on both stock Omarchy paths the review step
+  never appears, whatever `diffmenu` is set to. The `alt-b` binding in the picker is the
+  only review point left.
+
+Two topic-list entries were wrong and the audit corrected them: the AUR has shipped malware
+**three** dated times, not twice, and polkit's unreadable-rule failure is **not silent**,
+it logs at error priority. What is missing is any failure of the unit, and the "N rules
+loaded" summary is suppressed at the default log level.
+
+### The finding that outranks all of them: an installed version is not the current one
+
+The audit of OM9 went looking for the package build date and found that **upstream was at
+v4.0.4 (2026-09-15) and v4.0.3 (2026-09-08) while this workstation sat at 4.0.2-1 with a
+pacman sync database dated 2026-09-05.** Two releases had come and gone unseen. OM9's
+expiry defect is fixed in 4.0.3, and OM5's plugin access was restricted there, so two
+records asserted behaviour that had already changed.
+
+Both were folded into the records before merge, and `checked_against` says `4.0.2-1` on all
+16 because that is what was actually held against a machine. The debt that remains is that
+OM1, OM2, OM6, OM7 and the Omarchy half of PK5 rest on 4.0.2 blobs and need re-checking on
+4.0.4. `CLAUDE.md` now carries the three commands that would have caught this on day one:
+the installed version, the age of the sync database, and the current upstream tag.
+
+The operator updated this workstation at the end of the session, so the next session starts
+on a machine that is current and can do that re-check directly.
+
+### `corrected_title`, and the gap that keeps being found the same way
+
+Two auditors judged a record's title wrong, had nowhere to put the replacement, and wrote
+it into `reason` for somebody to apply by hand. That is the third time: `corrected_severity`
+and `corrected_frequency` in September, `checked_against` last week, `corrected_title` now.
+It is in `merge_gapfill.py` with a test, and both retitles were applied through it.
+
+The rule worth keeping: **when a verdict shape is missing a field, add the field with a
+test rather than hand-applying the change**, because a correction that lives only in prose
+is a correction that gets lost.
+
+One record needed a hand edit after the merge anyway. The `cause` of the
+remove-security-sshd record named `sudo omarchy-remove-security-sshd` literally, and
+`lint_corpus.py` reads that shape as advice rather than as a warning. The brief already
+tells harvesters to describe a trap command in prose, and the record now does.
+
+### The test VMs, and three ways a headless `omarchy update` fails
+
+The VMs were started for validation and are all written up in `CLAUDE.md` under "The VMs
+have no pacman sync databases". Briefly, in the order they bit:
+
+1. **`omarchy update` blocks on a `gum confirm` with no tty**, hanging with an empty log.
+   `omarchy update -y` is the script's own unattended path and sets
+   `OMARCHY_UPDATE_UNATTENDED=1`.
+2. **Killing that run orphaned `sudo paccache -rk2`, which kept the flock** on
+   `$XDG_RUNTIME_DIR/omarchy-update.lock`. Every later run said "An Omarchy update is
+   already running" and named neither the process nor the lock file. `fuser` and `lsof`
+   showed nothing unprivileged. Walking `/proc/*/fd` as root found it.
+3. **`sudo -v` prompts even though the user has `NOPASSWD: ALL`**, because the user is also
+   in `%wheel`, which has password-requiring entries, and validation considers all of them.
+   Some step of the update calls it, so the run dies at `sudo: a password is required`
+   after the snapshot step. `Defaults:techluddite !authenticate` in
+   `/etc/sudoers.d/99-bench-nopasswd` fixes it and **belongs in
+   `tools/provision-bench-vm.sh`**, which is not yet done. The VMs are therefore still at
+   4.0.1-1 and the validation run has not happened.
+
+Also confirmed, and it settles half of an open question in `CLAUDE.md`: on **4.0.1-1**,
+`OMARCHY_PATH` is empty in a non-interactive ssh, so `bash -lc` is required there. That is
+the old behaviour, and it says nothing about the 4.0.2-1 claim, which is what `CLAUDE.md`
+already says. A workstation now at 4.0.4 can settle it with one command from a second
+machine.
+
+### Also this session
+
+`research/README.md` was brought inside the mechanical writing check. The exclusion pattern
+`research/[^/]+\.md`, meant for the loose Hyprland wiki pages, was also matching one of the
+seven published pages, so it had never been checked. The pattern is now
+`research/[a-z0-9]+\.md`, the wiki pages being lowercase and the README not. It carried no
+prose dashes and 13 prose semicolons, now rewritten.
+
+### Where to pick this up
+
+1. **Do the 4.0.4 re-check** on the five records named above, now that the workstation is
+   current. It is a small, well-defined job and it closes the only known debt in the new
+   category.
+2. **Put `Defaults:techluddite !authenticate` in `tools/provision-bench-vm.sh`**, then bring
+   a VM to 4.0.4 and do the validation run that did not happen.
+3. **Tier 2 and 3 security topics**, 23 of them, with the brief and gates now proven.
+4. The advisory follow-up from the 2026-09-16/17 session is still unsent, and both
+   advisories are still `state: triage`, untouched by a maintainer since creation. Checked
+   2026-09-18.
 
 ## Session of 2026-09-13 (third): the type designers were licensed and not credited
 
