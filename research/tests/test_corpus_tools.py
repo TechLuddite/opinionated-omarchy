@@ -32,6 +32,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+import build_db          # noqa: E402
 import corpus            # noqa: E402
 import ingest            # noqa: E402
 import merge_gapfill     # noqa: E402
@@ -343,6 +344,59 @@ class TestMergeExtendPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(SystemExit):
                 self._run([rec], payload, td)
+
+    def test_a_checked_against_verdict_sets_it_on_the_record(self):
+        """`checked_against` is new provenance the auditor adds, not a correction of
+        the harvester's work, so the key is the plain name rather than
+        `corrected_checked_against`, and it applies even on an "ok" verdict: an
+        auditor confirming a record against its sources may check it against a live
+        install in the same pass."""
+        rec = a_full_record("gets-checked-against")
+        del rec["checked_against"]
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "gets-checked-against", "status": "ok",
+                                     "confidence": "high",
+                                     "checked_against": "4.0.2-1 2026-09-16"}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)
+        self.assertEqual(back["gets-checked-against"]["checked_against"], "4.0.2-1 2026-09-16")
+
+    def test_a_malformed_checked_against_stops_the_merge(self):
+        """`checked_against` must be "<pacman version> <YYYY-MM-DD>". A verdict whose
+        trailing token is not a date is refused the same way a bad `corrected_severity`
+        is refused, rather than written through and read wrong by every consumer that
+        trusts the format, such as build_db.py's `_ca` display helper."""
+        rec = a_full_record("bad-checked-against")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "bad-checked-against", "status": "ok",
+                                     "confidence": "high",
+                                     "checked_against": "4.0.2-1 not-a-date"}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SystemExit):
+                self._run([rec], payload, td)
+
+
+class TestBuildDbCategoryValidation(unittest.TestCase):
+    """A record in a category absent from categories.json used to reach the INSERT
+    and fail as a bare sqlite3.IntegrityError: FOREIGN KEY constraint failed, naming
+    neither the record nor the category. Found by a dry run of merge_gapfill.py
+    against a payload that introduced a new "security" category (2026-09-17).
+    build_db.py is a script, not a library with a callable entry point, so this
+    tests the validation helper directly rather than restructuring the file to
+    make main() callable."""
+
+    def test_an_unknown_category_is_named_by_key_and_count(self):
+        records = [a_full_record("in-a-new-category")]
+        records[0]["category"] = "security"
+        unknown = build_db.unknown_categories(records, {"omarchy-core": "Omarchy core"})
+        self.assertEqual(unknown, {"security": 1})
+
+    def test_a_known_category_reports_nothing_unknown(self):
+        records = [a_full_record("in-a-known-category")]
+        unknown = build_db.unknown_categories(records, {"omarchy-core": "Omarchy core"})
+        self.assertEqual(unknown, {})
 
 
 class TestCorpusLint(unittest.TestCase):

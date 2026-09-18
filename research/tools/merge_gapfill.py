@@ -14,12 +14,17 @@ standing. Records whose cause was NOT corrected keep the audit note so a reader
 can still see what was disputed. `corrected_symptom`, `corrected_danger` and `corrected_verify`
 are honoured the same way, as are `corrected_severity` and `corrected_frequency`, and any
 `sources` on a verdict are appended to the record while any `sources_remove` are dropped
-from it.
+from it. A verdict may also set `checked_against`: unlike the `corrected_*` keys, this
+is not a correction of something the harvester got wrong, it is new provenance the
+auditor is adding by checking the record against a live install, so it is honoured
+whatever the verdict's status and kept under its own plain name rather than
+`corrected_checked_against`.
 
 Rewrites data/problems.jsonl in place. Re-run tools/build_db.py afterwards.
 """
 
 import json
+import re
 import sys
 from collections import Counter
 from datetime import date
@@ -31,6 +36,11 @@ from corpus import read_jsonl, write_jsonl
 # one of these has to land inside them.
 SEVERITIES = ("critical", "high", "medium", "low")
 FREQUENCIES = ("very-common", "common", "occasional", "rare")
+
+# `checked_against` is "<pacman version> <YYYY-MM-DD>" (corpus.py's FIELDS comment).
+# There is no closed vocabulary for the version half, so this checks only the part a
+# typo or a wrong format would actually get wrong: the trailing date.
+CHECKED_AGAINST_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 ROOT = Path(__file__).resolve().parent.parent
 JSONL = ROOT / "data" / "problems.jsonl"
@@ -89,6 +99,24 @@ def apply_verdict(rec, v, stats):
     else:
         rec["audit_status"] = "ok"
         stats["ok"] += 1
+    # The auditor, not the harvester, is usually the one who checks a claim against a
+    # live install, and until now that could only be said in prose: CLAUDE.md records
+    # exactly this happening for corrected_severity and corrected_frequency on
+    # 2026-09-11, where an auditor's finding had nowhere to land and had to be applied
+    # by hand after the merge. Set whatever the verdict's status, "ok" included: an
+    # auditor confirming a record against its sources may check it against a live
+    # machine in the same pass. Validate the same way corrected_severity validates
+    # against its vocabulary, so a malformed value is refused rather than written
+    # through. A full version-string grammar is not worth it, but a value that does
+    # not even end in a date is a defect in the verdict.
+    if v.get("checked_against"):
+        value = v["checked_against"]
+        _, _, day = value.rpartition(" ")
+        if not CHECKED_AGAINST_DATE.match(day):
+            sys.exit(f"verdict for {rec['slug']!r} sets checked_against={value!r}, "
+                     f"which does not end in a YYYY-MM-DD date")
+        rec["checked_against"] = value
+        stats["checked-against"] += 1
     # A verdict may cite pages the record did not. Keep them: a corrected fix
     # that rests on a source the record never listed is unverifiable otherwise.
     for url in v.get("sources") or []:
