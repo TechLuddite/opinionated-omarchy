@@ -251,7 +251,8 @@ editing four things by hand (`schema.sql`, `build_db.py`, `ask.py`, `corpus.py`)
 
 The `security` category carries a gate the other twelve do not. This repository is public
 and the corpus is published as a website, so a security record is a disclosure whatever
-else it is.
+else it is. It holds 16 records as of 2026-09-18, the first harvest against these gates,
+and every one of the 16 was corrected by the audit that followed.
 
 Three gates. Gate 1 decides whether a topic may be written at all. Gates 2 and 3 decide what
 the record may say, so a draft that fails one of those is rewritten rather than abandoned.

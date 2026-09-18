@@ -15,7 +15,10 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
    [NOTICE](NOTICE). Keep `omarchy/SKILL.md` byte-identical: the +29.3 pt baseline was
    measured against that exact content.
 2. **A troubleshooting corpus** in [research/](research/): 505 real Omarchy/Arch
-   desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
+   desktop+laptop problems across 13 categories, with verified, copy-pasteable fixes,
+   searchable by symptom. The 13th, `security`, landed on 2026-09-18 and is the only one
+   whose records are disclosures as well as fixes; see "Conventions" and
+   `research/tools/security-harvest-brief.md` before adding to it.
 
 This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
 <https://techluddite.github.io/opinionated-omarchy/>. The site is built from the corpus by
@@ -56,6 +59,8 @@ research/                the troubleshooting corpus + its tooling
     reaudit-brief.md     the prompt for checking an `ok` record against Omarchy 4
     issue-harvest-brief.md  the prompt for building records from omacom/omarchy issue
                          threads, confirmed fixes only
+    security-harvest-brief.md  the prompt for the `security` category: the three
+                         disclosure gates, read-never-exercise, and its own severity scale
     issue_candidates.py  lists issues worth harvesting -> raw/issue-candidates.json
     build_site.py        generates the public site into the repo-root docs/, INCLUDING
                          the project docs listed in its DOCS table, which are rendered
@@ -137,11 +142,23 @@ Fixes can now be *checked*, not only cited. That happens in the throwaway VMs de
 under "Test VMs" below, never on this workstation, so a fix that breaks boot or eats a
 partition costs a rebuild instead of a machine.
 
-Mind the version skew: `pacman -Q omarchy` reports **4.0.2-1** on this workstation as of
-2026-09-07, and last reported **4.0.1-1** in the VMs, which have not been checked since, so a VM is not a mirror of the dev box and a difference between them
-may be a release change rather than a bug. Read that from pacman, not from
-`/usr/share/omarchy/version`; that file says `4.0.0.alpha` on *both* and is branding, not
-the package version.
+Mind the version skew, and mind that **an installed version is not the current one**. On
+2026-09-18 the security audit found upstream at **v4.0.4** (2026-09-15) and **v4.0.3**
+(2026-09-08) while this workstation sat at **4.0.2-1** with a pacman sync database dated
+2026-09-05, so two releases had come and gone unseen and two records asserted behaviour
+4.0.3 had already changed. The VMs last reported **4.0.1-1**. Read the installed version
+from pacman, never from `/usr/share/omarchy/version`, which says `4.0.0.alpha` everywhere
+and is branding. Read the *current* version from upstream, because the sync database is
+only as fresh as the last update:
+
+```sh
+pacman -Q omarchy                                         # what is installed
+ls -l /var/lib/pacman/sync/omarchy.db                      # how stale that opinion is
+gh api repos/omacom/omarchy/releases/latest --jq .tag_name  # what actually shipped
+```
+
+A record that says "still unfixed" is a claim about the current release, so check all
+three before writing one.
 
 It does not change the corpus's trust model. `audit_status` records how a record was
 verified **against its sources**, and one VM agreeing is not the same as a source
@@ -187,7 +204,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | omarchy `4.0.1-1` as last measured (workstation is `4.0.2-1` as of 2026-09-07) |
+| Version | omarchy `4.0.1-1` as last measured (workstation `4.0.2-1` on 2026-09-18, upstream `v4.0.4`) |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |
@@ -264,8 +281,32 @@ connect timeout rather than a refusal.
 ### The VMs have no pacman sync databases
 
 A consequence of that offline install: `pacman -Q` works but `pacman -S` cannot resolve
-anything until the databases are fetched. Run `omarchy update` in the VM first. Do not
+anything until the databases are fetched. The databases shipped on the ISO are dated
+**2026-08-25**, and `pacman -Qu` against them reports nothing to upgrade, which reads as
+"already current" rather than "never synced". Run `omarchy update` in the VM first. Do not
 reach for `pacman -Sy`; see "Domain facts" below.
+
+**Use `omarchy update -y`, not `omarchy update`.** The bare form calls
+`omarchy-update-confirm`, a `gum confirm` with no flag and no timeout, so a headless run
+hangs there forever with an empty log while `/tmp/omarchy-update.log` holds a box drawing
+asking "Ready to update?". The `-y` flag is the script's own unattended path: it sets
+`OMARCHY_UPDATE_UNATTENDED=1` so steps that would need an answer report and move on.
+
+Two traps behind that one, both found on 2026-09-18:
+
+- **Killing an update orphans a child that keeps the lock.** `omarchy-update-lock` is a
+  `flock` on `$XDG_RUNTIME_DIR/omarchy-update.lock`, and an interrupted run left
+  `sudo paccache -rk2` reparented to init still holding the descriptor. Every later run
+  then prints `An Omarchy update is already running.` and names neither the process nor the
+  lock. `fuser` and `lsof` showed nothing as an unprivileged user. What found it was
+  walking `/proc/*/fd` as root for the lock path, and `kill -9` on the holder cleared it.
+- **`sudo -v` prompts even with `NOPASSWD: ALL` for the user.** The bench drop-in grants
+  `techluddite ALL=(ALL) NOPASSWD: ALL`, so `sudo -n true` succeeds, but the user is also
+  in `%wheel`, which has password-requiring entries, and validation considers all of them.
+  Some step of the update calls `sudo -v`, so the run dies at
+  `sudo: a password is required` after the snapshot step. The fix is
+  `Defaults:techluddite !authenticate` in `/etc/sudoers.d/99-bench-nopasswd`, and it
+  belongs in `tools/provision-bench-vm.sh` so a rebuilt VM carries it.
 
 ### How they were built
 
@@ -455,7 +496,10 @@ corpus is a dated snapshot, not a feed. Rebuild when the JSONL changes; re-run a
 workflow only when there is a reason, such as an Omarchy release that changes the
 underlying facts. Every record has now been audited: the last 4 `unaudited` ones, which
 the first auditors never returned a verdict for, were audited on 2026-09-06 and all four
-needed correcting. See [JOURNAL.md](JOURNAL.md).
+needed correcting. The 16 `security` records harvested on 2026-09-18 were audited the same
+day and **all 16 needed correcting**, which is the third time a batch has come back at
+essentially 100%. Assume a fresh harvest is wrong until a second pass says otherwise, and
+budget the audit as half the work rather than a formality. See [JOURNAL.md](JOURNAL.md).
 
 Two ingest paths, and picking the wrong one destroys work:
 
@@ -486,13 +530,17 @@ cited issues that did not support the claim. The brief that found them is
 `research/tools/reaudit-brief.md`; hand it to one agent per one or two records with the
 record JSON and an output directory. A verdict may carry `corrected_fix`,
 `corrected_cause`, `corrected_symptom`, `corrected_danger`, `corrected_verify`,
-`corrected_severity`, `corrected_frequency`, `sources` and `sources_remove`, and
+`corrected_severity`, `corrected_frequency`, `corrected_title`, `checked_against`,
+`sources` and `sources_remove`, and
 `merge_gapfill.py` applies all of them (sources are appended, then any removals
 applied, and a verdict that would leave a record with no source is refused). The
-last four were added on 2026-09-11 after the issue-harvest audit hit their absence:
-an auditor who judged a severity wrong, and one who found a cited issue number that
-is really a discussion, could each say so only in prose, and both changes had to be
-applied by hand after the merge. Always:
+`severity`, `frequency`, `sources` and `sources_remove` keys were added on 2026-09-11
+after the issue-harvest audit hit their absence, `checked_against` on 2026-09-17, and
+`corrected_title` on 2026-09-18 when two security auditors judged a title wrong and wrote
+the replacement into prose because the field did not exist. **That is three times the same
+gap has been found the same way.** An auditor who cannot express a correction writes it
+into `reason`, where it is applied by hand or not at all, so when a verdict shape is
+missing a field, add it with a test rather than hand-applying. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
 merge. 82 `ok` records remain on one source pass. **The O3 re-audit is complete**: every one of
 them that carried a `danger` and applied to Omarchy has now been through a second pass. The 8 that

@@ -16,7 +16,7 @@ zero-byte `.gitkeep` that used to do the job.
 
 ## What it has to be
 
-The corpus is **492 records** of real Omarchy/Arch problems with verified, copy-pasteable
+The corpus is **505 records** of real Omarchy/Arch problems with verified, copy-pasteable
 fixes, searchable by symptom (`research/data/problems.jsonl` is the source of truth). It is
 currently reachable three ways, and none of them is a skill:
 
@@ -33,8 +33,10 @@ is what an agent gets handed: the whole corpus does not fit, and a skill that me
 Three findings, and each closed a design option. **Do not re-derive these.**
 
 **1. Per-category files are already impossible, not a future risk.** Eleven of the thirteen
-`research/docs/*.md` pages exceed a 32K context window *today* at 492 records, measured
-2026-09-12: `apps-services.md` is about 96k tokens and `network.md` about 77k. So records must be reachable individually. That also
+`research/docs/*.md` pages exceeded a 32K context window at 492 records, measured
+2026-09-12: `apps-services.md` was about 96k tokens and `network.md` about 77k. The corpus
+is 505 records across 13 categories since 2026-09-18, so there are fourteen pages now and
+the measurement has only moved the wrong way. So records must be reachable individually. That also
 dissolves the "will a category need splitting in a few years" question: with per-record
 granularity a category is **metadata**, so splitting one is a field edit, never a
 migration.
