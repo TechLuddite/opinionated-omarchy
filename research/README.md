@@ -15,7 +15,7 @@ carries at least one real, fetched source URL, and no two records share a slug.
 | --- | --- | --- |
 | `ok` | 82 | audited and confirmed accurate |
 | `corrected` | 407 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
-| `unaudited` | 0 | audit returned no verdict; the last 4 were audited on 2026-09-06 |
+| `unaudited` | 0 | audit returned no verdict. The last 4 were audited on 2026-09-06 |
 
 So all 489 records have been through an adversarial audit. That audit checked each record
 against its cited sources, which is a weaker claim than it reads as. **159 records have since been
@@ -34,7 +34,7 @@ command that writes nothing here, a kernel parameter written to a file that is r
 setting the distribution already ships, or a diagnostic that reports a fault on a healthy machine.
 A separate 36 records harvested from the upstream issue tracker were audited the same day and all 36
 needed correcting. See "Refreshing the corpus" for the re-audit path. The last
-`gapfill-unaudited` records were audited on 2026-09-01; that status is still a value the
+`gapfill-unaudited` records were audited on 2026-09-01. That status is still a value the
 schema and `merge_gapfill.py` can produce, but no record currently carries it.
 
 This was built in three passes. The first harvested 314 records but hit the account spend
@@ -62,7 +62,7 @@ SQLite fits, but only for one job, so it isn't the source of truth:
 - **`data/problems.jsonl` is authoritative.** One JSON object per line. It diffs
   cleanly in git, appends without rewriting, and stays readable when the tooling
   isn't around. Hand-edit this.
-- **`data/problems.db` is a derived index.** Delete it any time; `build_db.py`
+- **`data/problems.db` is a derived index.** Delete it any time. `build_db.py`
   rebuilds it. SQLite earns its keep because the real access pattern is *"a user
   describes a symptom in their own words → find the matching record"*, which is a
   ranked full-text query. FTS5 + bm25 does that in one statement, and the relational
@@ -119,7 +119,7 @@ phrasing finds a record even when it shares no exact wording. Any FTS5 operators
 the query are quoted into literals rather than parsed.
 
 Colour is emitted only when stdout is a terminal, and suppressed by `NO_COLOR` or
-`TERM=dumb`. Redirecting to a file gives clean text; the `!! RISK` and `!! NOT
+`TERM=dumb`. Redirecting to a file gives clean text. The `!! RISK` and `!! NOT
 INDEPENDENTLY AUDITED` markers are ASCII prefixes, so a warning is never carried by
 colour alone.
 
@@ -155,9 +155,9 @@ up, and corrects ones that are salvageable. Every record carries what it survive
 | `audit_status` | meaning |
 | --- | --- |
 | `ok` | audited and confirmed accurate |
-| `corrected` | problem was real, fix was wrong; the audited version is stored |
+| `corrected` | problem was real, fix was wrong, and the audited version is stored |
 | `unaudited` | the auditor never returned a verdict for it |
-| `gapfill-unaudited` | added in a later gap-fill pass, never audited; none remain, but `merge_gapfill.py` still assigns it when an audit agent dies |
+| `gapfill-unaudited` | added in a later gap-fill pass, never audited. None remain, but `merge_gapfill.py` still assigns it when an audit agent dies |
 
 `unaudited` and `gapfill-unaudited` records are flagged in both `ask.py` output and the
 generated markdown. Treat them as leads, not instructions.
@@ -170,7 +170,7 @@ causes were replaced. The first pass's 130 corrected records were not covered by
 
 **All 130 were reviewed on 2026-08-30, and 22 were found to have a cause its own audit
 note contradicts.** Those 22 have been rewritten from the note (the auditor had already
-done the source work; the first pass simply had nowhere to put the result) and each is
+done the source work, and the first pass simply had nowhere to put the result) and each is
 stamped `cause_reconciled`. The other 108 were left alone: their notes affirm the cause
 ("the diagnosis is right", "cause verified exactly") and object only to the fix. The
 worst offenders were the Omarchy 3 → 4 tree split (`~/.local/share/omarchy` git checkout
@@ -200,7 +200,7 @@ happened. See
 Both `ask.py` and the generated markdown still print the full audit note directly
 beneath the cause. The line that follows it now says which case you are in: cause
 rewritten to match the note, or cause not rewritten and possibly still wrong. Read the
-note before trusting the cause on any corrected record; the fix itself is always the
+note before trusting the cause on any corrected record. The fix itself is always the
 audited version.
 
 This is a research corpus, not a warranty. It is worth reading `danger` and confirming
@@ -237,10 +237,10 @@ most network records). This is **spot-check and bench-source**, not corpus valid
 
 `tools/corpus.py` owns `FIELDS` and the only `read_jsonl` / `write_jsonl`. Both writers
 import it. Before 2026-09-01 each kept a private copy, and `ingest.py`'s was missing
-`cause_reconciled`; the replace path would have dropped that provenance silently.
+`cause_reconciled`, so the replace path would have dropped that provenance silently.
 
 `FIELDS` order is load-bearing: it is the key order of every line in `problems.jsonl`.
-Append, never reorder. An unrecognised key raises rather than being dropped; harvest
+Append, never reorder. An unrecognised key raises rather than being dropped. Harvest
 working notes the corpus deliberately discards (`cause_note`, `cause_extra`,
 `verify_note`) are enumerated in `WORKFLOW_ONLY`. Adding a schema field still means
 editing four things by hand (`schema.sql`, `build_db.py`, `ask.py`, `corpus.py`), but
@@ -364,7 +364,7 @@ python3 tools/merge_gapfill.py raw/gapfill-result.json # after tools/gapfill-wor
 python3 tools/build_db.py
 ```
 
-`ingest.py` replaces the corpus; `merge_gapfill.py` extends it in place and is the one to
+`ingest.py` replaces the corpus. `merge_gapfill.py` extends it in place and is the one to
 use for incremental work.
 
 To re-audit records that already carry `ok` against what Omarchy 4 actually ships, use
@@ -392,7 +392,7 @@ back unnoticed. When a re-audit clears a record, remove it from the baseline in 
 commit.
 
 Pick the workflow by what the records need, not by category. `gapfill-workflow.js`
-**harvests new records** against named gaps; it audits nothing that already exists.
+**harvests new records** against named gaps, and it audits nothing that already exists.
 To audit records already in the corpus, use `tools/audit-existing-workflow.js` and edit
 its `BATCHES`. Pointing `GAP_CATEGORIES` at an unaudited category instead re-harvests the
 same topics as `-2` suffixed duplicates and audits none of the originals. The 28
@@ -404,5 +404,5 @@ stopped. Prefer editing the script to target just the failing categories over re
 
 `raw/deep-research-report.json` is a separate, more heavily verified pass over the same
 territory: 13 findings that each survived 3-vote adversarial verification, plus 12
-refuted claims. The refuted list is worth reading on its own; it is mostly widely
+refuted claims. The refuted list is worth reading on its own. It is mostly widely
 repeated folk fixes that primary sources actually contradict.

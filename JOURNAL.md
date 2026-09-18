@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -252,9 +252,12 @@ running that command.
    value thing left in this thread. The disclosure decision record its own standard requires now
    exists in `work.decisions` at `proposed`, and the `standards.security` amendment is at
    `proposed` too. Ratifying either is the one step that asserts a person has read it.
-7. CLAUDE.md's mechanical writing check excludes `research/README.md` through the
-   `research/[^/]+\.md` pattern meant for the loose wiki pages. That file is a published page
-   and carries dashes and semicolons at lines 18, 37, 65, 80 and 85.
+7. **Done on 2026-09-18.** CLAUDE.md's mechanical writing check excluded
+   `research/README.md` through the `research/[^/]+\.md` pattern meant for the loose wiki
+   pages. The pattern is now `research/[a-z0-9]+\.md`, which keeps the loose pages out and
+   the published page in. The file carried no dashes in prose: the three at lines 80, 85 and
+   86 are inside the layout fence and exempt. It carried 13 semicolons in prose, now
+   rewritten, and the check runs clean over the audited set.
 
 ## Session of 2026-09-14/15: four upstream reports, and the reviews that rewrote three of them
 

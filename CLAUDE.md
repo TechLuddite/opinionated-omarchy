@@ -739,14 +739,19 @@ the audited set:
 
 ```sh
 git ls-files '*.md' NOTICE research/tools/build_site.py \
-  | grep -vE '^(research/(docs|raw|[^/]+\.md)|omarchy/|diagnose-crash/|research/bench/raw/)' \
+  | grep -vE '^(research/(docs|raw|[a-z0-9]+\.md)|omarchy/|diagnose-crash/|research/bench/raw/)' \
   | xargs grep -n "—\|–"
 ```
 
-Every hit it returns as of 2026-09-03 is correct, and they are the only exempt shapes:
-lines inside `CLAUDE.md` code fences, the copyright ranges reproducing Departure Mono's
-OFL notice, and numeric ranges such as `30–45 minutes` and `Runs 31–43`. Anything else
-the command prints is a regression.
+The lowercase alternation is deliberate. It drops the loose Hyprland wiki pages
+(`anim.md`, `binds.md` and the rest) while keeping `research/README.md`, which is a
+published page, inside the check. Widening it back to `[^/]+\.md` excludes that page
+again, which is how it went unchecked until 2026-09-18.
+
+Every hit it returns as of 2026-09-18 is correct, and they are the only exempt shapes:
+code fences in `CLAUDE.md` and `research/README.md`, an inline code span in `JOURNAL.md`,
+the copyright ranges reproducing Departure Mono's OFL notice, and numeric ranges such as
+`30–45 minutes` and `Runs 31–43`. Anything else the command prints is a regression.
 
 ## Conventions
 
