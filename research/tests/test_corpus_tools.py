@@ -103,7 +103,7 @@ class TestFieldsAgreesWithItsConsumers(unittest.TestCase):
                          f"records on disk carry keys corpus.FIELDS does not name: {sorted(missing)}")
 
     def test_field_order_matches_the_corpus_on_disk(self):
-        """Reordering FIELDS rewrites all 489 lines and hides the real diff."""
+        """Reordering FIELDS rewrites all 505 lines and hides the real diff."""
         first = next(iter(corpus.read_jsonl(ROOT / "data" / "problems.jsonl")))
         self.assertEqual(list(first.keys()), corpus.FIELDS)
 
@@ -309,6 +309,23 @@ class TestMergeExtendPath(unittest.TestCase):
         self.assertEqual(got["sources"], ["https://example.invalid/fixture",
                                           "https://example.invalid/new"])
 
+
+    def test_a_corrected_title_is_applied(self):
+        """Added 2026-09-18. Two auditors in the security harvest judged a record's
+        title wrong, one because it said "whole internet" of a port reachable from a
+        routable address, and neither could carry the replacement anywhere but prose."""
+        rec = a_full_record("wrong-title")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "wrong-title", "status": "corrected",
+                                     "confidence": "high", "reason": "title overstated it",
+                                     "corrected_title": "THE REAL TITLE"}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)
+        got = back["wrong-title"]
+        self.assertEqual(got["title"], "THE REAL TITLE")
+        self.assertEqual(got["fix"], rec["fix"])
+        self.assertEqual(got["audit_status"], "corrected")
 
     def test_a_corrected_severity_and_a_removed_source_are_applied(self):
         """Both keys exist because the 2026-09-11 audit hit their absence. One auditor

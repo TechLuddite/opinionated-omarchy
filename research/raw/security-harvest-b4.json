@@ -1,0 +1,43 @@
+{"records": [
+  {"slug": "omarchy-sudo-passwordless-grants-root-to-every-process",
+   "title": "omarchy-sudo-passwordless grants root to everything running as you, not just the tool that asked",
+   "category": "security",
+   "symptom": "Is it safe to run `omarchy-sudo-passwordless` so an AI agent or a one-off script can call sudo without typing a password? Does the grant apply only to that tool, or to anything else running under my account until it expires?",
+   "cause": "`omarchy-sudo-passwordless` writes `/etc/sudoers.d/99-omarchy-nopasswd-<user>` containing `<user> ALL=(ALL) NOPASSWD: ALL` and arms a transient `systemd-run --on-active=<minutes>m` timer to delete that file, 15 minutes by default when no argument is given. A sudoers rule is scoped to the user, not to the process that asked for it, so every process already running as that user, a browser tab, a background daemon, a compromised dependency, can run `sudo` with no password for the whole window. The script's own confirmation prompt says this before you agree: \"This will allow ANY process running as your user to execute ANY command as root WITHOUT a password for N minutes.\" \"Anyone or anything with access to your user account gets full root.\"",
+   "fix": "Treat the window as a full root session for the account, not a scoped grant for one tool. Ask for the fewest minutes the task actually needs rather than accepting the 15-minute default:\n\n```bash\nomarchy-sudo-passwordless 2\n```\n\nDo not start or leave anything else running as that user while the grant is live, and turn it off the moment the task finishes instead of waiting out the timer. Run the command with no argument to remove the sudoers file and stop the timer immediately:\n\n```bash\nomarchy-sudo-passwordless\n```",
+   "verify": "List the expiry timer while the grant is live, it shows when it will fire:\n\n```bash\nsystemctl list-timers 'omarchy-nopasswd-expire-*'\n```\n\nEmpty output means no grant is currently active.",
+   "applies_to": ["omarchy"],
+   "severity": "high",
+   "frequency": "occasional",
+   "danger": "On the installed 4.0.2-1 package, built 2026-08-30 and confirmed byte-identical to upstream commit d2a4cc0c4d60cd3bce866f65643f89f7d2978d5e, a reboot before the timer fires does not clear the grant: the transient systemd-run timer does not survive a reboot, and the script only removes a stale sudoers file the next time you run it yourself. So `/etc/sudoers.d/99-omarchy-nopasswd-<user>` stays in place and every process as that user keeps passwordless root until you invoke the command again or remove the file as root. Upstream fixed this on 2026-08-31 in commit 945af75aa2c0bf5b40a0155500f0774f06db6721, one day after 4.0.2-1 was built. It ships `/etc/tmpfiles.d/omarchy-nopasswd-sudo.conf`, which removes any leftover `99-omarchy-nopasswd-*` file at boot, and it makes the script revoke the grant immediately if the expiry timer cannot be armed. That fix is not in 4.0.2-1, the latest released package as of 2026-09-18.",
+   "sources": [
+     "https://github.com/omacom/omarchy/blob/d2a4cc0c4d60cd3bce866f65643f89f7d2978d5e/bin/omarchy-sudo-passwordless",
+     "https://github.com/omacom/omarchy/blob/945af75aa2c0bf5b40a0155500f0774f06db6721/bin/omarchy-sudo-passwordless",
+     "https://github.com/omacom/omarchy/blob/945af75aa2c0bf5b40a0155500f0774f06db6721/etc/tmpfiles.d/omarchy-nopasswd-sudo.conf"
+   ],
+   "checked_against": "4.0.2-1 2026-09-18"
+  },
+  {"slug": "polkit-rule-wrong-permissions-silently-ignored",
+   "title": "A polkit rule with the wrong permissions is ignored, and polkit.service still reports healthy",
+   "category": "security",
+   "symptom": "A custom rule dropped into `/etc/polkit-1/rules.d/` does not change any authentication prompt. `systemctl status polkit` shows the service active the whole time, with nothing to say why the rule had no effect.",
+   "cause": "`polkitd`'s script loader lists every `*.rules` file in each rules directory and tries to read each one. When a file cannot be opened, most commonly because it was created with a umask that leaves it unreadable by the unprivileged `polkitd` account, the loader logs \"Error loading script <file>\" and moves on to the next file rather than stopping (`load_scripts` and `execute_script_with_runaway_killer` in `polkitbackendduktapeauthority.c`). That message is logged at error priority, so it does reach the journal, but nothing fails the systemd unit over it, and the same function never logs which files loaded successfully unless the daemon's log level is raised. The Arch package ships `polkit.service` with `ExecStart=... polkitd --no-debug --log-level=notice`, upstream's own default in `data/polkit.service.in`, which is strict enough to hide the informational summary of how many rules loaded but not strict enough to hide the per-file error. The Arch wiki's own polkit page states the requirement this trips: \"Rules must have root:polkitd ownership.\" A file written by `sudo` under a umask such as 077 ends up `root:root` mode 600, which polkitd cannot read no matter what the rule itself says. Upstream's own issue tracker carries this exact framing, still open: \"even when no rules are loaded (permission denied), polkit.service succeeds in journal.\"",
+   "fix": "Give the rule file group `polkitd` and group read, or make it world readable, then confirm the daemon actually opened it. Set the permissions explicitly rather than relying on whatever umask was active when the file was created:\n\n```bash\nsudo chown root:polkitd /etc/polkit-1/rules.d/<name>.rules\nsudo chmod 640 /etc/polkit-1/rules.d/<name>.rules\n```\n\nReload polkit so it re-reads the directory:\n\n```bash\nsudo systemctl reload polkit\n```",
+   "verify": "Check the file's actual mode and owner rather than trusting how it was created:\n\n```bash\nsudo stat -c '%a %U:%G' /etc/polkit-1/rules.d/<name>.rules\n```\n\nThen confirm the daemon did not log a load failure for it, since the service itself will report active either way:\n\n```bash\njournalctl -u polkit -p err -b | grep 'Error loading script'\n```\n\nNo line naming the file means it was at least readable when polkit last loaded rules.",
+   "applies_to": ["omarchy"],
+   "severity": "medium",
+   "frequency": "occasional",
+   "danger": "`systemctl status polkit` reports the unit healthy whether or not any given rule file actually loaded. The loader skips a script it cannot open and continues rather than failing the unit, confirmed by reading `load_scripts()` in `polkitbackendduktapeauthority.c` at the tag matching the installed `polkit 127-3` package. A permission mistake in one rule file does not surface as a service problem, only as a rule that quietly does not apply, so checking that polkit is running tells you nothing about whether your rule is in effect.",
+   "sources": [
+     "https://github.com/polkit-org/polkit/blob/9e4894c969eecf26a3ba762f4f7a268aa0fb3e51/src/polkitbackend/polkitbackendduktapeauthority.c",
+     "https://github.com/polkit-org/polkit/blob/9e4894c969eecf26a3ba762f4f7a268aa0fb3e51/src/polkitbackend/polkitbackendauthority.c",
+     "https://github.com/polkit-org/polkit/blob/9e4894c969eecf26a3ba762f4f7a268aa0fb3e51/data/polkit.service.in",
+     "https://github.com/polkit-org/polkit/issues/178",
+     "https://wiki.archlinux.org/title/Polkit"
+   ],
+   "checked_against": "4.0.2-1 2026-09-18"
+  }
+],
+ "existing": [],
+ "skipped": []
+}

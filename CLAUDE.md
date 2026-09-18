@@ -14,7 +14,7 @@ is DHH's opinionated Arch + Hyprland distro. Two things live here:
    upstream's MIT licence, whose notice is reproduced inside each directory; see
    [NOTICE](NOTICE). Keep `omarchy/SKILL.md` byte-identical: the +29.3 pt baseline was
    measured against that exact content.
-2. **A troubleshooting corpus** in [research/](research/): 489 real Omarchy/Arch
+2. **A troubleshooting corpus** in [research/](research/): 505 real Omarchy/Arch
    desktop+laptop problems with verified, copy-pasteable fixes, searchable by symptom.
 
 This **is** a **public** git repository: `TechLuddite/opinionated-omarchy`, published at
@@ -541,7 +541,7 @@ There is now one definition, in **[research/tools/corpus.py](research/tools/corp
 and `ingest.py` and `merge_gapfill.py` both import it. Read that file before touching
 either. Three rules it enforces:
 
-- **`FIELDS` order is load-bearing.** It is the key order of all 489 lines on disk.
+- **`FIELDS` order is load-bearing.** It is the key order of all 505 lines on disk.
   Append; never reorder, or the next merge becomes a whole-corpus diff that hides the
   records actually touched.
 - **`read_jsonl` / `write_jsonl` are the only ways in and out.** They pin `newline="\n"`

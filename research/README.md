@@ -8,16 +8,16 @@ The goal is practical coverage, not a headcount. A record only earns its place i
 
 ## What's in here now
 
-**489 problems across 12 categories**, drawn from 1,507 distinct sources. Every record
+**505 problems across 13 categories**, drawn from 1,633 distinct sources. Every record
 carries at least one real, fetched source URL, and no two records share a slug.
 
 | audit status | count | meaning |
 | --- | --- | --- |
 | `ok` | 82 | audited and confirmed accurate |
-| `corrected` | 407 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
+| `corrected` | 423 | problem real, fix (and sometimes cause, symptom or danger) rewritten by the audit |
 | `unaudited` | 0 | audit returned no verdict. The last 4 were audited on 2026-09-06 |
 
-So all 489 records have been through an adversarial audit. That audit checked each record
+So all 505 records have been through an adversarial audit. That audit checked each record
 against its cited sources, which is a weaker claim than it reads as. **159 records have since been
 checked against what Omarchy 4 actually ships, and 157 of them needed correcting**: 10
 `boot-kernel` and 22 `pacman-aur` on 2026-09-06 and 2026-09-07, then 14 `gpu-drivers`, 23

@@ -10,5 +10,6 @@
   "power-suspend": "Power, suspend & thermal",
   "audio-input": "Audio & input devices",
   "network": "Networking",
-  "apps-services": "Apps, containers & services"
+  "apps-services": "Apps, containers & services",
+  "security": "Security and disclosure"
 }

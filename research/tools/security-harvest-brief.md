@@ -65,7 +65,7 @@ machine that will not boot is `boot-kernel`.
 
 ## Check the existing corpus first, and expect hits
 
-489 records already exist and several carry security content, sometimes in a `danger` field
+505 records already exist and several carry security content, sometimes in a `danger` field
 rather than as their own record. **A slug collision is suffixed `-2` on merge rather than
 refused**, so a duplicate you miss will land silently.
 

@@ -11,7 +11,7 @@ Does two things:
 Unlike the first harvest, this honours `corrected_cause`: where the auditor
 disproved the cause as well as the fix, the cause is replaced rather than left
 standing. Records whose cause was NOT corrected keep the audit note so a reader
-can still see what was disputed. `corrected_symptom`, `corrected_danger` and `corrected_verify`
+can still see what was disputed. `corrected_symptom`, `corrected_danger`, `corrected_verify` and `corrected_title`
 are honoured the same way, as are `corrected_severity` and `corrected_frequency`, and any
 `sources` on a verdict are appended to the record while any `sources_remove` are dropped
 from it. A verdict may also set `checked_against`: unlike the `corrected_*` keys, this
@@ -76,7 +76,11 @@ def apply_verdict(rec, v, stats):
         # symptom and a danger, neither of which the first two verdict shapes
         # could carry, and the boot-kernel re-audit needed verify too. Same rule as fix:
         # replace wholesale, never patch.
-        for field in ("symptom", "danger", "verify"):
+        # `title` joined them on 2026-09-18, when two auditors in the security harvest
+        # judged a title wrong, had nowhere to put the replacement, and wrote it into
+        # their prose for somebody to apply by hand. That is the third time this gap
+        # has been found the same way, after `corrected_severity` and `checked_against`.
+        for field in ("symptom", "danger", "verify", "title"):
             if v.get(f"corrected_{field}"):
                 rec[field] = v[f"corrected_{field}"]
                 stats[f"{field}-corrected"] += 1

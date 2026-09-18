@@ -1,0 +1,50 @@
+{
+  "records": [
+    {
+      "slug": "omarchy-debug-exposes-lan-macs-and-ips",
+      "title": "omarchy-debug bundles unredacted LAN MAC and IP addresses, and the bug template asks you to attach it",
+      "category": "security",
+      "symptom": "You are about to attach the log from omarchy-debug to a bug report, because the issue template asks you to \"attach the output of omarchy-debug if possible,\" and you want to know what is actually in it before pasting it somewhere public.",
+      "cause": "bin/omarchy-debug writes dmesg and journalctl -b -p 4..1 into the log with no filtering. ufw's shipped default is LOGLEVEL=low (/etc/ufw/ufw.conf), so every blocked packet is logged by the kernel as a [UFW BLOCK] line carrying the source and destination MAC and IP addresses of devices on the local network, and the journal reproduces the same lines because ufw logs at kernel warning level. On a laptop that has associated to Wi-Fi that boot, the kernel's own association messages in the same log carry the access point's BSSID, which public wardriving databases can resolve to a physical location. The inxi -Farz call in the same script is filtered (-z masks IP addresses, serial numbers and MAC addresses in its own section), so the inconsistency is that the smallest section of the log is redacted and the two largest, dmesg and the journal, are not.",
+      "fix": "There is no flag that redacts the kernel and journal sections. --no-sudo skips dmesg entirely but leaves the journal untouched and also discards genuinely useful kernel output, and the bug template does not mention that flag. Before attaching a debug log anywhere public, generate it and check how much of it is packet-log noise first:\n\n```bash\nomarchy-debug --print > /tmp/omarchy-debug-review.log\ngrep -c '\\[UFW BLOCK\\]' /tmp/omarchy-debug-review.log\n```\n\nThen drop those lines and mask the MAC addresses that remain, scoped narrowly enough to leave version strings such as inxi 3.3.41.1 alone:\n\n```bash\nsed -i '/\\[UFW BLOCK\\]/d' /tmp/omarchy-debug-review.log\nsed -i -E 's/([0-9a-f]{2}:){5}[0-9a-f]{2}/<mac>/g' /tmp/omarchy-debug-review.log\n```\n\nAn upstream change that does this automatically for both sections is proposed in PR #10257 and is not yet merged.",
+      "verify": "Confirm the reviewed copy no longer carries MAC-shaped strings or firewall log lines before you attach it:\n\n```bash\ngrep -Ec '([0-9a-f]{2}:){5}[0-9a-f]{2}' /tmp/omarchy-debug-review.log\ngrep -c '\\[UFW BLOCK\\]' /tmp/omarchy-debug-review.log\n```\n\nBoth should read 0.",
+      "applies_to": [
+        "omarchy"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "Do not mask every dotted-quad string in the log as a shortcut. A broad IP regex also corrupts unrelated version numbers that share the same shape, such as inxi's own version and installed package versions, once the [UFW BLOCK] lines are already removed. Match only the MAC-shaped strings and the firewall log lines, not every number that looks like an address.",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/10255",
+        "https://github.com/omacom/omarchy/pull/10257",
+        "https://github.com/omacom/omarchy/blob/9174fbf8515f4c057c91071ec39af731602adb92/bin/omarchy-debug",
+        "https://github.com/omacom/omarchy/blob/14f803857cf9965fac0cb480b8dad345c7f0065c/.github/ISSUE_TEMPLATE/bug.yml"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    },
+    {
+      "slug": "omarchy-default-keyring-corrupted-by-multiline-secret",
+      "title": "A multi-line Secret Service value destroys Omarchy's passwordless default keyring, and autologin can never unlock what replaces it",
+      "category": "security",
+      "symptom": "After autologin, an \"Authentication required, An application wants access to the keyring Default Keyring, but it is locked\" prompt starts appearing on every boot, for no configuration change you made. Chrome, Chromium, VS Code, Slack, gh, or other Secret Service clients may also stop finding credentials they had before.",
+      "cause": "Omarchy's default keyring is cleartext by design: install/user/default-keyring.sh writes ~/.local/share/keyrings/Default_keyring.keyring with no password, and install/login/sddm.sh strips pam_gnome_keyring from /etc/pam.d/sddm, because autologin never gives PAM a password with which to unlock a protected keyring. The cleartext format is line-based INI, and gnome-keyring writes each secret as a single secret= line without escaping embedded newlines. A Secret Service client that stores a value containing a raw newline, confirmed for Ente Auth's flutter_secure_storage_linux backend and separately for Proton VPN's SSO session item, which embeds PEM certificates, writes a file the daemon still serves from memory for the rest of that session but rejects whole on the next start with \"keyring was in an invalid or unrecognized format.\" Rejection discards every other secret in the same file, not only the one that broke it. The next Secret Service request then triggers gnome-keyring's create-a-keyring prompt, and the keyring it creates is password-protected, which autologin can never unlock, so the locked-keyring prompt recurs on every following boot.",
+      "fix": "There is no shipped repair step for a corrupted default keyring as of 4.0.2-1. A fix that backs up and rewrites a broken keyring before session apps use it is proposed upstream in PR #11697 and is not yet merged. Until it ships, keep a known-good copy of the cleartext keyring so a corruption is recoverable rather than a total loss:\n\n```bash\ncp -a ~/.local/share/keyrings/Default_keyring.keyring ~/.local/share/keyrings/Default_keyring.keyring.bak\n```\n\nFor an application you know writes a multi-line value and that supports choosing its own credential backend, keep it out of gnome-keyring entirely. Proton VPN documents this override:\n\n```bash\necho 'PROTON_LOADER_OVERRIDES=keyring=json' >> ~/.config/environment.d/proton-vpn.conf\n```\n\nNot every application exposes an equivalent switch, so this closes the hole only for the ones that do.",
+      "verify": "Confirm the backup is in place and current:\n\n```bash\ndiff -q ~/.local/share/keyrings/Default_keyring.keyring ~/.local/share/keyrings/Default_keyring.keyring.bak\n```\n\nNo output means the two are identical. For an application given its own override, confirm the variable reaches the session before trusting it:\n\n```bash\nsystemctl --user show-environment | grep PROTON_LOADER_OVERRIDES\n```",
+      "applies_to": [
+        "omarchy"
+      ],
+      "severity": "medium",
+      "frequency": "occasional",
+      "danger": "Do not delete ~/.local/share/keyrings/ to clear the prompt. Every secret it holds, including ones unrelated to whatever broke the file, is gone with it and unrecoverable. Typing a password into the unlock dialog to make the prompt go away does not fix anything either: it accepts the password-protected replacement keyring, which is the state autologin can never open again, so the prompt returns on every following boot.",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/11159",
+        "https://github.com/omacom/omarchy/pull/11697",
+        "https://github.com/omacom/omarchy/blob/75cb4f7195cfc064d05cd30623b3254c9541ba3c/install/user/default-keyring.sh",
+        "https://github.com/omacom/omarchy/blob/75cb4f7195cfc064d05cd30623b3254c9541ba3c/install/login/sddm.sh"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    }
+  ],
+  "existing": [],
+  "skipped": []
+}

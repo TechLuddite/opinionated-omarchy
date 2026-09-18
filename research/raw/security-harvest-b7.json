@@ -1,0 +1,63 @@
+{
+  "records": [
+    {
+      "slug": "ssh-host-key-warning-after-algorithm-order-change",
+      "title": "Tell a real changed SSH host key from an algorithm order false alarm",
+      "category": "security",
+      "symptom": "ssh refuses a server you connect to all the time with `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`, right after an OpenSSH update, a fresh set of dotfiles, or a new `~/.ssh/config`, and nothing else about the server changed. Is this an attack, or did the update just change which key ssh checks.",
+      "cause": "OpenSSH decides which host key type to check for a given host from `HostKeyAlgorithms`, an ordered list. `man 5 ssh_config` says that once a host already has a key recorded, the default order is adjusted to check that recorded algorithm first, so upgrading the client should not by itself change which key gets checked for a server you have connected to before. Two things can defeat that adjustment. An explicit `HostKeyAlgorithms` line, your own or one shipped by a distro, fixes the order for every host it applies to instead of letting the client follow what is already recorded. And `UpdateHostKeys`, which OpenSSH release 8.8 turned on by default so a client migrates to a server's stronger key type on its own, only runs under conditions `man 5 ssh_config` lists: the connection has to use `UserKnownHostsFile` rather than `GlobalKnownHostsFile`, authenticate with a plain key rather than a certificate, and succeed. A host reached only through a certificate, or through a non-default known hosts file, keeps whatever single entry it started with. When either case fires, a `known_hosts` entry that was never refreshed for the algorithm the client now prefers looks exactly like an attacker's key: there is no local way to tell a stale entry from an intercepted connection from the warning's first line alone. OpenSSH's own client source names both possibilities in the same warning, right next to the man-in-the-middle line: \"It is also possible that a host key has just been changed.\" The same warning names the one algorithm and `known_hosts` line the mismatch was found against (\"Offending %s key in %s:%lu\") and prints the fingerprint of the key actually offered, which is the detail that lets the two cases be told apart rather than only the fact that something differs.",
+      "fix": "Do not silence the warning with `StrictHostKeyChecking no` or a habitual `ssh-keygen -R`. Work out which of the two causes above applies before touching `known_hosts`.\n\n1. Read the exact algorithm and line the warning names instead of skimming past it, for example:\n\n```\nOffending ed25519 key in /home/you/.ssh/known_hosts:41\n```\n\n2. Check, without connecting, whether your effective configuration recently started preferring a different algorithm for this host:\n\n```bash\nssh -G <host> | grep '^hostkeyalgorithms'\ngrep -rn HostKeyAlgorithms /etc/ssh/ssh_config /etc/ssh/ssh_config.d/*.conf ~/.ssh/config 2>/dev/null\n```\n\n3. Check, again without connecting, what `known_hosts` already holds for this host:\n\n```bash\nssh-keygen -F <host> -f ~/.ssh/known_hosts\n```\n\nIf that lists more than one algorithm for the host and only the one the warning names fails to match, the entry for the newly preferred algorithm was never refreshed, consistent with the ordering change described above rather than with an attack. If it lists only one algorithm and that is the one failing, there is no second entry to cross-check and the change needs outside confirmation regardless.\n\n4. Confirm the offered key through a channel that is not this ssh connection (the host's own console, a configuration management record, the administrator directly), against the fingerprint the warning already prints. Only once that matches, remove the one offending line and nothing else:\n\n```bash\nssh-keygen -R <host>\n```\n\n`ssh-keygen -R` already scopes to the one hostname argument given to it. Do not wrap it in a script that runs it across a subnet or on every warning without doing step 4 first, and do not add `StrictHostKeyChecking no` to a `Host` block to make future warnings stop appearing. That removes the check for that host permanently rather than resolving this one instance.",
+      "verify": "`grep -rn StrictHostKeyChecking ~/.ssh/config /etc/ssh/ssh_config.d/*.conf 2>/dev/null` names no override wider than the one host being fixed, and `ssh-keygen -F <host> -f ~/.ssh/known_hosts` shows exactly one current entry for the host, under the algorithm `ssh -G <host> | grep '^hostkeyalgorithms'` reports first.",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "endeavouros",
+        "cachyos",
+        "manjaro",
+        "laptop",
+        "desktop"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "Setting `StrictHostKeyChecking no`, `UserKnownHostsFile=/dev/null`, or removing a key without confirming it out of band all have the same effect: ssh accepts whatever key is offered for that host from then on with no warning, which is exactly the check this message exists to make. A wildcard `Host` pattern, `Host *` or a whole subnet the way the Arch wiki's own private-network example writes it, turns a fix meant for one server into no host key checking for many.",
+      "sources": [
+        "https://man.openbsd.org/ssh_config.5",
+        "https://www.openssh.com/txt/release-8.8",
+        "https://wiki.archlinux.org/title/OpenSSH",
+        "https://github.com/openssh/openssh-portable/blob/bc41d062cc0f305e49d58430b467c3ce8c822a87/sshconnect.c"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    },
+    {
+      "slug": "ssh-legacy-kex-or-rsa-refused-after-upgrade",
+      "title": "Re-enable a legacy SSH key exchange or ssh-rsa for one host, not every connection",
+      "category": "security",
+      "symptom": "ssh refuses a server it used to reach, with `Unable to negotiate with <host>: no matching key exchange method found` or `no matching host key type found`, right after an OpenSSH update. The advice that turns up online is to drop a `PubkeyAcceptedAlgorithms`, `HostKeyAlgorithms` or `KexAlgorithms` line into `/etc/ssh/ssh_config` so it stops happening again.",
+      "cause": "OpenSSH has removed or turned off several algorithms from its default proposal across a series of releases, each change documented in that release's own notes: release 7.0 (2015) disabled the 1024-bit `diffie-hellman-group1-sha1` key exchange and `ssh-dss` host keys by default, release 8.2 (2020) removed `diffie-hellman-group14-sha1` from the default key exchange proposal and dropped `ssh-rsa` from the accepted certificate signature algorithms, and release 8.8 (2021) disabled the plain `ssh-rsa` public key signature for both host and user authentication by default. None of these were deleted from what the binary can still do. On this machine, openssh 10.5p1-1, `ssh -Q kex` and `ssh -Q key` still list `diffie-hellman-group1-sha1`, `diffie-hellman-group14-sha1` and `ssh-rsa`. They are excluded only from what the client offers or accepts without being asked. A server that has not been reconfigured or upgraded since one of those releases, common on older network gear and appliances, ends up with no algorithm in common with a current client, and the client's own error message says so directly, naming what the server proposed: `Unable to negotiate with <host>: <reason>. Their offer: <list>`.",
+      "fix": "Re-enable the one algorithm the old server needs, for that one server, in `~/.ssh/config`, using the `+` syntax OpenSSH documents for exactly this purpose: appending to the default set rather than replacing it. This is the same shape OpenSSH's own release 8.8 notes give as the recommended stopgap:\n\n```\n# ~/.ssh/config\nHost old-host\n    HostKeyAlgorithms +ssh-rsa\n    PubkeyAcceptedAlgorithms +ssh-rsa\n```\n\nFor a key exchange failure, append the specific algorithm the server offered instead, read from the client's own error message rather than guessed:\n\n```\n# ~/.ssh/config\nHost old-host\n    KexAlgorithms +diffie-hellman-group14-sha1\n```\n\nPut this under a `Host` block naming the one server, placed before any wider `Host *` block. `man 5 ssh_config` says the file is read in order and the first value given for a directive wins, so a narrow block has to come first to take effect. Never write a `+`-less, replacing `HostKeyAlgorithms`, `PubkeyAcceptedAlgorithms` or `KexAlgorithms` line, and never place any of the three under `Host *` or directly in `/etc/ssh/ssh_config` with no `Host` restriction. Either mistake re-enables the weak algorithm for every host the machine ever connects to, not only the one that still needs it. Treat the re-enabled line as temporary: OpenSSH's own notes recommend it only until the remote side can be upgraded or reconfigured with a current key type.",
+      "verify": "`ssh -G old-host | grep -i 'hostkeyalgorithms\\|kexalgorithms\\|pubkeyacceptedalgorithms'` lists the legacy algorithm in the output for that one host, and the same command run against an unrelated host on the same machine does not list it, confirming the change stayed inside the `Host old-host` block instead of reaching `Host *`.",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "endeavouros",
+        "cachyos",
+        "manjaro",
+        "laptop",
+        "desktop"
+      ],
+      "severity": "high",
+      "frequency": "common",
+      "danger": "A `HostKeyAlgorithms`, `PubkeyAcceptedAlgorithms` or `KexAlgorithms` line placed under `Host *`, or written without the leading `+` so it replaces the default list rather than extending it, weakens every SSH connection the machine makes, not only the one that needed it. `ssh-rsa` signs with SHA-1, which OpenSSH's own release 8.2 and 8.8 notes say can be forged with a chosen-prefix collision for under $50,000, and that is the stated reason OpenSSH stopped offering it by default. `diffie-hellman-group1-sha1` and `diffie-hellman-group14-sha1` were removed from the default key exchange proposal in those same two releases and carry the same SHA-1 hash in their own name.",
+      "sources": [
+        "https://man.openbsd.org/ssh_config.5",
+        "https://www.openssh.com/txt/release-7.0",
+        "https://www.openssh.com/txt/release-8.2",
+        "https://www.openssh.com/txt/release-8.8",
+        "https://github.com/openssh/openssh-portable/blob/bc41d062cc0f305e49d58430b467c3ce8c822a87/packet.c"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    }
+  ],
+  "existing": [],
+  "skipped": []
+}

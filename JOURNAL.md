@@ -12,7 +12,7 @@ Last updated: 2026-09-18
 >
 > **What "back on track" means, in the order the dependencies run:**
 >
-> 1. **Expand the corpus.** 489 records across 12 categories: one interrupted harvest, one
+> 1. **Expand the corpus.** 505 records across 13 categories: one interrupted harvest, one
 >    gap-fill pass, and the O4 issue-tracker harvest merged on 2026-09-11. `CLAUDE.md` "Regenerating the corpus"
 >    names the three workflow scripts, what each does, and that `harvest-workflow.js`
 >    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
