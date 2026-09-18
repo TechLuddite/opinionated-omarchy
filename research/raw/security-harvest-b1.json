@@ -1,0 +1,54 @@
+{
+  "records": [
+    {
+      "slug": "localsend-firewall-rule-open-to-anywhere-ipv6",
+      "title": "LocalSend's firewall rule on Omarchy opens port 53317 to the whole internet, not just the LAN",
+      "category": "security",
+      "symptom": "is it safe that LocalSend opens port 53317 on my firewall. `sudo ufw status verbose` lists 53317/tcp and 53317/udp allowed from Anywhere, including the (v6) rows, on a fresh install and on one where LocalSend has never been opened.",
+      "cause": "`install/config/firewall.sh`, run during installation, adds one rule per protocol with no `from` clause:\n\n```bash\nufw allow 53317/udp\nufw allow 53317/tcp\n```\n\nA bare `ufw allow` with no `from` clause matches Anywhere on both IPv4 and IPv6. LocalSend ships in `omarchy-base.packages`, so the rule lands on every stock install whether or not LocalSend is ever launched. Many home ISPs and mobile carriers hand a machine a globally routable IPv6 address directly, with no NAT boundary the way IPv4 usually has one, so the rule reaches the public internet rather than only the LAN a file sharing tool like this is meant for. On a shared network such as a hotel, conference, or coworking Wi-Fi, the same rule reaches every other guest on that segment too, because a private (RFC1918) range is not the same thing as a trusted one.",
+      "fix": "Replace the blanket rule with one scoped to private address ranges, then delete the wide open original:\n\n```bash\nsudo ufw delete allow 53317/udp\nsudo ufw delete allow 53317/tcp\nfor net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do\n  sudo ufw allow from \"$net\" to any port 53317 proto tcp\n  sudo ufw allow from \"$net\" to any port 53317 proto udp\ndone\n```\n\nThis closes the globally routable IPv6 case, the more serious one, because a public IPv6 address is not in any of those ranges. It does not make a shared private network trustworthy. On a hotel, conference, or coworking network, delete the scoped rules too before opening LocalSend, and re-add them only while actually transferring a file:\n\n```bash\nfor net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do\n  sudo ufw delete allow from \"$net\" to any port 53317 proto tcp\n  sudo ufw delete allow from \"$net\" to any port 53317 proto udp\ndone\n```",
+      "verify": "`sudo ufw status verbose` lists 53317/tcp and 53317/udp, and their (v6) rows, ALLOW IN from the three private ranges rather than from Anywhere, and lists no rule for 53317 at all once you have closed it for an untrusted network.",
+      "applies_to": [
+        "omarchy",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "high",
+      "frequency": "very-common",
+      "danger": "",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/11560",
+        "https://github.com/omacom/omarchy/blob/d174d4aa279ea7393d4fad4a80fed147866106b9/install/config/firewall.sh",
+        "https://github.com/omacom/omarchy/blob/d174d4aa279ea7393d4fad4a80fed147866106b9/install/omarchy-base.packages"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    },
+    {
+      "slug": "omarchy-remove-security-sshd-edits-root-authorized-keys",
+      "title": "omarchy-remove-security-sshd under sudo or pkexec checks root's authorized_keys, not yours",
+      "category": "security",
+      "symptom": "I ran omarchy-remove-security-sshd, or an agent ran it for me, to pull my SSH access. sshd stopped and the firewall port closed, but did it actually clear my authorized_keys?",
+      "cause": "`bin/omarchy-remove-security-sshd` resolves the keys file with no derivation of the invoking user:\n\n```bash\nAUTHORIZED_KEYS=\"$HOME/.ssh/authorized_keys\"\n```\n\nThe sibling privileged command `omarchy-apply-lock` derives the real target user first (`OMARCHY_INSTALL_USER`, then `SUDO_USER`, then a lookup on `PKEXEC_UID`) before it touches a path under that user's home. `omarchy-remove-security-sshd` does not. The script's own header carries `omarchy:requires-sudo=true`, and `default/agents/skills/omarchy/SKILL.md` tells a caller with no visible terminal, such as an agent, to run a command like this under `pkexec` rather than `sudo`. Under either `sudo` or `pkexec`, `$HOME` is `/root` for the whole script, so the removal prompt inspects root's `authorized_keys` instead of the invoking user's. Root usually has none, so `[[ -s $AUTHORIZED_KEYS ]]` is false, the removal prompt is silently skipped, and the invoking user's real key is never touched. sshd is genuinely stopped and the firewall port genuinely closed in that moment, so the run looks like it worked, but the key stays valid in the user's own `~/.ssh/authorized_keys` and is live again the moment sshd is re-enabled.\n\nThe omarchy menu itself does not trigger this: `default/omarchy/omarchy-menu.jsonc` launches the plain command with no `sudo` or `pkexec` wrapper, `omarchy-launch-floating-terminal-with-presentation omarchy-remove-security-sshd`, so `$HOME` is the invoking user's own home there. The gap is in any other invocation that wraps the whole command in an elevated shell, `sudo omarchy-remove-security-sshd` typed at a terminal, or `pkexec omarchy-remove-security-sshd` run by an agent or a script.",
+      "fix": "Invoke the command the way the omarchy menu does, plain and unwrapped, so `$HOME` stays yours. The `systemctl` and `ufw` calls inside it still prompt for a password on their own:\n\n```bash\nomarchy-remove-security-sshd\n```\n\nWhichever way it was run, confirm your own file afterward rather than trusting the prompt:\n\n```bash\ncat ~/.ssh/authorized_keys\n```\n\nIf a key you meant to revoke is still listed, remove that line by hand:\n\n```bash\nsed -i '/AAAAyour-key-comment/d' ~/.ssh/authorized_keys\n```\n\nor clear the file entirely if you keep no other keys in it:\n\n```bash\n: > ~/.ssh/authorized_keys\n```",
+      "verify": "`cat ~/.ssh/authorized_keys` no longer lists the key you meant to revoke, and `systemctl is-enabled sshd` reports disabled or fails.",
+      "applies_to": [
+        "omarchy",
+        "desktop",
+        "laptop"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "Running the command under sudo or pkexec still stops sshd and closes the firewall port, so the session looks successful. The key left behind is the one piece the run was supposed to remove, and it becomes reachable again the moment sshd is re-enabled, for example by a later omarchy-setup-security-sshd. Do not treat a clean run of omarchy-remove-security-sshd as proof that one specific key is gone. Check ~/.ssh/authorized_keys directly.",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/9572",
+        "https://github.com/omacom/omarchy/blob/d174d4aa279ea7393d4fad4a80fed147866106b9/bin/omarchy-remove-security-sshd",
+        "https://github.com/omacom/omarchy/blob/d174d4aa279ea7393d4fad4a80fed147866106b9/bin/omarchy-apply-lock",
+        "https://github.com/omacom/omarchy/blob/d174d4aa279ea7393d4fad4a80fed147866106b9/default/agents/skills/omarchy/SKILL.md",
+        "https://github.com/omacom/omarchy/blob/d174d4aa279ea7393d4fad4a80fed147866106b9/default/omarchy/omarchy-menu.jsonc"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    }
+  ],
+  "existing": [],
+  "skipped": []
+}

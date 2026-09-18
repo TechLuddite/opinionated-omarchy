@@ -1,0 +1,84 @@
+{
+  "records": [
+    {
+      "slug": "secure-boot-violation-after-limine-only-update",
+      "title": "Secure Boot Violation after a Limine-only update, with Secure Boot enforced",
+      "category": "security",
+      "symptom": "On a machine with Secure Boot enforced and enrolled with sbctl custom keys, a routine `omarchy update` or any update that touches only the `limine` or `limine-mkinitcpio-hook` package (no kernel bump in the same transaction) leaves the machine unable to boot. The firmware reports a Secure Boot Violation before LUKS, Plymouth, or anything else in the boot chain runs. Booted from another medium, `sudo sbctl verify` shows `/boot/EFI/limine/limine_x64.efi` as not signed.",
+      "cause": "Every update that touches Limine deploys and signs `limine_x64.efi` through `limine-install`, whose signing step (`sb_sign()` in `limine-common-functions`, part of the `limine-mkinitcpio-hook` package, confirmed identical on this workstation at 1.37.1-1 and in the packaged version's own upstream source) calls `sbctl sign \"$file_path\"` with no `-s`/`--save` flag. The file gets signed but is never registered in sbctl's own tracked-file database.\n\nImmediately afterward, `/etc/pacman.d/hooks/99-omarchy-limine.hook`, a hook the Omarchy ISO installer drops in at install time and that no package owns (confirmed present on this workstation and confirmed still written by the current installer's `_write_limine_pacman_hook`), unconditionally overwrites the just-signed file with the raw, unsigned stock binary from the package:\n\n```\nExec = /bin/sh -c \"/usr/bin/cp /usr/share/limine/BOOTX64.EFI /boot/EFI/limine/limine_x64.efi\"\n```\n\nsbctl's own safety net, its packaged pacman hook, then runs `sbctl sign-all -g` on every update that touches anything under `boot/*`, `efi/*`, or a kernel module path. But `sign-all` only iterates files already recorded in sbctl's tracked-file database (confirmed by reading sbctl's own `SignAll()` source). Because the file was never registered with `--save` in the first step, `sign-all` has nothing to re-sign for it, whether or not its own hook actually fires. Separately, and independent of the missing `--save`, that hook's own `Target` globs are lowercase and case-sensitive (`usr/share/**/*.efi*`) against a file the `limine` package ships with an uppercase extension, `usr/share/limine/BOOTX64.EFI`, so on a Limine-only transaction with no kernel bump the hook would not even be triggered.\n\nReported publicly as omacom/omarchy#10945 on Omarchy 4.0.0.alpha with sbctl 0.18-2, and reproduced by a second reporter across an Omarchy 4.0.2 to 4.0.3 update that also bumped the kernel, showing the failure is not limited to Limine-only transactions. Open as of 2026-09-18.",
+      "fix": "After any update that touches `limine` or `limine-mkinitcpio-hook`, check the signature before rebooting rather than trusting the update to have handled it:\n\n```sh\nsudo sbctl verify\n```\n\nIf `/boot/EFI/limine/limine_x64.efi` is listed as not signed, re-sign it and, this time, register it in sbctl's own file database so future updates are covered automatically:\n\n```sh\nsudo sbctl sign -s /boot/EFI/limine/limine_x64.efi\nsudo sbctl verify\n```\n\nThe `-s` (`--save`) flag is exactly what the Omarchy-packaged signing path omits. Adding it yourself is what lets `sbctl sign-all` pick the file up automatically on a future update, until the packaged hooks are fixed upstream. Repeat the check after every subsequent Limine-touching update until then, since the underlying `cp` overwrite happens again on each one.",
+      "verify": "`sudo sbctl verify` reports every file signed, in particular `/boot/EFI/limine/limine_x64.efi`, and the machine reboots with Secure Boot enforced and no violation.",
+      "applies_to": [
+        "omarchy",
+        "limine",
+        "secure-boot",
+        "uefi"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "Do not respond to a Secure Boot Violation lockout by disabling Secure Boot in firmware setup and leaving it off. On at least one reported board, clearing Secure Boot to get back in also cleared the enrolled custom keys, so restoring enforcement meant a full `sbctl create-keys` and `sbctl enroll-keys -m` re-enrollment, a bigger job than the original problem, with no pre-boot integrity check at all in the meantime. Re-sign the file from a live or rescue Linux instead of turning the boundary off. If you do re-enroll keys, keep `-m` (the Microsoft certificates): sbctl's own documentation warns that some firmware validates signed option ROMs under Secure Boot, and enrolling only custom keys can leave hardware unable to initialize.",
+      "sources": [
+        "https://github.com/omacom/omarchy/issues/10945",
+        "https://github.com/omacom/omarchy-iso/blob/1daf1202d49147223341c8e88ed2cb5a65b75bed/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py",
+        "https://gitlab.com/Zesko/limine-entry-tool/-/raw/26b1879c862a55bae4e8777d48b2f917c68ef347/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions",
+        "https://github.com/Foxboron/sbctl/blob/6f234197abc07b56092e0043b448f8b630dea7e4/cmd/sbctl/sign.go",
+        "https://github.com/Foxboron/sbctl/blob/6f234197abc07b56092e0043b448f8b630dea7e4/cmd/sbctl/sign-all.go",
+        "https://github.com/Foxboron/sbctl/blob/71ce775145dc4d01ef419804f445873ee2c837a7/contrib/pacman/ZZ-sbctl.hook"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    },
+    {
+      "slug": "luks-keyfile-on-esp-defeats-encryption",
+      "title": "A LUKS keyfile stored on the boot ESP defeats the encryption it is meant to unlock",
+      "category": "security",
+      "symptom": "Looking for a way to skip typing the LUKS passphrase on every boot, and finding instructions online for an auto-unlock keyfile embedded in the initramfs or kept on the boot partition. The question worth asking before doing it: is it actually safe to keep the key that unlocks an encrypted disk on the same disk, in a partition nothing has to authenticate to read.",
+      "cause": "Omarchy unlocks root in the initramfs with mkinitcpio's busybox `encrypt` hook (confirmed in `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`: `HOOKS=(... encrypt filesystems fsck ...)`), which normally prompts for a passphrase before root is mounted. The Arch wiki's own instructions for removing that prompt with an embedded keyfile carry an explicit warning: doing so is safe only if `/boot` is itself encrypted, because otherwise anyone who can read `/boot`, including from a live USB or another installed OS, can extract the key and unlock the volume with no authentication at all.\n\nOn Omarchy, `/boot` is the EFI System Partition (confirmed: `findmnt /boot` shows `/dev/nvme0n1p1`, filesystem `vfat`), which UEFI firmware requires to be FAT32 and which cannot be LUKS-encrypted. The condition the wiki attaches to this method, an encrypted `/boot`, can never be met on this distribution. A keyfile placed on the ESP, or embedded in the initramfs the ESP holds, sits in the one partition on an Omarchy install that is never behind the passphrase it is meant to remove, readable by anything that can mount that partition.",
+      "fix": "Name what is missing rather than skip the prompt: authentication earlier than the keyfile itself. Do not store a LUKS unlock keyfile, or embed one in the initramfs, on the ESP or anywhere else outside the encrypted volume.\n\nIf the goal is booting without typing a passphrase, use a mechanism that does not put the secret in the clear on unencrypted storage. Check for a TPM2 chip and enroll it instead, which seals the unlock key in hardware rather than in a file:\n\n```sh\nsystemd-analyze has-tpm2\nsudo systemd-cryptenroll --tpm2-device=auto /dev/<your LUKS partition, from lsblk>\n```\n\nthen add `tpm2-device=auto` to that volume's `/etc/crypttab` line so the initramfs uses it automatically. Keep your existing passphrase keyslot enrolled as a fallback, since a firmware or PCR state change can make the TPM refuse to release the key. This changes what an attacker needs from a single flat file anyone can copy off the ESP to the TPM chip itself plus the platform state it is bound to.\n\nFor a *second*, non-root filesystem's keyfile, the simpler and already-safe advice applies: keep that keyfile inside the encrypted root itself, not on the ESP. It is only readable once root has already been unlocked, so it adds convenience without adding a second unencrypted copy of a key.",
+      "verify": "`sudo systemd-cryptenroll --tpm2-device=list` shows the chip, and after enrollment `sudo cryptsetup luksDump <your LUKS partition>` lists a `systemd-tpm2` token alongside your passphrase keyslot. Confirm nothing under the mounted ESP (`findmnt /boot`) is a raw copy of a LUKS key or passphrase.",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "luks",
+        "uefi",
+        "laptop",
+        "desktop"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "This mistake does not fail loudly. The machine keeps booting normally with no passphrase prompt, so it stays invisible until the drive is lost, stolen, or imaged, at which point the encryption gives no protection at all: the key sits next to the data it protects, in the one partition every recovery tool and every other OS on the machine can already read. Do not \"fix\" an ESP-stored keyfile by simply moving it to `/boot` on the same disk. On Omarchy `/boot` is the ESP, the same partition, so that changes nothing.",
+      "sources": [
+        "https://wiki.archlinux.org/title/Dm-crypt/Device_encryption",
+        "https://wiki.archlinux.org/title/Dm-crypt/System_configuration",
+        "https://wiki.archlinux.org/title/Trusted_Platform_Module",
+        "https://man.archlinux.org/man/systemd-cryptenroll.1"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    },
+    {
+      "slug": "sudoers-syntax-error-or-mode-locks-out-sudo",
+      "title": "A hand-edited /etc/sudoers with a syntax error or the wrong mode locks everyone out of sudo",
+      "category": "security",
+      "symptom": "After editing `/etc/sudoers` (or a file under `/etc/sudoers.d/`) directly with a text editor instead of `visudo`, every `sudo` command starts failing for every user, including root's own attempts to use `sudo`. Typical messages are a parse error naming a line and column in the file, or `/etc/sudoers is owned by uid ..., should be ...`, or `/etc/sudoers is world writable`, depending on whether the mistake was in the syntax or in a `chmod`/`chown` run on the file afterward.",
+      "cause": "`sudo` parses `/etc/sudoers` fresh on every invocation, for every user, with no cache and no exception for root. Before it evaluates any rule it checks that the file's owner, group and mode match the compiled-in defaults (`root:root`, mode `0440` on this build, confirmed here with `ls -l /etc/sudoers`: `-r--r----- 1 root root`), and that it is not writable by anyone but root. If either check fails, or if the file fails to parse, `sudo` denies the request rather than falling back to some looser default.\n\nConfirmed by reading the sudo 1.9.17p2 source at the exact version installed here (`pacman -Q sudo`): a syntax error leaves no valid sudoers source, `sudo` reports `no valid sudoers sources found, quitting`, and denies the request. A wrong owner or a group- or world-writable file is reported separately and denies the request the same way, for anyone asking, not only the user who broke it.\n\n`visudo` exists specifically to prevent both failure modes: it locks the file, parses it before saving and refuses to save a syntax error, and with `-O -P` (applied by default when no alternate file is given) enforces the correct owner and mode on save. Editing the file directly with `nano`/`vim`, or running a stray `chmod`/`chown` on it, bypasses all of that.",
+      "fix": "Always edit `/etc/sudoers` and anything under `/etc/sudoers.d/` with `visudo`, never a plain editor:\n\n```sh\nsudo visudo\n```\n\nIf sudo is already broken this way, `visudo` run through `sudo` is exactly as broken, since both go through the same sudoers check. Recovery needs a root shell that does not go through sudo's own policy check at all:\n\n```sh\n# If a root password is set on this machine, this bypasses sudo entirely:\nsu -\nvisudo\n```\n\nWithout a usable root password, boot the Omarchy installer ISO's live environment, unlock and mount the encrypted root, and chroot in:\n\n```sh\ncryptsetup open /dev/<your LUKS partition, from lsblk> root\nmount /dev/mapper/root /mnt -o subvol=@\narch-chroot /mnt\nvisudo\n```\n\nOnce inside, run `visudo`, not the editor that caused the problem. It reports the exact line and column of a syntax error and will not let you save until it is fixed, and it corrects the owner and mode on save without you having to remember `0440 root:root` yourself.",
+      "verify": "`sudo -l` (or, from a root shell, `visudo -c`) runs with no error and lists your privileges, and `ls -l /etc/sudoers` shows `-r--r----- 1 root root`.",
+      "applies_to": [
+        "omarchy",
+        "arch"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "The panic fix to avoid is loosening the file instead of correcting it. Making `/etc/sudoers` writable by more than root (`chmod 777 /etc/sudoers`, or a stray `chmod -R` run from one directory too high) does not even get sudo working again: `sudo` checks for exactly that and refuses to run at all while the file is group- or world-writable. It does, however, hand root to anyone or anything on the machine that can now write to that file, since the next line appended to it is a line `sudo` will honor once the mode is fixed. Restore `root:root` ownership and mode `0440`, or let `visudo` (default `-O -P`) do it on save, rather than opening the file up to make an error message go away.",
+      "sources": [
+        "https://man.archlinux.org/man/visudo.8",
+        "https://man.archlinux.org/man/sudoers.5",
+        "https://github.com/sudo-project/sudo/blob/d1b48c651cec19fe37d1f0d3299d2283fb0f88e4/plugins/sudoers/sudoers.c",
+        "https://github.com/sudo-project/sudo/blob/d1b48c651cec19fe37d1f0d3299d2283fb0f88e4/plugins/sudoers/gram.y",
+        "https://wiki.archlinux.org/title/Chroot"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    }
+  ],
+  "existing": [],
+  "skipped": []
+}

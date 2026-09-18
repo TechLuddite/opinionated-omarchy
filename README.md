@@ -34,9 +34,9 @@ name goes missing from the published site. The full list is [NOTICE](NOTICE).
 The skill is vaporware. Everything around it is real, and honestly the surrounding parts
 have been doing all the work:
 
-- **A troubleshooting corpus.** 489 real Omarchy and Arch desktop problems with verified,
-  copy-pasteable fixes, drawn from 1,507 sources, searchable by symptom. Every record says how
-  much scrutiny it survived: 82 passed an adversarial audit clean and 407 had their fix,
+- **A troubleshooting corpus.** 505 real Omarchy and Arch desktop problems with verified,
+  copy-pasteable fixes, drawn from 1,633 sources, searchable by symptom. Every record says how
+  much scrutiny it survived: 82 passed an adversarial audit clean and 423 had their fix,
   cause or danger rewritten by the auditor. Browse it at
   <https://techluddite.github.io/opinionated-omarchy/> or search it from a clone:
 

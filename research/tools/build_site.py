@@ -7,7 +7,7 @@ WHY A SEPARATE OUTPUT DIRECTORY. This writes the REPO ROOT `docs/`, which is whe
 Pages publishes from. It is NOT `research/docs/`, which build_db.py unlinks and regenerates
 on every corpus build -- a site written there would survive exactly until the next rebuild.
 
-WHAT THE SITE IS FOR. Not 456 fixes; anyone can publish a tips page. The two things that are
+WHAT THE SITE IS FOR. Not 505 fixes; anyone can publish a tips page. The two things that are
 unusual here are per-record PROVENANCE (every fix says how much scrutiny it survived, and the
 ones nobody checked say so) and the MEASUREMENT (a bench with controls saying whether the
 skill actually helps). Both are rendered, not buried.
@@ -18,7 +18,7 @@ that makes it fit: a category is a GROUP with an accent, a record is a CARD, and
 `audit_status` drives the status LED -- so the board reads the corpus's honesty at a glance.
 
 The source theme's fifth motif, the phosphor trace, is deliberately ABSENT. It was fitted
-to audit coverage per category, but that sits at 97-100% across all twelve, so the line was
+to audit coverage per category, but that sits at 97-100% across all thirteen, so the line was
 flat at the ceiling and carried no information a reader could act on. The per-group
 audited/corrected/unchecked meters do that job with the same phosphor treatment and actually
 vary. Do not reinstate a chart here without a series that moves.
@@ -55,14 +55,14 @@ OUT = REPO / "docs"
 JSONL = ROOT / "data" / "problems.jsonl"
 CATS = ROOT / "data" / "categories.json"
 
-# Accents from the Control Room group palette. Twelve categories over five accents, grouped
+# Accents from the Control Room group palette. Thirteen categories over five accents, grouped
 # so related subject matter shares a colour rather than cycling arbitrarily.
 ACCENT = {
     "omarchy-core": "#46e0c0", "omarchy-theming": "#46e0c0",
     "hyprland-config": "#7aa2ff", "display-monitors": "#7aa2ff", "wayland-compat": "#7aa2ff",
     "gpu-drivers": "#c8a2ff", "boot-kernel": "#c8a2ff", "power-suspend": "#c8a2ff",
     "pacman-aur": "#f2b34b", "apps-services": "#f2b34b",
-    "network": "#e879a6", "audio-input": "#e879a6",
+    "network": "#e879a6", "audio-input": "#e879a6", "security": "#e879a6",
 }
 FALLBACK_ACCENT = "#61707f"      # the slate the Control Room gives an unregistered container
 
@@ -88,7 +88,8 @@ def read_records():
 def heading(r):
     """A readable heading for a record.
 
-    150 of 456 records carry no `title`. build_db.py falls back to the raw slug, which is
+    Every record carries a `title` as of 2026-09-18, and 150 of 456 did not when this was
+    written. build_db.py still falls back to the raw slug, which is
     fine in a developer-facing markdown dump and looks like a database leak on a public
     page. This prettifies the slug for DISPLAY only -- the corpus is untouched, and filling
     those titles in properly is a content task on the backlog, not something to fake here.
@@ -143,8 +144,8 @@ def md_lite(text):
     handoff flags raw interpolation into innerHTML as a real defect in the original.
 
     Paragraphs and lists are here because the corpus uses both and this dropped both. HTML
-    collapses newlines, so emitting the raw lines ran every block together: 275 of 456
-    records lose a paragraph break that way and 26 lose a bullet list, nearly all of them
+    collapses newlines, so emitting the raw lines ran every block together: 275 of the 456
+    records measured then lose a paragraph break that way and 26 lose a bullet list, nearly all of them
     in `fix`, which is the field a reader came for.
     """
     out, buf = [], []
@@ -541,7 +542,7 @@ def index_page(recs, cats):
         groups.append(
             # <details> rather than a JS toggle: keyboard accessible, survives with
             # scripting off, and the open/closed state is the element's own. Closed on
-            # load, so the board opens as twelve headings instead of 456 cards.
+            # load, so the board opens as thirteen headings instead of 505 cards.
             f'<details class="group" style="--gaccent:{acc}">'
             f'<summary class="g-head"><span class="caret"></span><i></i>{e(cats.get(cat, cat))}'
             f'<span class="g-count">{n}</span>{meter}</summary>'

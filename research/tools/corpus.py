@@ -25,8 +25,8 @@ import json
 
 # The canonical record schema, in the order records are written.
 #
-# ORDER IS LOAD-BEARING: it is the key order of every one of the 489 records in
-# data/problems.jsonl. Reordering this list rewrites all 489 lines, turning the
+# ORDER IS LOAD-BEARING: it is the key order of every one of the 505 records in
+# data/problems.jsonl. Reordering this list rewrites all 505 lines, turning the
 # next merge into a whole-corpus diff that hides the records actually touched.
 # Append new fields; do not reorder existing ones.
 #

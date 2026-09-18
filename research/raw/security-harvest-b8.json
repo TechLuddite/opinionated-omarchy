@@ -1,0 +1,39 @@
+{
+  "records": [
+    {
+      "slug": "wireguard-networkmanager-no-kill-switch",
+      "title": "WireGuard through NetworkManager has no kill switch, so a dropped tunnel leaks the real IP",
+      "category": "security",
+      "symptom": "A privacy guide or VPN provider says plainly that WireGuard has no kill switch, or a full tunnel WireGuard connection set up through NetworkManager stops covering traffic (after the laptop wakes from suspend, moves to a new Wi-Fi network, or the peer stops answering) with no warning, and traffic keeps leaving over the ordinary connection carrying the machine's real IP address instead of stopping. WireGuard is not installed on Omarchy by default and nothing sets up a tunnel automatically. This applies once a WireGuard connection has been added, whether through `nmcli connection import type wireguard` or NetworkManager's own settings panel, which is how Omarchy handles all networking. Omarchy does not run systemd-networkd.",
+      "cause": "WireGuard is a network interface, not a VPN client, and neither the protocol nor NetworkManager's WireGuard integration ships a kill switch: a feature that blocks ordinary traffic whenever the tunnel stops carrying it. NetworkManager's `wireguard.ip4-auto-default-route` and `wireguard.ip6-auto-default-route` settings, on by default whenever a peer's `allowed-ips` includes a `/0` route, install the same policy routing that `wg-quick` sets up with `Table=auto`. NetworkManager's own settings documentation describes only that routing table and policy rule half of the trick. It names no firewall rule, and `wg-quick`'s own script adds one on Linux for the identical full tunnel case: a rule that drops any packet trying to leave outside the tunnel interface. NetworkManager's WireGuard connections carry no such rule. Omarchy runs NetworkManager as its only network manager, with systemd-networkd disabled, so a WireGuard connection added through NetworkManager gets the routing half of wg-quick's protection and not the firewall half, on Omarchy and on any other NetworkManager-based distribution. Once the tunnel interface stops carrying traffic, for any reason, the ordinary route takes back over with nothing to stop it. The Arch Wiki names suspend and resume as one such trigger, in a section written for systemd-networkd, a backend Omarchy does not use, and states plainly that unless a kill switch is configured this risks exposing the public IP address after resuming from suspension. The gap the wiki describes there, no kill switch configured, is the same one a NetworkManager WireGuard connection has from the start, not only after that specific systemd change.",
+      "fix": "There is no NetworkManager setting that adds this protection. Build it with `ufw`, sized to the two kinds of traffic that must stay allowed: the tunnel interface itself, and the handshake traffic to the peer's endpoint, which needs to reach the peer without going through the tunnel it has not established yet. Find the interface name and the endpoint first:\n\n```bash\nnmcli connection show --active | grep wireguard\nnmcli -f wireguard.peers connection show <connection-name>\n```\n\nThen add the allow rules before switching the outgoing default, in the same terminal session:\n\n```bash\nsudo ufw allow out on <tunnel-interface>\nsudo ufw allow out to <endpoint-ip> port <endpoint-port> proto udp comment 'wireguard handshake'\nsudo ufw default deny outgoing\nsudo ufw reload\n```\n\nWith this active, a process trying to send outside the tunnel or the handshake gets nothing, rather than a route through the ordinary connection, regardless of whether the tunnel dropped from suspend, a Wi-Fi handoff, or the peer going unreachable.",
+      "verify": "`sudo ufw status verbose` shows `Default: deny (outgoing)`, an `ALLOW OUT` rule for the tunnel interface, and an `ALLOW OUT` rule for the endpoint's IP and port. Compare the interface name against `ip link show` for the WireGuard device while the connection is active, since a name that does not match leaves the rule matching nothing.",
+      "applies_to": [
+        "omarchy",
+        "arch",
+        "endeavouros",
+        "cachyos",
+        "manjaro",
+        "laptop",
+        "desktop"
+      ],
+      "severity": "high",
+      "frequency": "occasional",
+      "danger": "`ufw default deny outgoing` applies to the whole machine, not only the tunnel. Add both allow rules before switching the default, in the same session, or every other outgoing connection stops at the same moment, including the one running an ssh session making the change on a remote box. Anything else the machine reaches outside the tunnel, such as a package mirror, NTP, or a second VPN, needs its own allow rule once the default is deny, or it stops working with no message naming the firewall as the cause.",
+      "sources": [
+        "https://wiki.archlinux.org/title/WireGuard",
+        "https://networkmanager.dev/docs/api/latest/settings-wireguard.html"
+      ],
+      "checked_against": "4.0.2-1 2026-09-18"
+    }
+  ],
+  "existing": [
+    {
+      "topic": "NET9",
+      "slug": "mdns-local-hostname-not-resolving",
+      "field": "danger",
+      "suggestion": "The record's `danger` field already names the weakness (Avahi answers multicast queries from the whole local link with no user rule at all, so the hostname and advertised services are visible on cafe and hotel Wi-Fi whether or not a firewall rule is added), so this is an edit rather than a new record. Its only mitigation right now is 'stop avahi-daemon.service on untrusted networks', which is the blunt option and, by the record's own cause section, breaks getent hosts resolution and CUPS printer discovery along with it. A narrower control exists and is worth naming instead or alongside it: `disable-publishing=yes` under `[publish]` in /etc/avahi/avahi-daemon.conf (confirmed on this workstation as the stock file, owned by package avahi 1:0.9rc5-1 with no Omarchy override, commented out and so defaulting to no). The avahi-daemon.conf(5) manual page states this option directly: 'If set to yes, no record will be published by Avahi, not even address records for the local host. Avahi will be started in a querying-only mode. Use this is a security measure.' Setting it and restarting avahi-daemon.service stops the host from being discoverable while it keeps resolving other .local names and browsing other machines' services, so getent hosts and printer discovery keep working, which stopping the daemon outright does not. Suggested addition to the end of the existing danger paragraph: 'A narrower control than stopping the daemon exists: set disable-publishing=yes under [publish] in /etc/avahi/avahi-daemon.conf and restart avahi-daemon.service. avahi-daemon.conf(5) names this a security measure. It stops the host from publishing any record, including the ones that make it discoverable, while it keeps resolving other .local names, so getent hosts and printer discovery keep working.' Confirmed on this workstation (omarchy 4.0.2-1, 2026-09-18): avahi 1:0.9rc5-1 is installed and avahi-daemon.service is enabled and active, /etc/avahi/avahi-daemon.conf is the stock file from package avahi with `disable-publishing` commented out, and /etc/systemd/resolved.conf.d/10-disable-multicast.conf (owned by omarchy-settings 4.0.2-1) sets LLMNR=no and MulticastDNS=no, so the record's framing that Avahi and not systemd-resolved owns mDNS on Omarchy 4 is correct and does not need to change."
+    }
+  ],
+  "skipped": []
+}
