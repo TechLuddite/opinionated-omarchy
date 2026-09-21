@@ -106,7 +106,13 @@ echo "$PASSWORD" | sudo -S -v 2>/dev/null       # cache sudo; heredocs below nee
 # `id -un`, not $USER: $USER is set by login(1) and is frequently EMPTY in a
 # non-interactive ssh shell, which would write a sudoers rule granting NOPASSWD
 # to everyone parsed as a syntax error -- or worse, silently to the wrong name.
+#
+# NOPASSWD alone is not enough. The user is also in %wheel, whose entries require a
+# password, and `sudo -v` considers every matching entry, so it still prompts. Some step
+# of `omarchy update` calls it and the run dies at "a password is required" after the
+# snapshot. `!authenticate` on the user settles it for every entry (found 2026-09-18).
 sudo tee /etc/sudoers.d/99-bench-nopasswd >/dev/null <<EOF
+Defaults:$(id -un) !authenticate
 $(id -un) ALL=(ALL) NOPASSWD: ALL
 EOF
 sudo chmod 0440 /etc/sudoers.d/99-bench-nopasswd

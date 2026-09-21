@@ -77,7 +77,7 @@ the scripts there, `pacman -Ql limine-mkinitcpio-hook`, `cat /etc/limine-entry-t
 
 For each record write `<output directory>/verdict-<slug>.json`:
 
-{"slug": "<slug>", "status": "ok" | "corrected" | "reject", "confidence": "high" | "medium" | "low",
+{"slug": "<slug>", "status": "ok" | "corrected" | "recheck" | "reject", "confidence": "high" | "medium" | "low",
  "reason": "<audit note, 3 to 10 sentences: what you checked, against which source or which local file, what held, what was wrong. Say explicitly when a claim was confirmed on this machine versus from a source. Say what was NOT exercised.>",
  "corrected_cause": "<full replacement, only if wrong>", "corrected_fix": "<full replacement in the same markdown style with fenced blocks, only if wrong>",
  "corrected_symptom": "<only if wrong>", "corrected_danger": "<only if wrong>", "corrected_verify": "<only if wrong>",
@@ -92,6 +92,12 @@ and the auditor had nowhere to put that judgement. Use them sparingly and say wh
 is really a discussion, so the issue URL only redirects, and appending was the only way a verdict
 could touch sources. Removal runs after the append, so one verdict can replace a URL. A verdict
 that would leave a record with no source at all is refused, because then nobody can check it.
+
+Use `recheck` when you are holding a record that an earlier audit already passed or corrected
+against a newer release. It keeps the record's existing `audit_status` and adds your reason to
+its audit note instead of replacing it, so the earlier audit's findings survive. It requires
+`checked_against`, and it still applies any corrected_* keys, for wording a new release has made
+stale. Added 2026-09-19, when an `ok` would have downgraded eight `corrected` records.
 
 Omit corrected_* keys you do not need. `ok` means every claim held for Omarchy 4 AND plain
 Arch, and the reason must still say what you checked and where. `reject` only if the
