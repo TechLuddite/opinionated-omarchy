@@ -18,7 +18,10 @@ from it. A verdict may also set `checked_against`: unlike the `corrected_*` keys
 is not a correction of something the harvester got wrong, it is new provenance the
 auditor is adding by checking the record against a live install, so it is honoured
 whatever the verdict's status and kept under its own plain name rather than
-`corrected_checked_against`.
+`corrected_checked_against`. A verdict with status "recheck" says a record was held
+against a newer install and still holds: it sets `checked_against` and sources, extends
+`audit_note`, applies any `corrected_*` fields, and leaves `audit_status` and
+`audit_confidence` as they were.
 
 Rewrites data/problems.jsonl in place. Re-run tools/build_db.py afterwards.
 """
@@ -58,51 +61,81 @@ def apply_verdict(rec, v, stats):
         stats["rejected"] += 1
         return None
 
+    # "recheck" is a record held against a newer release and found to still hold. Found
+    # on 2026-09-19, re-checking the security records against 4.0.4: an "ok" verdict
+    # sets audit_status to "ok" and replaces audit_note, so re-confirming a `corrected`
+    # record would have downgraded it and erased the note that says what was corrected.
+    # A recheck adds provenance and changes nothing the earlier audit established: the
+    # status and confidence stand, the note is extended rather than replaced, and it
+    # must name the machine, because a recheck against no install is only an "ok".
+    if v.get("status") == "recheck":
+        if not v.get("checked_against"):
+            sys.exit(f"recheck verdict for {rec['slug']!r} has no checked_against; "
+                     f"a recheck is a claim about a named install")
+        if v.get("reason"):
+            note = f"Re-checked against {v['checked_against']}: {v['reason']}"
+            rec["audit_note"] = f"{rec['audit_note']} {note}" if rec.get("audit_note") else note
+        # A newer release can leave a defect in place and still date the wording, a
+        # version range or a line number, so a recheck may carry corrected_* fields.
+        _apply_corrections(rec, v, stats)
+        stats["rechecked"] += 1
+        return _apply_provenance(rec, v, stats)
+
     rec["audit_confidence"] = v.get("confidence") or "medium"
     rec["audit_note"] = v.get("reason") or None
     if v.get("status") == "corrected":
-        if v.get("corrected_fix"):
-            rec["fix"] = v["corrected_fix"]
-        # The first harvest could not do this, which left disproved causes in
-        # place on 130 records. Replace the cause when the auditor supplied one,
-        # and stamp it: the disclaimer in build_db.py and ask.py is conditional on
-        # `cause_reconciled`, so an unstamped rewrite makes both tell the reader
-        # the cause "was not rewritten" about a cause this pass just replaced.
-        if v.get("corrected_cause"):
-            rec["cause"] = v["corrected_cause"]
-            rec["cause_reconciled"] = date.today().isoformat()
-            stats["cause-corrected"] += 1
-        # Live exercise on a VM (research/validation/) turned up defects in a
-        # symptom and a danger, neither of which the first two verdict shapes
-        # could carry, and the boot-kernel re-audit needed verify too. Same rule as fix:
-        # replace wholesale, never patch.
-        # `title` joined them on 2026-09-18, when two auditors in the security harvest
-        # judged a title wrong, had nowhere to put the replacement, and wrote it into
-        # their prose for somebody to apply by hand. That is the third time this gap
-        # has been found the same way, after `corrected_severity` and `checked_against`.
-        for field in ("symptom", "danger", "verify", "title"):
-            if v.get(f"corrected_{field}"):
-                rec[field] = v[f"corrected_{field}"]
-                stats[f"{field}-corrected"] += 1
-        # The 2026-09-11 audit of the issue harvest found this gap the hard way: an
-        # auditor judged a severity too low for a defect that silently costs a machine
-        # its lock screen, had nowhere to put it, and the change had to be applied by
-        # hand after the merge. Both fields are closed vocabularies, so an unknown value
-        # is a defect in the verdict rather than something to write into the corpus.
-        for field, allowed in (("severity", SEVERITIES), ("frequency", FREQUENCIES)):
-            value = v.get(f"corrected_{field}")
-            if not value:
-                continue
-            if value not in allowed:
-                sys.exit(f"verdict for {rec['slug']!r} sets {field}={value!r}, "
-                         f"which is not one of {sorted(allowed)}")
-            rec[field] = value
-            stats[f"{field}-corrected"] += 1
+        _apply_corrections(rec, v, stats)
         rec["audit_status"] = "corrected"
         stats["corrected"] += 1
     else:
         rec["audit_status"] = "ok"
         stats["ok"] += 1
+    return _apply_provenance(rec, v, stats)
+
+
+def _apply_corrections(rec, v, stats):
+    """Apply every corrected_* field a verdict carries."""
+    if v.get("corrected_fix"):
+        rec["fix"] = v["corrected_fix"]
+    # The first harvest could not do this, which left disproved causes in
+    # place on 130 records. Replace the cause when the auditor supplied one,
+    # and stamp it: the disclaimer in build_db.py and ask.py is conditional on
+    # `cause_reconciled`, so an unstamped rewrite makes both tell the reader
+    # the cause "was not rewritten" about a cause this pass just replaced.
+    if v.get("corrected_cause"):
+        rec["cause"] = v["corrected_cause"]
+        rec["cause_reconciled"] = date.today().isoformat()
+        stats["cause-corrected"] += 1
+    # Live exercise on a VM (research/validation/) turned up defects in a
+    # symptom and a danger, neither of which the first two verdict shapes
+    # could carry, and the boot-kernel re-audit needed verify too. Same rule as fix:
+    # replace wholesale, never patch.
+    # `title` joined them on 2026-09-18, when two auditors in the security harvest
+    # judged a title wrong, had nowhere to put the replacement, and wrote it into
+    # their prose for somebody to apply by hand. That is the third time this gap
+    # has been found the same way, after `corrected_severity` and `checked_against`.
+    for field in ("symptom", "danger", "verify", "title"):
+        if v.get(f"corrected_{field}"):
+            rec[field] = v[f"corrected_{field}"]
+            stats[f"{field}-corrected"] += 1
+    # The 2026-09-11 audit of the issue harvest found this gap the hard way: an
+    # auditor judged a severity too low for a defect that silently costs a machine
+    # its lock screen, had nowhere to put it, and the change had to be applied by
+    # hand after the merge. Both fields are closed vocabularies, so an unknown value
+    # is a defect in the verdict rather than something to write into the corpus.
+    for field, allowed in (("severity", SEVERITIES), ("frequency", FREQUENCIES)):
+        value = v.get(f"corrected_{field}")
+        if not value:
+            continue
+        if value not in allowed:
+            sys.exit(f"verdict for {rec['slug']!r} sets {field}={value!r}, "
+                     f"which is not one of {sorted(allowed)}")
+        rec[field] = value
+        stats[f"{field}-corrected"] += 1
+
+
+def _apply_provenance(rec, v, stats):
+    """Apply what any verdict may add whatever its status: checked_against and sources."""
     # The auditor, not the harvester, is usually the one who checks a claim against a
     # live install, and until now that could only be said in prose: CLAUDE.md records
     # exactly this happening for corrected_severity and corrected_frequency on

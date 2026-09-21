@@ -23,4 +23,6 @@ venv/
 # agent must be able to read a category page straight out of a clone, with no Python).
 # Nothing needs this in the repo: GitHub Pages can build it in CI and publish the artifact.
 # Rebuild with:  cd research && python3 tools/build_site.py
-docs/
+# Anchored with the leading slash: unanchored, it also matched research/docs/, so the
+# security category page added on 2026-09-18 was silently never committed.
+/docs/

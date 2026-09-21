@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -38,7 +38,14 @@ Last updated: 2026-09-18
 >    2026-09-11, and O5 (`checked_against`) landed on 2026-09-16. O6 is still open and still
 >    blocks any full harvest. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
 >    under "What's left", and is its own job.
-> 1b. **The `security` category EXISTS as of 2026-09-18**, 16 records, all 16 corrected by
+> 1b. **The 4.0.4 re-check is DONE (2026-09-19)** and closed the debt below: eight records held
+>    against 4.0.4-1, none of the defects fixed, and `merge_gapfill.py` gained a `recheck` verdict
+>    status so a re-confirmation no longer downgrades a `corrected` record. The first defect this
+>    project found itself rather than harvested is filed privately as `GHSA-8p6g-pf3r-g2rg`. See the
+>    2026-09-19 session, which also records that two of four review agents were stopped partway, so
+>    `shell/` and most of `bin/` are unreviewed.
+>
+> 1c. **The `security` category EXISTS as of 2026-09-18**, 16 records, all 16 corrected by
 >    audit. Tier 1 is done except NET1 (blocked at gate 1, this repository published the
 >    mechanism first) and NET2 (fails gate 1). **Tier 2 and 3 are untouched**, 23 topics in
 >    `research/raw/security-topics.md`, and the brief and the gates now have one real outing
@@ -76,6 +83,112 @@ Last updated: 2026-09-18
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-09-19: the 4.0.4 re-check, and the first finding this project found itself
+
+The three things the last session left are done or answered. Eight security records were held
+against **4.0.4-1** on this workstation, the VM provisioning defect is fixed and test1 runs 4.0.4-1
+with a fresh golden image, and a static review of upstream at **v4.0.4**
+(`c668141e9c42b13c80c9ca4ea108e11708c5e8a5`) produced one confirmed new defect, which is now filed
+privately.
+
+### None of the eight defects is fixed on 4.0.4
+
+The five the last session named (OM1, OM2, OM6, OM7, PK5) plus three the `v4.0.2...v4.0.4` compare
+said upstream had touched: OM4 the lock latch, OM5 the plugin sandbox, OM9 the sudo grant. Every one
+of the eight still holds. Six needed only stale version wording, line numbers or issue states
+updated, and two needed more:
+
+- **OM5 credited the wrong commit.** The record attributed the 4.0.3 auth boundary to `1702cf0bee`,
+  which is not an ancestor of the v4.0.3 or v4.0.4 tags. The release carries #9618 as cherry-pick
+  `b1cdec9e` through backport PR #10733. Its claim that "updated code runs as soon as the pull
+  lands" is also no longer true for every plugin: since the #9485 backport a service with
+  `keepLoaded: true` keeps its old instance until the shell restarts.
+- **OM9 said the timer is the only thing that ends the grant.** Since 4.0.3 the tmpfiles rule clears
+  it at boot as well, and 4.0.4's own closing line says so.
+
+### The verdict shape was missing a field, for the fourth time
+
+An `ok` verdict sets `audit_status` to `ok` and **replaces** `audit_note`. Every security record is
+already `corrected`, so merging eight re-confirmations as `ok` would have downgraded all eight and
+erased what the 2026-09-18 audit found. There was no way to say "held against a newer release, still
+stands".
+
+`merge_gapfill.py` now has a **`recheck`** status: it keeps `audit_status` and `audit_confidence`,
+extends `audit_note` rather than replacing it, requires `checked_against` (a recheck with no named
+install is only an `ok`), and applies any `corrected_*` fields, because a newer release can leave a
+defect in place and still date its wording. Two tests cover it, and the corrections block is now one
+helper both paths call.
+
+That is the fourth time this gap has been found the same way, after `corrected_severity`,
+`checked_against` and `corrected_title`. The rule in CLAUDE.md held: the field was added with a test
+rather than applied by hand.
+
+### `research/docs/security.md` was never committed
+
+`.gitignore` line 26 was `docs/`, unanchored, for the generated site at the repo root. Git matches
+that at any depth, so it also matched `research/docs/`. The older category pages survive because
+they were tracked before that line existed, and the new security page, added 2026-09-18, was
+silently ignored. It is now `/docs/`, and the page is untracked-and-visible rather than invisible.
+The rule that a commit changing the JSONL must change `research/docs/` in the same commit has been
+quietly unenforceable for that one file since 2026-09-03.
+
+### The VMs, and two more ways a headless `omarchy update` fails
+
+`Defaults:techluddite !authenticate` is in `tools/provision-bench-vm.sh` and `sudo -n -v` now passes
+on test1. **That trap is already public upstream as open issue #10352**, so somebody else hit it and
+reported it. Two new ones, both of which hang `omarchy update -y` with no output:
+
+1. **`omarchy-update-orphan-pkgs` ignores `OMARCHY_UPDATE_UNATTENDED`.** It guards on
+   `[[ ! -t 0 || ! -t 1 ]]`, and `omarchy-update` runs it under `script -qefc`, which supplies a
+   pty, so the guard passes and it sits on a `gum confirm`.
+2. **`omarchy-update-restart` does the same** with "Linux kernel has been updated. Reboot?".
+
+Ending each prompt lets the run continue, and the packages were already at 4.0.4-1 by then. test1 is
+provisioned, updated, verified across a reboot (both bench units active, passwordless sudo intact)
+and saved as the golden image.
+
+### A4: the private review, and what it cost
+
+Four review agents were planned over upstream's tree at v4.0.4, split into `bin/` plus `etc/`,
+`install/` plus `migrations/` plus `default/`, the shell core, and the shell plugins. **Two of the
+four never produced anything: a safety classifier stopped the shell core review and the privileged
+`bin/` review partway.** Neither was retried in another form. So `shell/` and most of `bin/` have
+not been reviewed, and that is the largest gap left in this workstream.
+
+What the surviving reviews found is **not described here, deliberately.** One candidate was
+confirmed on the two test VMs and filed privately as `GHSA-8p6g-pf3r-g2rg` on 2026-09-19, rated
+medium. Three more are held unreported: one confirmed but low impact, one likely but not
+reproducible on a VM, one likely by design. Their mechanisms, the evidence and the filed text are in
+`~/.local/share/omarchy-security-reports/` (mode 0600 in a 0700 directory) and in the 2026-09-19
+disclosure record in Substrata's `work.decisions`. The same rule as
+`writeups/upstream/05-WITHHELD.md` applies: nothing about them enters this repository, the corpus
+or this journal until upstream has fixed them and said so.
+
+**The corpus cannot be the vehicle for early reporting.** Gate 1 admits a mechanism only once
+somebody else has made it public, so every `security` record is a late disclosure by design.
+Finding things first looks different: read the code, confirm on a VM you own, report privately,
+and keep it out of the corpus until upstream has moved.
+
+### The window, again
+
+The 2026-09-19 report **states no disclosure window**, only an offer to agree a date. That is the
+same omission as both enterprise Wi-Fi reports, so it is now three reports in a row. The disclosure
+record is in `work.decisions` at draft, and an email to `security@omarchy.org` is drafted proposing
+publication no earlier than Friday 18 December 2026 for all three advisories. **The channel
+upstream's policy actually asks for is that email address, and it has never been used.** All three
+advisories sit in `triage` with no maintainer action: `GHSA-3v6r-47cg-h3qp` since 2026-09-12,
+`GHSA-7v99-3429-4q3x` since 2026-09-14, `GHSA-8p6g-pf3r-g2rg` since 2026-09-19.
+
+### Where to pick this up
+
+1. **Send the email**, and put the window in the advisory thread through the web interface. The API
+   refuses advisory comments from the reporter.
+2. **Settle the held candidate that a VM cannot reproduce**, on physical hardware. The test is in
+   the private directory named above.
+3. **`shell/` and most of `bin/` are unreviewed.** Two agents stopped partway. Whatever covers them
+   next should not be a reworded retry of the same task.
+4. **Tier 2 and 3 security topics**, 23 of them, still untouched.
 
 ## Session of 2026-09-18: the security category exists, and all 16 records were wrong
 
@@ -198,8 +311,9 @@ prose dashes and 13 prose semicolons, now rewritten.
 1. **Do the 4.0.4 re-check** on the five records named above, now that the workstation is
    current. It is a small, well-defined job and it closes the only known debt in the new
    category.
-2. **Put `Defaults:techluddite !authenticate` in `tools/provision-bench-vm.sh`**, then bring
-   a VM to 4.0.4 and do the validation run that did not happen.
+2. **Done on 2026-09-19.** `Defaults:techluddite !authenticate` is in
+   `tools/provision-bench-vm.sh`, test1 runs 4.0.4-1, and its golden image is re-saved. Two further
+   headless traps turned up in `omarchy update -y` and are in the 2026-09-19 session.
 3. **Tier 2 and 3 security topics**, 23 of them, with the brief and gates now proven.
 4. The advisory follow-up from the 2026-09-16/17 session is still unsent, and both
    advisories are still `state: triage`, untouched by a maintainer since creation. Checked

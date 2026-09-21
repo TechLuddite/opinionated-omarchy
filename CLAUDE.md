@@ -27,7 +27,7 @@ triggers on `problems.jsonl`, `categories.json`, `build_site.py`, `research/asse
 the workflow itself, and **the six documents the site renders**: `research/README.md`,
 `skillbench/README.md`, `skillbench/MODELS.md`, `skillbench/ZEN.md`, `JOURNAL.md` and
 `writeups/**`. Those last six matter because the site now publishes them as pages, so
-editing one changes a published page and must republish. The generated `docs/` is **gitignored**, so the 4.3 MB never enters
+editing one changes a published page and must republish. The generated `docs/` is **gitignored** by the anchored pattern `/docs/`, so the 4.3 MB never enters
 history. The default branch is `main` (renamed from `claude/greenfield-repo-setup-l5fzae`
 on 2026-09-03; GitHub redirects the old name, but update any local clone with
 `git branch -m` and `git branch --set-upstream-to=origin/main`). Work happens on
@@ -146,7 +146,8 @@ Mind the version skew, and mind that **an installed version is not the current o
 2026-09-18 the security audit found upstream at **v4.0.4** (2026-09-15) and **v4.0.3**
 (2026-09-08) while this workstation sat at **4.0.2-1** with a pacman sync database dated
 2026-09-05, so two releases had come and gone unseen and two records asserted behaviour
-4.0.3 had already changed. The VMs last reported **4.0.1-1**. Read the installed version
+4.0.3 had already changed. The workstation was updated that evening and read **4.0.4-1** on
+2026-09-19, and test1 was brought to 4.0.4-1 the same day. Read the installed version
 from pacman, never from `/usr/share/omarchy/version`, which says `4.0.0.alpha` everywhere
 and is branding. Read the *current* version from upstream, because the sync database is
 only as fresh as the last update:
@@ -204,7 +205,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | omarchy `4.0.1-1` as last measured (workstation `4.0.2-1` on 2026-09-18, upstream `v4.0.4`) |
+| Version | test1 `4.0.4-1`, test2 `4.0.1-1`, measured 2026-09-19 (workstation `4.0.4-1`, upstream `v4.0.4`) |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |
@@ -291,8 +292,18 @@ reach for `pacman -Sy`; see "Domain facts" below.
 hangs there forever with an empty log while `/tmp/omarchy-update.log` holds a box drawing
 asking "Ready to update?". The `-y` flag is the script's own unattended path: it sets
 `OMARCHY_UPDATE_UNATTENDED=1` so steps that would need an answer report and move on.
+**Two steps ignore it** (found 2026-09-19 on 4.0.4-1), and each hangs a `-y` run on a
+`gum confirm` with nothing in the log to say so:
 
-Two traps behind that one, both found on 2026-09-18:
+- `omarchy-update-orphan-pkgs` asks "Remove N orphaned package(s)?". Its only guard is
+  `[[ ! -t 0 || ! -t 1 ]]`, and `omarchy-update` runs everything under `script -qefc`, which
+  supplies a pty, so the guard passes.
+- `omarchy-update-restart` asks "Linux kernel has been updated. Reboot?", with no guard at all.
+
+Killing the `gum` process answers no and the run carries on. By then the packages are
+already installed. Find the prompt with `ps -o pid,cmd --ppid <pid of the step>`.
+
+Two more traps, both found on 2026-09-18:
 
 - **Killing an update orphans a child that keeps the lock.** `omarchy-update-lock` is a
   `flock` on `$XDG_RUNTIME_DIR/omarchy-update.lock`, and an interrupted run left
@@ -305,8 +316,9 @@ Two traps behind that one, both found on 2026-09-18:
   in `%wheel`, which has password-requiring entries, and validation considers all of them.
   Some step of the update calls `sudo -v`, so the run dies at
   `sudo: a password is required` after the snapshot step. The fix is
-  `Defaults:techluddite !authenticate` in `/etc/sudoers.d/99-bench-nopasswd`, and it
-  belongs in `tools/provision-bench-vm.sh` so a rebuilt VM carries it.
+  `Defaults:techluddite !authenticate` in `/etc/sudoers.d/99-bench-nopasswd`, which
+  `tools/provision-bench-vm.sh` writes as of 2026-09-19, so re-provision a VM built before
+  that. Upstream already has it as open issue #10352.
 
 ### How they were built
 
@@ -347,7 +359,7 @@ context?** It has **two lanes**, and a bench declares which with `lane:`.
 
 ```sh
 cd skillbench && docker compose up -d --build     # http://127.0.0.1:8878
-./tests/run.sh                                    # 43 unit tests
+./tests/run.sh                                    # 64 unit tests
 ```
 
 Read [skillbench/README.md](skillbench/README.md) before changing it. The things that are
@@ -464,7 +476,7 @@ python3 tools/ask.py --tag nvidia --tag laptop --list           # filter by tag
 python3 tools/ask.py --slug some-problem-slug -v                # exact lookup + sources
 python3 tools/build_db.py                                       # rebuild DB + docs from JSONL
 python3 tools/lint_corpus.py --check                            # no new known-bad shapes
-./tests/run.sh                                                  # 18 tests, stdlib only
+./tests/run.sh                                                  # 31 tests, stdlib only
 ```
 
 **The JSONL is authoritative; the `.db` and `docs/` are derived.** Edit the JSONL, then
@@ -537,8 +549,13 @@ applied, and a verdict that would leave a record with no source is refused). The
 `severity`, `frequency`, `sources` and `sources_remove` keys were added on 2026-09-11
 after the issue-harvest audit hit their absence, `checked_against` on 2026-09-17, and
 `corrected_title` on 2026-09-18 when two security auditors judged a title wrong and wrote
-the replacement into prose because the field did not exist. **That is three times the same
-gap has been found the same way.** An auditor who cannot express a correction writes it
+the replacement into prose because the field did not exist. On 2026-09-19 the 4.0.4 re-check
+found the fourth: an `ok` verdict sets `audit_status` to `ok` and replaces `audit_note`, so
+re-confirming a `corrected` record would downgrade it and erase what its audit found. A
+verdict may now carry **`status: "recheck"`**, which requires `checked_against`, keeps
+`audit_status` and `audit_confidence`, extends `audit_note` rather than replacing it, and
+still applies any `corrected_*` fields. Use it whenever a record is held against a newer
+release. **That is four times the same gap has been found the same way.** An auditor who cannot express a correction writes it
 into `reason`, where it is applied by hand or not at all, so when a verdict shape is
 missing a field, add it with a test rather than hand-applying. Always:
 assemble a payload scoped to the slugs you audited, dry-run on a copy, diff, and only then
@@ -634,18 +651,17 @@ against primary sources during the research and repeatedly caught stale advice.
   `hl.dispatch(<your text>)`. Correct forms are `hl.dsp.exec_cmd("foo")` and
   `hl.dsp.dpms({ action = "on" })`. To launch a GUI app on a VM's session from ssh it is
   simpler to skip hyprctl entirely and set `WAYLAND_DISPLAY=wayland-1`.
-- **`OMARCHY_PATH` in a non-interactive ssh: this entry is being revised, and the old advice is
-  probably now wrong.** It used to say the variable is unset there, so every `omarchy` subcommand
-  fails with `find: '/themes/': No such file or directory`, and that anything driving a VM over ssh
-  must use a **login shell** (`bash -lc`). On omarchy-settings 4.0.2-1 that looks stale:
-  `~/.bashrc` line 2 sources `/usr/share/omarchy/default/bash/env-bootstrap` **above** the
-  `[[ $- != *i* ]] && return` guard, under the comment "needed even for non-interactive shells",
-  and `/usr/share/omarchy/default/bash/envs` re-sources it saying the same thing. Bash reads
-  `~/.bashrc` for a non-interactive shell started by sshd, so the variable should now be set.
-  **Not confirmed by a live ssh**: this workstation has no key for itself and both test VMs are shut
-  off and run 4.0.1-1, so they would not settle a 4.0.2-1 claim. One command settles it from any
-  second machine: `ssh <host> 'echo $OMARCHY_PATH'`. Until someone runs it, `bash -lc` remains the
-  safe form because it works either way. What is confirmed and unchanged:
+- **`OMARCHY_PATH` is unset in a non-interactive ssh, still, on 4.0.4-1** (checked on test1
+  on 2026-09-19 with `ssh <vm> 'echo $OMARCHY_PATH'`, which printed nothing). Every `omarchy`
+  subcommand then fails with `find: '/themes/': No such file or directory`, so anything
+  driving a VM over ssh must use a **login shell** (`bash -lc`). This is despite `~/.bashrc`
+  line 2 sourcing `/usr/share/omarchy/default/bash/env-bootstrap` above the
+  `[[ $- != *i* ]] && return` guard, under the comment "needed even for non-interactive
+  shells". The likely reason is that bash does not read `~/.bashrc` for a command sshd starts
+  on this build, which is a compile-time option. That part is not confirmed, and it does not
+  change the advice. An earlier revision of this entry predicted the opposite from reading
+  the file alone, which is the reason to check behaviour rather than infer it. `bash -lc` is the
+  safe form. What is also confirmed:
   `/usr/share/uwsm/env.d/10-omarchy` sources `env-bootstrap` for the graphical session, so
   `systemctl --user show-environment` **does** carry `OMARCHY_PATH` there and user units started by
   that session see it (checked on 4.0.2-1 on 2026-09-11), and it is absent in a lingering or

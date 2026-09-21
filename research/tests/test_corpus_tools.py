@@ -379,6 +379,56 @@ class TestMergeExtendPath(unittest.TestCase):
             back = self._run([rec], payload, td)
         self.assertEqual(back["gets-checked-against"]["checked_against"], "4.0.2-1 2026-09-16")
 
+    def test_a_recheck_keeps_status_and_extends_the_note(self):
+        """A "recheck" verdict holds a record against a newer install. It must not do
+        what an "ok" verdict does to a `corrected` record: downgrade it to "ok" and
+        replace the note that says what the earlier audit corrected."""
+        rec = a_full_record("rechecked-record")
+        rec["audit_status"], rec["audit_confidence"] = "corrected", "high"
+        rec["audit_note"] = "The fix was wrong."
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "rechecked-record", "status": "recheck",
+                                     "confidence": "medium", "reason": "Still holds.",
+                                     "checked_against": "4.0.4-1 2026-09-19",
+                                     "sources": ["https://example.org/new"]}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)["rechecked-record"]
+        self.assertEqual(back["audit_status"], "corrected")
+        self.assertEqual(back["audit_confidence"], "high")
+        self.assertEqual(back["audit_note"],
+                         "The fix was wrong. Re-checked against 4.0.4-1 2026-09-19: Still holds.")
+        self.assertEqual(back["checked_against"], "4.0.4-1 2026-09-19")
+        self.assertIn("https://example.org/new", back["sources"])
+
+    def test_a_recheck_applies_corrected_fields_and_keeps_the_status(self):
+        """A newer release can leave a defect in place and date its wording. The
+        recheck updates the field and still keeps the earlier audit's status and note."""
+        rec = a_full_record("rechecked-and-redated")
+        rec["audit_status"], rec["audit_note"] = "corrected", "Earlier note."
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "rechecked-and-redated", "status": "recheck",
+                                     "confidence": "high", "reason": "Still open.",
+                                     "checked_against": "4.0.4-1 2026-09-19",
+                                     "corrected_danger": "Unchanged through 4.0.4-1."}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)["rechecked-and-redated"]
+        self.assertEqual(back["danger"], "Unchanged through 4.0.4-1.")
+        self.assertEqual(back["audit_status"], "corrected")
+        self.assertTrue(back["audit_note"].startswith("Earlier note. Re-checked against"))
+
+    def test_a_recheck_without_checked_against_stops_the_merge(self):
+        """A recheck is a claim about a named install. Without one it is only an "ok"."""
+        rec = a_full_record("recheck-no-machine")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "recheck-no-machine", "status": "recheck",
+                                     "confidence": "high", "reason": "Still holds."}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SystemExit):
+                self._run([rec], payload, td)
+
     def test_a_malformed_checked_against_stops_the_merge(self):
         """`checked_against` must be "<pacman version> <YYYY-MM-DD>". A verdict whose
         trailing token is not a date is refused the same way a bad `corrected_severity`
