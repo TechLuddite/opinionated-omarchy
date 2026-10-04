@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-09-19
+Last updated: 2026-10-03
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -35,8 +35,8 @@ Last updated: 2026-09-19
 >    `research/validation/` for the ones a VM can reach. Six ways forward, O1 to O6, are item 8
 >    under "What's left": O1 (lint) and O2 (workflow prompts) are done, O3 is
 >    finished across twelve categories, O4 is finished, its 36 records audited and merged on
->    2026-09-11, and O5 (`checked_against`) landed on 2026-09-16. O6 is still open and still
->    blocks any full harvest. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
+>    2026-09-11, and O5 (`checked_against`) landed on 2026-09-16. O6 landed on 2026-10-03:
+>    a harvest result now appends through `merge_gapfill.py`, so nothing blocks a full harvest. The corpus prose is **done**, item 6: 1,366 dashes, 613 semicolons and 183 spaced hyphens removed on 2026-09-13
 >    under "What's left", and is its own job.
 > 1b. **The 4.0.4 re-check is DONE (2026-09-19)** and closed the debt below: eight records held
 >    against 4.0.4-1, none of the defects fixed, and `merge_gapfill.py` gained a `recheck` verdict
@@ -83,6 +83,60 @@ Last updated: 2026-09-19
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-10-03: the reporting channel moved to HackerOne, and O6
+
+### Upstream now takes security reports through HackerOne, with bounties
+
+Omarchy launched a public bug bounty at <https://hackerone.com/omarchy> on 2026-10-01, and
+<https://omarchy.org/security/> now names it as the channel, with `security@omarchy.org` kept as
+a fallback for reporters without an account. The repository's `.github/SECURITY.md` still names
+email only and was last changed on 2026-08-30, so read the website, not the repository file. The
+operator has an account. Four terms of the program change how this project reports:
+
+- **Confidentiality outlives the fix.** Program participants keep details confidential "even
+  after the vulnerability is patched" and disclose nothing without written consent. A finding
+  filed there can never become a corpus record or a writeup without that consent. Records that
+  rest on somebody else's public disclosure, gate 1, are unaffected.
+- **Unverified AI findings are ineligible.** A report needs a working proof of concept that the
+  reporter has reproduced. This project's findings come from agent review, so the operator
+  reproduces each one before filing.
+- **Verify against `quattro` HEAD**, not the latest tag.
+- **The first valid, reproducible report wins a duplicate.** Upstream asks for 90 days from
+  confirmation before publication.
+
+The three advisories filed before the launch (`GHSA-3v6r-47cg-h3qp`, `GHSA-7v99-3429-4q3x`,
+`GHSA-8p6g-pf3r-g2rg`) were acknowledged by upstream's security team on 2026-09-21 and moved to
+internal tracking, with the Docker DNS one rated low. They are closed from this side and are not
+being refiled. That also retires the drafted email proposing an 18 December window.
+
+### O6: a harvest appends instead of replacing
+
+`harvest-workflow.js` output could only enter through `ingest.py`, which replaces the corpus and
+would have discarded every correction and `cause_reconciled` stamp. `merge_gapfill.py` now takes
+a harvest result (top-level `problems`, no `results`) and appends it: existing records come out
+byte-identical, a colliding slug gets a numeric suffix, a new category gets its label, and a new
+record resembling an existing one is named for review but kept. `ingest.py` refuses to overwrite
+a non-empty corpus without `--replace`. Four tests cover both, and the suite is at 35.
+
+Three defects in `harvest-workflow.js` itself were fixed before running it on 2026-10-04:
+
+- **Its audit schema could not express a wrong title, severity, frequency or source**, the same
+  gap `merge_gapfill.py` closed four times. It now carries `corrected_title`,
+  `corrected_severity`, `corrected_frequency` and `sources_remove`, and its merge applies them.
+- **Its merge called argless `new Date()`**, which throws inside a workflow, so the run would
+  have died after its last agent. The date now comes in as `args.today`.
+- **Its harvesters did not know the corpus existed**, so they would have re-harvested covered
+  topics under new slugs. Each now reads its category's existing records first. The repository
+  name in its prompt was also still `basecamp/omarchy`, which GitHub's search rejects.
+
+### Where to pick this up
+
+1. **Expand the corpus**, item 1 of START HERE, which O6 no longer blocks. Check
+   `/usage-credits` first.
+2. **`shell/` and most of `bin/` are unreviewed** for security, and a finding there now goes to
+   HackerOne under the terms above.
+3. **Tier 2 and 3 security topics**, 23 of them, still untouched.
 
 ## Session of 2026-09-19: the 4.0.4 re-check, and the first finding this project found itself
 

@@ -91,7 +91,7 @@ research/
   tools/build_db.py       JSONL -> DB + markdown
   tools/ask.py            symptom search
   tools/schema.sql        DB schema
-  tools/ingest.py         REPLACES the corpus from a full harvest result
+  tools/ingest.py         REPLACES the corpus, refuses unless empty or --replace
   tools/merge_gapfill.py  EXTENDS it in place, and applies audit verdicts
   tools/harvest-workflow.js         the agent workflow that produced the corpus
   tools/gapfill-workflow.js         harvests new records against auditor-named gaps
@@ -356,8 +356,8 @@ Three workflow scripts live in `tools/`. Two of them built this, and either can 
 with the `Workflow` tool pointed at its script path:
 
 ```sh
-# full harvest from scratch: one harvester per category, each audited
-python3 tools/ingest.py raw/harvest-result.json        # after tools/harvest-workflow.js
+# full harvest: one harvester per category, each audited, appended to the corpus
+python3 tools/merge_gapfill.py raw/harvest-result.json # after tools/harvest-workflow.js
 python3 tools/build_db.py
 
 # extend an existing corpus: audit unaudited categories, fill named gaps
@@ -365,8 +365,11 @@ python3 tools/merge_gapfill.py raw/gapfill-result.json # after tools/gapfill-wor
 python3 tools/build_db.py
 ```
 
-`ingest.py` replaces the corpus. `merge_gapfill.py` extends it in place and is the one to
-use for incremental work.
+`merge_gapfill.py` extends the corpus in place and takes either workflow's result. A
+harvest result is appended as its own audit left it: existing records are not touched, a
+colliding slug gets a numeric suffix, and a new record that resembles an existing one is
+named for review but kept. `ingest.py` builds a corpus from nothing and refuses to
+overwrite one that exists unless given `--replace`, which discards every correction.
 
 To re-audit records that already carry `ok` against what Omarchy 4 actually ships, use
 [tools/reaudit-brief.md](tools/reaudit-brief.md): one agent per one or two records, each
