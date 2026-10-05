@@ -1,6 +1,6 @@
 # GPU & drivers
 
-39 problems. Sorted by severity, then by how often users hit it.
+55 problems. Sorted by severity, then by how often users hit it.
 
 ## Repair a DKMS driver that did not rebuild after a kernel update
 
@@ -441,6 +441,70 @@ If you would rather not touch the AUR, the fully open nouveau and NVK stack (`me
 **Verify.** `nvidia-smi` prints a driver version in the 580.x series and lists your GPU. `sudo cat /sys/module/nvidia_drm/parameters/modeset` returns `Y` (that file is root-readable only, so it needs sudo). `dkms status` shows the nvidia module `installed` against your running kernel. Hyprland starts.
 
 Sources: <https://archlinux.org/news/nvidia-590-driver-drops-pascal-support-main-packages-switch-to-open-kernel-modules/> · <https://wiki.archlinux.org/title/NVIDIA> · <https://wiki.archlinux.org/title/Nouveau> · <https://wiki.archlinux.org/title/Limine> · <https://wiki.archlinux.org/title/Mkinitcpio> · <https://aur.archlinux.org/packages/nvidia-580xx-dkms> · <https://github.com/omacom/omarchy/issues/3954> · <https://github.com/omacom/omarchy/issues/7947> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/nvidia.sh>
+
+---
+
+## Recover an AMD desktop that hard-freezes seconds after login since ddcutil 3.0.0
+
+`ddcutil-3-0-0-amdgpu-smu-hang-login-freeze` · severity: **critical** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `kde`, `omarchy`
+
+**Symptom.** Right after an update, every login freezes the whole machine 2 to 12 seconds after Hyprland starts. Mouse, keyboard and Ctrl+Alt+F2 are dead and only a hard reset works. After a reboot, `journalctl -k -b -1` shows:
+
+```
+ddcutil[2344]: (i2c_ioctl_reader1) Error in ioctl() read, rc=-1, errno=EIO(-5): Input/output error, device=/dev/i2c-0
+amdgpu 0000:03:00.0: Failed to set workload mask 0x00000001
+amdgpu 0000:03:00.0: SMU is in hanged state, failed to send smu message!
+amdgpu 0000:03:00.0: Failed to disable gfxoff!
+```
+
+Reported on discrete Radeon RX 7600, 7900 XT/XTX and 9070 XT with an external monitor.
+
+**Cause.** ddcutil 3.0.0 (Arch extra, 2026-09-12) changed how it probes I2C buses, and on some discrete Radeon cards that probing is followed within seconds by an amdgpu SMU hang. In rockowitz/ddcutil#629 the maintainer traced the main trigger to 3.0.0 lowering the default for asynchronous (threaded) bus checks (`--i2c-bus-checks-async-min`), and reset it in 3.0.1 (2026-09-13). Most reporters confirmed 3.0.1 fixed the freeze, but a few still froze. 3.0.2 (2026-09-23) replaces 3.0.0 and 3.0.1 and also disables the single multi-message ioctl EDID read that 3.0.0 introduced, which its release notes say may have triggered the amdgpu crash. Omarchy hits it at every login on desktops with external monitors because the shell's monitor panel runs `omarchy-brightness-display-ddc`, which calls `ddcutil --skip-ddc-checks detect --brief`, and its bus cache lives in `$XDG_RUNTIME_DIR`, so it is empty at each login and `detect` always runs (omarchy#11499, with an A/B on ddcutil 2.2.7 versus 3.0.0). KDE PowerDevil users hit the same thing through libddcutil. Arch extra carried 3.0.2-1 when this was checked on 2026-10-05.
+
+> **Audit corrected this record.** Symptom, Omarchy trigger and fix hold. omarchy#11499 (open) has the quoted kernel log, the RX 7600, the shell call chain down to `ddcutil --skip-ddc-checks detect --brief`, the $XDG_RUNTIME_DIR cache point and the 2.2.7 versus 3.0.0 A/B. /usr/share/omarchy/bin/omarchy-brightness-display-ddc on 4.0.4-1 matches. rockowitz/ddcutil#629 has the 7900 XT/XTX and 9070 XT confirmations under KDE PowerDevil. The v3.0.2 release (2026-09-23) says it replaces 3.0.0 and 3.0.1 and disables the multi-message EDID ioctl, which 'may also have triggered' the amdgpu crash. Arch extra JSON shows ddcutil 3.0.2-1 built 2026-09-23. limine-snapper-restore is owned by limine-snapper-sync here, and the ALPM guard (/usr/bin/omarchy-update-pacman-guard) only aborts transactions carrying both -S and -u, so the `pacman -U` downgrade is not blocked. The defect is the cause. It names the multi-message EDID ioctl as the trigger, but in #629 the maintainer identified the immediate trigger as 3.0.0's lower default for async (threaded) I2C bus checks, reset it to 99 in 3.0.1 (2026-09-13), and most reporters confirmed 3.0.1 fixed the freeze. The multi-message read was a later hunch for the few who still froze on 3.0.1, and the 3.0.2 notes say only that it may have contributed. The cause is rewritten to match. Not exercised: this workstation has ddcutil 2.2.7-1 and no affected Radeon.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Restoring a snapshot rolls back every package and system file changed since it was taken. Holding a package with IgnorePkg leaves it behind future upgrades. Remove the hold once a fixed release works for you, or the downgraded ddcutil can drift out of step with its libraries.
+
+**Fix.**
+
+You need a working system without the graphical session running long enough to change the package.
+
+**Omarchy 4: boot a snapshot from before the update.** At the Limine menu open the Snapshots submenu and boot the snapshot taken before the update that brought in ddcutil 3.0.0. Then make it permanent and update again, which now pulls a fixed ddcutil:
+
+```bash
+sudo limine-snapper-restore
+# reboot into the restored system, then:
+pacman -Q ddcutil
+omarchy update
+```
+
+**Plain Arch, or if you can get a shell another way** (ssh from another machine, or a live USB plus `arch-chroot`): check the version and move off 3.0.0.
+
+```bash
+pacman -Q ddcutil
+# Plain Arch: a full upgrade brings 3.0.2 or later
+sudo pacman -Syu
+# Omarchy 4: the ALPM guard refuses -Syu, use
+omarchy update
+```
+
+If a 3.0.x release still freezes your card, downgrade to 2.2.7 from the Arch archive and hold it:
+
+```bash
+sudo pacman -U https://archive.archlinux.org/packages/d/ddcutil/ddcutil-2.2.7-1-x86_64.pkg.tar.zst
+sudo sed -i 's/^#\?IgnorePkg *=.*/IgnorePkg = ddcutil/' /etc/pacman.conf
+grep '^IgnorePkg' /etc/pacman.conf
+```
+
+Check that `IgnorePkg` line by eye: if you already held other packages, add `ddcutil` to the existing list instead of replacing it.
+
+**Verify.** `pacman -Q ddcutil` shows 3.0.2 or later (or the held 2.2.7). Two or three logins in a row stay responsive, and `journalctl -k -b | grep -i 'SMU is in hanged state'` returns nothing.
+
+Sources: <https://github.com/omacom/omarchy/issues/11499> · <https://github.com/rockowitz/ddcutil/issues/629> · <https://github.com/rockowitz/ddcutil/releases/tag/v3.0.2> · <https://archlinux.org/packages/extra/x86_64/ddcutil/>
 
 ---
 
@@ -1636,6 +1700,100 @@ Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://github.com/torval
 
 ---
 
+## Stop AMD laptop panel flicker or a frozen internal screen caused by Panel Replay
+
+`amdgpu-panel-replay-flicker-or-frozen-edp` · severity: **high** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
+
+**Symptom.** On a recent AMD laptop (Ryzen AI "Strix Point" with DCN 3.5, Ryzen 8040 "Hawk Point" with Radeon 780M, Framework 16, ASUS Zenbook S16), the internal screen flickers, refreshes late in full-screen apps, or freezes on the last frame shortly after the desktop or greeter appears. The machine keeps running: VT switching works, SSH works, and an external monitor plugged in during the freeze shows a picture while the laptop panel stays stuck. The usual PSR fix, `amdgpu.dcdebugmask=0x10`, changes nothing, and `amdgpu.psr=0` changes nothing either. The kernel log is usually clean at the moment it happens.
+
+**Cause.** Panel Replay is a newer eDP self-refresh mode, separate from Panel Self Refresh v1 and PSR Selectively Updated. amdgpu enables it when the panel advertises support. The panel keeps showing its own stored frame, and a broken entry or exit path on some panel and firmware combinations produces flicker, or a panel that never takes a new frame.
+
+`amdgpu.dcdebugmask` is a bitmask over `enum DC_DEBUG_MASK` in `drivers/gpu/drm/amd/include/amd_shared.h`. Three bits matter here:
+
+- `DC_DISABLE_PSR = 0x10` disables PSR v1 and PSR-SU
+- `DC_DISABLE_PSR_SU = 0x200` disables PSR-SU only
+- `DC_DISABLE_REPLAY = 0x400` disables Panel Replay
+
+So `0x10`, the value most guides give, leaves Panel Replay switched on. Upstream reports match this:
+
+- drm/amd #5519: ASUS Zenbook S16 with a Ryzen AI 9 465 (DCN 3.5) and a Samsung ATNA60HR07-0 OLED. Every 7.0.x and 7.1.x kernel tested froze the panel at the Wayland greeter and 6.19.14 worked. `0x10` did not help and `0x400` alone fixed it.
+- drm/amd #5772: Radeon 780M IdeaPad flicker. `amdgpu.psr=0` and `0x10` did not help and `0x410` fixed it.
+- drm/amd #3912: Framework 16, full-screen apps refreshing late or only on input. `0x400` fixed it.
+- drm/amd #3344: a Framework 16 flicker regression in 6.9. A second bisection, run with the first bad commit (enabling freesync) already applied, landed on "drm/amd/display: Enable Panel Replay for static screen use case".
+
+In #5561, a TUXEDO vendor kernel sets `amdgpu.dcdebugmask=0x610` by default, which is PSR, PSR-SU and Replay all off.
+
+`amdgpu.psr` is not a parameter at all. `modinfo -p amdgpu` on kernel 7.2.5 lists `dcdebugmask`, `dcfeaturemask` and `abmlevel`, but no `psr`, so that advice is a silent no-op.
+
+> **Audit corrected this record.** The core holds. amd_shared.h (master) has DC_DISABLE_PSR=0x10 (PSR v1 and PSR-SU), DC_DISABLE_PSR_SU=0x200, DC_DISABLE_REPLAY=0x400. amdgpu_drv.c registers dcdebugmask as uint 0444. amdgpu_dm_debugfs.c creates replay_capability and psr_capability per eDP connector, printing 'Sink support' and 'Driver support'. modinfo -p amdgpu on 7.2.5-3-omarchy lists dcdebugmask, dcfeaturemask and abmlevel and no psr. drm/amd #5519 (Zenbook S16, Ryzen AI 9 465, ATNA60HR07-0, 7.0.x/7.1.x freeze at the greeter, 6.19.14 works, 0x10 no help, 0x400 fixes), #5772 (780M IdeaPad, psr=0 and 0x10 no help, 0x410 fixes), #5561 (TUXEDO sets 0x610) and #3912 (Framework 16, 0x400 fixes) all match. Defects: the symptom adds specifics no cited source contains (pink frames, Framework 13, Krackan). #3344 had two bisections, the first landing on the freesync commit, so 'bisected to Panel Replay' needs that qualifier. The danger says a drop-in that sorts before omarchy-defaults.conf discards Omarchy's defaults, which is wrong: omarchy-defaults.conf itself uses +=, so only a bare = in a file sorting after it wipes them. The plain-Arch Limine branch assumes limine-mkinitcpio-hook is installed. Nothing was exercised (no AMD GPU here).
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Disabling Panel Replay and PSR costs idle battery on the internal panel, because the GPU has to scan out every frame. The parameter itself cannot break boot.
+
+The drop-in is the real risk. A bare `=` instead of `+=` in a file that sorts after `omarchy-defaults.conf` discards Omarchy's defaults including `initramfs_async=0`, which can leave an encrypted machine at an unthemed text LUKS prompt. `limine-mkinitcpio` rewrites the UKI on the ESP, so check `df -h /boot` first. A full ESP produces a truncated image. Do not enable Omarchy Direct Boot (`omarchy-setup-direct-boot`) while you are still testing parameters, because it bypasses the Limine menu you would recover from.
+
+**Fix.**
+
+**1. Confirm the panel uses Panel Replay** (root, debugfs):
+
+```bash
+sudo sh -c 'for d in /sys/kernel/debug/dri/*/eDP-*; do echo "$d"; cat "$d/replay_capability" "$d/psr_capability" 2>/dev/null; done'
+```
+
+If `replay_capability` prints `Sink support: yes` and `Driver support: yes`, this record applies.
+
+**2. Pick the value.** `dcdebugmask` is one bitmask and a `0444` parameter, so it is read only at boot. If the parameter appears twice on the command line, the last one wins. Combine bits into a single value:
+
+| value | disables |
+|---|---|
+| `0x400` | Panel Replay only. Start here |
+| `0x410` | Panel Replay plus PSR v1 and PSR-SU |
+| `0x610` | Panel Replay, PSR and PSR-SU explicitly |
+
+If you already carry `amdgpu.dcdebugmask=0x10` from the flip_done record, replace it with `0x410`. Do not add a second entry.
+
+**3. Omarchy 4 (Limine + UKI).** The command line is baked into `/boot/EFI/Linux/omarchy_linux.efi`, and `/boot/limine.conf` is regenerated, so use your own drop-in with `+=`:
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+# `+=` appends. A bare `=` would wipe Omarchy's own defaults.
+KERNEL_CMDLINE[default]+=" amdgpu.dcdebugmask=0x400"
+EOF
+sudo limine-mkinitcpio && sudo limine-update && sudo reboot
+```
+
+To test once without writing anything, see the record `limine-kernel-parameters-not-applying-omarchy`. A Limine menu edit must keep the whole existing command line, because it replaces it.
+
+**4. Plain Arch and derivatives:**
+
+- Limine with `limine-mkinitcpio-hook` installed: the same drop-in, then `sudo limine-update`
+- Limine without that hook: append the parameter to the `cmdline:` line of your entry in `/boot/limine.conf` (or wherever your `limine.conf` lives on the ESP)
+- systemd-boot: append to `options` in `/boot/loader/entries/*.conf`
+- GRUB:
+
+```bash
+sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="/&amdgpu.dcdebugmask=0x400 /' /etc/default/grub
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+Reboot.
+
+If `0x400` stops the freeze but some flicker remains, move to `0x410`, then `0x610`, one reboot each.
+
+**Verify.** ```bash
+cat /sys/module/amdgpu/parameters/dcdebugmask   # 1024 for 0x400, 1040 for 0x410, 1552 for 0x610
+cat /proc/cmdline
+```
+
+On Omarchy 4, `/proc/cmdline` must still contain Omarchy's defaults (`quiet splash loglevel=0 ... initramfs_async=0`). Then use the desktop normally on a bright page, or log out and back in to the greeter: the panel must keep updating and not flicker.
+
+Sources: <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/include/amd_shared.h> · <https://gitlab.freedesktop.org/drm/amd/-/issues/5519> · <https://gitlab.freedesktop.org/drm/amd/-/issues/5772> · <https://gitlab.freedesktop.org/drm/amd/-/issues/3344> · <https://gitlab.freedesktop.org/drm/amd/-/issues/5561> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_debugfs.c> · <https://wiki.archlinux.org/title/AMDGPU> · <https://gitlab.freedesktop.org/drm/amd/-/work_items/3912> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c>
+
+---
+
 ## Brand-new Intel GPU does not probe: 'not properly supported by i915 in this kernel version'
 
 `intel-gpu-force-probe-required` · severity: **high** · frequency: **occasional** · applies to: `arc`, `arch`, `cachyos`, `desktop`, `endeavouros`, `intel`, `laptop`, `lunar-lake`, `manjaro`, `meteor-lake`, `omarchy-4`
@@ -1727,6 +1885,78 @@ sudo pacman -S mesa vulkan-intel intel-media-driver
 **Verify.** `lspci -k -d ::03xx` now shows `Kernel driver in use: i915` (or `xe`). `glxinfo -B | grep -i 'OpenGL renderer'` names your Intel GPU instead of `llvmpipe`. `vulkaninfo --summary` lists an Intel device. `dmesg | grep -i force` shows `Force probing unsupported Device ID 7d55, tainting kernel`, confirming the parameter took effect.
 
 Sources: <https://wiki.archlinux.org/title/Intel_graphics> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/i915_pci.c> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/xe/xe_pci.c> · <https://wiki.archlinux.org/title/Limine>
+
+---
+
+## Boot the Arch kernel when an AMD display broke after Omarchy 4.0.4 switched to linux-omarchy 7.2.5
+
+`linux-omarchy-7-2-5-amdgpu-display-regression` · severity: **high** · frequency: **occasional** · applies to: `amd`, `desktop`, `hdmi`, `laptop`, `limine`, `omarchy`
+
+**Symptom.** After the update to Omarchy 4.0.4 and a reboot, an AMD machine's display misbehaves in one of these ways: a 4K monitor over HDMI goes black for 2 to 5 seconds every time the screen changes after being still (typing, moving the mouse), a 4K@120 HDMI monitor gets no signal at all, the LUKS prompt is black so you unlock blind, or a monitor behind a USB-C dock is detected but stays black at `0x0` in `hyprctl monitors`. The kernel log shows lines such as:
+
+```
+amdgpu 0000:66:00.0: [drm] enabling link 1 failed: 19
+[drm:dcn20_wait_for_blank_complete [amdgpu]] *ERROR* DC: failed to blank crtc!
+amdgpu 0000:07:00.0: [drm] enabling link 2 failed: 15
+WARNING: ... at fill_dc_mst_payload_table_from_drm+0x191/0x1a0 [amdgpu]
+```
+
+`uname -r` prints `7.2.5-3-omarchy`.
+
+**Cause.** Omarchy 4.0.4 migration `1789325478.sh` installs `linux-omarchy` and `linux-omarchy-headers` and rewrites `BOOT_ORDER` in `/etc/default/limine` to `"linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"`, so the machine boots the Omarchy kernel first while the old Arch `linux` kernel stays installed. `/etc/default/limine` is loaded last by `limine-common-functions`, so its `BOOT_ORDER` beats every drop-in. `linux-omarchy 7.2.5-3` shows amdgpu display regressions against Arch `linux 7.2.3.arch1-3` on the same installs. HDMI blanking or no signal, worst at high bandwidth, is reported in omarchy#12083 on RX 6700 XT (DCN 3.0), RX 6800/6900 XT, Radeon 680M (DCN 3.1.2, on a 60 Hz monitor), Radeon 780M (DCN 3.1.4) and RX 7600 (DCN 3.2). A DP MST link enable failure behind docks or USB-C monitors is reported in omarchy#13119 on DCN 2.1 and DCN 3.5. Several reporters confirmed that booting the Arch kernel on the same install fixes it. The root cause is not established. One reporter points at patches `linux-omarchy` carries and stock Arch does not, `0452-amd-hdmi-frl-default.patch` (HDMI FRL on by default) and `0450-amd-hdmi-vrr-allm.patch`, which would make the HDMI case Omarchy-specific. Another described it as a regression between 7.2.3 and 7.2.5, but compared only Arch 7.2.3 with Omarchy 7.2.5, so nobody has shown whether a stock Arch 7.2.5 or later kernel is affected. A 7.2.7rc1 test build fixed the MST case on one machine and did not fix the HDMI case on another, so a newer Omarchy kernel is not yet a confirmed fix.
+
+> **Audit corrected this record.** AUDITOR BREACH while checking this record: I ran `limine-update --help`, which re-exec'd through sudo and ran as root (journal, 12:20:55 on 2026-10-05). It reinstalled the Limine EFI binary and began rebuilding the UKI for Arch `linux` 7.2.3-arch1-3 before the output pipe closed, so that build was probably killed partway. Nothing was repaired. The operator should run `sudo limine-update` to completion and check `sudo limine-entry-tool --tree` before rebooting. Full detail is at the top of the nvidia-powerd-not-enabled-laptop-tgp-capped verdict. RECORD AUDIT: The mechanism is confirmed on this machine. /usr/share/omarchy/migrations/1789325478.sh installs linux-omarchy and headers, deletes and re-appends BOOT_ORDER exactly as quoted, and is guarded by /var/lib/omarchy/migrations/1789325478. /usr/lib/limine/limine-common-functions loads /etc/default/limine last ('highest priority'). /usr/bin/limine-update calls limine-install and then limine-mkinitcpio. linux 7.2.3.arch1-3 and linux-omarchy 7.2.5-3 are both installed here, and core/linux is now 7.2.8.arch1-2. The cause was too narrow and drew a conclusion the issues do not support. omarchy#12083 has HDMI reports on DCN 3.0 (RX 6700 XT), RX 6800/6900 XT, DCN 3.1.2 (Radeon 680M on a 60 Hz monitor), DCN 3.1.4 and DCN 3.2, not only 3.1.4 and 3.2. #13119 has MST on DCN 2.1 and DCN 3.5. The record said the regression 'may be upstream' because one reporter placed it between 7.2.3 and 7.2.5, but that reporter compared Arch 7.2.3 with Omarchy 7.2.5 only. Another reporter points at patches linux-omarchy carries and Arch does not, `0452-amd-hdmi-frl-default.patch` and `0450-amd-hdmi-vrr-allm.patch`, which I confirmed exist in omacom/omarchy-pkgs pkgbuilds/linux-omarchy. Nobody has isolated which. The fix now says so, and the 60 Hz stopgap tells the reader to substitute their own output name and scale instead of copying the reporter's 1.6. Not exercised: no boot order was changed by this audit.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Changing the boot order changes which kernel boots unattended. Keep at least two kernels installed, and do not remove `linux-omarchy` and `linux` in the same transaction, or you can be left with no bootable kernel.
+
+**Fix.**
+
+**1. Boot the Arch kernel once.** At the Limine menu pick the plain `linux` entry instead of `linux-omarchy`. After login:
+
+```bash
+uname -r                       # want ...-arch..., not ...-omarchy
+pacman -Q linux linux-omarchy
+```
+
+If `linux` is not installed, install it with headers, which DKMS drivers such as `nvidia-open-dkms` need:
+
+```bash
+sudo pacman -S --needed linux linux-headers
+```
+
+**2. Make it the default.** Edit the `BOOT_ORDER` line in `/etc/default/limine` so `linux` comes first, then rebuild the boot entries (`limine-update` runs `limine-mkinitcpio` itself):
+
+```bash
+sudo sed -i -E 's/^[[:space:]]*BOOT_ORDER[[:space:]]*=.*/BOOT_ORDER="linux, linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"/' /etc/default/limine
+grep BOOT_ORDER /etc/default/limine
+sudo limine-update
+```
+
+Leave `linux-omarchy` installed so you can switch back when a fixed release lands. The migration that set the order is guarded by `/var/lib/omarchy/migrations/1789325478`, so it does not run again and reset your order.
+
+**3. Watch the Arch kernel version.** Reporters confirmed the fix on Arch `linux 7.2.3.arch1-3`. The next `omarchy update` upgrades `linux` too, and nobody has reported testing a newer Arch kernel against this bug. If the fault comes from patches only `linux-omarchy` carries, newer Arch kernels will be fine, and if it is upstream they may not be. After each update:
+
+```bash
+pacman -Q linux
+```
+
+If the display fault returns on a newer Arch kernel, boot the Limine snapshot from before that update and report the version on omarchy#12083 or #13119.
+
+**Stopgap for the HDMI blanking only**, if you must stay on the Omarchy kernel: drop the monitor to 60 Hz in `~/.config/hypr/monitors.lua`. Reporters saw this hold at 4K@60 on DCN 3.0 and 3.2, but on DCN 3.1.4 4K@60 still failed during early boot. Use your own output name from `hyprctl monitors` and keep your existing scale:
+
+```lua
+hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@60", position = "auto", scale = 1.6, vrr = 0 })
+```
+
+This does not apply to plain Arch, which never installs `linux-omarchy`.
+
+**Verify.** After a reboot with no menu interaction, `uname -r` shows the Arch kernel, the monitor holds its mode, and `journalctl -k -b | grep -E 'enabling link .* failed|fill_dc_mst_payload'` returns nothing.
+
+Sources: <https://github.com/omacom/omarchy/issues/12083> · <https://github.com/omacom/omarchy/issues/13119> · <https://archlinux.org/packages/core/x86_64/linux/> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1789325478.sh> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/linux-omarchy/PKGBUILD>
 
 ---
 
@@ -1951,6 +2181,99 @@ Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://r
 
 ---
 
+## Diagnose 'Xid 79: GPU has fallen off the bus' crashes on NVIDIA
+
+`nvidia-xid-79-gpu-fallen-off-bus` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `laptop`, `limine`, `manjaro`, `nvidia`, `omarchy`
+
+**Symptom.** The screen freezes or goes black, the session dies, or the dGPU vanishes, sometimes under load and sometimes seconds after boot or at idle. `journalctl -k -b -1` shows:
+
+```
+NVRM: Xid (PCI:0000:27:00): 79, GPU has fallen off the bus.
+```
+
+sometimes followed by `Xid 154: GPU Reset Required`. `nvidia-smi` then fails until a reboot.
+
+**Cause.** Xid 79 means the driver tried to reach the GPU over PCI Express and found it inaccessible. NVIDIA's description and the Arch wiki list hardware causes (power supply, cables, the PCIe connection) and driver issues, so it is a symptom with several causes rather than one bug. In the solved Arch forum thread (GTX 970), the crashes continued with `pcie_aspm=off` and `nvidia.NVreg_EnableGpuFirmware=0` already set, and stopped after the case was cleaned, the GPU power cabling was rewired and the boot setup was rebuilt. The poster could not say which change fixed it. A GTX 970 has no GSP, so the firmware parameter did nothing there. In a second thread, an Ampere laptop GPU dropped off the bus every time it moved down from the P5 power state, `pcie_aspm=off` and both `NVreg_DynamicPowerManagement` values did not help, and locking the minimum clocks so the GPU never entered P5 worked around it. NVIDIA open-gpu-kernel-modules#1151 reports Xid 79 on desktop cards with no warning at any load, and a comment there reports that locking the memory clock range with `nvidia-smi -lmc` stopped it. The Arch wiki repeats that workaround.
+
+> **Audit corrected this record.** Read both BBS threads, NVIDIA open-gpu-kernel-modules#1151 and its comment 5502412431, and the Arch wiki NVIDIA/Troubleshooting raw text. Three defects. (1) The solved GTX 970 thread does not support 'disable ASPM, which helped': the poster lists 'Disable ASPM' among fixes already tried, and the kernel line in the first post already has pcie_aspm=off and NVreg_EnableGpuFirmware=0 while it was still crashing. The final post changed cleaning, cabling, a rebuilt boot partition and kernel reinstall and says 'Im not sure what fixed it'. A GTX 970 is Maxwell, which has no GSP, so that parameter did nothing there. (2) The fix omits the workaround the wiki's own 'Xid 79' section gives from #1151: nvidia-smi --lock-memory-clocks with a min,max range, and the laptop thread's poster also reports that locking minimum clocks to keep the GPU out of P5 works, so 'remains unresolved' is incomplete. (3) The GSP step can never apply on Omarchy 4: /usr/share/omarchy/install/hardware/nvidia.sh installs nvidia-open-dkms for device IDs >= 0x1e00 (Turing+, GSP required) and nvidia-580xx-dkms only for Maxwell to Volta, which have no GSP. nvidia-utils ships nvidia-smi, nvidia-bug-report.sh and nvidia-persistenced.service (pacman -Ql). Nothing was exercised.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A locked memory or graphics clock floor raises idle power draw and heat, more so the higher the floor, and noticeably on laptops. `pcie_aspm=off` also raises idle power use. Opening a desktop case to re-seat power cables should be done with the machine unplugged.
+
+**Fix.**
+
+**1. Rule out hardware first.** Check temperature and power under load, clean the cooler, and on a desktop re-seat the GPU and its power connectors:
+
+```bash
+nvidia-smi --query-gpu=temperature.gpu,power.draw,pstate --format=csv -l 2
+journalctl -k -b -1 | grep -E 'Xid|NVRM'
+```
+
+**2. Lock the memory clock range** (the Arch wiki workaround, from NVIDIA open-gpu-kernel-modules#1151). List the supported memory clocks, then allow the lowest up to one step below the highest:
+
+```bash
+nvidia-smi -q -d SUPPORTED_CLOCKS | grep Memory
+sudo nvidia-smi --lock-memory-clocks 405,9251   # use your own lowest and second-highest values
+```
+
+This resets at reboot. Undo it with `sudo nvidia-smi --reset-memory-clocks`. On Hopper data-centre cards use `--lock-memory-clocks-deferred` instead. On a laptop whose GPU dies when leaving a specific P-state, the same thread reported that a higher minimum graphics clock also helps:
+
+```bash
+nvidia-smi -q -d SUPPORTED_CLOCKS | grep -E 'Graphics|Memory'
+sudo nvidia-smi --lock-gpu-clocks 800,2100   # example values from the wiki, use yours
+```
+
+To keep the lock across reboots, the wiki uses a oneshot unit. This is the same on Omarchy 4 and plain Arch:
+
+```bash
+sudo tee /etc/systemd/system/nvidia-clocks.service >/dev/null <<'EOF'
+[Unit]
+Description=Lock NVIDIA memory clock range
+Requires=nvidia-persistenced.service
+After=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nvidia-smi --lock-memory-clocks 405,9251
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl enable --now nvidia-persistenced.service nvidia-clocks.service
+```
+
+**3. Optionally try disabling PCIe ASPM.** It did not stop the crashes in either Arch forum thread, so try it only after the steps above.
+
+Omarchy 4, in your own drop-in, with `+=`:
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" pcie_aspm=off"
+EOF
+sudo limine-mkinitcpio && sudo limine-update
+sudo reboot
+```
+
+Plain Arch, GRUB: add `pcie_aspm=off` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
+
+**4. GSP firmware (`nvidia.NVreg_EnableGpuFirmware=0`) only matters with the closed kernel modules on a Turing or newer card.** It does not apply on Omarchy 4: Turing and newer cards get `nvidia-open-dkms`, whose modules require GSP, and Maxwell to Volta cards get `nvidia-580xx-dkms`, and those GPUs have no GSP. On plain Arch with the closed modules on a Turing or newer card, add it the same way as step 3. See `nvidia-gsp-firmware-crashes`.
+
+**5. Collect a report** if it persists, for NVIDIA's forum or the open-gpu-kernel-modules tracker:
+
+```bash
+sudo nvidia-bug-report.sh
+```
+
+**Verify.** Several days of normal use and a sustained load test pass with no `Xid` lines in `journalctl -k`. `nvidia-smi -q -d CLOCK` shows the locked range is active after a reboot if you added the unit, and `cat /proc/cmdline` contains any kernel parameters you added.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=304020> · <https://bbs.archlinux.org/viewtopic.php?id=313284> · <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1151> · <https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1151#issuecomment-5502412431> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/nvidia.sh>
+
+---
+
 ## Finish an Omarchy install that fails with 'target not found: nvidia-580xx-dkms'
 
 `omarchy-nvidia-580xx-target-not-found` · severity: **high** · frequency: **occasional** · applies to: `arch`, `laptop`, `nvidia`, `omarchy`
@@ -2037,6 +2360,74 @@ pacman -Qkk omarchy                                               # 0 altered fi
 `/boot` is a vfat ESP mounted `dmask=0077`, so the `lsinitcpio` line needs root. There is no `/boot/initramfs-linux.img` to inspect on Omarchy 4.
 
 Sources: <https://github.com/omacom/omarchy/issues/7947> · <https://github.com/omacom/omarchy/issues/3954> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/nvidia.sh> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/nvidia.lua> · <https://archlinux.org/news/nvidia-590-driver-drops-pascal-support-main-packages-switch-to-open-kernel-modules/> · <https://wiki.archlinux.org/title/NVIDIA>
+
+---
+
+## Fix supergfxd hanging after 'omarchy toggle hybrid gpu' switches to Integrated mode
+
+`supergfxd-integrated-mode-hangs-hdmi-audio-function` · severity: **high** · frequency: **occasional** · applies to: `asus`, `hybrid-graphics`, `laptop`, `nvidia`, `omarchy`, `pipewire`, `supergfxctl`
+
+**Symptom.** After `omarchy toggle hybrid gpu`, choosing integrated only and rebooting, the toggle now says `supergfxd is not responding. Try again, or check: systemctl status supergfxd`. `timeout 5 supergfxctl -g` exits 124. HDMI outputs wired to the dGPU are gone but the battery still drains, `systemctl reboot` or suspend can hang, and the journal shows:
+
+```
+INFO: task supergfxd:1022 blocked for more than 122 seconds.
+ snd_card_free+0x7a/0xa0 [snd]
+ unbind_store+0xa4/0xb0
+```
+
+**Cause.** In Integrated mode supergfxd removes the NVIDIA modules and unbinds both PCI functions of the dGPU, including its HDMI audio function (`0000:01:00.1`, driver `snd_hda_intel`). `snd_card_free` waits for the last reference to the ALSA card, and WirePlumber, which starts with the session at the same moment, has just opened it. `supergfxd.service` is `Type=dbus`, so systemd counts it started once it owns its bus name, and the mode change runs afterwards, during session startup. Omarchy's `delay-start.conf` (`ExecStartPre=/bin/sleep 5`) only moves the collision later (omarchy#10445, HP Victus and Alienware m16 R1, Omarchy 4.0.2 and 4.0.4). The same deadlock also happens from a running session: Omarchy's `force-igpu` system-sleep hook switches to Vfio before hibernate and back afterwards, and with PipeWire already holding the card, supergfxd hangs there too. After that every suspend fails at the freezer, and one reporter's laptop retried suspend with the lid closed until the battery died. A later comment found a second holder: Quickshell and Firefox reloading the NVIDIA module through GLVND after supergfxd removed it. A wedged supergfxd ignores SIGKILL. Restarting the audio stack releases the kernel unbind, but the daemon still does not recover.
+
+> **Audit corrected this record.** Symptom, boot-race cause and both fixes hold. /usr/share/omarchy/bin/omarchy-toggle-hybrid-gpu on 4.0.4-1 prints the quoted 'supergfxd is not responding' message, and its Integrated-to-Hybrid branch runs the same sed and removes /usr/lib/systemd/system-sleep/force-igpu and /etc/systemd/system/supergfxd.service.d/delay-start.conf. /usr/share/omarchy/default/systemd/system/supergfxd.service.d/delay-start.conf is `ExecStartPre=/bin/sleep 5`. omarchy#10445 (open) has the snd_card_free/unbind_store stack, the Type=dbus timing, the GLVND second holder, the SIGKILL note, and the udev rule and script reproduced word for word, including the Vfio case. Two gaps. First, the cause covers only boot. A 2026-10-02 comment (Alienware m16 R1, 4.0.4-1) shows the same deadlock from the running session when the force-igpu sleep hook switches to Vfio for hibernate, after which every suspend fails at the freezer and a closed lid looped suspend for two hours until the battery died. That matters for whether the record applies and is why the udev script includes Vfio. Second, the escape step ends with `sudo reboot` while supergfxd is stuck in uninterruptible sleep, which can hang, and a later comment shows restarting audio releases the kernel unbind but not the daemon. The cause and fix now say both. Not exercised: no supergfxd machine here.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A wedged supergfxd needs a forced power-off, which can lose unsaved work. The PCI address is machine-specific: a wrong one in the udev rule unbinds a different device.
+
+**Fix.**
+
+**Get out of the wedged state.** The daemon cannot be killed. Switch the config back to Hybrid from a terminal, then reboot:
+
+```bash
+sudo sed -i 's/"mode": ".*"/"mode": "Hybrid"/' /etc/supergfxd.conf
+sudo rm -f /usr/lib/systemd/system-sleep/force-igpu /etc/systemd/system/supergfxd.service.d/delay-start.conf
+sudo systemctl daemon-reload
+sudo reboot
+```
+
+Those are exactly the files `omarchy-toggle-hybrid-gpu` removes when it switches back to Hybrid. The reboot can hang on the stuck daemon. If it does, hold the power button. The config change is already written, so the next boot comes up in Hybrid mode. Until you have done this, do not suspend or hibernate with the lid closed, because a wedged supergfxd makes every suspend fail and the laptop keeps retrying.
+
+**To keep Integrated mode working** (community workaround from omarchy#10445, not an Omarchy fix). Detach the dGPU audio function as soon as it binds at boot, before WirePlumber exists. Find its address with `lspci -D | grep -i 'nvidia.*audio'` and use it in both files:
+
+```bash
+sudo tee /etc/udev/rules.d/90-ignore-nvidia-hdmi-audio.rules >/dev/null <<'EOF'
+ACTION=="bind", SUBSYSTEM=="pci", KERNEL=="0000:01:00.1", DRIVER=="snd_hda_intel", RUN+="/usr/local/bin/detach-nvidia-hdmi-audio"
+EOF
+sudo tee /usr/local/bin/detach-nvidia-hdmi-audio >/dev/null <<'EOF'
+#!/bin/sh
+grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(Integrated|Vfio)"' /etc/supergfxd.conf || exit 0
+echo 0000:01:00.1 > /sys/bus/pci/drivers/snd_hda_intel/unbind
+EOF
+sudo chmod 755 /usr/local/bin/detach-nvidia-hdmi-audio
+```
+
+The rule also matches Vfio because the `force-igpu` sleep hook passes through Vfio around hibernate, and the PCI rescan re-binds the audio function mid-session.
+
+The same commenter, on an AMD iGPU machine, also had to stop the session loading NVIDIA's EGL and VDPAU libraries. In `~/.config/hypr/hyprland.lua`, below `require("default.hypr.omarchy")`:
+
+```lua
+hl.env("__EGL_VENDOR_LIBRARY_FILENAMES", "/usr/share/glvnd/egl_vendor.d/50_mesa.json")
+hl.env("VDPAU_DRIVER", "radeonsi")
+```
+
+`VDPAU_DRIVER=radeonsi` fits an AMD iGPU only. Leave it out on Intel. The EGL line keeps every EGL app off the NVIDIA GPU, so remove both lines before switching back to Hybrid, or offloaded EGL apps will not use the dGPU.
+
+Then run `omarchy toggle hybrid gpu` again.
+
+**Verify.** After the reboot into Integrated mode, `timeout 5 supergfxctl -g` prints `Integrated` immediately, `journalctl -b -u supergfxd` contains `Reloaded gfx mode: Integrated`, and `journalctl -k -b | grep 'blocked for more than'` is empty.
+
+Sources: <https://github.com/omacom/omarchy/issues/10445>
 
 ---
 
@@ -2523,6 +2914,230 @@ Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/N
 
 ---
 
+## Raise a laptop NVIDIA GPU stuck at its base power limit by enabling nvidia-powerd
+
+`nvidia-powerd-not-enabled-laptop-tgp-capped` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `nvidia`, `omarchy`
+
+**Symptom.** Games run far worse than on Windows or CachyOS on the same NVIDIA laptop. `nvidia-smi` shows the card pinned at its default limit under full load, for example `Pwr:Usage/Cap 49W / 50W`, while `nvidia-smi -q -d POWER` lists a higher `Max Power Limit` it never reaches. Temperatures stay low, which makes it look like a hardware or driver fault. Some Proton games also log `SuspendThread loop failed` on exit.
+
+**Cause.** NVIDIA Dynamic Boost, the mechanism that lets a laptop GPU draw more than its base TGP, is not automatic on Linux. It needs the userspace daemon `nvidia-powerd`, which ships in `nvidia-utils` as `nvidia-powerd.service` with preset disabled, so nothing starts it unless the installer or the user enables it. Omarchy 4's `install/hardware/nvidia.sh` installs the driver and writes the modprobe and mkinitcpio files but never enables the service (confirmed on 4.0.4-1 by grepping `/usr/share/omarchy` for `powerd`, which returns nothing). Without the daemon the GPU stays at its Default Power Limit. omarchy#9678 reproduced it both ways on an RTX 5060 Laptop: 50 W with the daemon masked, 85 to 93 W with it running. Requirements per the Arch wiki: Ampere or newer GPU, Intel Comet Lake or AMD Renoir or newer platform, and firmware-level Dynamic Boost support.
+
+> **Audit corrected this record.** AUDITOR BREACH, read first (it concerns this workstation, not this record): while checking linux-omarchy-7-2-5-amdgpu-display-regression I ran `limine-update --help` to read its usage. limine-update has no help handling and re-execs itself through /usr/lib/limine/auth-helper, which falls back to sudo, and sudo is passwordless here. The journal shows `COMMAND=/usr/bin/limine-update --help` as root at 12:20:55 on 2026-10-05. It ran `limine-install --no-efi-register` (printed 'Limine EFI update completed successfully') and then `limine-mkinitcpio --help`, which printed 'Building UKI for linux (7.2.3-arch1-3)' before the pipe into `head -3` closed, so the UKI build for the Arch `linux` kernel was probably killed partway. The default kernel linux-omarchy had not been reached. I did not repair anything, because that would be another root action. The operator should run `sudo limine-update` to completion and check `sudo limine-entry-tool --tree` before the next reboot. The same journal shows other root runs at 12:20:46 (`limine-entry-tool --help`) and 12:21:06 (`limine-snapper-sync --remove --help`) that were not mine and came from other auditors. RECORD AUDIT: The core claim holds. omarchy#9678 (open) has the 50 W versus 85 to 93 W A/B with the daemon masked and running, the fresh-install `disabled; preset: disabled` status and the `SuspendThread loop failed` note. On this machine `pacman -Ql nvidia-utils` ships /usr/lib/systemd/system/nvidia-powerd.service, the presets in /usr/lib/systemd/system-preset do not enable it, and grep for powerd in /usr/share/omarchy returns nothing. The quattro install/hardware/nvidia.sh writes modprobe and mkinitcpio files and never enables the unit. The fix PR omarchy#10592 is still open. The Arch wiki CPU frequency scaling page lists the Ampere, Comet Lake / Renoir and firmware requirements as stated. Three defects. First, the record cites omarchy#3079 but ignores what it says: on an Omarchy 3 RTX 5070 Ti laptop, enabling nvidia-powerd stopped the machine reaching the graphical session after reboot, so the danger field was empty when it should carry the TTY recovery. Second, NVIDIA's own Dynamic Boost README says it engages only on AC power with GPU load and never on battery, which the verify step did not say, so a reader testing on battery concludes the fix failed. Third, the ASUS asusctl performance-profile line is not in any cited source and was dropped in favour of the wiki's firmware performance-mode note. Not exercised: no NVIDIA laptop here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** omarchy#3079 reports an Omarchy 3 laptop (RTX 5070 Ti, Ryzen 9955HX3D) that stopped reaching the graphical session after nvidia-powerd was enabled and the machine rebooted. The reporter recovered with NVIDIA modprobe options, one of which (`options nvidia_drm modeset=1`) Omarchy 4 already writes. Know the TTY recovery, `sudo systemctl disable --now nvidia-powerd` from Ctrl+Alt+F2, before rebooting.
+
+**Fix.**
+
+Check whether the platform supports Dynamic Boost and whether the daemon runs:
+
+```bash
+cat /proc/driver/nvidia/gpus/*/power
+systemctl status nvidia-powerd
+nvidia-smi -q -d POWER | grep -i 'power limit'
+```
+
+Enable it. The command is the same on Omarchy 4 and plain Arch, since the unit comes from `nvidia-utils`. Omarchy 4.0.4 does not enable it during install (the one-line fix, omarchy#10592, was still an open PR on 2026-10-05). Machines on the legacy `nvidia-580xx-utils` branch have pre-Ampere GPUs, which Dynamic Boost does not support, so this does not apply to them.
+
+```bash
+sudo systemctl enable --now nvidia-powerd
+```
+
+Test on AC power. NVIDIA's README says Dynamic Boost engages only when the laptop is plugged in and the GPU is under load, never on battery.
+
+Some laptops only expose the higher limit in a firmware or vendor performance mode (the Arch wiki names some Lenovo Legion models). If the limit does not rise, select that mode as well.
+
+If the machine no longer reaches the graphical session after the next reboot (reported on an Omarchy 3 install in omarchy#3079), switch to a TTY with Ctrl+Alt+F2, log in and turn the daemon back off:
+
+```bash
+sudo systemctl disable --now nvidia-powerd
+```
+
+On a desktop card, or a laptop without firmware Dynamic Boost support, the daemon has nothing to manage. Disable it again there with the same command.
+
+**Verify.** With the laptop on AC power and a GPU load running, `nvidia-smi --query-gpu=power.draw,power.limit --format=csv -l 2` shows `power.limit` above the Default Power Limit and draw climbing past the old cap. `systemctl is-enabled nvidia-powerd` prints `enabled`. On battery the limit stays at the default by design.
+
+Sources: <https://github.com/omacom/omarchy/issues/9678> · <https://wiki.archlinux.org/title/NVIDIA/Tips_and_tricks> · <https://wiki.archlinux.org/title/CPU_frequency_scaling> · <https://wiki.archlinux.org/title/NVIDIA_Optimus> · <https://github.com/omacom/omarchy/issues/3079> · <https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/dynamicboost.html> · <https://github.com/omacom/omarchy/pull/10592> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/nvidia.sh>
+
+---
+
+## Remove NVIDIA userspace pulled onto an AMD or Intel-only machine, which hijacks OpenGL and EGL
+
+`nvidia-utils-installed-on-amd-intel-only-system` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `intel`, `omarchy`, `steam`, `wayland`
+
+**Symptom.** A machine with no NVIDIA GPU has `nvidia-utils` and `lib32-nvidia-utils` installed, and odd graphics failures follow: Brave or Chromium's GPU process crashes repeatedly (backtrace through `libnvidia-egl-wayland2.so.1` and `libEGL_nvidia.so.0`) until the browser drops to software rendering, Minecraft or PrismLauncher dies with `Driver does not support OpenGL 3.3`, or Omarchy's Install > AI > Ollama menu installs `ollama-cuda` and about 3 GB of CUDA on an AMD card. `nvidia-smi` exists but says `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`.
+
+**Cause.** `nvidia-utils` provides the virtual `opengl-driver` and `vulkan-driver`, and `lib32-nvidia-utils` provides `lib32-vulkan-driver`. `steam` depends on `lib32-vulkan-driver`, and under `--noconfirm` pacman takes the first provider, `lib32-nvidia-utils`, which hard-depends on `nvidia-utils`. On Omarchy 4.0.4, `omarchy-install-gaming-steam` installs `steam` before its GPU-aware `omarchy-install-gaming-gpu-lib32` step, so AMD and Intel machines get the NVIDIA stack (omarchy#8856, #12392). The `quattro` branch fixed the order on 2026-10-04 (PR #12569, which closed #8856): the lib32 driver is installed first. That fix is not in v4.0.4, and it does not remove NVIDIA packages already installed. Lutris and Battle.net installs were noted as separate. Once installed, `nvidia-utils` ships `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`, which libglvnd tries before Mesa's `50_mesa.json`, so EGL context creation goes to the NVIDIA libraries first. The Ollama menu entry in `default/omarchy/omarchy-menu.jsonc` picks `ollama-cuda` whenever the `nvidia-smi` command exists, which is true here (omarchy#10380, still the case in 4.0.4).
+
+> **Audit corrected this record.** The mechanism and fix hold on 4.0.4-1. /usr/share/omarchy/bin/omarchy-install-gaming-steam runs `omarchy-pkg-add steam` before `omarchy-install-gaming-gpu-lib32`, and omarchy-pkg-add runs `pacman -S --noconfirm --needed`. Arch package JSON shows nvidia-utils provides opengl-driver and vulkan-driver, and multilib lib32-nvidia-utils provides lib32-vulkan-driver and depends on nvidia-utils. nvidia-utils owns /usr/share/glvnd/egl_vendor.d/10_nvidia.json. The install.ai.ollama entry in default/omarchy/omarchy-menu.jsonc picks ollama-cuda whenever nvidia-smi exists. linux-firmware depends on linux-firmware-nvidia. ollama-vulkan, ollama-rocm, vulkan-radeon and multilib lib32-vulkan-radeon all resolve on archlinux.org. omarchy#12392 and #10380 are open and support their claims. The cause has gone stale: omarchy#8856 was closed on 2026-10-04 after PR #12569 merged into quattro, and the quattro omarchy-install-gaming-steam now runs the GPU-aware lib32 driver step before installing Steam. That is not in a release yet (latest is v4.0.4), and the bot comment on #8856 says already-installed NVIDIA packages are not removed and Lutris/Battle.net ordering is separate. The cause now says so, because a reader on a later release needs to know new installs are fixed and existing ones still need this cleanup. Not exercised: no packages were removed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not run this on a machine that has an NVIDIA GPU, including a hybrid laptop whose dGPU is powered off and missing from a quick look: check `lspci` first. Removing the only Vulkan or OpenGL provider breaks Hyprland and Steam, so install the Mesa packages before removing anything.
+
+**Fix.**
+
+Confirm there is no NVIDIA hardware and see what pulled the packages in:
+
+```bash
+lspci | grep -iE 'vga|3d|display'
+pacman -Qi nvidia-utils lib32-nvidia-utils | grep -E '^(Name|Required By|Install Reason)'
+ls /usr/share/glvnd/egl_vendor.d/
+```
+
+Install the Mesa providers for your GPU FIRST, so the virtual dependencies stay satisfied:
+
+```bash
+# AMD
+sudo pacman -S --needed mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon
+# Intel
+sudo pacman -S --needed mesa lib32-mesa vulkan-intel lib32-vulkan-intel
+```
+
+Then remove the NVIDIA userspace. Preview it first:
+
+```bash
+sudo pacman -Rsp lib32-nvidia-utils nvidia-utils
+sudo pacman -Rs lib32-nvidia-utils nvidia-utils
+```
+
+If pacman refuses because some package still needs a provider, read which one and install its Mesa equivalent rather than forcing with `-Rdd`. Leave `linux-firmware-nvidia` alone: the `linux-firmware` meta package depends on it.
+
+If the Ollama menu installed `ollama-cuda` on an AMD card, swap the backend:
+
+```bash
+sudo pacman -Rns ollama-cuda
+sudo pacman -S --needed ollama-vulkan     # or ollama-rocm
+```
+
+Fully quit and restart the browser. Chromium's fall-back to software rendering after repeated GPU process crashes lasts only for that run, so a normal restart clears it once the NVIDIA libraries are gone. Check `chrome://gpu` (or `brave://gpu`) afterwards.
+
+**Verify.** `pacman -Q nvidia-utils` reports not found, `ls /usr/share/glvnd/egl_vendor.d/` shows only `50_mesa.json`, `glxinfo -B | grep renderer` (from `mesa-utils`) names radeonsi or Intel, and `chrome://gpu` in Chromium shows hardware acceleration enabled.
+
+Sources: <https://github.com/omacom/omarchy/issues/8856> · <https://github.com/omacom/omarchy/issues/12392> · <https://github.com/omacom/omarchy/issues/10380> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-install-gaming-steam> · <https://archlinux.org/packages/multilib/x86_64/lib32-nvidia-utils/> · <https://archlinux.org/packages/extra/x86_64/nvidia-utils/>
+
+---
+
+## Make Ollama use an AMD GPU that ROCm silently ignores
+
+`ollama-rocm-ignores-unsupported-amd-gpu` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `ollama`, `omarchy`, `rocm`
+
+**Symptom.** Ollama answers slowly and `amdgpu_top` or `ollama ps` shows the model running on CPU (`100% CPU`) even though the machine has a Radeon card. On Omarchy, Install > AI > Ollama may also have installed plain `ollama` or `ollama-cuda` instead of a ROCm or Vulkan backend.
+
+**Cause.** ROCm skips GPUs that are not on its supported list without an error, so `ollama-rocm` falls back to the CPU on many consumer and integrated Radeons. Separately, Omarchy's Ollama menu entry only picks `ollama-rocm` when the `rocminfo` command exists, and a stock Omarchy AMD install never has it, so AMD owners get CPU-only `ollama`, or `ollama-cuda` if `nvidia-utils` was pulled in (omarchy#10380, unchanged in 4.0.4). The Arch backends are add-on packages that depend on `ollama`: `ollama-rocm`, `ollama-vulkan` and `ollama-cuda`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Easiest on RDNA 3 and newer: use the Vulkan backend.** The Arch wiki notes it is usually faster than ROCm there and avoids the unsupported-GPU problem. No environment variable is needed:
+
+```bash
+sudo pacman -S --needed ollama-vulkan
+sudo systemctl restart ollama
+```
+
+Integrated GPUs are skipped unless you set `OLLAMA_IGPU_ENABLE=1` in the service.
+
+**Staying on ROCm: override the GFX version.**
+
+```bash
+sudo pacman -S --needed ollama-rocm
+/opt/rocm/bin/rocminfo | grep amdhsa          # e.g. gfx1103
+find /opt/rocm/lib/rocblas/library -name 'Kernels.so-*'
+```
+
+Pick a version from the rocblas list whose major part equals yours and whose other parts are not higher (a 4-digit `gfx1103` reads as `11.0.3`):
+
+```bash
+sudo systemctl edit ollama
+```
+
+```ini
+[Service]
+Environment="HSA_OVERRIDE_GFX_VERSION=11.0.0"
+```
+
+```bash
+sudo systemctl restart ollama
+```
+
+If the menu installed `ollama-cuda` on an AMD machine, remove it with `sudo pacman -Rns ollama-cuda`.
+
+**Verify.** Run a model, then `ollama ps` shows `100% GPU` and `amdgpu_top` shows GPU load and VRAM in use. `journalctl -u ollama -b | grep -i -E 'rocm|vulkan|gfx'` names the backend and device.
+
+Sources: <https://wiki.archlinux.org/title/Ollama> · <https://github.com/omacom/omarchy/issues/10380> · <https://archlinux.org/packages/extra/x86_64/ollama-vulkan/> · <https://archlinux.org/packages/extra/x86_64/hip-runtime-amd/>
+
+---
+
+## Fix Nautilus and other GTK4 apps that exit at launch or freeze on close on NVIDIA
+
+`gtk4-apps-exit-or-hang-nvidia-vulkan-renderer` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `gtk4`, `hyprland`, `nvidia`, `omarchy`, `wayland`
+
+**Symptom.** Files (Nautilus) does nothing when launched from the menu. From a terminal it prints `Gdk-Message: Error 22 (Invalid argument) dispatching to Wayland display` and exits with status 1, and the journal says `Lost connection to Wayland compositor`. Or, on other NVIDIA machines, Nautilus and GNOME Calculator open fine but hang every time the window is closed, with no crash and nothing in dmesg.
+
+**Cause.** GTK4 renders with its Vulkan renderer by default. Two NVIDIA failures sit on that path. On a machine where Hyprland's primary GPU is not the NVIDIA one (a second GPU, a virtio GPU in a passthrough VM) and the only Vulkan ICD is `nvidia_icd.json`, GTK renders on the NVIDIA card and hands explicit-sync dmabufs to a compositor rendering on the other GPU, and Hyprland drops the client (omarchy#12622, reproduced on Omarchy 4.0.4-1, gtk4 4.22.4, nvidia-open 610.57.04). Separately, the close-time hang reported in omarchy#883 was an NVIDIA 580 driver regression, which a commenter on that issue says NVIDIA fixed in 580.82.07. In both cases the GL renderer avoids the failing path. Omarchy 4.0.4 sets no `GSK_RENDERER` (confirmed by grepping `/usr/share/omarchy`).
+
+> **Audit corrected this record.** The cause and the structure of the fix hold. omarchy#12622 (open) has the exact Gdk-Message, the passthrough VM, gtk4 4.22.4 and a table where GSK_RENDERER=gl, ngl and cairo all work. omarchy#883 carries the 2026-09-18 comment that NVIDIA bug 5436037 was fixed in 580.82.07. grep for GSK_RENDERER in /usr/share/omarchy returns nothing on 4.0.4-1. hl.env is the documented call on the Hyprland wiki environment-variables page and is what Omarchy's own default/hypr/envs.lua and nvidia.lua use, and that page also says Hyprland manages variables in the systemd and D-Bus activation environments by default, so the session-wide setting reaches a D-Bus-activated Nautilus. omarchy#9902 is the open 'user envs.lua is never loaded' issue. /usr/share/applications/org.gnome.Nautilus.desktop here has DBusActivatable=true and two `Exec=nautilus` lines, which the sed handles. The defect is the renderer name. This machine runs gtk4 1:4.22.4-1 (Arch extra is 4.22.5), and libgtk-4.so.1 contains the string 'The new GL renderer has been renamed to gl', so `ngl` is the deprecated alias and triggers a warning on every launch. Open PR omarchy#9814 chose `gl` for exactly that reason ('GTK 4.22 logs a rename warning for ngl'). The fix and verify now use `gl`. Not exercised: no NVIDIA multi-GPU setup here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Confirm the renderer is the trigger with a one-off launch. Quit any running Nautilus first, because a new launch otherwise hands off to the existing instance and the variable never applies:
+
+```bash
+nautilus -q
+GSK_RENDERER=gl nautilus --new-window
+```
+
+Use `gl`, not `ngl`. GTK 4.22, which Omarchy 4 and current Arch ship, renamed the new GL renderer to `gl` and prints a deprecation warning for `ngl`.
+
+If that works, set it for the session.
+
+**Omarchy 4** (Lua config). Add this to `~/.config/hypr/hyprland.lua` below the `require("default.hypr.omarchy")` line. Do not put it in a new `~/.config/hypr/envs.lua`, because the stock `hyprland.lua` never requires that file (omarchy#9902):
+
+```lua
+-- GTK4: use the GL renderer instead of Vulkan on NVIDIA
+hl.env("GSK_RENDERER", "gl")
+```
+
+Log out and back in so every app inherits it.
+
+**Plain Arch with hyprlang** (`~/.config/hypr/hyprland.conf`):
+
+```
+env = GSK_RENDERER,gl
+```
+
+**Only one app:** copy its desktop file, prefix the command, and turn off D-Bus activation. Nautilus ships `DBusActivatable=true`, and a launcher that honours it starts Nautilus through its D-Bus service and ignores the `Exec` line:
+
+```bash
+mkdir -p ~/.local/share/applications
+cp /usr/share/applications/org.gnome.Nautilus.desktop ~/.local/share/applications/
+sed -i -e 's|^Exec=nautilus|Exec=env GSK_RENDERER=gl nautilus|' \
+       -e 's|^DBusActivatable=true|DBusActivatable=false|' \
+       ~/.local/share/applications/org.gnome.Nautilus.desktop
+nautilus -q
+```
+
+Nautilus can still be started by D-Bus without the variable, for example when another app asks it to show a folder. If that happens, use the session-wide setting instead.
+
+If only the close-time hang occurs and the driver is a 580 release older than 580.82.07, updating the driver is the real fix.
+
+**Verify.** `nautilus --new-window` opens and closes cleanly with no renderer warning in the terminal. In a new terminal, `echo $GSK_RENDERER` prints `gl`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12622> · <https://github.com/omacom/omarchy/issues/883> · <https://github.com/omacom/omarchy/issues/9902> · <https://wiki.hypr.land/Configuring/Environment-variables/> · <https://github.com/omacom/omarchy/pull/9814>
+
+---
+
 ## Fix Electron/Chromium apps stalling for a minute after boot on hybrid Intel+NVIDIA
 
 `igpu-electron-stall-i915-module-order` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
@@ -2630,6 +3245,55 @@ lsinitcpio /tmp/initrd | grep -E 'i915|nvidia'
 On plain Arch with a separate initramfs image, `lsinitcpio /boot/initramfs-linux.img | grep -E 'i915|nvidia'` still works.
 
 Sources: <https://wiki.hypr.land/Nvidia/> · <https://wiki.archlinux.org/title/NVIDIA>
+
+---
+
+## High-refresh monitor on NVIDIA tops out at 120 Hz, and higher modes give 'No Signal'
+
+`nvidia-hdmi-refresh-capped-at-120hz-deepcolor` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `nvidia`, `omarchy`, `wayland`
+
+**Symptom.** A 144, 165 or 180 Hz monitor connected to an NVIDIA GPU, usually over HDMI 2.0, only works up to 120 Hz. Selecting a higher mode turns the screen black and the monitor reports No Signal, then it falls back to 120 Hz or stays black. The same monitor and cable reach full refresh on nouveau, on Windows, or over DisplayPort.
+
+**Cause.** From the 555 driver series onward, the NVIDIA driver enables HDMI deep colour by default (it was off on 550.144.03, according to the user who found the fix in the linked BBS thread), and it appears to spend bandwidth on deep colour even for 8 bits per channel outputs. The Arch wiki describes this as newer drivers wasting bandwidth on 8 bpc outputs, which pushes the higher-refresh modes past the link's limits, so the mode fails to apply. The workaround is the `nvidia-modeset` module parameter `hdmi_deepcolor=0`, which exists on current drivers: `modinfo -p nvidia_modeset` on 610.57.04 lists `hdmi_deepcolor`, and its default is on. Users in the BBS thread confirm 120 Hz is the ceiling on HDMI with the NVIDIA driver, and that DisplayPort avoids it.
+
+> **Audit corrected this record.** Arch wiki NVIDIA/Troubleshooting 'Refresh-rate limited to 120Hz' gives nvidia-modeset.hdmi_deepcolor=0 and the HDR caveat, and says newer drivers 'after 550xx' waste bandwidth on 8 bpc outputs. BBS 302969 confirms the 120 Hz ceiling on HDMI with the NVIDIA driver, that nouveau, Windows and DisplayPort reach full refresh, and the poster who found the fix says deep colour was off by default on 550.144.03 and enabled from 555, so 'since the 550 driver series' is wrong by one series. open-gpu-kernel-modules nvidia-modeset-linux.c has static bool hdmi_deepcolor = true, module_param 0444. On this machine modinfo nvidia_modeset (610.57.04) lists hdmi_deepcolor:bool, /sys/module/nvidia_modeset/parameters/hdmi_deepcolor is root-only (so sudo cat is right), nvidia_modeset is in /etc/mkinitcpio.conf.d/nvidia.conf, and ~/.config/hypr/monitors.lua uses the same hl.monitor({ output, mode, position, scale }) form. Only the cause needed correcting. The parameter was not applied here.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Deep colour is required for HDR and 10-bit output over HDMI, so this parameter disables HDR on HDMI outputs. Remove it if you need HDR and use DisplayPort instead. The parameter is read only when the module loads, so a reboot is required. The usual Omarchy drop-in cautions apply: `+=` not `=`, and check `df -h /boot` before `limine-mkinitcpio`.
+
+**Fix.**
+
+**Quickest test:** use DisplayPort if the monitor has it.
+
+**Kernel parameter, Omarchy 4.** `nvidia_modeset` is loaded from the initramfs, so put the parameter on the command line through your own drop-in:
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+# `+=` appends. A bare `=` would wipe Omarchy's own defaults.
+KERNEL_CMDLINE[default]+=" nvidia_modeset.hdmi_deepcolor=0"
+EOF
+sudo limine-mkinitcpio && sudo limine-update && sudo reboot
+```
+
+**Plain Arch:** add `nvidia_modeset.hdmi_deepcolor=0` to the kernel command line (systemd-boot `options`, or `GRUB_CMDLINE_LINUX_DEFAULT` then `sudo grub-mkconfig -o /boot/grub/grub.cfg`). The alternative is `options nvidia_modeset hdmi_deepcolor=0` in `/etc/modprobe.d/nvidia-hdmi.conf` followed by `sudo mkinitcpio -P`.
+
+Then set the mode. On Omarchy 4, edit `~/.config/hypr/monitors.lua`:
+
+```lua
+hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@180", position = "auto", scale = 1 })
+```
+
+**Verify.** ```bash
+sudo cat /sys/module/nvidia_modeset/parameters/hdmi_deepcolor   # N once applied
+hyprctl monitors | grep -A1 HDMI
+```
+
+`hyprctl monitors` reports the higher refresh rate, for example `1920x1080@180.00000`, and the monitor's OSD agrees.
+
+Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://bbs.archlinux.org/viewtopic.php?id=302969> · <https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/kernel-open/nvidia-modeset/nvidia-modeset-linux.c>
 
 ---
 
@@ -2921,6 +3585,67 @@ Sources: <https://github.com/basecamp/omarchy/issues/1441> · <https://wiki.arch
 
 ---
 
+## All displays flicker at once on an AMD APU driving several high-refresh screens
+
+`amdgpu-multi-display-flicker-mclk-dpm` · severity: **medium** · frequency: **rare** · applies to: `amd`, `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** With the laptop panel and two external monitors running, all of them flicker briefly at the same moment, most visibly while scrolling or switching windows. It starts within seconds of normal use, every session. GPU load is low, temperatures are normal, and the kernel log has no error at all. With fewer displays, or lower refresh rates, it goes away.
+
+**Cause.** The driver accepts the combined display configuration but then lets the GPU's memory clock drop through DPM below what that configuration needs, which starves the display pipeline that all outputs share. drm/amd #5561 (Ryzen AI 9 365, Strix Point, DCN 3.5) describes 2560x1600@300 internal plus 2560x1440@144 and @100 externals. It flickered with `power_dpm_force_performance_level=auto` and was completely stable with `high`, with PSR, PSR-SU and Replay already disabled by the vendor's `amdgpu.dcdebugmask=0x610`. So this is not a self-refresh bug.
+
+The Arch wiki describes the same class of problem for discrete cards: deep memory-clock P-states causing flicker or stutter, worked around by forbidding them.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `high` keeps the GPU clocks up permanently, which on a laptop noticeably raises idle power, heat and fan noise, including on battery. Prefer the lower refresh rate, or remove the udev rule when undocked. A wrong `pp_dpm_mclk` index is rejected by the kernel and does no harm. `echo auto` to `power_dpm_force_performance_level`, or a reboot without the rule, restores the default.
+
+**Fix.**
+
+**1. Test at runtime** (resets at reboot). `card?` matches `card0` to `card9` and skips connector directories:
+
+```bash
+cat /sys/class/drm/card?/device/power_dpm_force_performance_level
+echo high | sudo tee /sys/class/drm/card?/device/power_dpm_force_performance_level
+```
+
+If the flicker stops, the memory clock is the cause. Put it back with `echo auto`.
+
+**2. Cheaper alternatives first.** Lowering one display's refresh rate cuts the bandwidth the pipeline needs. For example, in `~/.config/hypr/monitors.lua` on Omarchy 4:
+
+```lua
+hl.monitor({ output = "eDP-1", mode = "2560x1600@120", position = "auto", scale = 1.6 })
+```
+
+On a discrete card, the Arch wiki's approach of pinning only the memory clock to its top state, while leaving the core clock free, costs less power than `high`:
+
+```bash
+cat /sys/class/drm/card?/device/pp_dpm_mclk
+echo manual | sudo tee /sys/class/drm/card?/device/power_dpm_force_performance_level
+echo 3 | sudo tee /sys/class/drm/card?/device/pp_dpm_mclk   # the highest index listed above
+```
+
+**3. Persist with a udev rule.** This is the same on Omarchy 4 and plain Arch:
+
+```bash
+sudo tee /etc/udev/rules.d/30-amdgpu-perf-high.rules >/dev/null <<'EOF'
+ACTION=="add", SUBSYSTEM=="drm", DRIVERS=="amdgpu", ATTR{device/power_dpm_force_performance_level}="high"
+EOF
+sudo udevadm control --reload
+```
+
+Reboot to confirm that it applies at boot.
+
+**Verify.** ```bash
+cat /sys/class/drm/card?/device/power_dpm_force_performance_level   # high
+cat /sys/class/drm/card?/device/pp_dpm_mclk                          # the * marks the active level
+```
+
+Scroll and switch windows with all displays connected: no simultaneous flicker.
+
+Sources: <https://gitlab.freedesktop.org/drm/amd/-/issues/5561> · <https://wiki.archlinux.org/title/AMDGPU> · <https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/blob/main/src/ppd-action-amdgpu-dpm.c>
+
+---
+
 ## Hotplug an NVIDIA eGPU on Wayland without rebooting
 
 `egpu-nvidia-hotplug-wayland` · severity: **medium** · frequency: **rare** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `nvidia`, `omarchy`, `wayland`
@@ -3002,6 +3727,66 @@ Sources: <https://wiki.archlinux.org/title/External_GPU> · <https://wiki.archli
 
 ---
 
+## Stop a shell plugin's Qt MediaPlayer holding the NVIDIA dGPU awake on a hybrid Omarchy laptop
+
+`omarchy-shell-qtmultimedia-keeps-nvidia-dgpu-awake` · severity: **medium** · frequency: **rare** · applies to: `amd`, `hybrid-graphics`, `intel`, `laptop`, `nvidia`, `omarchy`
+
+**Symptom.** On an Intel or AMD plus NVIDIA laptop whose session renders on the iGPU, battery drains fast even at idle. `nvidia-smi` lists no processes, yet `cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status` stays `active`. `sudo fuser -v /dev/nvidia0 /dev/nvidiactl` shows `quickshell` holding about 19 handles alongside Hyprland.
+
+**Cause.** The Omarchy shell is Quickshell, started as `quickshell -n -p /usr/share/omarchy/shell` by `omarchy-launch-shell`. Stock Omarchy 4.0.4 shell code constructs no Qt Multimedia `MediaPlayer`, but a user-installed shell plugin under `~/.config/omarchy/plugins/` can. The reported case is the third-party lock-explorer plugin (SirJul1337/omarchy-lock-explorer), which built its unlock-clip `MediaPlayer` eagerly. Constructing a `MediaPlayer` makes Qt's FFmpeg backend enumerate hardware encode and decode devices, which opens `/dev/nvidia0`, `/dev/nvidiactl`, `/dev/nvidia-uvm`, `/dev/nvidia-modeset` and a render node. Open handles block runtime D3, so the dGPU never suspends (omarchy#12506, Omarchy 4.0.4, quickshell 0.3.1). A minimal quickshell config with one `MediaPlayer {}` reproduces all 19 handles, and with none it opens none. Stopping the shell let the GPU suspend within about 15 seconds on the reporter's machine. Setting Qt's FFmpeg hardware device lists to empty stops the probing. The plugin's current source creates its player through a `Loader` only while its window is shown, so an up-to-date copy should no longer hold the GPU at idle. This is a different holder from apps rendering on the dGPU, which the record `nvidia-dgpu-no-runtime-d3-battery-drain` covers along with the RTD3 setup itself.
+
+> **Audit corrected this record.** omarchy#12506 (open) supports the handle list, the 15 second suspend after stopping the shell, and the two QT_FFMPEG_*_HW_DEVICE_TYPES=, variables. The shell process is `quickshell -n -p /usr/share/omarchy/shell`, started by `hl.exec_cmd("omarchy-launch-shell")` in /usr/share/omarchy/default/hypr/autostart.lua, so it inherits hl.env values. The record misattributes the holder to Omarchy itself. grep of /usr/share/omarchy/shell on 4.0.4-1 finds no Qt Multimedia `MediaPlayer` anywhere. lock-explorer is a third-party plugin (github.com/SirJul1337/omarchy-lock-explorer) installed under ~/.config/omarchy/plugins/, and the issue's own minimal repro shows a shell with no MediaPlayer opens no NVIDIA handles. A stock Omarchy shell does not hold the dGPU this way, so the title and cause misled every hybrid-laptop reader, and `common` overstates it. The plugin's current designs/UnlockClip.qml loads its player through a Loader only while its window is mapped, with a comment naming this exact problem, so updating the plugin is the first fix (read from source, not tested). The env-var fix stays as the fallback, now with the scope stated correctly: it affects every Qt app in the session. Uses `omarchy plugin list/update/disable`, which exist in /usr/share/omarchy/bin. Frequency lowered to rare. Not exercised: no hybrid NVIDIA laptop here.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Confirm the shell is the holder:
+
+```bash
+sudo fuser -v /dev/nvidia*
+cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status   # adjust the PCI address from lspci -D
+```
+
+Find which installed plugin creates a `MediaPlayer`. The stock Omarchy shell has none:
+
+```bash
+omarchy plugin list
+grep -rl 'MediaPlayer' ~/.config/omarchy/plugins/
+```
+
+Update that plugin, using the id `omarchy plugin list` prints. The current lock-explorer source only creates its player while its window is shown:
+
+```bash
+omarchy plugin update <id>
+```
+
+If it still holds the GPU after you log out and back in, disable it:
+
+```bash
+omarchy plugin disable <id>
+```
+
+If you need to keep a plugin that still creates a player at start, disable Qt's FFmpeg hardware backends for the session instead. In `~/.config/hypr/hyprland.lua`, below `require("default.hypr.omarchy")`:
+
+```lua
+-- Keep Qt Multimedia from opening the NVIDIA dGPU at shell start
+hl.env("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", ",")
+hl.env("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", ",")
+```
+
+The shell is started by `omarchy-launch-shell` from `/usr/share/omarchy/default/hypr/autostart.lua` and inherits `hl.env` values, so log out and back in to apply it.
+
+These variables apply to every Qt app in the session, not only the shell: Qt Multimedia video decode and encode fall back to software. Browsers and mpv use their own decoders and are unaffected.
+
+**Verify.** After logging back in, `sudo fuser -v /dev/nvidia*` no longer lists `quickshell`, and within about 15 seconds `runtime_status` reads `suspended`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12506> · <https://wiki.archlinux.org/title/NVIDIA_Optimus> · <https://github.com/SirJul1337/omarchy-lock-explorer>
+
+---
+
 ## Fix cursor artifacts, ghosting or an invisible cursor on NVIDIA + Hyprland
 
 `hyprland-nvidia-cursor-artifacts-hardware-cursors` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
@@ -3060,6 +3845,73 @@ Note `cursor:no_break_fs_vrr = 1` requires `no_hardware_cursors = 1` to take eff
 **Verify.** `hyprctl getoption cursor:no_hardware_cursors` returns `1`, and moving the pointer across monitors leaves no trails or ghosts.
 
 Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Variables.md> · <https://github.com/hyprwm/Hyprland/issues/15110> · <https://wiki.hypr.land/Nvidia/>
+
+---
+
+## Unlock AMD GPU clock, voltage and power controls for LACT or CoreCtrl
+
+`amdgpu-overclocking-locked-ppfeaturemask` · severity: **low** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `limine`, `manjaro`, `omarchy`
+
+**Symptom.** LACT or CoreCtrl shows the GPU but the overclocking, undervolting or power limit controls are greyed out or missing, or writing to `/sys/class/drm/card*/device/pp_od_clk_voltage` fails. LACT may say overclocking is not enabled.
+
+**Cause.** amdgpu only exposes manual clock and voltage control in sysfs when the PowerPlay overdrive bit is set in the `amdgpu.ppfeaturemask` kernel parameter. The default mask leaves `PP_OVERDRIVE_MASK` (0x4000) off. The Arch wiki warns that setting all 32 bits (`0xffffffff`) can enable unstable features that cause screen flicker or broken resume, and recommends adding only 0x4000 to the default mask. Omarchy installs power-profiles-daemon 0.30. Its `amdgpu_dpm` action, which would reset the amdgpu performance level on profile changes, is opt-in and off by default, and LACT 0.7.5 and newer also disables it when it connects to power-profiles-daemon 0.30 or newer.
+
+> **Audit corrected this record.** The kernel-parameter route holds: Arch wiki AMDGPU has the 0x4000 PP_OVERDRIVE_MASK advice, the 0xffffffff warning and the exact printf. LACT 0.10.1 is in extra and its README has the power-profiles-daemon 0.30+ note. The earlier correction's central claim is wrong for Omarchy 4: limine-mkinitcpio-hook 1.38.0 ships /usr/local/bin/mkinitcpio, which runs /usr/bin/mkinitcpio and then, for -P, asks whether to run limine-mkinitcpio and treats an empty answer as yes. LACT's regenerate_initramfs (lact-daemon/src/system.rs) calls run_command("mkinitcpio", ["-P"]) by name with Command::output(), so stdin is null, and systemd's default search path here is /usr/local/bin:/usr/bin. So LACT's button most likely does rebuild the UKI on Omarchy 4, and saying it 'rebuilds nothing' is not supported. I did not press the button or run mkinitcpio. The cause also overstated the power-profiles-daemon conflict: PPD's amdgpu_dpm action is opt-in (action-optin TRUE in ppd-action-amdgpu-dpm.c) and /var/lib/power-profiles-daemon/state.ini on this machine has amdgpu_dpm=false. This machine has no AMD GPU, so the mask arithmetic was checked against the wiki, not sysfs.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Overclocking or undervolting can cause crashes, GPU hangs and in rare cases hardware damage. Setting the full 0xffffffff mask can break suspend and resume. LACT documents recovery from a bad overclock on its wiki: keep that page handy before applying settings at boot.
+
+**Fix.**
+
+Compute a mask that adds only the overdrive bit to your current mask:
+
+```bash
+printf 'amdgpu.ppfeaturemask=0x%x\n' "$(($(cat /sys/module/amdgpu/parameters/ppfeaturemask) | 0x4000))"
+```
+
+Pick ONE of the two methods below. Do not set the mask both on the kernel command line and in `/etc/modprobe.d/`.
+
+**Omarchy 4, kernel parameter (recommended, because you can read it back in `/proc/cmdline`).** Put the printed value in your own drop-in and rebuild the UKI (replace the value with yours):
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" amdgpu.ppfeaturemask=0xfff7ffff"
+EOF
+sudo limine-mkinitcpio && sudo limine-update
+sudo reboot
+```
+
+If `zz-local.conf` already sets `amdgpu.ppfeaturemask` (for example the gfxoff workaround in `amdgpu-idle-freeze-gfxoff-ppfeaturemask`), edit that value in place to combine both bits rather than adding a second one.
+
+**Omarchy 4, LACT's "enable overclocking" button.** LACT sees `ID_LIKE=arch`, writes `options amdgpu ppfeaturemask=0x...` to `/etc/modprobe.d/99-amdgpu-overdrive.conf` and runs `mkinitcpio -P`. On Omarchy 4 that name resolves to `/usr/local/bin/mkinitcpio` from `limine-mkinitcpio-hook`, which runs the real mkinitcpio (there are no presets in `/etc/mkinitcpio.d/`) and then runs `limine-mkinitcpio` when its prompt gets no answer, as it does from the daemon. That should put the option into the UKI, but it has not been tested here, so check `/sys/module/amdgpu/parameters/ppfeaturemask` after the reboot. If you used the button and then switch to the kernel parameter, remove LACT's file and rebuild so the UKI does not carry two different masks:
+
+```bash
+sudo rm -f /etc/modprobe.d/99-amdgpu-overdrive.conf
+sudo limine-mkinitcpio
+```
+
+**Plain Arch, GRUB:** add the value to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`. On plain Arch with mkinitcpio presets, LACT's button also works.
+
+Then install and start LACT:
+
+```bash
+sudo pacman -S --needed lact
+sudo systemctl enable --now lactd
+```
+
+After the reboot, check:
+
+```bash
+cat /proc/cmdline
+printf '0x%x\n' $(( $(cat /sys/module/amdgpu/parameters/ppfeaturemask) & 0x4000 ))   # 0x4000 means overdrive is on
+```
+
+**Verify.** `cat /sys/module/amdgpu/parameters/ppfeaturemask` shows the new value, `cat /sys/class/drm/card*/device/pp_od_clk_voltage` prints clock tables, and LACT's overclocking page is editable.
+
+Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://github.com/ilya-zlobintsev/LACT> · <https://github.com/ilya-zlobintsev/LACT/blob/master/lact-daemon/src/system.rs> · <https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/blob/main/src/ppd-action-amdgpu-dpm.c>
 
 ---
 
@@ -3151,6 +4003,76 @@ Sources: <https://wiki.archlinux.org/title/AMDGPU> · <https://github.com/torval
 
 ---
 
+## Get Ollama back on the NVIDIA GPU after suspend and resume
+
+`ollama-cuda-falls-back-to-cpu-after-suspend` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `cuda`, `desktop`, `endeavouros`, `laptop`, `nvidia`, `ollama`, `omarchy`
+
+**Symptom.** Ollama used the NVIDIA GPU fine until the machine slept. After resume, models load on the CPU (`ollama ps` shows `100% CPU`), generation is slow, and the service log no longer lists the CUDA device. Rebooting fixes it until the next suspend.
+
+**Cause.** Ollama's own GPU documentation describes this as an NVIDIA driver bug: after a suspend and resume cycle Ollama sometimes fails to discover the NVIDIA GPU and falls back to the CPU. The workaround it documents is reloading the NVIDIA Unified Memory module `nvidia_uvm`, which CUDA uses. On Omarchy 4, `nvidia_uvm` is loaded early from the initramfs (`/etc/mkinitcpio.conf.d/nvidia.conf`), but it can still be unloaded and reloaded at runtime once nothing holds it.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Stop anything using CUDA, reload the module, restart Ollama:
+
+```bash
+sudo systemctl stop ollama
+sudo rmmod nvidia_uvm
+sudo modprobe nvidia_uvm
+sudo systemctl start ollama
+```
+
+If `rmmod` reports `Module nvidia_uvm is in use`, find the holder and stop it first:
+
+```bash
+sudo fuser -v /dev/nvidia-uvm
+```
+
+This is the same on Omarchy 4 and plain Arch.
+
+**Verify.** `ollama run <model> 'hi'` followed by `ollama ps` shows `100% GPU`, and `nvidia-smi` lists the `ollama` process.
+
+Sources: <https://github.com/ollama/ollama/blob/main/docs/gpu.mdx>
+
+---
+
+## Fix choppy 60 fps bar and menu animations on NVIDIA high-refresh monitors
+
+`omarchy-shell-animations-60fps-nvidia-basic-render-loop` · severity: **low** · frequency: **common** · applies to: `desktop`, `hyprland`, `nvidia`, `omarchy`, `quickshell`
+
+**Symptom.** On an NVIDIA GPU with a 144 Hz or 240 Hz monitor, Hyprland's window animations are smooth but everything the Omarchy shell draws (bar, tray drawer, menus, OSDs) moves at about 60 fps and looks choppy. Some NVIDIA users also see the lock screen crash with `QWaylandGLContext::makeCurrent: eglError: 0x3003` followed by `FATAL: Failed to initialize graphics backend for OpenGL`.
+
+**Cause.** Qt disables threaded OpenGL rendering on the proprietary NVIDIA driver whenever `XDG_CURRENT_DESKTOP` is set, as a workaround for QTBUG-95817. Qt Quick then uses its basic render loop, which drives animations from a roughly 16 ms timer with no vsync awareness, so the whole shell is capped near 60 fps. `QSG_INFO=1` reports `basic render loop` on NVIDIA and `threaded render loop` on Mesa (omarchy#7268, Omarchy 4.0.0, RTX 4090 and RTX 5080). With the Vulkan RHI backend the threaded loop is Qt's default everywhere. Omarchy 4.0.4 still sets no `QSG_RHI_BACKEND`.
+
+> **Audit corrected this record.** The cause holds. omarchy#7268 (open) quotes the qtwayland check that sets m_supportsThreading false when the EGL vendor is NVIDIA and XDG_CURRENT_DESKTOP is set, cites QTBUG-95817, shows `basic render loop` on an RTX 4090 and RTX 5080 against `threaded render loop` on Mesa, and measures 62 versus 240 fps with QSG_RHI_BACKEND=vulkan. Omarchy sets XDG_CURRENT_DESKTOP=Hyprland itself in /usr/share/omarchy/default/hypr/envs.lua, so every Omarchy session meets the condition. grep of /usr/share/omarchy on 4.0.4-1 finds no QSG_ variable, and the fix PR omarchy#7269 is still open. The lock-screen crash in the symptom comes from a 2026-08-26 comment on the same issue (Omarchy 4.0.1, RTX 4070 Super), and the shell runs as a process named `quickshell`, so the verify command works. One gap in the fix: it says 'run the shell on Qt's Vulkan backend', but hl.env sets the variable for the whole session, so every Qt Quick app launched afterwards also switches to Vulkan. The issue's PR deliberately scopes it to the shell and to machines where NVIDIA is the primary display GPU. The fix now states the wider scope and how to undo it. It keeps logging out rather than the issue's `omarchy restart shell`, which can re-lock a session whose locker has died. Not exercised: no NVIDIA desktop here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Run Qt Quick on its Vulkan backend. In `~/.config/hypr/hyprland.lua`, below `require("default.hypr.omarchy")`:
+
+```lua
+-- Qt Quick: Vulkan backend restores the threaded render loop on NVIDIA
+hl.env("QSG_RHI_BACKEND", "vulkan")
+```
+
+Log out and back in so the shell inherits it.
+
+This sets the variable for the whole session, not only the shell, so every Qt Quick app you launch afterwards also renders through Vulkan. Omarchy's proposed fix (PR omarchy#7269, still open on 2026-10-05) applies it to the shell only. If another Qt app misbehaves after the change, delete the line and log out and back in.
+
+Use this only when the NVIDIA GPU drives the display. On a hybrid laptop where the iGPU drives the panel, the shell already gets Mesa's threaded loop, and the issue author advises against forcing Vulkan there.
+
+**Verify.** `tr '\0' '\n' < /proc/$(pgrep -x quickshell)/environ | grep QSG_RHI_BACKEND` prints `QSG_RHI_BACKEND=vulkan`, and shell animations look as smooth as window animations.
+
+Sources: <https://github.com/omacom/omarchy/issues/7268> · <https://github.com/omacom/omarchy/pull/7269>
+
+---
+
 ## Kill the 1 to 2 second app launch delay caused by waking the dGPU
 
 `wayland-app-launch-delay-dgpu-wakeup` · severity: **low** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`
@@ -3196,5 +4118,43 @@ Log out and back in (`/etc/environment.d` is read by the systemd user manager, s
 **Verify.** Apps open without the extra pause, and `cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status` stays `suspended` while you launch them.
 
 Sources: <https://wiki.archlinux.org/title/PRIME> · <https://wiki.archlinux.org/title/External_GPU>
+
+---
+
+## Colours look too dark on an NVIDIA HDMI output at 60 Hz under Wayland
+
+`nvidia-hdmi-60hz-wrong-color-space-dark` · severity: **low** · frequency: **rare** · applies to: `arch`, `desktop`, `hyprland`, `nvidia`, `omarchy`, `wayland`
+
+**Symptom.** On an NVIDIA card driving a monitor or TV over HDMI at 60 Hz, everything looks darker and more contrasty than it should, with crushed blacks, under Hyprland or another Wayland compositor. The same screen over DisplayPort, or on another OS, looks right.
+
+**Cause.** The NVIDIA driver can pick the wrong colour space for some HDMI outputs at 60 Hz. The Arch wiki gives a GTX 1660 Super over HDMI as an example. Wayland compositors have no simple way to override the output colour space, so the workaround is the `nvidia-modeset` module parameter `debug_force_color_space=2`. It is present on current drivers: `modinfo -p nvidia_modeset` on 610.57.04 lists `debug_force_color_space`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** It is a debug parameter, so its meaning can change between driver releases. Remove it after a driver update if colours look wrong in the other direction. It applies to every output the driver manages. The usual Omarchy drop-in cautions apply: `+=` not `=`, and check `df -h /boot` before `limine-mkinitcpio`.
+
+**Fix.**
+
+**Omarchy 4.** Add the parameter through your own Limine drop-in:
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+# `+=` appends. A bare `=` would wipe Omarchy's own defaults.
+KERNEL_CMDLINE[default]+=" nvidia_modeset.debug_force_color_space=2"
+EOF
+sudo limine-mkinitcpio && sudo limine-update && sudo reboot
+```
+
+**Plain Arch:** add `nvidia_modeset.debug_force_color_space=2` to the kernel command line (systemd-boot `options`, or GRUB `GRUB_CMDLINE_LINUX_DEFAULT` then `sudo grub-mkconfig -o /boot/grub/grub.cfg`). The alternative is `options nvidia_modeset debug_force_color_space=2` in `/etc/modprobe.d/` followed by `sudo mkinitcpio -P`.
+
+Also check the display's own setting first. Many TVs have an HDMI black level or RGB range option (Low or Limited against High or Full) that causes the same look.
+
+**Verify.** ```bash
+sudo cat /sys/module/nvidia_modeset/parameters/debug_force_color_space   # 2 once applied
+```
+
+Black and dark-grey steps on a test pattern, such as a gradient image in a browser, are distinguishable again, and colours match DisplayPort or another machine.
+
+Sources: <https://wiki.archlinux.org/title/NVIDIA/Troubleshooting> · <https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/kernel-open/nvidia-modeset/nvidia-modeset-linux.c> · <https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/nvidia-modeset/os-interface/include/nvidia-modeset-os-interface.h>
 
 ---

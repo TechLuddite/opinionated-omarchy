@@ -78,7 +78,7 @@ const OMARCHY4 = (brief) =>
 // so the script is deterministic and resumable, and so a verdict can never land on a
 // record outside this set — merge_gapfill.py applies verdicts to EVERY record in a
 // category, and an unexpected slug would overwrite an already-audited record.
-const BATCHES = [
+const DEFAULT_BATCHES = [
   { category: 'wayland-compat', slugs: [
     'chromium-electron-keyring-password-prompt-every-launch',
     'drag-drop-fails-across-xwayland-boundary',
@@ -117,6 +117,17 @@ const BATCHES = [
   ]},
 ]
 
+// Since 2026-10-05 the batches may come in through `args.batches` instead, in the same
+// shape, so a run can be targeted without editing this file. They are still explicit
+// slug lists fixed at launch, so the run stays deterministic and resumable and the
+// out-of-scope filter below still holds. `args.context` replaces the paragraph that tells
+// auditors why these records need them, which used to describe only the first run.
+const BATCHES = (args && args.batches) || DEFAULT_BATCHES
+const CONTEXT = (args && args.context) ||
+  'These troubleshooting records were harvested into the corpus but **never audited** — the audit agent died on an ' +
+  'API streaming error, and they have carried a `gapfill-unaudited` flag ever since. You are the audit they missed.'
+const EXPECTED = BATCHES.reduce((n, b) => n + b.slugs.length, 0)
+
 const AUDIT_SCHEMA = {
   type: 'object',
   required: ['verdicts'],
@@ -135,6 +146,11 @@ const AUDIT_SCHEMA = {
           corrected_symptom: { type: 'string', description: 'ONLY if the symptom quotes a file, path or message that cannot occur: the full replacement' },
           corrected_danger: { type: 'string', description: 'ONLY if the danger is wrong or overstated for Omarchy 4: the full replacement' },
           corrected_verify: { type: 'string', description: 'ONLY if the verify step names something that does not exist on Omarchy 4: the full replacement' },
+          corrected_title: { type: 'string', description: 'ONLY if the title is wrong or misleading: the full replacement' },
+          corrected_severity: { enum: ['critical', 'high', 'medium', 'low'], description: 'ONLY if the severity is wrong' },
+          corrected_frequency: { enum: ['very-common', 'common', 'occasional', 'rare'], description: 'ONLY if the frequency is wrong' },
+          sources_remove: { type: 'array', items: { type: 'string' }, description: 'cited URLs that do not support the record or do not resolve' },
+          checked_against: { type: 'string', description: 'ONLY if you checked the claim on a live install: "<pacman -Q omarchy version> <YYYY-MM-DD>"' },
           sources: { type: 'array', items: { type: 'string' }, description: 'every URL you actually retrieved and relied on for this verdict' },
           confidence: { enum: ['high', 'medium', 'low'] },
         },
@@ -156,7 +172,9 @@ const AUDIT_RULES =
   '- **ok** if accurate, current, and actionable.\n\n' +
   '**If the `cause` is ALSO wrong, supply `corrected_cause` as well.** Do not leave a cause standing that you just ' +
   'disproved in your reason — a reader trusts the cause to decide whether the record even applies to them. ' +
-  'The same for `corrected_symptom`, `corrected_danger` and `corrected_verify`, and list the `sources` you relied on.\n\n' +
+  'The same for `corrected_symptom`, `corrected_danger`, `corrected_verify` and `corrected_title`, and list the `sources` you relied on. ' +
+  'A wrong severity or frequency goes in `corrected_severity` / `corrected_frequency`, and a cited URL that does not support the ' +
+  'record goes in `sources_remove`. Never put a correction only in `reason`: it will not be applied.\n\n' +
   '### Two failure modes that dominated the last audit — look for both\n' +
   '- **Stale Omarchy 3 assumptions.** A cause or fix asserting a git checkout at `~/.local/share/omarchy` that ' +
   '`omarchy update` hard-syncs. Omarchy 4 is pacman-owned at `/usr/share/omarchy`; edits there vanish on package ' +
@@ -173,7 +191,7 @@ const AUDIT_RULES =
   'Cite the canonical `/title/` URL regardless.\n' +
   '- **`wiki.hypr.land` is JS-only.** Fetch the markdown from the `hyprwm/hyprland-wiki` repo (`content/...`), ' +
   'e.g. via the `gh` API. `gh` is authenticated.\n' +
-  '- `basecamp/omarchy`\'s default branch is **`quattro`**, not `master` — `master` is the Omarchy 3 tree and many ' +
+  '- `omacom/omarchy` (renamed from `basecamp/omarchy`, and GitHub search rejects the old name): the default branch is **`quattro`**, not `master` — `master` is the Omarchy 3 tree and many ' +
   'raw URLs 404 against it.\n\n' +
   'Environment the corpus targets: Omarchy 4 ("Quattro"), Hyprland 0.56, PipeWire, NetworkManager, ufw. ' +
   'Hyprland config is **Lua** (`hyprland.lua`) since 0.55 deprecated hyprlang. Direct `pacman -Syu` is blocked by ' +
@@ -183,8 +201,7 @@ const AUDIT_RULES =
 
 const PROMPT = (cat, slugs, n) =>
   '## Technical Auditor: ' + cat + ' (batch ' + n + ')\n\n' +
-  'These troubleshooting records were harvested into the corpus but **never audited** — the audit agent died on an ' +
-  'API streaming error, and they have carried a `gapfill-unaudited` flag ever since. You are the audit they missed.\n\n' +
+  CONTEXT + '\n\n' +
   'Users COPY-PASTE these commands into a root shell. A wrong command breaks someone\'s machine.\n\n' +
   '### Load the records\n' +
   'Read `' + JSONL + '` (JSON Lines, one JSON record per line) and take **only** these ' + slugs.length + ' slugs:\n' +
@@ -243,6 +260,6 @@ const results = Object.keys(byCat).map(c => ({ category: c, audit: { verdicts: b
 const all = results.flatMap(r => r.audit.verdicts)
 const tally = all.reduce((a, v) => { a[v.status] = (a[v.status] || 0) + 1; return a }, {})
 const causes = all.filter(v => v.corrected_cause).length
-log('DONE: ' + all.length + '/28 verdicts — ' + JSON.stringify(tally) + ', ' + causes + ' with corrected_cause')
+log('DONE: ' + all.length + '/' + EXPECTED + ' verdicts — ' + JSON.stringify(tally) + ', ' + causes + ' with corrected_cause')
 
 return { results, total: all.length, tally, corrected_causes: causes }

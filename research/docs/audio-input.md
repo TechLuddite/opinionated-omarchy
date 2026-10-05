@@ -1,6 +1,60 @@
 # Audio & input devices
 
-34 problems. Sorted by severity, then by how often users hit it.
+60 problems. Sorted by severity, then by how often users hit it.
+
+## Stop the whole machine freezing a couple of minutes after a Bluetooth headset connects
+
+`bluetooth-headset-hfp-hard-freeze-kernel-7` · severity: **critical** · frequency: **occasional** · applies to: `arch`, `bluetooth`, `cachyos`, `laptop`, `omarchy`, `pipewire`, `wireplumber`
+
+**Symptom.** After the kernel 7.x / BlueZ 5.87 / PipeWire 1.6.8 updates, connecting a Bluetooth headset that has a microphone hard-freezes the laptop about 2 minutes after audio starts (95 to 120 seconds in one report). Only holding the power button recovers it and nothing is written to the journal, even with the soft and hard lockup panics enabled. Before the update the same headset worked. A related report freezes or panics when a headset voice call (HFP/HSP) starts or ends, for example on hanging up a Discord call.
+
+**Cause.** Not root-caused upstream, but it is tied to the Bluetooth voice (SCO) path of `btusb` on kernel 7.x. A CachyOS user captured five identical hard LOCKUP panics through pstore on 7.0.x and 7.1.x with the stack `btusb_work -> __set_isoc_interface -> usb_set_interface -> xhci_urb_dequeue`, triggered when a HFP/HSP connection is set up or torn down (CSR `0a12:0001` dongle). The Omarchy report (Qualcomm Atheros QCA9377, `0cf3:e500`, kernel 7.2.3) shows the same shape: restricting the headset to A2DP stops the freeze and drops `xhci_hcd` interrupts from about 420 to about 96 per second. Both reporters treat it as an upstream kernel regression.
+
+> **Audit corrected this record.** Issue #12405 read in full. It supports the freeze timing (95 to 120 s), the QCA9377 `0cf3:e500` hardware, kernel 7.2.3 with bluez 5.87 and pipewire 1.6.8, the xhci_hcd 420 to 96 interrupt drop, the WirePlumber A2DP-only workaround verbatim, and the kernel maintainer's request to A/B test 7.2.7 builds. Three defects. The symptom's `spa.bluez5: Failure in Bluetooth audio transport` log line appears nowhere in the issue or the linked forum thread, and the reporter states nothing reaches the log, so it was removed as fabricated. The cause said the conclusion came from no kernel trace, but the CachyOS thread the issue links has five pstore-captured hard LOCKUP panics with the identical stack `btusb_work -> __set_isoc_interface -> usb_set_interface -> xhci_urb_dequeue` on 7.0.x and 7.1.x when a SCO link is set up or torn down, so the cause was rewritten to cite it. The fix claimed Omarchy restores `bluetooth-a2dp-autoconnect.conf`: on 4.0.4-1 that file lives in /usr/share/omarchy/config/wireplumber and is copied to ~/.config at install, and no script in /usr/share/omarchy/bin or migrations touches wireplumber config again (only the ASUS mixer installer), so the claim was dropped. Confirmed locally: wireplumber 0.5.17 defines `bluetooth.autoswitch-to-headset-profile`. Note the original report was on Omarchy 3.8.5 with the Arch kernel, not linux-omarchy. Not exercised: no Bluetooth headset was connected and no WirePlumber change was made.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Each freeze is a hard power-off, which can lose unsaved work and, rarely, corrupt files being written. Apply the workaround before reconnecting the headset.
+
+**Fix.**
+
+Make Bluetooth headsets playback-only so the SCO path is never opened. Put this in its own file beside Omarchy's `bluetooth-a2dp-autoconnect.conf` rather than editing that one, so your change stays separate:
+
+```bash
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+```
+
+```conf
+# ~/.config/wireplumber/wireplumber.conf.d/52-bluetooth-a2dp-only.conf
+monitor.bluez.properties = {
+  bluez5.roles = [ a2dp_sink a2dp_source ]
+}
+
+wireplumber.settings = {
+  bluetooth.autoswitch-to-headset-profile = false
+}
+```
+
+```bash
+systemctl --user restart wireplumber
+```
+
+The cost is that the headset microphone stops working. Use the laptop or a USB mic for calls.
+
+To get HFP back, test a newer kernel when one ships and remove the file. Omarchy's kernel maintainer asked affected users to A/B test 7.2.7 builds in the issue. Check what you run:
+
+```bash
+uname -r
+pacman -Q bluez pipewire wireplumber
+```
+
+**Verify.** `pactl list cards | grep -A20 bluez_card | grep -E 'headset-head-unit|a2dp'` lists only A2DP profiles. Play audio through the headset for 15 minutes without a freeze.
+
+Sources: <https://github.com/omacom/omarchy/issues/12405> · <https://discuss.cachyos.org/t/recurring-hard-lockup-in-btusb-sco-path-set-isoc-interface-xhci-on-7-0-x-and-7-1-x-triggered-by-bluetooth-headset-mic/32090>
+
+---
 
 ## Unmute the ALSA channel that silences sound after a reboot or headphones
 
@@ -252,6 +306,60 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth>
 
 ---
 
+## Fix a Bluetooth headset mic that records silence because the card snaps back to A2DP
+
+`bluetooth-headset-mic-selected-but-stays-a2dp-silent` · severity: **high** · frequency: **common** · applies to: `arch`, `bluetooth`, `omarchy`, `pipewire`, `wireplumber`
+
+**Symptom.** You pick a Bluetooth headset's microphone in the Omarchy audio panel or in a call app and the headset stays on high quality music playback with a microphone that records nothing. Watching `pactl list cards | grep -E 'Name: bluez_card|Active Profile'` you may catch it flip to `headset-head-unit` for a fraction of a second and drop straight back to `a2dp-sink`. A recording from the `bluez_input.*` source is valid 48 kHz audio that is pure digital silence. Choosing the HFP profile by hand makes the microphone work.
+
+**Cause.** A WirePlumber policy bug present in 0.5.15, 0.5.16 and 0.5.17. When a capture stream links to the headset's loopback source, `autoswitch-bluetooth-profile.lua` correctly applies the headset (HFP) profile. That profile change emits an `EnumProfile` change, `device/select-profile.lua` treats it as a fresh profile-selection request, `find-best-profile.lua` picks the higher-priority `a2dp-sink`, and `apply-profile.lua` overwrites HFP while the capture link is still active. It reproduces with `device.restore-profile=false` and with every `bluez5.auto-connect` value tested, including Omarchy's own `bluetooth-a2dp-autoconnect.conf`, so it is not an Omarchy configuration problem. The fix was merged upstream as WirePlumber MR !892 (commit `f5c3eb35`) and ships in 0.5.18, whose NEWS lists "`autoswitch-bluetooth-profile` ... no longer gets overridden by `EnumProfile` triggered profile selection". Omarchy 4.0.4's `omarchy-audio-input-set-default` does not switch Bluetooth profiles itself (confirmed by reading it on 4.0.4-1, the PR that would add this, #9638, is still open). This is the opposite failure to the one in `bluetooth-headset-mic-hfp-a2dp-profile`, where auto-switching works and wrecks playback quality.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Check the version.**
+
+```bash
+pacman -Q wireplumber
+```
+
+0.5.15 to 0.5.17 have the bug.
+
+**2. Workaround: switch the profile by hand before the call, then select the mic.**
+
+```bash
+card=$(pactl list short cards | awk '/bluez_card/ {print $2; exit}')
+pactl list cards | sed -n "/Name: $card/,/Active Profile/p" | grep -E 'headset-head-unit|a2dp-sink'
+pactl set-card-profile "$card" headset-head-unit
+pactl set-default-source "$(pactl list short sources | awk '/bluez_input/ {print $2; exit}')"
+```
+
+If the listing shows only codec-suffixed names such as `headset-head-unit-msbc` or `headset-head-unit-cvsd`, use that exact name instead. After the call, go back to high quality playback:
+
+```bash
+pactl set-card-profile "$card" a2dp-sink
+```
+
+Do not turn `bluetooth.autoswitch-to-headset-profile` off to fix this. That setting stops switching into HFP, which is the opposite of what is wrong here.
+
+**3. Permanent fix: WirePlumber 0.5.18 or newer.**
+
+Plain Arch: 0.5.18 has been in `extra` since 2026-09-30, so a full system upgrade installs it.
+
+Omarchy 4: `omarchy update` takes Arch packages from `stable-mirror.omarchy.org`, which as of 2026-10-04 still served wireplumber 0.5.17-1. Keep using the workaround and re-check after each update:
+
+```bash
+omarchy update
+pacman -Q wireplumber
+```
+
+**Verify.** With a call app or `pw-record --target "$(pactl list short sources | awk '/bluez_input/ {print $2; exit}')" /tmp/bt-mic.wav` running, `pactl list cards | grep -A0 'Active Profile'` for the bluez card keeps reporting `headset-head-unit` for the whole recording, and `/tmp/bt-mic.wav` contains your voice rather than silence.
+
+Sources: <https://github.com/omacom/omarchy/issues/9380> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.18/NEWS.rst> · <https://wiki.archlinux.org/title/PipeWire> · <https://archlinux.org/packages/extra/x86_64/wireplumber/json/> · <https://github.com/omacom/omarchy/pull/9638>
+
+---
+
 ## Fix bluetoothctl reporting No default controller available
 
 `bluetoothctl-no-default-controller` · severity: **high** · frequency: **common** · applies to: `arch`, `bluetooth`, `cachyos`, `desktop`, `endeavouros`, `grub`, `hyprland`, `intel`, `laptop`, `manjaro`, `omarchy`, `systemd-boot`, `wayland`
@@ -359,6 +467,56 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth>
 
 ---
 
+## Fix the lock screen and polkit rejecting a correct password on a non-US layout
+
+`lock-screen-polkit-rejects-password-non-us-layout` · severity: **high** · frequency: **common** · applies to: `desktop`, `fcitx5`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** On a French, Spanish, German or other non-US Omarchy 4 install, the lock screen (especially after waking from sleep) and the polkit dialog reject the correct password, while `sudo` in a terminal accepts the same password seconds later. `journalctl` shows `pam_unix(polkit-1:auth): authentication failure`. `hyprctl devices` and `localectl status` both show the correct layout, so it looks like a corrupted password or faillock.
+
+**Cause.** The lock screen and the polkit agent are Quickshell (Qt) text fields, and `QT_IM_MODULE=fcitx` routes their keystrokes through fcitx5. On many installs `~/.config/fcitx5/profile` was generated with `DefaultIM=keyboard-us` and only a `keyboard-us` item, regardless of `/etc/vconsole.conf` (`XKBLAYOUT=fr`). So Qt fields type US while the compositor and terminals type the real layout. Waking from sleep only makes it visible, because the password field is the first text input focused after resume.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Repeated wrong attempts at the lock screen trigger a two-minute lockout after ten failures. Fix the profile from a terminal or TTY rather than retrying at the prompt.
+
+**Fix.**
+
+Point fcitx5's default group at your layout. Stop fcitx5 before editing, because it overwrites the file with its in-memory state when it exits (`restart` reverts the edit):
+
+```bash
+grep -E 'XKB' /etc/vconsole.conf          # e.g. XKBLAYOUT=fr
+systemctl --user stop omarchy-fcitx5.service
+```
+
+```ini
+# ~/.config/fcitx5/profile
+[Groups/0]
+Name=Default
+Default Layout=fr
+DefaultIM=keyboard-fr
+
+[Groups/0/Items/0]
+Name=keyboard-fr
+
+[GroupOrder]
+0=Default
+```
+
+For a variant the name is `keyboard-<layout>-<variant>`, for example `keyboard-ch-de_mac` with `Default Layout=ch-de_mac`.
+
+```bash
+systemctl --user start omarchy-fcitx5.service
+fcitx5-remote -n          # should print keyboard-fr
+```
+
+If you are locked out right now: switch to a TTY (Ctrl+Alt+F3) or ssh in, log in as the same user, and run the stop, edit, start sequence there. Typing the password using US key positions at the lock screen also works as a one-off.
+
+**Verify.** `fcitx5-remote -n` prints your layout's `keyboard-*` name. Run `pkexec true` and authenticate with a password containing layout-specific characters. Lock with `omarchy-system-lock` and unlock.
+
+Sources: <https://github.com/omacom/omarchy/issues/8060> · <https://github.com/omacom/omarchy/issues/7049>
+
+---
+
 ## Sound card vanishes from wpctl after resume and only a reboot brings it back
 
 `sound-card-disappears-after-suspend-resume` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `systemd`
@@ -403,6 +561,271 @@ systemctl --user stop pipewire.socket pipewire-pulse.socket wireplumber pipewire
 **Verify.** Suspend and resume, then check `cat /proc/asound/cards` still lists the card and `wpctl status` still lists the sink. `journalctl -b -k --since "5 minutes ago" | grep -i -E 'snd|resume error'` should be clean. Run `speaker-test -c 2` after resume. Repeat over three or four suspend cycles. This failure is frequently intermittent (often described as 'about every third suspend'), so a single successful resume proves nothing.
 
 Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture/Troubleshooting> · <https://wiki.archlinux.org/title/WirePlumber> · <https://wiki.archlinux.org/title/Power_management> · <https://raw.githubusercontent.com/systemd/systemd/main/man/systemd-suspend.service.xml> · <https://bbs.archlinux.org/viewtopic.php?id=305291> · <https://bbs.archlinux.org/viewtopic.php?id=274296> · <https://bbs.archlinux.org/viewtopic.php?id=177755>
+
+---
+
+## Stop letters typing digits on Apple and small laptop keyboards under Omarchy
+
+`apple-keyboard-letters-type-digits-numlock` · severity: **high** · frequency: **occasional** · applies to: `apple`, `desktop`, `hyprland`, `laptop`, `omarchy`
+
+**Symptom.** On an Apple keyboard without a numpad (for example Apple Wireless Keyboard `05ac:023a`) or a small laptop with an embedded Fn keypad, ordinary typing produces digits: `some keys` becomes `s60e 2eys`. `o` gives `6`, `m` gives `0`, `k` gives `2`. The same keys may type nothing at the lock screen and polkit prompt, making the lock screen effectively unenterable.
+
+**Cause.** Omarchy 4's packaged `/usr/share/omarchy/default/hypr/input.lua` sets `numlock_by_default = true` for every keyboard. On Apple keyboards `hid-apple` applies numeric-keypad emulation to letter keys while the NumLock LED is lit, even on models with no physical keypad. That translation happens in the kernel driver above evdev, so no layout or compositor rule undoes it. On small laptops with an embedded Fn keypad the keyboard firmware does the same thing itself when NumLock is on, and it reaches the kernel already as keypad codes. Either way the only fix is to keep NumLock off for that keyboard. In Omarchy 3 the setting lived in the user's own `input.conf`, in Omarchy 4 it moved into the packaged defaults.
+
+> **Audit corrected this record.** Issue #8912 (open) and the maintainer bot's reproduction support the symptom, the hid-apple numlock emulation for 05ac:023a, plain F6 as the escape, the per-device hl.device workaround verified with `hyprctl reload && hyprctl configerrors`, the lock and polkit impact with the faillock lockout, and the move of numlock_by_default from the user's input.conf in Omarchy 3 to default/hypr/input.lua in 4.0.0. Confirmed here: /usr/share/omarchy/default/hypr/input.lua sets numlock_by_default = true on 4.0.4-1 and quattro, `hyprctl getoption input:numlock_by_default` is true, and /etc/pam.d/omarchy-lock-password has deny=10 unlock_time=120. The Hyprland wiki devices page confirms hl.device({ name = ..., <input option> }) and config-options lists numlock_by_default default false, so the plain Arch branch holds. A 2026-09-21 comment confirms the laptop case on 4.0.4-1 (Gemini IV, M typing a dash). One defect in the cause: "The translation happens in the kernel above evdev" is true only for hid-apple. On a laptop with an embedded Fn keypad the keyboard firmware or embedded controller sends the keypad codes itself while the NumLock LED is lit. The corrected cause separates the two. Not exercised: any Apple or embedded-keypad hardware.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** If this hits at the lock screen, repeated wrong attempts trigger a two-minute lockout after ten failures. Press NumLock or F6 before retrying.
+
+**Fix.**
+
+**Escape right now:** press NumLock, or plain F6 on Apple keyboards (hid-apple maps F6 to NumLock while the overlay is active).
+
+**Omarchy 4, per device (keeps NumLock on for a real numpad elsewhere):**
+
+```bash
+hyprctl devices | grep -A2 -i keyboard     # note the exact device name
+```
+
+```lua
+-- ~/.config/hypr/input.lua
+hl.device({ name = "apple-wireless-keyboard", numlock_by_default = false })
+```
+
+**Or globally**, if you never use a numpad:
+
+```lua
+-- ~/.config/hypr/input.lua
+hl.config({
+  input = {
+    numlock_by_default = false,
+  },
+})
+```
+
+```bash
+hyprctl reload && hyprctl configerrors
+```
+
+**Plain Arch + Hyprland:** Hyprland's default is `numlock_by_default = false`, so this only happens if your own config turned it on. Remove it or scope it with `hl.device`.
+
+**Verify.** `hyprctl devices` shows `numLock: no` for the affected keyboard, `cat /sys/class/leds/*numlock*/brightness` reads `0` for it, and typing `omki` gives `omki`.
+
+Sources: <https://github.com/omacom/omarchy/issues/8912> · <https://wiki.hypr.land/Configuring/Core/Devices/> · <https://wiki.hypr.land/Configuring/Core/Config-options/>
+
+---
+
+## Choose between SOF and legacy HDA when speakers or the internal mic stay dead
+
+`intel-sof-vs-legacy-hda-dsp-driver-tradeoff` · severity: **high** · frequency: **occasional** · applies to: `arch`, `intel`, `laptop`, `limine`, `omarchy`, `pipewire`, `sof`
+
+**Symptom.** Intel laptop with `sof-firmware` already installed, and still broken in one of two ways. Either the speakers are silent although the SOF card is present (`Dummy Output`, or a sink that plays nothing), or the speakers work but the built-in microphone is missing entirely. `journalctl -k -b` shows `Digital mics found on Skylake+ platform, using SOF driver` or `SoundWire enabled on CannonLake+ platform, using SOF driver`. A forum fix of `dsp_driver=1` makes the speakers work but the internal mic vanishes.
+
+**Cause.** The kernel module `snd_intel_dspcfg` decides which driver owns the Intel audio DSP. In automatic mode it reads the PCI class and the ACPI NHLT table, and when it finds digital microphones (or SoundWire) it hands the device to SOF. SOF then needs a topology and a UCM profile matching the codec. Where none fits, for example the ASUS Vivobook K3605ZF with an ALC256, SOF captures the DMICs fine but the speakers produce nothing. The module parameter `dsp_driver` overrides the choice (`0=auto, 1=legacy, 2=SST, 3=SOF, 4=AVS`, from `MODULE_PARM_DESC` in `sound/hda/core/intel-dsp-config.c`). Legacy HDA (`snd_hda_intel`) drives the analog codec but cannot reach microphones wired to the DSP, which is why the internal mic disappears with `dsp_driver=1`. This is a different failure from missing SOF firmware, where the card never appears at all. `snd-intel-dspcfg` is a loadable module in both `linux-omarchy 7.2.5-3` and stock `linux` (checked in `/lib/modules/7.2.5-3-omarchy/kernel/sound/hda/core/`).
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `dsp_driver=1` removes the internal digital microphone on DMIC laptops, and a mode that does not suit the hardware can leave no working sound card at all. Booting is not affected, so the revert is always available: delete `/etc/modprobe.d/dsp-driver.conf` (or the `/etc/limine-entry-tool.d/99-dsp-driver.conf` drop-in), rebuild as above and reboot.
+
+**Fix.**
+
+**1. See which driver was chosen and why.**
+
+```bash
+journalctl -k -b | grep -iE 'using SOF driver|using SST driver|dsp_driver|sof-audio'
+lspci -k | grep -A3 -i audio            # Kernel driver in use: sof-audio-pci-intel-* or snd_hda_intel
+cat /sys/module/snd_intel_dspcfg/parameters/dsp_driver
+```
+
+**2. Try legacy HDA if the speakers are dead under SOF.**
+
+```bash
+echo 'options snd_intel_dspcfg dsp_driver=1' | sudo tee /etc/modprobe.d/dsp-driver.conf
+```
+
+Rebuild the initramfs so the copy that the `modconf` hook bundles agrees with `/etc`:
+
+```bash
+# Omarchy 4 (Limine UKI)
+sudo limine-mkinitcpio
+# plain Arch
+sudo mkinitcpio -P
+```
+
+Reboot. Expect working speakers and headphone jack and no internal digital mic. A USB or Bluetooth headset mic still works.
+
+**3. Or force SOF if automatic mode picked legacy and the internal mic is missing.** This needs `sof-firmware`:
+
+```bash
+echo 'options snd_intel_dspcfg dsp_driver=3' | sudo tee /etc/modprobe.d/dsp-driver.conf
+```
+
+Then rebuild and reboot as above.
+
+**Kernel command line instead of modprobe.d**, if you prefer:
+
+```bash
+# Omarchy 4: the command line lives inside the UKI, set it with a drop-in
+printf 'KERNEL_CMDLINE[default]+=" snd_intel_dspcfg.dsp_driver=1"\n' \
+  | sudo tee /etc/limine-entry-tool.d/99-dsp-driver.conf
+sudo limine-update
+```
+
+Plain Arch: append `snd_intel_dspcfg.dsp_driver=1` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`, or to the `options` line of your `/boot/loader/entries/*.conf` with systemd-boot.
+
+If neither mode gives both speakers and mic, the machine needs a kernel quirk or a UCM profile that does not exist yet. Report it to the SOF project with `alsa-info` output rather than stacking more module options.
+
+**Verify.** After reboot `cat /sys/module/snd_intel_dspcfg/parameters/dsp_driver` shows the value you set, `lspci -k` shows the matching driver in use, and `speaker-test -c 2 -t wav` plays. Check `wpctl status` for which sources exist so you know whether the internal mic survived.
+
+Sources: <https://github.com/torvalds/linux/blob/master/sound/hda/core/intel-dsp-config.c> · <https://github.com/thesofproject/sof/issues/11117> · <https://github.com/omacom/omarchy/issues/2332> · <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture>
+
+---
+
+## Fix Dummy Output on IPU7-camera laptops caused by a WirePlumber v4l2 hang
+
+`ipu7-camera-wireplumber-deadlock-dummy-output` · severity: **high** · frequency: **occasional** · applies to: `arch`, `intel`, `laptop`, `omarchy`, `pipewire`, `sof`, `wireplumber`
+
+**Symptom.** Fresh Omarchy 4.0.4 install on a laptop with an Intel IPU7 camera (reported on a ThinkPad X1 Carbon Gen 12 and a Dell XPS 14 DA14260) has no sound at all. `wpctl status` lists only `Dummy Output`, `pactl list cards` shows the SOF card with `Active Profile: off`, `paplay` ends with `Stream error: Timeout`, the bar shows audio muted and the volume keys do nothing. Restarting WirePlumber or running `omarchy restart audio` puts the card straight back to Off. The kernel side looks healthy: SOF driver bound, `sof-firmware` loaded, UCM present.
+
+**Cause.** Two layers. The trigger is `/usr/share/wireplumber/wireplumber.conf.d/hide-ipu7-v4l2.conf`, shipped by the `intel-ipu7-camera` package from the `omarchy` repo, which Omarchy installs automatically when the `OVTI08F4` ACPI device is present. It sets `device.disabled = true` on the IPU7's raw V4L2 nodes, which is a reasonable thing to do. The defect is in WirePlumber 0.5.16 and 0.5.17. Those releases run the V4L2 device-creation step in `scripts/monitors/v4l2/create-device.lua` as an `AsyncEventHook`, and its disabled branch logs a notice and returns without calling `transition:advance ()`. The transition never completes, the event hook never reports done, and WirePlumber's event dispatcher stops dispatching anything for the rest of the session. All policy starves behind it: profile selection (so the card stays on ACP's `off` default and creates no nodes), default-node selection and stream linking. 0.5.15 and earlier run the same step as a `SimpleEventHook` with no transition, so the bare `return` there is harmless. Confirmed on this workstation (wireplumber 0.5.17-1): line 42 of `/usr/share/wireplumber/scripts/monitors/v4l2/create-device.lua` is a bare `return`. WirePlumber 0.5.18 fixes it (NEWS: "made the v4l2 monitor advance its transition when a device is disabled", #1004, !894), and the 0.5.18 tag's copy of the file carries the missing line. Any `device.disabled = true` rule on a V4L2 device triggers the same hang on 0.5.16 or 0.5.17, not only on IPU7 machines.
+
+> **Audit corrected this record.** Most of the record holds. Issue #12720 and its two comments (X1 Carbon Gen 12, Dell XPS 14 DA14260) support the symptom, the trigger and the user-copy workaround. The intel-ipu7-camera 1.0.6-2 package downloaded from pkgs.omarchy.org ships hide-ipu7-v4l2.conf with device.disabled = true. install/hardware/intel/ipu7-camera.sh on quattro installs it when OVTI08F4 is present. On this workstation (wireplumber 0.5.17-1) line 42 of create-device.lua is the bare `return`. I ran the record's sed on a scratch copy: it adds exactly one line, and the result is byte-identical to the 0.5.18 tag's create-device.lua. The WirePlumber locations doc confirms $XDG_DATA_HOME/wireplumber is searched first, `omarchy restart audio` exists (bin/omarchy-restart-audio), and the 0.5.18 NEWS entry (#1004, !894) matches the record. Arch extra has had 0.5.18-1 since 2026-09-30. stable-mirror.omarchy.org still serves wireplumber 0.5.17-1 today, 2026-10-05. The version range is wrong. The tagged sources show 0.5.0 through 0.5.15 run this step as a SimpleEventHook with no transition, so a bare return there is harmless. The AsyncEventHook, and with it the hang, first appears in 0.5.16. So only 0.5.16 and 0.5.17 are affected. The record's check ("0.5.17 or older" plus a return after the log line) would match 0.5.15 too, and on that version the sed would insert a call on an undefined `transition`. Cause and fix are corrected to 0.5.16 and 0.5.17, and the check now also looks for AsyncEventHook. Not exercised: no WirePlumber restart and no IPU7 hardware here.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The user copy shadows the packaged script for as long as it exists, including after WirePlumber upgrades. Left in place after 0.5.18 arrives, it runs a 0.5.17 script against a newer daemon, which can break camera or audio policy in ways that are hard to trace back. Delete it as soon as `pacman -Q wireplumber` reports 0.5.18 or newer.
+
+**Fix.**
+
+**1. Confirm this is the cause.**
+
+```bash
+pacman -Q wireplumber intel-ipu7-camera
+ls /usr/share/wireplumber/wireplumber.conf.d/hide-ipu7-v4l2.conf
+journalctl --user -b -u wireplumber | grep -i 'V4L2 device .* disabled'
+grep -n 'EventHook' /usr/share/wireplumber/scripts/monitors/v4l2/create-device.lua
+sed -n 38,44p /usr/share/wireplumber/scripts/monitors/v4l2/create-device.lua
+```
+
+It applies only when all three hold: wireplumber is 0.5.16 or 0.5.17, the file declares `AsyncEventHook`, and the `log:notice (... " disabled")` line is followed directly by `return`. On 0.5.15 or older the file declares `SimpleEventHook`, this defect does not exist, and the edit below would break the script. Stop there and look elsewhere.
+
+**2. Shadow the broken script with a corrected user copy.** WirePlumber looks up scripts in `$XDG_DATA_HOME/wireplumber/scripts` before `/usr/share/wireplumber/scripts`, so nothing under `/usr` is touched and no package is rebuilt:
+
+```bash
+mkdir -p ~/.local/share/wireplumber/scripts/monitors/v4l2
+cp /usr/share/wireplumber/scripts/monitors/v4l2/create-device.lua \
+   ~/.local/share/wireplumber/scripts/monitors/v4l2/
+sed -i '/ disabled")$/a\          transition:advance ()' \
+   ~/.local/share/wireplumber/scripts/monitors/v4l2/create-device.lua
+sed -n 38,45p ~/.local/share/wireplumber/scripts/monitors/v4l2/create-device.lua
+```
+
+The block must now read:
+
+```lua
+        if cutils.parseBool (properties ["device.disabled"]) then
+          log:notice ("V4L2 device " .. properties["device.name"] .. " disabled")
+          transition:advance ()
+          return
+        end
+```
+
+**3. Restart audio.**
+
+Omarchy 4:
+
+```bash
+omarchy restart audio
+```
+
+Plain Arch:
+
+```bash
+systemctl --user restart wireplumber.service pipewire.service pipewire-pulse.service
+```
+
+**4. Remove the override once the fixed WirePlumber is installed.** WirePlumber 0.5.18 has been in Arch `extra` since 2026-09-30, so on plain Arch a normal full upgrade fixes this and the override is not needed. On Omarchy 4 `omarchy update` pulls Arch packages from `stable-mirror.omarchy.org`, and as of 2026-10-05 that snapshot still served wireplumber 0.5.17-1, so `omarchy update` does not fix it yet. Check after each update:
+
+```bash
+pacman -Q wireplumber
+# once it reports 0.5.18 or newer:
+rm ~/.local/share/wireplumber/scripts/monitors/v4l2/create-device.lua
+omarchy restart audio
+```
+
+Do not remove `intel-ipu7-camera` to get sound back. The drop-in is not the defect, and removing the package takes the camera with it.
+
+**Verify.** `wpctl status` lists the real speaker and microphone nodes instead of only `Dummy Output`, `pactl list cards | grep 'Active Profile'` shows a `HiFi` profile rather than `off`, `paplay /usr/share/sounds/alsa/Front_Center.wav` plays (if `alsa-utils` ships that file on your system, otherwise any audio file), and the volume keys move the level and show the OSD.
+
+Sources: <https://github.com/omacom/omarchy/issues/12720> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.18/NEWS.rst> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.18/src/scripts/monitors/v4l2/create-device.lua> · <https://pipewire.pages.freedesktop.org/wireplumber/daemon/locations.html> · <https://archlinux.org/packages/extra/x86_64/wireplumber/json/> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.15/src/scripts/monitors/v4l2/create-device.lua> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.16/src/scripts/monitors/v4l2/create-device.lua>
+
+---
+
+## Get keyboard input back at the lock screen after resume when fcitx5 wedges
+
+`lock-screen-no-keyboard-input-after-resume-fcitx5` · severity: **high** · frequency: **occasional** · applies to: `fcitx5`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** After suspend and resume the Omarchy lock screen accepts no keystrokes at all. The "Enter Password" placeholder sits there and every key vanishes, which looks like a full system freeze, so people cold-boot. Hyprland is actually alive (`hyprctl` works over ssh) and the journal shows a clean resume. Clicking the password field does not help.
+
+**Cause.** The lock screen's password field is a Quickshell (Qt) `TextInput`, and `QT_IM_MODULE=fcitx` from `/usr/lib/environment.d/10-omarchy-fcitx.conf` routes it through fcitx5, which also holds Hyprland's input-method keyboard grab. If fcitx5 comes back from sleep unable to serve its input method, it swallows the keys. Nothing in Omarchy restarts fcitx5 across sleep: the system-sleep hooks shipped in 4.0.4 are `force-igpu`, `keyboard-backlight` and `unmount-fuse`. A second route to the same dead keyboard is a second fcitx5 started by D-Bus activation or an autostart entry, which fights `omarchy-fcitx5.service` through its `Restart=always` loop until the grab wedges. If clicking the field does fix typing, it is the separate lock-focus bug, not this one.
+
+> **Audit corrected this record.** Re-checked on 4.0.4-1. /usr/lib/environment.d/10-omarchy-fcitx.conf (omarchy-settings 4.0.4-1) sets QT_IM_MODULE=fcitx, the lock field is a `TextInput` at /usr/share/omarchy/shell/plugins/lock/LockView.qml:132 with activeFocusOnPress at :143, the installed system-sleep hooks are force-igpu, keyboard-backlight and unmount-fuse (quattro has since added an unrelated fprintd-resume), and the graphical session is on tty1, so the TTY switch-back instruction holds. Issue #9325 read in full: the body, triage and the rek comment support the fcitx5 restart, the busctl check, the click test and the stale lock surface variant. The earlier correction (--no-block hook, warning against omarchy-restart-shell) still stands. One gap: issue #7461 has a timestamped incident (parnoldx, 2026-09-22) explicitly linking to #9325, in which D-Bus activation started a second fcitx5, the two displaced each other through the unit's restart loop, and the keyboard went dead because fcitx5 holds Hyprland's input-method keyboard grab. A resume hook that restarts the unit does not stop that route, so the cause and the diagnosis step now name it and point at the restart-loop drop-in. Not exercised: no suspend cycle and no sleep hook installed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not run `omarchy-restart-shell` over ssh or from a TTY to recover: on a locked session it re-locks and leaves you with a fresh lock you still cannot release.
+
+**Fix.**
+
+**Recover now:** switch to a TTY (Ctrl+Alt+F3) or ssh in, log in as the same user, restart the managed unit, then switch back (Ctrl+Alt+F1 or F2):
+
+```bash
+systemctl --user restart omarchy-fcitx5.service
+```
+
+Do not run `fcitx5 -r -d` by hand. It takes fcitx5's D-Bus name away from the unit and `omarchy-fcitx5.service` then restart-loops every 2 seconds indefinitely.
+
+**Confirm it is fcitx5** next time, before restarting anything:
+
+```bash
+busctl --user --timeout=3 introspect org.fcitx.Fcitx5 /controller   # a timeout means fcitx5 is wedged
+systemctl --user show omarchy-fcitx5.service -p NRestarts           # climbing means two fcitx5 are fighting
+journalctl --user -u omarchy-fcitx5 -b --no-pager | tail
+omarchy-shell lock status
+```
+
+If `NRestarts` climbs every couple of seconds, a second fcitx5 is competing with the unit. Fix that first with the `Restart=on-failure` drop-in and the autostart check from the `omarchy-fcitx5-service-restart-loop` record, because a resume hook will not stop it.
+
+If fcitx5 answers promptly and restarting it does not bring typing back, this is a different defect reported in the same issue: the lock surface is not re-created after the screen list changes on resume. Do not run `omarchy-restart-shell` from a TTY or ssh to recover from it, because that re-locks the session and you cannot release the new lock either. Type the password at the physical keyboard if any surface takes input, otherwise reboot.
+
+**Restart it automatically after every resume** with a system-sleep hook. The reporter used a PrepareForSleep watcher. This hook is an equivalent built from systemd's documented interface and has not been exercised on hardware for this record. `--no-block` queues the restart and returns, so the job survives the end of the suspend service, unlike a backgrounded subshell. The heredoc expands `$USER` at creation time:
+
+```bash
+sudo tee /etc/systemd/system-sleep/restart-fcitx5 >/dev/null <<EOF
+#!/bin/bash
+if [[ \$1 == post ]]; then
+  systemctl --user --machine=${USER}@ --no-block restart omarchy-fcitx5.service
+fi
+EOF
+sudo chmod 755 /etc/systemd/system-sleep/restart-fcitx5
+```
+
+**If you type no CJK**, disabling fcitx5 removes it from the lock screen's key path entirely (you lose fcitx5-provided Compose sequences):
+
+```bash
+systemctl --user disable --now omarchy-fcitx5.service
+```
+
+**Verify.** Suspend, resume, and type at the lock screen without clicking. `journalctl --user -u omarchy-fcitx5 -b --no-pager | tail` shows a restart right after resume when the hook is installed.
+
+Sources: <https://github.com/omacom/omarchy/issues/9325> · <https://github.com/omacom/omarchy/issues/7461>
 
 ---
 
@@ -570,6 +993,113 @@ The device should now be reported as the real model name (e.g. `Synaptics TM3114
 **Verify.** `sudo libinput list-devices` shows the touchpad under its real model name, and `sudo libinput debug-events` emits motion events as you move a finger.
 
 Sources: <https://github.com/basecamp/omarchy/issues/5991> · <https://wiki.archlinux.org/title/Libinput>
+
+---
+
+## Stop HDMI audio crackling that started with the linux-omarchy 7.2.5 kernel
+
+`linux-omarchy-7-2-5-hdmi-audio-underruns` · severity: **high** · frequency: **rare** · applies to: `hdmi`, `intel`, `kernel`, `limine`, `omarchy`, `pipewire`
+
+**Symptom.** After `omarchy update` installed Omarchy 4.0.4 and the new `linux-omarchy 7.2.5-3` kernel, audio over HDMI or DisplayPort crackles, clips and distorts, and gets audibly worse while the mouse moves. The user journal floods with `spa.alsa: hdmi:0p: (0 suppressed) snd_pcm_avail after recover: Broken pipe` or PipeWire `XRun! rate:1024/48000 delay:6`, and `pw-top` shows the HDMI sink's ERR counter climbing several times a second. Analog and Bluetooth output on the same machine are clean. Reported on Intel Haswell machines (MacBookPro11,2 with Crystal Well graphics, a Haswell iGPU desktop).
+
+**Cause.** A kernel regression in `linux-omarchy 7.2.5-3` affecting the Intel display audio controller on these machines. Booting the stock Arch `linux 7.2.3-arch1-3` kernel, which Omarchy's kernel migration deliberately leaves installed, removes it completely on the same userspace (PipeWire 1.6.8, WirePlumber 0.5.17). Reporters ruled out the usual PipeWire causes by measurement: forcing a 2048 quantum, granting realtime priority with rtkit, `snd_hda_intel power_save=0` and CPU load all left the underrun rate unchanged. Whether the cause is an upstream 7.2.4 or 7.2.5 change or a `linux-omarchy` configuration or patch delta is not established. A `linux-omarchy 7.2.6rc3` test build fixed it for one reporter, but as of 2026-10-04 the `omarchy` repo still serves 7.2.5-3. Omarchy's migration `1789325478.sh` installs `linux-omarchy` and makes it the default by writing `BOOT_ORDER="linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"` into `/etc/default/limine`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Changing `BOOT_ORDER` changes which kernel boots by default. Confirm the stock `linux` package is installed before editing, keep both kernels installed, and remember the Limine menu still lets you pick either one if the default fails to boot.
+
+**Fix.**
+
+**1. Confirm the kernel and the symptom.**
+
+```bash
+uname -r                                   # 7.2.5-3-omarchy
+pacman -Q linux linux-omarchy
+journalctl --user -b | grep -c 'snd_pcm_avail after recover: Broken pipe'
+```
+
+**2. Test the stock kernel once from the boot menu.** At the Limine menu, open the Omarchy entry and pick the `7.2.3-arch1-3` kernel version instead of the `omarchy` one. If HDMI audio is clean there, this record applies.
+
+**3. Make the stock kernel the default (Omarchy 4).** `/etc/default/limine` is read with priority over every drop-in, and it is owned by no package:
+
+```bash
+grep BOOT_ORDER /etc/default/limine
+sudo sed -i 's/^BOOT_ORDER=.*/BOOT_ORDER="linux, *, *fallback, Snapshots"/' /etc/default/limine
+sudo limine-update
+```
+
+Only do this if `pacman -Q linux` reports the stock kernel as installed. Leave `linux-omarchy` installed so you can return to it.
+
+**4. Go back when a fixed linux-omarchy ships.** Check the repo version after each `omarchy update`:
+
+```bash
+pacman -Si linux-omarchy | grep Version
+```
+
+Then restore the original order and rebuild:
+
+```bash
+sudo sed -i 's/^BOOT_ORDER=.*/BOOT_ORDER="linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"/' /etc/default/limine
+sudo limine-update
+```
+
+Plain Arch: does not apply. The stock `linux` package did not show this regression in these reports.
+
+**Verify.** After rebooting, `uname -r` reports `7.2.3-arch1-3` (or whichever stock version is installed), HDMI playback is clean while moving the mouse, and `journalctl --user -b | grep -c 'Broken pipe'` stays at 0 during playback.
+
+Sources: <https://github.com/omacom/omarchy/issues/12131> · <https://github.com/omacom/omarchy/issues/12628>
+
+---
+
+## Restore Intel Mac speakers silenced by a CS4208 quirk in linux-omarchy
+
+`linux-omarchy-cs4208-mac-speakers-silent` · severity: **high** · frequency: **rare** · applies to: `apple`, `desktop`, `intel`, `kernel`, `laptop`, `limine`, `omarchy`
+
+**Symptom.** On an Intel Mac with a Cirrus Logic CS4208 codec, the built-in speakers went completely silent after the Omarchy 4.0.4 update installed `linux-omarchy 7.2.5-3` (iMac16,2). On a MacBookPro11,2 the kernel log shows the same wrong fixup, with one speaker line-out pin (`0x13`) and the internal mic pin (`0x18`) missing from the codec autoconfig compared with the stock kernel. `journalctl -k -b | grep CS4208` shows `CS4208: picked fixup  for PCI SSID 8086:7270` and `autoconfig for CS4208: line_outs=1 (0x12/0x0/0x0/0x0/0x0)`. Booting the stock `linux` kernel from the Limine menu brings the speakers back.
+
+**Cause.** `linux-omarchy` carries `0512-sound-fixes.patch`, which adds two CS4208 quirk entries for the MacBook Air 7,2 keyed on PCI subsystem ID `8086:7270`. That is Intel's generic subsystem ID for the HD Audio controller and appears on many other machines, including other Macs. On those the quirk wins over the correct Apple codec-SSID fixup and applies the MacBook Air 6 pin table, which marks the real speaker pins as disconnected (on the iMac16,2 pins `0x1d`/`0x1e`) and drops the internal mic pin. The stock kernel picks the fixup by codec SSID (`106b:xxxx`) and works. Tracked as omacom/omarchy-pkgs#510, open as of 2026-10-04, and the `linux-omarchy 7.2.6rc3` test build still had the wrong quirk.
+
+> **Audit corrected this record.** omarchy-pkgs#510 (open as of 2026-10-05) supports the cause: two 8086:7270 entries in 0512-sound-fixes.patch, the MBA6 pin table applied to an iMac16,2, the exact dmesg lines, and model=mbp11 restoring line_outs=2. #12131's comments confirm the same misfire on a MacBookPro11,2 with 7.2.6rc3 and again with 7.2.8-1. Locally, omarchy_hooks.conf includes modconf, limine-mkinitcpio exists and rebuilds every kernel with no argument, the BOOT_ORDER value matches migration 1789325478.sh, and /etc/default/limine is unowned. Two corrections. First, docs.kernel.org lists five CS4208 models: mba6, gpio0, mbp11, macmini and auto. The record listed four as if complete. Second, the MacBookPro11,2 evidence is a log comparison, with one speaker line-out pin (0x13) and the internal mic pin (0x18) missing from autoconfig. The reporter did not describe hearing a lost channel or a dead microphone, so the symptom now quotes what the logs show. Not exercised: no modprobe option, initramfs rebuild or boot order change was made here, and there is no CS4208 hardware.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A wrong `model=` value can silence outputs that currently work. Keep the file name noted so you can delete it and rebuild. Changing `BOOT_ORDER` changes the default kernel, so confirm `linux` is installed first.
+
+**Fix.**
+
+**1. Confirm the quirk fired.**
+
+```bash
+uname -r
+journalctl -k -b | grep -i cs4208
+grep -i 'Subsystem Id' /proc/asound/card*/codec#*
+```
+
+**Option A: force the correct fixup on linux-omarchy.** The kernel's model list for CS4208 is `mba6` (MacBook Air 6,1 and 6,2), `gpio0` (enable GPIO 0 amp), `mbp11` (MacBookPro 11,2), `macmini` (Mac mini 7,1) and `auto`. `model=mbp11` was confirmed by the reporter on an iMac16,2 (codec SSID `0x106b8100`). For a MacBookPro11,2 it is the model the kernel documentation names for that machine, but it was not tested on linux-omarchy in the cited reports.
+
+```bash
+echo 'options snd_hda_intel model=mbp11' | sudo tee /etc/modprobe.d/cs4208-mac.conf
+sudo limine-mkinitcpio      # modconf copies /etc/modprobe.d into the initramfs
+sudo reboot
+```
+
+Plain Arch equivalent of the rebuild: `sudo mkinitcpio -P`. Remove the file once a fixed kernel lands, because the forced model also applies under the stock kernel if you switch back.
+
+**Option B: boot the stock kernel by default (Omarchy 4).** Omarchy's kernel migration leaves `linux` installed and sets the order in `/etc/default/limine`:
+
+```bash
+pacman -Q linux linux-omarchy
+sudo sed -i 's/^BOOT_ORDER=.*/BOOT_ORDER="linux, *, *fallback, Snapshots"/' /etc/default/limine
+sudo limine-update
+```
+
+Restore `BOOT_ORDER="linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"` and run `sudo limine-update` again once omarchy-pkgs#510 is fixed in a released `linux-omarchy`.
+
+**Verify.** After reboot `journalctl -k -b | grep CS4208` shows `picked fixup mbp11 (model specified)` (Option A) or a codec-SSID fixup (Option B), the autoconfig line lists two speaker line-outs, and `speaker-test -c 2 -t wav` plays from both speakers.
+
+Sources: <https://github.com/omacom/omarchy-pkgs/issues/510> · <https://github.com/omacom/omarchy/issues/12131> · <https://docs.kernel.org/sound/hd-audio/models.html>
 
 ---
 
@@ -1153,6 +1683,67 @@ Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.
 
 ---
 
+## Get AltGr back after Omarchy's both-Alts layout switch removed it
+
+`altgr-dead-grp-alts-toggle` · severity: **medium** · frequency: **common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** AltGr does nothing on a Polish, German, Czech, Norwegian or other AltGr layout. On Norwegian `~ @ $ \ { } [ ] |` cannot be typed, on Polish `ą ć ę ł ń ó ś ź ż` are gone. Often started right after the Quattro (Omarchy 4) upgrade, or after uncommenting the multi-layout example in `~/.config/hypr/input.lua`. Compose on Caps Lock still works.
+
+**Cause.** The XKB option `grp:alts_toggle` (switch layout with Left Alt + Right Alt) redefines `<RALT>` as `Alt_R` + `ISO_Next_Group`, so Right Alt is no longer `ISO_Level3_Shift` and every level-3 character becomes unreachable. Omarchy 4 applies it in three places: the shipped user template `~/.config/hypr/input.lua` suggests `kb_options = "compose:caps,shift:both_capslock_cancel,grp:alts_toggle"`, the packaged `/usr/share/omarchy/default/hypr/input.lua` appends `,grp:alts_toggle` whenever it prepends `us,` for a non-Latin layout, and the Quattro migration rewrote some users' existing `grp:alt_shift_toggle` into `grp:alts_toggle`. On a single-layout keyboard there is no second group, so the only effect is losing AltGr. Confirmed on 4.0.4 with `xkbcli compile-keymap`.
+
+> **Audit corrected this record.** Cause and fix hold. Issue #9111 (open) body and comments state that grp:alts_toggle redefines <RALT> as Alt_R plus ISO_Next_Group, document the Norwegian single-layout case from the Quattro upgrade, and the pl,dk case from the shipped template, with grp:alt_altgr_toggle as the drop-in. Confirmed on this workstation: the user template ~/.config/hypr/input.lua (identical to /usr/share/omarchy/config/hypr/input.lua) suggests `compose:caps,shift:both_capslock_cancel,grp:alts_toggle`, the packaged default/hypr/input.lua appends `,grp:alts_toggle` in the non-Latin branch, and the quattro tree still has both. `xkbcli compile-keymap --layout pl,dk` shows <RALT> = Alt_R, ISO_Next_Group with grp:alts_toggle and ISO_Level3_Shift, ISO_Next_Group with grp:alt_altgr_toggle and with grp:alt_shift_toggle. evdev.lst lists grp:alt_altgr_toggle as "Both Alts together; AltGr alone chooses third level". `hyprctl getoption input:kb_options -j` returns a `str` key, so the jq diagnostic works, and jq 1.8.2 is installed. PR #9139, which preserves user kb_options across the upgrade, is still open, so the migration claim is current. The one defect is a source: #7255 is about the migration leaving kb_options untouched and trapping Caps Lock ON, it says nothing about AltGr or grp:alts_toggle, so it does not support this record. Not exercised: typing AltGr characters after a reload.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+See what is in effect and confirm Right Alt lost level 3:
+
+```bash
+hyprctl getoption input:kb_options
+xkbcli compile-keymap --layout pl --options "$(hyprctl getoption input:kb_options -j | jq -r .str)" | grep -A3 'key <RALT>'
+# broken: symbols[1]= [ Alt_R, ISO_Next_Group ]
+```
+
+**Single layout (no switching needed):** drop the `grp:` option entirely in `~/.config/hypr/input.lua`:
+
+```lua
+hl.config({
+  input = {
+    kb_layout = "no",
+    kb_options = "compose:caps,shift:both_capslock_cancel",
+  },
+})
+```
+
+**Two or more layouts, keep the Left Alt + Right Alt chord:** use `grp:alt_altgr_toggle`, which keeps Right Alt as AltGr when pressed alone:
+
+```lua
+hl.config({
+  input = {
+    kb_layout = "pl,dk",
+    kb_options = "compose:caps,shift:both_capslock_cancel,grp:alt_altgr_toggle",
+  },
+})
+```
+
+Or switch with Alt+Shift, which also leaves AltGr alone: `grp:alt_shift_toggle`.
+
+```bash
+hyprctl reload
+systemctl --user restart omarchy-fcitx5.service
+```
+
+**Plain Arch + Hyprland:** same fix in `~/.config/hypr/hyprland.lua`. Any `grp:alts_toggle` there costs you AltGr.
+
+**Verify.** `xkbcli compile-keymap --layout pl,dk --options 'compose:caps,shift:both_capslock_cancel,grp:alt_altgr_toggle' | grep -A3 'key <RALT>'` shows `ISO_Level3_Shift` (checked on this workstation). In an app, Right Alt + A types `ą` on Polish.
+
+Sources: <https://github.com/omacom/omarchy/issues/9111>
+
+---
+
 ## Fix audio crackling and stuttering when a second stream starts
 
 `audio-crackling-underruns-multiple-streams` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `wayland`
@@ -1354,6 +1945,76 @@ Log out and back in, then configure input methods with `fcitx5-configtool`, and 
 **Verify.** `fcitx5-diagnose` reports no errors for your frontends, and Ctrl+Space switches input methods with a working candidate popup in both a native Wayland terminal and an XWayland app.
 
 Sources: <https://wiki.archlinux.org/title/Fcitx5>
+
+---
+
+## Make a keyboard layout switch reach apps when fcitx5 keeps typing US
+
+`fcitx5-ignores-hyprland-layout-switch` · severity: **medium** · frequency: **common** · applies to: `desktop`, `fcitx5`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** On Omarchy 4 with two layouts configured (for example `kb_layout = "us,ir"` or `"us,es"`), Alt+Shift or a click on the bar's keyboard-layout widget changes the label (`EN` to `FA`), and `hyprctl devices -j` shows the physical keyboard's `active_keymap` switched, but GTK, Qt and Chromium apps keep typing the old layout.
+
+**Cause.** Omarchy runs fcitx5 in every session through `omarchy-fcitx5.service`, for XCompose sequences, and `/usr/lib/environment.d/10-omarchy-fcitx.conf` sets `INPUT_METHOD=fcitx`, `QT_IM_MODULE=fcitx`, `XMODIFIERS=@im=fcitx` and `SDL_IM_MODULE=fcitx`. Apps on that path get their keys processed by fcitx5 against its own virtual keyboard. The shipped `~/.config/fcitx5/profile` contains only `keyboard-us` (`DefaultIM=keyboard-us`), and fcitx5 does not follow Hyprland's XKB group, so compositor-side switches never change what fcitx5 commits.
+
+> **Audit corrected this record.** Issue #9552 (open) supports the symptom, the cause and option B, and a 2026-10-04 comment on 4.0.4-1 with us,es/cat confirms option A with keyboard-es-cat and ShareInputState=All. Confirmed on this workstation: /usr/lib/environment.d/10-omarchy-fcitx.conf is owned by omarchy-settings 4.0.4-1 and sets INPUT_METHOD, QT_IM_MODULE, XMODIFIERS and SDL_IM_MODULE as the cause says, omarchy-fcitx5.service has WantedBy=graphical-session.target and is enabled by a symlink in ~/.config/systemd/user, so `systemctl --user disable --now` works, and only first-run and migration 1785167800 enable it (a migration runs once, so an update does not re-enable it). ~/.config/fcitx5/profile holds only keyboard-us. fcitx5-remote and fcitx5-configtool both ship in fcitx5 5.1.22-1. Issue #8060 comments confirm stop, edit, start because restart reverts the profile. One defect: option B ends with "Log out and back in so the session environment is rebuilt". Disabling the unit changes nothing in the environment, since 10-omarchy-fcitx.conf still exports QT_IM_MODULE=fcitx, and the #9552 reporter saw switching work in all apps immediately. The corrected fix replaces that line. The upstream fix, PR #9565, is open. Not exercised: editing the profile or stopping fcitx5.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Pick one.
+
+**A. Keep fcitx5 and give it your layouts.** fcitx5 writes its in-memory profile back on exit, so stop it first, edit, then start it. `restart` silently reverts your edit.
+
+```bash
+systemctl --user stop omarchy-fcitx5.service
+```
+
+```ini
+# ~/.config/fcitx5/profile
+[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=keyboard-us
+
+[Groups/0/Items/0]
+Name=keyboard-us
+
+[Groups/0/Items/1]
+Name=keyboard-es-cat
+
+[GroupOrder]
+0=Default
+```
+
+The item name is `keyboard-<layout>` or `keyboard-<layout>-<variant>`. `fcitx5-configtool` lists the exact names. Share the active layout across windows:
+
+```ini
+# ~/.config/fcitx5/config
+[Behavior]
+ShareInputState=All
+```
+
+```bash
+systemctl --user start omarchy-fcitx5.service
+fcitx5-remote -n
+```
+
+Switch with fcitx5's own hotkey (Ctrl+Space by default). The bar widget still switches only the compositor layout.
+
+**B. You type no CJK and do not need fcitx5.** Disable it and Hyprland's XKB switching reaches every app. You lose Compose-key sequences that fcitx5 was providing:
+
+```bash
+systemctl --user disable --now omarchy-fcitx5.service
+```
+
+Restart any app that was already open. The session still exports `QT_IM_MODULE=fcitx` from `/usr/lib/environment.d/10-omarchy-fcitx.conf`, and with fcitx5 stopped apps fall back to the compositor keymap, so no logout is needed for the switch to take effect. To undo: `systemctl --user enable --now omarchy-fcitx5.service`.
+
+**Verify.** Switch layout, open a GTK or Chromium text field and type a key that differs between layouts. `fcitx5-remote -n` reports the second `keyboard-*` item after switching (option A).
+
+Sources: <https://github.com/omacom/omarchy/issues/9552> · <https://github.com/omacom/omarchy/issues/8060> · <https://github.com/omacom/omarchy/pull/9565>
 
 ---
 
@@ -1784,6 +2445,58 @@ Sources: <https://wiki.archlinux.org/title/Advanced_Linux_Sound_Architecture/Tro
 
 ---
 
+## Make the numeric keypad type digits on the Omarchy lock screen and polkit prompt
+
+`numpad-types-nothing-lock-screen-polkit` · severity: **medium** · frequency: **common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** The numeric keypad works in the terminal but types nothing (or moves the cursor like Home, Up, PageUp) in the lock screen password field, the polkit authentication dialog, the launcher and other Qt/Quickshell fields. NumLock is on and its LED is lit. A password with digits typed on the keypad is rejected. Refocusing the window or toggling NumLock sometimes fixes it for a while.
+
+**Cause.** Qt surfaces (the Quickshell lock screen, polkit dialog and launcher) end up with NumLock off in their own XKB state although the seat has it on, so keypad keys arrive as Home, Up, PageUp and so on with no text. One confirmed trigger: Hyprland sends a `wl_keyboard.keymap` after the `modifiers` event that carries NumLock, and Qt builds a fresh XKB state from the new keymap with NumLock off. The second keymap exists because fcitx5's virtual keyboard (`hl-virtual-keyboard-fcitx5`, started by `omarchy-fcitx5.service`) re-parses the keymap, and libxkbcommon 1.13.2 cannot round-trip a key that belongs to two modifiers: Omarchy's default `shift:both_capslock_cancel` maps `<LFSH>` to both Shift and Lock (`[XKB-800] Key "<LFSH>" added to modifier map for multiple modifiers`). The two keymaps differ, so Hyprland resends a keymap every time the active device flips between the real keyboard and fcitx5. The libxkbcommon side is fixed by xkbcommon/libxkbcommon#1054, in the 1.14.0 betas and not in 1.13.2. The Hyprland side is reported as hyprwm/Hyprland discussion 16371. This is not the only trigger: the original reporter of omacom/omarchy#8552 saw the same failure with fcitx5 stopped, and Qt's long-standing failure to read NumLock at startup (QTBUG-32687) is the other explanation in that thread. Omarchy's per-surface fixes (PR #10530 for polkit, #12667 for the lock screen) are open and not in 4.0.4.
+
+> **Audit corrected this record.** Issue #8552 was read in full. Its body attributes the bug to QTBUG-32687 and says stopping omarchy-fcitx5.service changed nothing for that reporter. A later comment traces the event order (modifiers then keymap, reported as Hyprland discussion 16371, which the old issue URL now redirects to), and another comment traces the second keymap to fcitx5's virtual keyboard and the XKB-800 round-trip, fixed by xkbcommon/libxkbcommon#1054 (merged 2026-07-16) and A/B tested with kb_options = "compose:caps". That commenter also notes a setup without fcitx5 that still fails. So the fcitx5 keymap flip is one confirmed trigger, not the only one, and the cause overstated it. Confirmed here: libxkbcommon is 1.13.2-1 installed and in Arch extra, upstream releases list 1.14.0-beta1 and beta2 only. The libxkbcommon 1.14 claim was softened because the thread only shows the keymaps should then match, not a test. The per-surface fixes, PR #10530 (polkit) and #12667 (lock screen), are open, and grep finds no KeypadModifier handling in /usr/share/omarchy on 4.0.4-1. The danger was wrong: /etc/pam.d/system-auth and /etc/pam.d/omarchy-lock-password both run pam_faillock deny=10 unlock_time=120, the tally is per user, so failed pkexec attempts count toward the same lockout and testing there is not safe. Not exercised: keypad behaviour, pkexec, locking.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Every password attempt counts toward one per-user faillock tally: `/etc/pam.d/system-auth` (used by polkit and sudo) and `/etc/pam.d/omarchy-lock-password` both run `pam_faillock deny=10 unlock_time=120`. Ten failures across the lock screen, `pkexec` and `sudo` combined lock the account for two minutes everywhere, including a TTY login. Test with `pkexec true` rather than at the lock screen, but stop after two or three failures, and check the count with `faillock --user $USER`.
+
+**Fix.**
+
+**Immediate workaround at a stuck prompt:** press NumLock twice. That resyncs Qt for that surface.
+
+**Omarchy 4, lasting fix when fcitx5 is the trigger:** make the physical and fcitx5 keymaps identical by dropping the double-Shift Caps Lock option. Compose on Caps Lock keeps working:
+
+```lua
+-- ~/.config/hypr/input.lua
+hl.config({
+  input = {
+    kb_options = "compose:caps",
+  },
+})
+```
+
+`kb_options` replaces Omarchy's value. If your layout is non-Latin (ru, ua, gr, ir and the others in Omarchy's list), Omarchy's default also adds `grp:alts_toggle` so you can reach your own layout, so keep it: `kb_options = "compose:caps,grp:alts_toggle"`. Check what is in effect first with `hyprctl getoption input:kb_options`.
+
+```bash
+hyprctl reload
+systemctl --user restart omarchy-fcitx5.service
+```
+
+Check the installed libxkbcommon. Upstream fixed the round-trip in 1.14.0 (beta only as of 2026-10-05, Arch ships 1.13.2), which should make the two keymaps match with the default option string. That is inferred from the fix, not tested, so keep the override until you have confirmed the keypad works without it:
+
+```bash
+pacman -Q libxkbcommon
+```
+
+**If the keypad still fails with fcitx5 stopped** (`systemctl --user stop omarchy-fcitx5.service`, start it again afterwards), fcitx5 is not your trigger. NumLock twice is then the only workaround until Omarchy ships the per-surface keypad mapping from PR #10530 and #12667. The same symptom on a laptop or Apple keyboard with letters turning into digits is a different problem (numlock keypad emulation).
+
+**Verify.** Lock the session, press keypad digits in the password field without touching NumLock and confirm they appear as dots. Open a polkit prompt (for example `pkexec true`) and type keypad digits.
+
+Sources: <https://github.com/omacom/omarchy/issues/8552> · <https://github.com/xkbcommon/libxkbcommon/releases> · <https://github.com/xkbcommon/libxkbcommon/pull/1054> · <https://github.com/omacom/omarchy/pull/10530> · <https://github.com/omacom/omarchy/pull/12667>
+
+---
+
 ## Restore touchpad right-click after updating to Omarchy 4.0
 
 `omarchy-touchpad-right-click-broken` · severity: **medium** · frequency: **common** · applies to: `hyprland`, `laptop`, `omarchy`, `wayland`
@@ -1830,6 +2543,117 @@ grep -rn 'clickfinger_behavior' ~/.config/hypr/
 **Verify.** `hyprctl getoption input:touchpad:clickfinger_behavior` returns the value you set, and a two-finger tap opens a context menu in a browser.
 
 Sources: <https://github.com/basecamp/omarchy/issues/6935> · <https://wiki.hypr.land/Configuring/Basics/Variables/>
+
+---
+
+## Get headphones working on SOF laptops that keep playing through the speakers
+
+`sof-laptop-headphones-no-autoswitch-split-ucm-profiles` · severity: **medium** · frequency: **common** · applies to: `arch`, `intel`, `laptop`, `omarchy`, `pipewire`, `sof`, `wireplumber`
+
+**Symptom.** On an Intel SOF laptop (reported on ThinkPad X1 Carbon 7th gen and Gen 9, card `skl_hda_dsp_generic` / `sof-hda-dsp`), plugging in headphones does nothing: sound keeps coming out of the speakers and the output picker lists only Speaker and the HDMI outputs. `amixer -c 0 cget iface=CARD,name='Headphone Jack'` reports `values=on` and the Headphones port shows as available, yet no headphone output appears. Switching by hand works but pauses whatever was playing.
+
+**Cause.** The UCM configuration for these cards exposes speakers and headphones as two mutually exclusive card profiles, for example `HiFi (HDMI1, HDMI2, HDMI3, Headphones, Mic1, Mic2)` and `HiFi (HDMI1, HDMI2, HDMI3, Mic1, Mic2, Speaker)`, so the headphone sink only exists after a profile change. WirePlumber's ALSA monitor sets `api.acp.auto-profile = false` and `api.acp.auto-port = false` for every ALSA card (lines 33 and 34 of `/usr/share/wireplumber/scripts/monitors/alsa.lua` on wireplumber 0.5.17, confirmed on this workstation), so ACP never follows the jack by itself. The pause on every switch is WirePlumber's `linking.pause-playback` hook (`mpris-pause.lua`), which pauses MPRIS players when their target sink disappears, and a profile change removes the sink. WirePlumber 0.5.18 changes `find-best-profile` to rank profiles on output availability before priority (#683, !885), which may improve the choice made at startup or on monitor hotplug. Whether it fixes live jack switching on these cards is not confirmed.
+
+> **Audit corrected this record.** Issue #11005 and its comments (X1 Carbon Gen 9 and 7th gen) support the split UCM profiles, the stale HDMI jack, the mpris-pause behaviour and the withdrawn auto-profile rule. On this workstation lines 33 and 34 of /usr/share/wireplumber/scripts/monitors/alsa.lua set api.acp.auto-profile and auto-port to false, linking/mpris-pause.lua exists, linking.pause-playback is a bool setting (default true) in wireplumber.conf, `wpctl settings --save` is a real option, and alsactl and amixer come from alsa-utils, which is in omarchy-base.packages. The 0.5.18 NEWS entry (#683, !885) is quoted accurately. The follow script needed fixing. The controller the reporter said works ran both `pactl set-card-profile` and `set-default-sink`, while the record's script only switches the profile. On these machines the HDMI jack stays on after unplug (point 2, confirmed on the 7th gen), so WirePlumber can leave a stale HDMI sink as the default. That fails the record's own verify step. The script also read the card name once at start, so a start before pipewire-pulse answered left it switching nothing forever. The replacement waits for the server, reads the card on every event and sets the default sink when a matching one appears. It is still written for this record and untested on that hardware, and it says so. Not exercised: no SOF hardware here and no service was installed.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The follow script hardcodes the ALSA card number (`alsa_card=0`) and the profile names. On a machine where the SOF card is not card 0, or after a UCM update renames the profiles, it switches the wrong card or fails every time. Check `aplay -l` and step 1 before enabling it.
+
+**Fix.**
+
+**1. Read the exact profile names.**
+
+```bash
+pactl list cards | grep -E 'Name: alsa_card|Active Profile|HiFi'
+pactl list short sinks
+```
+
+**2. Switch by hand.** Copy the names exactly as listed, they differ between machines:
+
+```bash
+card=$(pactl list short cards | awk '/alsa_card/ {print $2; exit}')
+pactl set-card-profile "$card" 'HiFi (HDMI1, HDMI2, HDMI3, Headphones, Mic1, Mic2)'
+# back to the speakers:
+pactl set-card-profile "$card" 'HiFi (HDMI1, HDMI2, HDMI3, Mic1, Mic2, Speaker)'
+```
+
+If the output still goes to an HDMI sink after the switch, make the new analog sink the default with `pactl set-default-sink <name>`, using the name from `pactl list short sinks`.
+
+**Do not set `api.acp.auto-profile = true` in a `monitor.alsa.rules` drop-in.** One reporter tried it and withdrew it: with an HDMI monitor attached it fought WirePlumber's own profile handling and produced stale duplicate sinks (`HDMI1.2`, `HDMI1.3`) and sound from the speakers while Headphones showed as default.
+
+**3. Optional: follow the jack with a user service.** What worked for the reporter was a single controller that watches the jack, switches the profile and sets the default sink. The script below is a minimal version of that pattern, written for this record and not tested on the reporter's hardware. Set the two profile names from step 1 and `alsa_card` to the SOF card's number from `aplay -l`:
+
+```bash
+#!/bin/bash
+# ~/.local/bin/headphone-profile-follow
+alsa_card=0
+hp='HiFi (HDMI1, HDMI2, HDMI3, Headphones, Mic1, Mic2)'
+spk='HiFi (HDMI1, HDMI2, HDMI3, Mic1, Mic2, Speaker)'
+
+apply() {
+  local card profile port sink
+  card=$(pactl list short cards | awk '/alsa_card/ {print $2; exit}')
+  [[ -n $card ]] || return
+  if amixer -c "$alsa_card" cget iface=CARD,name='Headphone Jack' | grep -q 'values=on'; then
+    profile=$hp
+    port=Headphones
+  else
+    profile=$spk
+    port=Speaker
+  fi
+  pactl set-card-profile "$card" "$profile"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    sink=$(pactl list short sinks | awk -v p="$port" '$2 ~ /^alsa_output/ && $2 ~ p {print $2; exit}')
+    [[ -n $sink ]] && break
+    sleep 0.2
+  done
+  [[ -n $sink ]] && pactl set-default-sink "$sink"
+}
+
+until pactl info >/dev/null 2>&1; do sleep 1; done
+apply
+alsactl monitor "hw:$alsa_card" | while read -r line; do
+  [[ $line == *"Headphone Jack"* ]] && apply
+done
+```
+
+If no sink name in `pactl list short sinks` contains `Headphones` or `Speaker` on your machine, the default-sink step does nothing and only the profile switches.
+
+```ini
+# ~/.config/systemd/user/headphone-profile-follow.service
+[Unit]
+Description=Switch card profile when headphones are plugged
+After=wireplumber.service
+PartOf=wireplumber.service
+
+[Service]
+ExecStart=%h/.local/bin/headphone-profile-follow
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+chmod +x ~/.local/bin/headphone-profile-follow
+systemctl --user daemon-reload
+systemctl --user enable --now headphone-profile-follow.service
+```
+
+**4. If the pause on switching bothers you**, turn the hook off. You also lose the pause when headphones are pulled out:
+
+```bash
+wpctl settings --save linking.pause-playback false
+```
+
+The same applies on plain Arch with PipeWire and WirePlumber 0.5.
+
+**Verify.** With headphones plugged, `pactl list cards | grep 'Active Profile'` shows the Headphones profile and `wpctl status` lists a Headphones sink as default. Unplugging returns to the Speaker profile (with the service) and sound follows.
+
+Sources: <https://github.com/omacom/omarchy/issues/11005> · <https://gitlab.freedesktop.org/pipewire/wireplumber/-/raw/0.5.18/NEWS.rst>
 
 ---
 
@@ -1965,6 +2789,125 @@ Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https:/
 
 ---
 
+## Stop Left Shift latching into permanent Shift in XWayland apps and games
+
+`xwayland-left-shift-latches-kb-options` · severity: **medium** · frequency: **common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** In X11 (XWayland) apps on Omarchy 4, one tap of Left Shift locks typing into a shifted state: letters come out uppercase and numbers come out as symbols (`1` becomes `!`) until Shift is pressed again. In Proton/XWayland games Shift-bound actions such as sprint just seem dead, which reads as dropped input or lag. Remote-desktop clients send the broken modifier to the remote machine. Wayland-native apps are fine.
+
+**Cause.** Omarchy 4's packaged `/usr/share/omarchy/default/hypr/input.lua` sets `kb_options = "compose:caps,shift:both_capslock_cancel"`. Each option is harmless alone, but together they put a `Caps_Lock` keysym on level 2 of both Shift keys. Wayland clients evaluate the XKB keymap correctly. The legacy core X11 keymap that XWayland exposes derives its modifier map from keysyms, finds `Caps_Lock` on the Left Shift keycode, assigns that key to `Lock` and drops it from `Shift`. `xkbcli dump-keymap-x11` shows `modifier_map Shift { <RTSH> }; modifier_map Lock { <LFSH> };`. Reproduced on this workstation with `xkbcli compile-keymap --layout us --options 'compose:caps,shift:both_capslock_cancel'`, which prints `modifier_map Lock { <LFSH> };`.
+
+> **Audit corrected this record.** Confirmed on this workstation (omarchy 4.0.4-1, libxkbcommon 1.13.2-1, Hyprland 0.56.2-2): /usr/share/omarchy/default/hypr/input.lua sets kb_options = "compose:caps,shift:both_capslock_cancel", the quattro tree still does, and hyprctl getoption input:kb_options -j returns that string. A read-only `xkbcli dump-keymap-x11` against the live XWayland printed `modifier_map Shift { <RTSH> }; modifier_map Lock { <LFSH> };`. `xkbcli compile-keymap --layout us` printed Lock { <LFSH> } for the pair, Lock { <CAPS> } for shift:both_capslock_cancel alone, no Lock line for compose:caps alone or compose:caps,grp:alts_toggle, and Lock { <CAPS> } for compose:ralt, so cause, diagnostic and verify hold. Issue #10545 (open) body and comment support the cause, the xkbcli repro, the Proton symptom, the fcitx5 restart and the relaunch gotcha. One defect in the fix: the compose:ralt alternative is offered with no warning. The cited issue itself says it costs Right Alt as Alt/AltGr, which breaks every AltGr layout, and compiling `--layout us,ru --options 'compose:ralt,grp:alts_toggle'` here shows <RALT> as Multi_key on group 1, so a non-Latin user who combines it with the group switch can no longer leave the us layout. The corrected fix adds both caveats and leaves everything else unchanged. Not exercised: applying the override or reloading Hyprland.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Confirm the collision (xkbcli ships with libxkbcommon, nothing to install):
+
+```bash
+xkbcli dump-keymap-x11 | grep -E 'modifier_map (Shift|Lock)'
+# broken: modifier_map Shift { <RTSH> };  modifier_map Lock { <LFSH> };
+hyprctl getoption input:kb_options
+```
+
+**Omarchy 4:** override the option string in `~/.config/hypr/input.lua`. `kb_options` replaces Omarchy's value and does not merge with it. Keep Caps Lock as Compose and drop the double-Shift Caps Lock chord:
+
+```lua
+-- ~/.config/hypr/input.lua
+hl.config({
+  input = {
+    kb_options = "compose:caps",
+  },
+})
+```
+
+**If your layout is non-Latin** (ru, ua, gr, ir, il, ara and the others in Omarchy's list), Omarchy's default prepends `us,` and adds `grp:alts_toggle` so you can reach your own layout. Overriding `kb_options` removes that, so keep a group switch in the new string. Check `hyprctl getoption input:kb_options` first and copy any `grp:` option it shows:
+
+```lua
+hl.config({
+  input = {
+    kb_options = "compose:caps,grp:alts_toggle",
+  },
+})
+```
+
+The cost is that Caps Lock cannot be engaged at all. If you need Caps Lock, move Compose instead and keep a plain Caps Lock key:
+
+```lua
+hl.config({
+  input = {
+    kb_options = "compose:ralt",
+  },
+})
+```
+
+`compose:ralt` turns Right Alt into Compose, so it removes AltGr. Do not use it on a layout that types characters with AltGr (de, pl, no, cz, fr and most other European layouts). Do not combine it with `grp:alts_toggle` either: both claim Right Alt, and on the `us` group Right Alt becomes Compose, so the Left Alt + Right Alt switch to your own layout stops working. On those layouts stay with `compose:caps`.
+
+Apply it, then restart fcitx5 so its virtual keyboard picks up the new keymap:
+
+```bash
+hyprctl reload
+systemctl --user restart omarchy-fcitx5.service
+```
+
+**Relaunch every running XWayland app.** X11 clients read the keyboard map once at startup, so a game or app that was already open keeps the broken map until it is restarted.
+
+**Plain Arch + Hyprland:** the same collision happens with any config that adds a `shift:both_capslock*` option. Remove it, or swap `compose:caps` for another compose key, in `kb_options` in `~/.config/hypr/hyprland.lua`.
+
+**Verify.** `xkbcli dump-keymap-x11 | grep -E 'modifier_map (Shift|Lock)'` prints `modifier_map Shift { <LFSH>, <RTSH> };` with no `<LFSH>` under Lock. In a freshly launched XWayland app, tapping Left Shift once and typing `a1` gives `a1`.
+
+Sources: <https://github.com/omacom/omarchy/issues/10545>
+
+---
+
+## Recover when Omarchy's fingerprint setup fails because a print is already enrolled
+
+`fingerprint-setup-enroll-duplicate-no-pam` · severity: **medium** · frequency: **occasional** · applies to: `fprintd`, `laptop`, `omarchy`
+
+**Symptom.** `omarchy setup security fingerprint` fails with `Enrollment failed. Please try again.` every time it is re-run, and the fingerprint is never used for sudo, polkit or the lock screen. `fprintd-enroll` prints `Enroll result: enroll-duplicate`. `fprintd-verify` matches, but `grep pam_fprintd /etc/pam.d/sudo` finds nothing and `/etc/pam.d/omarchy-lock-fingerprint` does not exist.
+
+**Cause.** `omarchy-setup-security-fingerprint` only writes the PAM configuration (`setup_pam_config` and `setup_lock_fingerprint_pam`) inside the success branch of `sudo fprintd-enroll "$USER"` followed by `fprintd-verify`. Once a print exists, enrolling the same finger returns `enroll-duplicate` and exits non-zero, so the script exits 1 before reaching PAM. `omarchy-remove-security-fingerprint` strips PAM lines and drops the packages but never runs `fprintd-delete`, so the print in `/var/lib/fprint/` survives and remove-then-setup lands in the same state. Confirmed by reading both scripts on 4.0.4-1.
+
+> **Audit corrected this record.** Re-read /usr/share/omarchy/bin/omarchy-setup-security-fingerprint and omarchy-remove-security-fingerprint on 4.0.4-1. The earlier correction holds: setup_pam_config and setup_lock_fingerprint_pam run only inside the success branch of `sudo fprintd-enroll "$USER"` and then `fprintd-verify`, the else branch prints `Enrollment failed. Please try again.` and exits 1, and the remove script strips PAM lines, deletes /etc/pam.d/omarchy-lock-fingerprint and runs `omarchy-pkg-drop fprintd libfprint libfprint-git` with no fprintd-delete. Issue #13433 (open, filed on 4.0.4-1) matches the symptom, the enroll-duplicate output and the `transfer failed` reader wedge. Diffing against the quattro branch (upstream latest release is still v4.0.4) found that unreleased quattro now has the remove script run `rm -rf /var/lib/fprint/$fingerprint_user`, while the setup script still exits on any enroll failure. The fix gains one paragraph saying so, so a reader on a later release knows which half is fixed. Cause, symptom, danger and verify are unchanged. Not exercised: no fingerprint reader here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `fprintd-delete "$USER"` removes every enrolled finger for that user. Re-enroll before relying on the fingerprint again.
+
+**Fix.**
+
+Delete the stored prints, then run the wizard so enrollment succeeds and PAM is written:
+
+```bash
+fprintd-list "$USER"
+sudo fprintd-delete "$USER"
+fprintd-list "$USER"          # should report no fingers enrolled
+omarchy setup security fingerprint
+```
+
+If `fprintd-list` is not found, you ran `omarchy-remove-security-fingerprint`, which uninstalls fprintd but leaves the prints in `/var/lib/fprint/`. Run `omarchy setup security fingerprint` once so it reinstalls the packages (it will fail again at enrollment), then run the `fprintd-delete` sequence above and the wizard a second time.
+
+Run the wizard as your user, not with `sudo`. The Omarchy scripts call sudo themselves and `sudo omarchy-...` loses `OMARCHY_PATH`.
+
+If `fprintd-enroll` instead fails with `Open failed with error: transfer failed`, the reader has wedged from repeated attempts. Wait for it to re-enumerate (`journalctl -k -f` shows `USB disconnect` then `new full-speed USB device`) before retrying.
+
+On the upstream `quattro` branch after 4.0.4, the remove script also deletes `/var/lib/fprint/<user>`, so once that ships remove-then-setup recovers by itself. The setup script there still exits on `enroll-duplicate`, so `fprintd-delete` stays the fix when a print is enrolled and PAM is not configured.
+
+**Verify.** ```bash
+grep -n pam_fprintd /etc/pam.d/sudo
+ls -l /etc/pam.d/omarchy-lock-fingerprint
+sudo -k && sudo true      # should ask for a fingerprint
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/13433> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-remove-security-fingerprint> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-setup-security-fingerprint>
+
+---
+
 ## Fix a fingerprint reader that stops working after the first suspend
 
 `fprintd-broken-after-suspend` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
@@ -2020,6 +2963,303 @@ cat /sys/power/mem_sleep
 **Verify.** `systemctl suspend`, resume, then `fprintd-verify` succeeds immediately without a hang.
 
 Sources: <https://wiki.archlinux.org/title/Fprint>
+
+---
+
+## Make the SDDM login screen use your keyboard layout instead of US
+
+`sddm-greeter-us-layout-after-logout` · severity: **medium** · frequency: **occasional** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `sddm`, `wayland`
+
+**Symptom.** After logging out of Omarchy 4, the SDDM login screen types US QWERTY although the install chose Finnish, French or another layout. The desktop session itself is correct and `localectl status` shows the right `X11 Layout`. A password containing layout-specific characters cannot be typed at the greeter.
+
+**Cause.** Omarchy's SDDM runs its greeter inside Hyprland with `/usr/share/sddm/hyprland.lua` (set by `CompositorCommand=start-hyprland -- --config /usr/share/sddm/hyprland.lua` in `/etc/sddm.conf.d/10-wayland.conf`). That file, owned by `omarchy-settings`, only sets `misc` and `animations`. It never reads `/etc/vconsole.conf` the way the session's `default/hypr/input.lua` does, so the greeter uses Hyprland's default `us`. Most Omarchy installs autologin at boot, so the greeter only appears after an explicit logout.
+
+> **Audit corrected this record.** The cause holds for 4.0.4: /etc/sddm.conf.d/10-wayland.conf sets CompositorCommand=start-hyprland -- --config /usr/share/sddm/hyprland.lua, both files are owned by omarchy-settings 4.0.4-1, and the shipped hyprland.lua only sets misc and animations. Issues #12611 and #8060 Bug B confirm it. `man 5 sddm.conf` here says /etc/sddm.conf is read last with highest precedence, and /etc/sddm.conf does not exist, so the override path is sound. What changed: upstream fixed it on the quattro branch on 2026-10-04 in commit 75b327bc ("Apply the system keyboard layout to the SDDM greeter", #6896). The new /usr/share/sddm/hyprland.lua reads XKBLAYOUT and XKBVARIANT from /etc/vconsole.conf and prepends us with grp:alts_toggle for non-Latin layouts. That commit is not in v4.0.4 (quattro is 712 commits ahead), so the record is right today, but its override would keep pinning the stale copy after the next release. The corrected fix adds a check for whether the installed file already handles it and tells the user to remove the override once it does. Not exercised: logging out to the greeter.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A syntax error in the greeter Lua file or a wrong path in /etc/sddm.conf can leave SDDM with no working greeter. Keep a TTY login available (Ctrl+Alt+F3) and remove /etc/sddm.conf from there to recover. Not exercised on a test VM for this record.
+
+**Fix.**
+
+First check whether your Omarchy already fixes this. Upstream made the greeter read `/etc/vconsole.conf` on 2026-10-04 (commit 75b327bc), after v4.0.4. If this prints matches, your release has the fix and you need nothing below, so make sure `XKBLAYOUT` (and `XKBVARIANT`) are set in `/etc/vconsole.conf` and log out to test:
+
+```bash
+pacman -Q omarchy-settings
+grep -n 'vconsole\|kb_layout' /usr/share/sddm/hyprland.lua
+```
+
+**Omarchy 4.0.4 and earlier (no match above):** do not edit `/usr/share/sddm/hyprland.lua` or `/etc/sddm.conf.d/10-wayland.conf`: both are owned by `omarchy-settings` and an update replaces them. Give the greeter its own config and point SDDM at it from `/etc/sddm.conf`, which SDDM reads last and which outranks `/etc/sddm.conf.d`.
+
+```bash
+sudo mkdir -p /etc/sddm
+sudo cp /usr/share/sddm/hyprland.lua /etc/sddm/hyprland-greeter.lua
+```
+
+Add an input block (use your layout and variant from `grep XKB /etc/vconsole.conf`):
+
+```lua
+-- /etc/sddm/hyprland-greeter.lua (append)
+hl.config({
+  input = {
+    kb_layout = "fi",
+    kb_variant = "",
+  },
+})
+```
+
+```ini
+# /etc/sddm.conf
+[Wayland]
+CompositorCommand=start-hyprland -- --config /etc/sddm/hyprland-greeter.lua
+```
+
+Log out to test. This override pins both the command line and a copy of the greeter config, so it keeps hiding upstream changes. After every Omarchy update run the `grep` check at the top again. Once the shipped file reads `vconsole`, remove the override and go back to the packaged greeter:
+
+```bash
+sudo rm /etc/sddm.conf /etc/sddm/hyprland-greeter.lua
+```
+
+**Verify.** Log out. At the SDDM password field type a layout-specific key (for example `ö` on Finnish) and confirm a dot appears, then log in.
+
+Sources: <https://github.com/omacom/omarchy/issues/12611> · <https://github.com/omacom/omarchy/issues/8060> · <https://github.com/omacom/omarchy/commit/75b327bc>
+
+---
+
+## Make disable-while-typing work when the touchpad still fires during typing
+
+`touchpad-disable-while-typing-not-working` · severity: **medium** · frequency: **occasional** · applies to: `apple`, `arch`, `hyprland`, `laptop`, `omarchy`, `touchpad`, `wayland`
+
+**Symptom.** The cursor jumps or the touchpad registers clicks while you type, even though `hyprctl getoption input:touchpad:disable_while_typing` reports `bool: true`. Typically starts after installing a key remapper (keyd, makima, kanata) or is there from day one on a T2 MacBook (MacBookPro15,2, MacBookPro16,1, MacBookAir9,1).
+
+**Cause.** libinput does not disable the touchpad for any key press. It pairs touchpads with keyboards, and in the common case the internal touchpad is paired only with the internal keyboard. Two setups break that pairing. (1) A remapper grabs the real keyboard and re-emits keys from a virtual uinput device. libinput does not consider that device internal, so typing never triggers disable-while-typing. keyd's README documents this and the quirk that fixes it. (2) On T2 Macs the built-in trackpad sits behind the `t2bce_vhci` virtual USB bridge and udev classifies it as external (`ID_INPUT_TOUCHPAD_INTEGRATION=external`), so libinput reports disable-while-typing as unavailable for it. Hyprland's `disable_while_typing` defaults to `true` and Omarchy 4 does not change it (it is absent from `/usr/share/omarchy/default/hypr/input.lua`), so the Hyprland setting is not the problem in either case.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Find the devices and how udev classified them.**
+
+```bash
+grep -E 'Name=|Handlers=' /proc/bus/input/devices
+udevadm info -q property -n /dev/input/eventN | grep -E 'NAME|INTEGRATION|ID_VENDOR_ID|ID_MODEL_ID'
+```
+
+Replace `eventN` with the touchpad's and the keyboard's event nodes from the first command.
+
+**Case 1: a remapper's virtual keyboard.** Mark it internal for libinput. This is the snippet from keyd's README, adjust `MatchName` to the virtual device name shown in `/proc/bus/input/devices` for other tools:
+
+```ini
+# /etc/libinput/local-overrides.quirks
+[Serial Keyboards]
+
+MatchUdevType=keyboard
+MatchName=keyd*keyboard
+AttrKeyboardIntegration=internal
+```
+
+**Case 2: a T2 MacBook trackpad classified as external.** Mark it internal with a udev rule. Use your own `ID_MODEL_ID` from step 1: reports so far are `027b` (MacBookPro15,2) and `0340` (MacBookPro16,1).
+
+```udev
+# /etc/udev/rules.d/99-apple-t2-internal-touchpad.rules
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", \
+  ENV{ID_INPUT_TOUCHPAD}=="1", ENV{ID_VENDOR_ID}=="05ac", ENV{ID_MODEL_ID}=="0340", \
+  DEVPATH=="*/t2bce_vhci/*", \
+  ENV{ID_INTEGRATION}="internal", ENV{ID_INPUT_TOUCHPAD_INTEGRATION}="internal"
+```
+
+```bash
+sudo udevadm control --reload
+```
+
+Then reboot so libinput opens the devices again with the new classification. Both files are the same on Omarchy 4 and plain Arch.
+
+**Verify.** `udevadm info -q property -n /dev/input/eventN | grep INTEGRATION` on the touchpad shows `internal` (case 2). Type continuously in a terminal while resting a palm on the pad: the cursor does not move. A Hyprland debug log, where enabled, shows `palm: dwt activated with ...` naming the keyboard and touchpad pair.
+
+Sources: <https://github.com/omacom/omarchy/issues/10815> · <https://github.com/omacom/omarchy/issues/5071> · <https://wayland.freedesktop.org/libinput/doc/latest/palm-detection.html> · <https://github.com/rvaiya/keyd/blob/master/README.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/config-options.md>
+
+---
+
+## Bring back a touchpad that turned into a plain PS/2 mouse
+
+`touchpad-falls-back-to-ps2-generic-mouse` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `hyprland`, `laptop`, `limine`, `omarchy`, `touchpad`
+
+**Symptom.** The touchpad suddenly behaves like a cheap mouse: the pointer moves but two-finger scrolling, tap-to-click and gestures are gone. Or it is missing entirely on some boots. `journalctl -k -b | grep -i psmouse` shows a burst like `psmouse serio1: TouchPad at isa0060/serio1/input0 lost sync at byte 1` repeated dozens of times, then `synaptics: Unable to query device`, and the device comes back as `PS/2 Generic Mouse`. `hyprctl devices` lists a generic mouse where `synps/2-synaptics-touchpad` used to be.
+
+**Cause.** The PS/2 link to the touchpad lost protocol sync. The kernel's `psmouse` driver logs `lost sync at byte 1`, tries to reconnect, fails to re-identify the device as Synaptics (`synaptics: Unable to query device`) and falls back to the bare PS/2 mouse protocol, which carries no multi-finger data. Why the sync is lost is not established. The reporter on an Alienware m15 Ryzen Edition R5 saw the same desyncs under Windows and with the pad bound over I2C-HID (`DELL0A6F`, `06CB:CE62`), which points at the touchpad firmware or the embedded controller rather than at the kernel. The Arch wiki names IRQ loss on the i8042 controller as one general cause of erratic PS/2 touchpad input. A separate failure on the same machine, the touchpad not being probed at all on 3 of 31 boots under `linux-omarchy 7.2.5-3` against 0 of 26 under stock `linux 7.2.3`, was still open upstream on 2026-10-05.
+
+> **Audit corrected this record.** omacom/omarchy#12181 supports the symptom (about 42 'lost sync at byte 1', 'synaptics: Unable to query device', fallback to PS/2 Generic Mouse) and the recovery 'modprobe -r psmouse && modprobe psmouse', both reported by the user. It also supports the separate boot-time non-enumeration (3 of 31 boots on linux-omarchy 7.2.5-3, 0 of 26 on stock 7.2.3), still open. Kernel source confirms the log strings, and that the InterTouch hint reads 'If i2c-hid and hid-rmi are not used, you might want to try setting psmouse.synaptics_intertouch to 1'. Three defects. (1) The cause says the more robust route is SMBus/RMI4 via the I2C-HID node, but DELL0A6F is I2C-HID, not RMI4, and the reporter saw the same desyncs over I2C-HID and under Windows. (2) Step 2 sends the user to synaptics_intertouch=1 without the kernel's own condition that i2c-hid is not already driving the pad, which is exactly the reporter's machine. (3) i8042.nomux=1 is presented as the persistent mitigation, but the Arch wiki offers it only for cursor jumps from i8042 IRQ loss, and nobody in the cited issue tried it for this failure. Also omarchy-restart-trackpad (the Omarchy menu's trackpad reset) only rebinds i2c_hid_acpi and intel_quicki2c, so it does not help a PS/2 pad, which is worth saying. Confirmed locally: i8042 is in modules.builtin for both kernels, psmouse is a loadable module, and the limine drop-in form is correct. The cross-reference to the unaudited linux-omarchy-7-2-5-hdmi-audio-underruns record is dropped in favour of picking the kernel at the Limine menu. Nothing was exercised on a touchpad.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** i8042 parameters act on the controller that also runs the built-in keyboard. If the keyboard misbehaves after the change, edit the command line at the Limine menu for one boot or use an external keyboard, then delete `/etc/limine-entry-tool.d/99-i8042.conf` and run `sudo limine-update`. Blacklisting `i2c_hid_acpi` in step 5 also disables I2C touchscreens.
+
+**Fix.**
+
+**1. Recover now, without rebooting.**
+
+```bash
+sudo modprobe -r psmouse && sudo modprobe psmouse
+hyprctl devices | grep -i -A2 touchpad
+```
+
+The Omarchy menu's trackpad reset (`omarchy-restart-trackpad`) only rebinds `i2c_hid_acpi` and `intel_quicki2c`, so it does not help a pad that is on PS/2.
+
+**2. Check whether the pad has another bus, and whether it is already in use.**
+
+```bash
+grep -E 'Name=|Sysfs=' /proc/bus/input/devices | grep -i -B1 -E 'touchpad|i2c|rmi'
+journalctl -k -b | grep -iE 'different bus|rmi4|i2c_hid'
+```
+
+If the log says `Your touchpad (...) says it can support a different bus` and no `i2c_hid` or `rmi4` touchpad device is present, the kernel suggests `psmouse.synaptics_intertouch=1`. See the `synaptics-touchpad-dead-needs-intertouch` record for that procedure. Do not do this when the pad is also exposed through I2C-HID (for example a `DELL0A6F` node): the kernel's own message says the option is for machines where i2c-hid and hid-rmi are not used, and on the reported machine the desyncs also happened over I2C-HID.
+
+**3. Optional: the Arch wiki's mitigation for i8042 IRQ loss, `i8042.nomux=1`.** It is documented for jumping cursors, not specifically for this fallback, and nobody in the cited report tested it. `i8042` is built into the kernel (listed in `modules.builtin` for both `7.2.5-3-omarchy` and `7.2.3-arch1-3`), so it goes on the kernel command line, not in modprobe.d.
+
+Omarchy 4:
+
+```bash
+printf 'KERNEL_CMDLINE[default]+=" i8042.nomux=1"\n' \
+  | sudo tee /etc/limine-entry-tool.d/99-i8042.conf
+sudo limine-update
+```
+
+Plain Arch: add `i8042.nomux=1` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`, or to the `options` line in `/boot/loader/entries/*.conf`.
+
+**4. If the pad is missing at boot only on linux-omarchy**, pick the stock `linux` kernel at the Limine menu for a number of boots and compare. The reported failure rate is about 1 boot in 10, so a few good boots prove little.
+
+**5. Last resort, as the reporter did:** stop the kernel driving the pad and use an external mouse.
+
+```bash
+printf 'blacklist psmouse\nblacklist i2c_hid_acpi\n' | sudo tee /etc/modprobe.d/no-touchpad.conf
+```
+
+`i2c_hid_acpi` also drives I2C touchscreens and other I2C-HID devices, so leave that line out if the machine has any. Delete the file and reboot to undo it.
+
+**Verify.** `journalctl -k -b | grep -i synaptics` shows the touchpad identified (for example `Touchpad model: 1, fw: 9.16`), `hyprctl devices` lists the touchpad by its Synaptics name, and two-finger scrolling works. After a reboot with the drop-in, `cat /proc/cmdline` contains `i8042.nomux=1`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12181> · <https://wiki.archlinux.org/title/Touchpad_Synaptics> · <https://github.com/torvalds/linux/blob/master/drivers/input/mouse/synaptics.c>
+
+---
+
+## Fix a USB webcam or USB mic that records pure silence until it is replugged
+
+`usb-webcam-mic-records-silence-after-mute` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pipewire`, `webcam`, `wireplumber`
+
+**Symptom.** A Logitech C920 webcam microphone is listed in `wpctl status`, is the default source, shows unmuted with sane levels, and apps see it, but every recording is digital silence (every sample exactly zero). Restarting PipeWire does not help, unplugging and replugging the USB cable does. On the C920 it starts when the mic was muted (the bar's mute icon, a mute key, `pactl set-source-mute`) before an app opened it and was then unmuted. A Blue Yeti (`046d:0ab7`) has been reported in the same detected-but-silent state right after a reboot, with no mute involved.
+
+**Cause.** For the C920 (`046d:082d`) the cause is a firmware bug: if a capture stream starts while the webcam's hardware mute is on, it keeps streaming zeros after unmute and still reports itself unmuted, until re-enumerated. PipeWire maps the desktop mic mute onto that hardware mute control, so a mute toggle before an app opens the mic triggers it. The Blue Yeti report has the same shape (capture clock stuck, recovered by a firmware reset or replug) but the C920 mechanism is not confirmed for it.
+
+> **Audit corrected this record.** Read the creaseygit/c920-mic-wake README, its 51-c920-soft-mixer.conf and install.sh, and issue #12047 in full. The cause (C920 `046d:082d` firmware keeps streaming zeros if capture starts while hardware mute is on, PipeWire maps desktop mute onto that control) and the fix match the repo exactly: the WirePlumber rule is byte-for-byte the repo's, and `awk '/C920/{print $1; exit}' /proc/asound/cards` plus `amixer -c "$CARD" sset Mic cap` mirror install.sh. alsa-utils and pipewire are in Omarchy's base packages, and Omarchy 4.0.4 applies its own alsa-soft-mixer.conf only on ASUS machines (install/user/hardware/asus/fix-audio-mixer.sh), so the per-device rule is still needed elsewhere. One defect: the symptom says it often starts after pressing mute and lumps the Blue Yeti into that. Issue #12047 reports the Yeti going silent after a reboot with no mute involved, the hardware capture clock at zero, recovered only by a firmware reset or replug, and the C920 author's link to it is only a suggestion. The symptom now separates the two. Not exercised: no USB microphone here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Make PipeWire do mute and volume in software for that device, so the buggy hardware mute is never touched. No root needed:
+
+```bash
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+```
+
+```conf
+# ~/.config/wireplumber/wireplumber.conf.d/51-c920-soft-mixer.conf
+monitor.alsa.rules = [
+  {
+    matches = [
+      {
+        device.name = "~alsa_card.usb-046d_HD_Pro_Webcam_C920*"
+      }
+    ]
+    actions = {
+      update-props = {
+        api.alsa.soft-mixer = true
+      }
+    }
+  }
+]
+```
+
+For another device, take its card name from `wpctl status` / `pw-cli ls Device | grep device.name` and adjust the match. Set the hardware capture switch on and restart WirePlumber, then replug once to clear the current silent state:
+
+```bash
+CARD=$(awk '/C920/{print $1; exit}' /proc/asound/cards)
+amixer -c "$CARD" sset Mic cap
+systemctl --user restart wireplumber
+```
+
+For a Blue Yeti where this does not help, the reporter's fix was a firmware reset at boot with the third-party `blue-yeti-autoreset` tool, or a physical replug.
+
+**Verify.** Mute and unmute the mic from the bar, then record: `timeout 3 pw-record /tmp/mic.wav` and play it back with `pw-play /tmp/mic.wav`. Your voice is audible.
+
+Sources: <https://github.com/creaseygit/c920-mic-wake> · <https://github.com/omacom/omarchy/issues/12047>
+
+---
+
+## Choose whether the top row sends media keys or F1-F12 on Apple-style keyboards
+
+`apple-keyboard-media-keys-need-fn-fnmode` · severity: **low** · frequency: **common** · applies to: `apple`, `arch`, `cachyos`, `desktop`, `endeavouros`, `keychron`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Omarchy: on a MacBook keyboard or Magic Keyboard, the brightness, volume and media keys on the top row send F1-F12 and only work while holding Fn. Plain Arch: the opposite, F1-F12 do nothing (they adjust brightness or volume) unless Fn is held. That is the kernel default for genuine Apple keyboards, and for Apple-alike keyboards the kernel does not recognise as non-Apple.
+
+**Cause.** The top row is translated by the `hid_apple` kernel driver according to its `fnmode` parameter: `0` disabled, `1` media keys first, `2` function keys first, `3` auto (kernel default), `4` function keys disabled. Auto picks `4` for keyboards flagged `APPLE_DISABLE_FKEYS`, `2` for keyboards the kernel flags as non-Apple (Lofree, Keychron and similar Apple-alikes it recognises by name) and `1` for genuine Apple keyboards. Omarchy's installer step `install/hardware/fix-fkeys.sh` writes `options hid_apple fnmode=2` to `/etc/modprobe.d/hid_apple.conf` on every install with no hardware check (the file is owned by no package). That changes nothing for the third-party keyboards it names but moves genuine Apple keyboards off their media row.
+
+> **Audit corrected this record.** Confirmed on this workstation: /etc/modprobe.d/hid_apple.conf contains `options hid_apple fnmode=2` and is owned by no package, and /usr/share/omarchy/install/hardware/fix-fkeys.sh (identical to quattro) writes it only when absent, with no hardware gate. Issue #7110 quotes drivers/hid/hid-apple.c: fnmode 3 resolves to 4 for APPLE_DISABLE_FKEYS keyboards, 2 for APPLE_IS_NON_APPLE ones and 1 otherwise, so the cause held but omitted mode 4, which the forced 2 also overrides. The Arch wiki Apple_Keyboard page confirms the modes, the modprobe.d file and the modconf/initramfs step. omarchy_hooks.conf includes modconf, and install/hardware/apple/fix-t2.sh puts hid_apple into the initramfs on T2 Macs, so `sudo limine-mkinitcpio` is the right Omarchy rebuild. Three defects. The plain Arch symptom claimed Keychron/Lofree keyboards in Mac mode are media-first, but per the kernel code in #7110 auto already gives them F-keys first, so on plain Arch the media-first default is genuine Apple hardware. The Keychron Windows-mode claim is in no cited source and was replaced by a check of which keyboards hid_apple actually holds. The verify step relies on `wev`, which Omarchy 4.0.4 does not install (pacman -Q wev fails, it is in extra). Not exercised: no Apple keyboard is attached here, so /sys/module/hid_apple is absent on this machine.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Rebuilding the initramfs touches boot files. Run it on a system that otherwise boots and do not interrupt it.
+
+**Fix.**
+
+Check the current mode and which keyboards `hid_apple` is driving (the sysfs paths exist only once the module is loaded, which happens when an Apple-protocol keyboard is attached):
+
+```bash
+cat /sys/module/hid_apple/parameters/fnmode
+ls /sys/bus/hid/drivers/apple/
+cat /etc/modprobe.d/hid_apple.conf 2>/dev/null
+```
+
+If `/sys/bus/hid/drivers/apple/` lists no device, your keyboard is not handled by `hid_apple` and `fnmode` cannot change it. On keyboards with a Win/Mac switch, check which position the switch is in.
+
+Try a mode live (lost at reboot or module reload):
+
+```bash
+echo 1 | sudo tee /sys/module/hid_apple/parameters/fnmode   # media keys first
+echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode   # F1-F12 first
+```
+
+Make it permanent:
+
+```bash
+# Omarchy, media keys back on a genuine Apple keyboard (3 = kernel auto also works):
+echo 'options hid_apple fnmode=1' | sudo tee /etc/modprobe.d/hid_apple.conf
+# Plain Arch, F-keys first:
+echo 'options hid_apple fnmode=2' | sudo tee /etc/modprobe.d/hid_apple.conf
+```
+
+The `modconf` hook copies `/etc/modprobe.d` into the initramfs, and on T2 Macs Omarchy loads `hid_apple` from the initramfs, so rebuild it:
+
+```bash
+# Omarchy 4 (mkinitcpio -P has no presets there):
+sudo limine-mkinitcpio
+# Plain Arch:
+sudo mkinitcpio -P
+```
+
+Omarchy's installer only writes the file when it is absent, so your edit survives.
+
+**Verify.** After a reboot, `cat /sys/module/hid_apple/parameters/fnmode` shows the value you set, and the bare top-row key does what you chose. To see the keysym, install `wev` (not shipped by Omarchy) with `sudo pacman -S --needed wev`, run `wev`, and press the key: `XF86MonBrightnessUp` means media first, `F2` means function keys first.
+
+Sources: <https://wiki.archlinux.org/title/Apple_Keyboard> · <https://github.com/omacom/omarchy/issues/7110> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/fix-fkeys.sh>
 
 ---
 
@@ -2248,5 +3488,350 @@ Writing `kb_options = "caps:ctrl_modifier"` on its own there drops Compose and t
 **Verify.** `sudo keyd monitor` shows the remapped keysym, and the remap still works after switching to a TTY with Ctrl+Alt+F3. If nothing changes, read `sudo journalctl -eu keyd` for a config parse error, since keyd reports those to the journal rather than to the terminal. On Omarchy 4, also confirm you did not lose Compose: press Caps Lock followed by a sequence from `~/.XCompose` and check the character still arrives.
 
 Sources: <https://wiki.archlinux.org/title/Input_remap_utilities> · <https://wiki.archlinux.org/title/Keyboard_input> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://github.com/rvaiya/keyd/blob/master/README.md> · <https://github.com/rvaiya/keyd/blob/master/docs/keyd.scdoc> · <https://archlinux.org/packages/extra/x86_64/keyd/>
+
+---
+
+## Bring back Discord notification sounds that PipeWire swallows
+
+`discord-notification-sounds-missing-pipewire-min-quantum` · severity: **low** · frequency: **occasional** · applies to: `arch`, `omarchy`, `pipewire`
+
+**Symptom.** Discord voice and music play normally, but message and join notification sounds are missing or cut down to a click. Other apps' short sounds are fine.
+
+**Cause.** Discord's notification sounds are very short streams played through pipewire-pulse. The Arch wiki reports that they can go missing when the minimum quantum is too low, and pipewire-pulse's default `pulse.min.quantum` is `256/48000` (5.3 ms). Raising it for Discord's client alone gives those streams a larger buffer without changing latency for anything else. The wiki recommends more than 700 frames, and the stock `/usr/share/pipewire/pipewire-pulse.conf` already uses the same per-client mechanism for speech-dispatcher. The wiki entry is about the native Discord client. Omarchy 4 ships Discord as a web app in the default Chromium-family browser, and whether the web app shows the same problem is not documented.
+
+> **Audit corrected this record.** The Arch wiki PipeWire/Troubleshooting 'No notification sounds from Discord' section gives exactly this rule (application.process.binary = "Discord", pulse.min.quantum = 1024/48000) and says the cause 'might' be min.quantum too low, advising more than 700. /usr/share/pipewire/pipewire-pulse.conf (pipewire 1.6.8) confirms the default pulse.min.quantum 256/48000 and the speech-dispatcher rule. pipewire.conf(5) confirms drop-in arrays are appended. omarchy-restart-audio exists. The defect is Omarchy-specific: Omarchy 4 does not install a native Discord. /usr/share/omarchy/applications/Discord.desktop runs `omarchy-launch-webapp https://discord.com/channels/@me`, which launches the default Chromium-family browser with --app, so on a stock Omarchy machine the rule matches nothing and the record's web-app caveat is the main case, not a footnote. Matching the browser binary instead raises the floor for every stream from that browser, which the record does not say. Arch's discord package (1:1.0.160 in extra) now installs only /usr/bin/discord plus an updater bootstrap, so the binary name of the downloaded client was not confirmed here and must be checked. The cause asserted a mechanism (stream over before the graph settles) that the wiki does not state. Not exercised.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Find which binary owns the Discord stream.** Run this while a notification sound plays:
+
+```bash
+pactl list sink-inputs | grep -E 'application.(name|process.binary)'
+```
+
+Omarchy 4: the Discord launcher in the app menu is a web app (`omarchy-launch-webapp https://discord.com/channels/@me`), so the binary is your browser, for example `chromium`. A rule on that name raises the minimum quantum for every stream from that browser, not only Discord. If you installed the native client (`discord` from extra), the binary is normally `Discord`.
+
+Plain Arch: the native client from the `discord` package, binary normally `Discord`. Confirm with the command above.
+
+**2. Add a client rule in a pipewire-pulse drop-in.** Drop-in array sections such as `pulse.rules` are appended to the stock list rather than replacing it, so the shipped Teams, Firefox and speech-dispatcher rules stay in force:
+
+```bash
+mkdir -p ~/.config/pipewire/pipewire-pulse.conf.d
+```
+
+```conf
+# ~/.config/pipewire/pipewire-pulse.conf.d/60-discord-min-quantum.conf
+pulse.rules = [
+  {
+    matches = [ { application.process.binary = "Discord" } ]
+    actions = {
+      update-props = {
+        pulse.min.quantum = 1024/48000
+      }
+    }
+  }
+]
+```
+
+Replace `Discord` with the binary name from step 1 if it differs.
+
+**3. Restart audio, then restart Discord or the browser.**
+
+Omarchy 4:
+
+```bash
+omarchy restart audio
+```
+
+Plain Arch:
+
+```bash
+systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
+```
+
+**Verify.** While a notification plays, `pactl list sink-inputs | grep -A30 'application.process.binary = "Discord"'` (or your browser's binary name) shows the stream, and the notification sounds play in full.
+
+Sources: <https://wiki.archlinux.org/title/PipeWire/Troubleshooting> · <https://docs.pipewire.org/page_man_pipewire_conf_5.html> · <https://archlinux.org/packages/extra/x86_64/discord/>
+
+---
+
+## Make the bar's keyboard-layout switch change the keyboard you type on, not your mouse
+
+`keyboard-layout-widget-switches-mouse-device` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `hyprland`, `laptop`, `logitech`, `omarchy`, `wayland`
+
+**Symptom.** With two layouts configured (for example `kb_layout = "pl,de"`), clicking the Omarchy bar's keyboard-layout widget changes the label to `DE` but the keyboard keeps typing Polish. Unplugging a Logitech gaming mouse or USB receiver makes the widget work.
+
+**Cause.** Logitech mice and receivers expose a keyboard interface, so Hyprland lists them as keyboards (`logitech-g502`, `logitech-usb-receiver`). The `omarchy.keyboard-layout` widget picks one keyboard to switch and filters only known virtual and ACPI-style names (`UNTYPED_KEYBOARDS`), so it can pick the mouse and run the equivalent of `hyprctl switchxkblayout logitech-usb-receiver next`. Layouts are per device, so only the mouse switches. `hyprctl -j devices` shows the mouse on index 1 and the real keyboard still on index 0.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Confirm which device switched:
+
+```bash
+hyprctl -j devices | jq -r '.keyboards[] | "\(.name)  \(.active_keymap)"'
+```
+
+Switch every keyboard at once instead of trusting the widget. `all` is a documented device argument for `switchxkblayout`:
+
+```bash
+hyprctl switchxkblayout all next
+```
+
+Bind it (`SUPER + CTRL + ALT + L` is unused by Omarchy 4.0.4 defaults):
+
+```lua
+-- ~/.config/hypr/bindings.lua
+o.bind("SUPER + CTRL + ALT + L", "Next keyboard layout", "hyprctl switchxkblayout all next")
+```
+
+```bash
+hyprctl reload
+```
+
+An XKB chord such as `grp:alt_shift_toggle` in `kb_options` also works, because it switches the keyboard you press it on. If apps still type the old layout after a successful switch, fcitx5's profile only contains `keyboard-us`, which is a separate fix.
+
+**Verify.** After the bind, every keyboard line in `hyprctl -j devices` shows the same `active_keymap`, and typing `y` / `z` reflects the new layout.
+
+Sources: <https://github.com/omacom/omarchy/issues/10135> · <https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/>
+
+---
+
+## Make the laptop mute LED follow mute on USB, Bluetooth and HDMI outputs
+
+`laptop-mute-led-dark-when-default-sink-not-internal` · severity: **low** · frequency: **occasional** · applies to: `arch`, `laptop`, `omarchy`, `pipewire`, `thinkpad`
+
+**Symptom.** The mute key mutes the sound and the OSD says muted, but the mute LED on the key stays dark. It works when playing through the laptop speakers and fails when the default output is on another sound card. A USB headset is the confirmed case. Bluetooth headphones are expected to behave the same way by the same mechanism, and HDMI may too, but neither was tested in the report.
+
+**Cause.** The `platform::mute` LED uses the kernel's `audio-mute` trigger, which follows the internal sound card's ALSA `Master` switch. Muting a PipeWire sink on the internal card flips `Master`, so the LED follows. Muting a sink on any other card never touches the internal `Master`, so the LED stays dark. Omarchy 4's mute key runs `omarchy-audio-output-volume mute-toggle`, which mutes whatever the default sink is. For the microphone, Omarchy already sets `platform::micmute` with `brightnessctl`: `omarchy-audio-input-mute` toggles the default source and then calls `omarchy-brightness-keyboard-mute on|off`. Nothing does the same for `platform::mute` as of 4.0.4-1.
+
+> **Audit corrected this record.** omacom/omarchy#11005 (Yacl222's comments) supports the mechanism, the script verbatim, the unit settings (PartOf=wireplumber.service, Restart=always), the three verified cases and the trigger-detach gotcha, on a ThinkPad X1 Carbon 7th gen with Omarchy 4.0.4-1. Locally: XF86AudioMute is bound to `omarchy-audio-output-volume mute-toggle` in /usr/share/omarchy/default/hypr/bindings/media.lua, and that script runs `pactl set-sink-mute "$sink" toggle` on the default sink. Nothing in /usr/share/omarchy or the quattro tree references platform::mute. brightnessctl 0.5.1 and libpulse (pactl) are installed. Two precision fixes. The reporter verified a USB headset only and wrote that Bluetooth and HDMI 'would behave the same way', so the symptom should not present those as observed. And omarchy-brightness-keyboard-mute does not follow PipeWire state: omarchy-audio-input-mute calls it after toggling the default source on the mic-mute key, so the cause's comparison needs rewording. The fix itself is unchanged. Not exercised on LED hardware.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Writing to the LED switches its trigger to `none`. If you stop the service, the LED no longer follows anything until the next boot.
+
+**Fix.**
+
+Run a small user service that follows the default sink's mute state and sets the LED through `brightnessctl`, which Omarchy installs and which needs no root for LEDs. This is the script the reporter verified on a ThinkPad X1 Carbon 7th gen:
+
+```bash
+#!/bin/bash
+# ~/.local/bin/mute-led-follow
+LED=platform::mute
+last=""
+
+sync_led() {
+  local value
+  if [[ $(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null) == *yes ]]; then
+    value=1
+  else
+    value=0
+  fi
+  [[ $value == "$last" ]] && return
+  last=$value
+  brightnessctl --device="$LED" set "$value" >/dev/null 2>&1
+}
+
+# Writing 0 detaches the audio-mute trigger until the next boot
+brightnessctl --device="$LED" set 0 >/dev/null 2>&1
+sync_led
+
+pactl subscribe | while read -r line; do
+  case $line in
+    *" on sink "* | *" on server"*) sync_led ;;
+  esac
+done
+```
+
+```ini
+# ~/.config/systemd/user/mute-led-follow.service
+[Unit]
+Description=Drive the mute LED from the default PipeWire sink
+After=wireplumber.service
+PartOf=wireplumber.service
+
+[Service]
+ExecStart=%h/.local/bin/mute-led-follow
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+ls /sys/class/leds/ | grep -i mute          # confirm the LED is platform::mute
+chmod +x ~/.local/bin/mute-led-follow
+systemctl --user daemon-reload
+systemctl --user enable --now mute-led-follow.service
+```
+
+The same works on plain Arch with PipeWire, `pipewire-pulse` and `brightnessctl` installed.
+
+**Verify.** With a USB or Bluetooth output as default, press the mute key: the LED lights, and unmuting turns it off. Switching the default to a muted sink lights it, and switching away clears it. `systemctl --user status mute-led-follow.service` shows it running.
+
+Sources: <https://github.com/omacom/omarchy/issues/11005>
+
+---
+
+## Stop omarchy-fcitx5.service restarting every two seconds and flooding the journal
+
+`omarchy-fcitx5-service-restart-loop` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `fcitx5`, `hyprland`, `laptop`, `omarchy`, `systemd`, `wayland`
+
+**Symptom.** `journalctl --user` fills at about 11 lines per second with `Failed to create addon: dbus Unable to request dbus name. Is there another fcitx already running?` and `omarchy-fcitx5.service: Scheduled restart job, restart counter is at 10953.` `systemctl --user show omarchy-fcitx5.service -p NRestarts` shows thousands (71,243 in one report). Input still works. Steam's webhelper may crash in `XCreateIC` while this churns. A variant logs `status=203/EXEC` because `/usr/bin/fcitx5` is not installed.
+
+**Cause.** `omarchy-fcitx5.service` uses `Restart=always` with `RestartSec=2`. fcitx5 exits 0 when another instance already owns `org.fcitx.Fcitx5`, and the unit restarts it forever. About 2.1 seconds per cycle never exceeds the default `StartLimitBurst=5` in 10 seconds, so systemd never gives up. The competing instance comes from one of: the fcitx5 package's own `/etc/xdg/autostart/org.fcitx.Fcitx5.desktop`, which runs as `app-org.fcitx.Fcitx5@autostart.service` whenever the `Hidden=true` mask Omarchy ships at `~/.config/autostart/org.fcitx.Fcitx5.desktop` is missing or edited, a user autostart entry under any other filename (for example `~/.config/autostart/fcitx5.desktop` with `Exec=fcitx5 -d`, which the Quattro migration only `pkill`ed), D-Bus activation through `/usr/share/dbus-1/services/org.fcitx.Fcitx5.service`, or a hand-run `fcitx5 -r -d` (for example after installing `fcitx5-mozc`).
+
+> **Audit corrected this record.** Re-checked on 4.0.4-1. /usr/lib/systemd/user/omarchy-fcitx5.service has Restart=always and RestartSec=2 with the exit-0 comment, /usr/bin/omarchy-update-pacman-guard aborts only transactions with both -S and -u, so the plain `pacman -S --needed fcitx5` stands, and migration 1785167800.sh only pkills fcitx5. Issue #7461 read in full, including comments after the first audit. It documents a fifth entry point the record missed (playGitboy, 2026-09-26): the packaged /etc/xdg/autostart/org.fcitx.Fcitx5.desktop, run by systemd-xdg-autostart-generator as `app-org.fcitx.Fcitx5@autostart.service`. Omarchy suppresses it by shipping ~/.config/autostart/org.fcitx.Fcitx5.desktop containing only `Hidden=true` (present on this workstation, from /usr/share/omarchy/config/autostart, quattro commit 5ca74821), and xdg-desktop-autostart.target is active here. That makes step 1's `rm ... # whatever filename grep found` dangerous: a user who customised org.fcitx.Fcitx5.desktop with an Exec line would delete the mask and re-enable the packaged entry, recreating the loop. The fix now restores the mask instead of deleting that file and checks for the generated autostart unit, and the cause lists the packaged entry. Not exercised: no unit change made.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Find who owns the bus name and which autostart entries exist:
+
+```bash
+busctl --user status org.fcitx.Fcitx5 | grep -E '^(PID|CGroup)='
+grep -l 'Exec=.*fcitx5' ~/.config/autostart/*.desktop 2>/dev/null
+cat ~/.config/autostart/org.fcitx.Fcitx5.desktop 2>/dev/null    # Omarchy ships this as Hidden=true
+systemctl --user list-units --all --no-legend 'app-*Fcitx5*'
+systemctl --user show omarchy-fcitx5.service -p NRestarts -p ExecMainStatus
+```
+
+1. Remove the competing autostart. Never delete `~/.config/autostart/org.fcitx.Fcitx5.desktop`: it is the mask that stops the package's own autostart entry. If it is missing or no longer says `Hidden=true`, put the mask back. Remove any other file the grep found:
+
+```bash
+printf '[Desktop Entry]\nHidden=true\n' > ~/.config/autostart/org.fcitx.Fcitx5.desktop
+rm ~/.config/autostart/fcitx5.desktop      # only a file other than org.fcitx.Fcitx5.desktop that grep found
+systemctl --user stop 'app-org.fcitx.Fcitx5@autostart.service' 2>/dev/null
+pkill -x fcitx5
+systemctl --user restart omarchy-fcitx5.service
+```
+
+2. Stop clean exits from looping (covers D-Bus activation and hand-started instances, real crashes still restart):
+
+```bash
+mkdir -p ~/.config/systemd/user/omarchy-fcitx5.service.d
+printf '[Service]\nRestart=on-failure\n' > ~/.config/systemd/user/omarchy-fcitx5.service.d/restart.conf
+systemctl --user daemon-reload
+systemctl --user restart omarchy-fcitx5.service
+```
+
+3. If the log says `status=203/EXEC`, the binary is missing and `on-failure` will not stop it. Install it or disable the unit. A plain `-S` install is not a system upgrade, so Omarchy's pacman guard does not block it and no bypass variable is needed:
+
+```bash
+sudo pacman -S --needed fcitx5
+# or
+systemctl --user disable --now omarchy-fcitx5.service
+```
+
+After installing an fcitx5 addon later, use `systemctl --user restart omarchy-fcitx5.service`, never `fcitx5 -r -d`.
+
+**Verify.** `systemctl --user show omarchy-fcitx5.service -p NRestarts` stays constant over a minute, `busctl --user status org.fcitx.Fcitx5 | grep CGroup` shows `omarchy-fcitx5.service`, and after the next login `systemctl --user list-units --all --no-legend 'app-*Fcitx5*'` lists nothing running.
+
+Sources: <https://github.com/omacom/omarchy/issues/7461> · <https://github.com/omacom/omarchy/blob/quattro/config/autostart/org.fcitx.Fcitx5.desktop>
+
+---
+
+## Stop held volume keys lagging and flooding pipewire-pulse on Omarchy 4
+
+`omarchy-volume-key-hold-floods-pipewire-pulse` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `laptop`, `omarchy`, `pipewire`
+
+**Symptom.** Holding the volume up or down key makes the volume and the on-screen display lag behind, and the level keeps creeping after you let go. `journalctl --user -fu pipewire-pulse.service` shows bursts of `pipewire-pulse: too many client application connections: Connection refused`, dozens within a couple of seconds. Tapping the key works fine.
+
+**Cause.** Omarchy 4 binds `XF86AudioRaiseVolume` and `XF86AudioLowerVolume` with `repeating = true` in `/usr/share/omarchy/default/hypr/bindings/media.lua`, and its input defaults set `repeat_rate = 40`, so a held key runs `omarchy-audio-output-volume` up to 40 times a second. Each run starts several short-lived `pactl` clients (resolving the sink through `omarchy-audio-output-sink`, reading the volume, unmuting, setting the volume, reading it again) and then calls `omarchy-osd`. On slower machines the runs overlap and exhaust pipewire-pulse's client connection limit, and the queued runs keep applying after release. Reported on a MacBookAir6,2. Confirmed on 4.0.4-1 by reading `/usr/share/omarchy/bin/omarchy-audio-output-volume`: it has no lock around the repeatable actions.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Override the two bindings in your personal file so that a repeat which arrives while the previous one is still running is dropped. `flock -n` exits immediately when the lock is held, and it is part of `util-linux`, which every Arch install has.
+
+```lua
+-- ~/.config/hypr/bindings.lua
+hl.unbind("XF86AudioRaiseVolume")
+hl.unbind("XF86AudioLowerVolume")
+o.bind("XF86AudioRaiseVolume", "Volume up",
+  'flock -n "$XDG_RUNTIME_DIR/omarchy-volume-repeat.lock" omarchy-audio-output-volume raise',
+  { locked = true, repeating = true })
+o.bind("XF86AudioLowerVolume", "Volume down",
+  'flock -n "$XDG_RUNTIME_DIR/omarchy-volume-repeat.lock" omarchy-audio-output-volume lower',
+  { locked = true, repeating = true })
+```
+
+If you use the precise `ALT + XF86AudioRaiseVolume` / `ALT + XF86AudioLowerVolume` bindings, override them the same way with `+1` and `-1`. Mute is not repeating and needs no change.
+
+Hyprland reloads the config when the file is saved. If it does not pick it up, run `hyprctl reload` yourself.
+
+Plain Arch with a bare Hyprland: this does not apply to binds that call `wpctl set-volume` directly, because that is one native client per press.
+
+**Verify.** Hold a volume key for three seconds while running `journalctl --user -fu pipewire-pulse.service`: no `too many client application connections` lines appear, and the level stops moving within a moment of releasing the key. `omarchy menu keybindings --print | grep -i volume` shows your descriptions.
+
+Sources: <https://github.com/omacom/omarchy/issues/11784> · <https://github.com/omacom/omarchy/pull/11785>
+
+---
+
+## Pin a touchscreen or drawing tablet to the right monitor in Hyprland
+
+`touchscreen-tablet-input-on-wrong-monitor` · severity: **low** · frequency: **occasional** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `tablet`, `touchscreen`, `wayland`
+
+**Symptom.** On a 2-in-1 laptop with an external monitor, touching the laptop screen moves the cursor on the external display instead, "almost like a graphics tablet". It often starts after turning the laptop panel off and on again. Or a Wacom/Huion/XP-Pen tablet is stretched across both monitors so circles draw as ovals.
+
+**Cause.** Hyprland maps touch devices to an output by auto-detection (`input.touchdevice.output` defaults to auto) and maps tablets across all monitors unless `input.tablet.output` is set (an empty value means "map across all monitors"). A touchscreen's pen usually registers as a tablet device, so it follows the tablet rule, not the touch rule (Hyprland discussion #12308). The two Omarchy reports, touch landing on the external monitor after the laptop panel was turned off and on (#5903) and touch spread across every monitor (#5324), were filed on Omarchy 3.8.0 and 3.5.0, before Hyprland 0.55. Hyprland 0.55.0 shipped several multi-monitor touch fixes (#13764, #13819, #14310), and a commenter on #5903 says the re-enable case is fixed there. Whether it still happens on Omarchy 4's Hyprland 0.56 is not confirmed. Pinning the output removes the dependence on auto-detection either way. On Wayland `xsetwacom` does not apply, so the mapping has to be set in the compositor.
+
+> **Audit corrected this record.** Fix confirmed against the hyprland-wiki repo (content/configuring/core/config-options.md and devices.md, main branch): input.touchdevice.output defaults to auto-detection, input.tablet.output accepts "current" or a monitor name and defaults to empty (all monitors), transform takes 0 to 6 in both, and hl.device() takes a name plus output for tablets, with the warning to use the Tablet device rather than Tablet Pad or Tablet Tool. On this workstation `hyprctl devices -j` has the keys `touch` and `tablets`, so the jq filter is right, and ~/.config/hypr/input.lua is a real Omarchy 4 override file loaded after the defaults (/usr/share/omarchy/config/hypr/hyprland.lua requires hypr.input). The cause overstates the re-enable defect. Both cited Omarchy issues (#5903 on Omarchy 3.8.0, #5324 on 3.5.0) predate Hyprland 0.55, a commenter on #5903 says 0.55 fixed it, and the Hyprland v0.55.0 release notes list three multi-monitor touch fixes (#13764, #13819, #14310). Whether the re-enable case still happens on 0.56.2 is not confirmed, so the cause now says that instead of presenting it as current behaviour. Hyprland discussion #12308 is about a touchscreen pen being treated as a tablet and mapped to the primary display, which supports pinning input.tablet.output for pens too. Nothing was exercised: no reload or keyword was run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Find the names:
+
+```bash
+hyprctl monitors | grep ^Monitor          # e.g. eDP-1, DP-2
+hyprctl devices -j | jq -r '.touch[]?.name, .tablets[]?.name'
+```
+
+Pin them. On Omarchy 4 put this in `~/.config/hypr/input.lua`, on plain Hyprland in `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.config({
+  input = {
+    touchdevice = {
+      output = "eDP-1",
+    },
+    tablet = {
+      output = "DP-2",        -- or "current" to follow the focused monitor
+    },
+  },
+})
+```
+
+Per device instead (use the `Tablet` device name, not `Tablet Pad` or `Tablet Tool`):
+
+```lua
+hl.device({ name = "wacom-intuos-s-pen", output = "DP-2" })
+```
+
+If the panel is rotated, match it with `transform` (same values as monitor rotation, 0 to 6) in the same `touchdevice` or `tablet` table.
+
+```bash
+hyprctl reload
+```
+
+**Verify.** Touch each corner of the laptop panel and the cursor lands under your finger, also after toggling the panel off and on. A tablet stroke from corner to corner spans only the chosen monitor.
+
+Sources: <https://github.com/omacom/omarchy/issues/5903> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://wiki.hypr.land/configuring/core/devices/> · <https://wiki.archlinux.org/title/Graphics_tablet> · <https://github.com/omacom/omarchy/issues/5324> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/config-options.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/monitors/positioning.md> · <https://github.com/hyprwm/Hyprland/discussions/12308> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/devices.md> · <https://github.com/hyprwm/Hyprland/releases/tag/v0.55.0>
 
 ---

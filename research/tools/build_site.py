@@ -7,7 +7,7 @@ WHY A SEPARATE OUTPUT DIRECTORY. This writes the REPO ROOT `docs/`, which is whe
 Pages publishes from. It is NOT `research/docs/`, which build_db.py unlinks and regenerates
 on every corpus build -- a site written there would survive exactly until the next rebuild.
 
-WHAT THE SITE IS FOR. Not 505 fixes; anyone can publish a tips page. The two things that are
+WHAT THE SITE IS FOR. Not 790 fixes; anyone can publish a tips page. The two things that are
 unusual here are per-record PROVENANCE (every fix says how much scrutiny it survived, and the
 ones nobody checked say so) and the MEASUREMENT (a bench with controls saying whether the
 skill actually helps). Both are rendered, not buried.
@@ -542,7 +542,7 @@ def index_page(recs, cats):
         groups.append(
             # <details> rather than a JS toggle: keyboard accessible, survives with
             # scripting off, and the open/closed state is the element's own. Closed on
-            # load, so the board opens as thirteen headings instead of 505 cards.
+            # load, so the board opens as thirteen headings instead of 790 cards.
             f'<details class="group" style="--gaccent:{acc}">'
             f'<summary class="g-head"><span class="caret"></span><i></i>{e(cats.get(cat, cat))}'
             f'<span class="g-count">{n}</span>{meter}</summary>'

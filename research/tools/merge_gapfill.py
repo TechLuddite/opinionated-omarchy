@@ -86,6 +86,19 @@ def apply_verdict(rec, v, stats):
         stats["rechecked"] += 1
         return _apply_provenance(rec, v, stats)
 
+    # An "ok" on a record an earlier audit already corrected confirms the corrected
+    # text. Found 2026-10-05, before the second pass over the 2026-10-04 harvest: 66 of
+    # its records came back `corrected` from the first pass, and an "ok" from the second
+    # would have downgraded each and erased the note saying what was wrong. Same rule as
+    # a recheck: the status stands and the note is extended.
+    if v.get("status") == "ok" and rec.get("audit_status") == "corrected":
+        if v.get("reason"):
+            note = f"Second audit confirmed the corrected text: {v['reason']}"
+            rec["audit_note"] = f"{rec['audit_note']} {note}" if rec.get("audit_note") else note
+        rec["audit_confidence"] = v.get("confidence") or rec.get("audit_confidence") or "medium"
+        stats["ok-kept-corrected"] += 1
+        return _apply_provenance(rec, v, stats)
+
     rec["audit_confidence"] = v.get("confidence") or "medium"
     rec["audit_note"] = v.get("reason") or None
     if v.get("status") == "corrected":

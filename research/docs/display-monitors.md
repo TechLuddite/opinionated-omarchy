@@ -1,6 +1,6 @@
 # Displays & monitors
 
-34 problems. Sorted by severity, then by how often users hit it.
+55 problems. Sorted by severity, then by how often users hit it.
 
 ## Stop closing the lid from killing every GUI app at once
 
@@ -202,6 +202,78 @@ This is necessary but not sufficient: the dock must also be attached before the 
 **Verify.** After re-login with the dock attached, `hyprctl monitors | grep ^Monitor` lists every panel, and `ls -la /proc/$(pgrep -x Hyprland)/fd | grep -c evdi` is non-zero.
 
 Sources: <https://github.com/hyprwm/Hyprland/issues/14538> · <https://github.com/hyprwm/Hyprland/issues/7292>
+
+---
+
+## Bring dock monitors back when an undock leaves them black at 0x0 until reboot
+
+`dock-monitors-stay-0x0-after-undock-aquamarine-0-15-0` · severity: **high** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `dock`, `endeavouros`, `hyprland`, `intel`, `laptop`, `mst`, `omarchy`, `wayland`
+
+**Symptom.** Booting docked works, and plugging the dock in after a clean boot works. But unplug the dock, plug it back in, and the external monitors never come back. `hyprctl monitors all` lists them at `0x0@60`, and the Hyprland log repeats `atomic drm request: failed to commit: Invalid argument, flags: ATOMIC_ALLOW_MODESET ATOMIC_TEST_ONLY`, walking down to 720x400 and 640x480 and still failing. Only a reboot fixes it. Some people get the same thing after every lock-screen blank on DisplayPort monitors with no dock at all. Downgrading the kernel does not help.
+
+**Cause.** aquamarine 0.15.0, Hyprland's DRM backend, added a guard that rejects commits to disconnected outputs. On unplug the connector is marked disconnected before Hyprland commits the disable, so the disable itself is refused and the kernel keeps a CRTC active on a dead connector. That orphaned pipe holds the display pipe and link resources (on Intel Type-C ports, the `intel_tc` link reference), so every later modeset on the new connector fails with EINVAL. The log line to look for is `Cannot commit a disconnected output`, followed by `clearing stale crtc`. Upstream tracked it as hyprwm/aquamarine#386, fixed by #410 (merged 2026-09-15) and released in aquamarine 0.15.1 on 2026-09-17. Arch extra carries 0.15.1-1. As of 2026-10-05 Omarchy's stable and rc mirrors still serve aquamarine 0.15.0-2 and only the edge mirror serves 0.15.1-1. omarchy 11019 has reproductions on i915, xe, amdgpu and NVIDIA, from undocking, from lock-screen and idle DPMS blanking with directly attached DisplayPort, and from switching cables. omarchy 11066 has the MST lock-screen case.
+
+> **Audit corrected this record.** The mechanism holds: aquamarine 386 (closed 2026-09-15) describes the guard and the orphaned CRTC, PR 410 merged 2026-09-15, v0.15.1 was published 2026-09-17 with #410 in its notes, and Arch extra's JSON shows 0.15.1-1 updated 2026-09-17. Re-checked the mirrors on 2026-10-05 by downloading extra.db: stable-mirror and rc-mirror still list aquamarine-0.15.0-2, and mirror.omarchy.org (the edge mirrorlist in /usr/share/omarchy/default/pacman/mirrorlist-edge) lists 0.15.1-1. This workstation runs 0.15.0-2. omarchy 11019 is open and supports both recovery methods, but it also shows the reports are broader than the cause says (amdgpu, xe and NVIDIA reproductions, not only i915), a 2026-10-02 MST case where a VT switch alone left the outputs at `0x0` until an explicit mode was re-applied, and that `hyprctl reload` did not retry the modeset. The 'disable before undocking' prevention is a commenter's untested suggestion ('should avoid'), so it is now labelled that way. The danger was overstated: two commenters (2026-09-18 and 2026-10-03) installed Arch's 0.15.1-1 with `pacman -U` and confirmed the fix, the package provides the same `libaquamarine.so=14` as the installed 0.15.0-2, and its library dependencies (`libhyprutils.so=13`, `libdisplay-info.so=3`) match what is installed here. Read /usr/bin/omarchy-update-pacman-guard: it blocks only transactions with both -S and -u, so `pacman -U` passes. Nothing was installed or run against a dock.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Switching Omarchy to the edge channel moves every package to the rolling mirror and replaces `omarchy` with `omarchy-dev`, not only aquamarine. Installing Arch's aquamarine with `pacman -U` puts one package ahead of Omarchy's tested snapshot. Reporters confirmed it works with Hyprland 0.56.2-2, but it is outside what Omarchy tests, and `omarchy update` will report the local package as newer until stable catches up. Do not use `pacman -U` with any aquamarine build whose `libaquamarine.so` version differs from the one your installed hyprland was built against (`pacman -Qi aquamarine | grep Provides`).
+
+**Fix.**
+
+**1. Confirm it is this bug:**
+
+```bash
+pacman -Q aquamarine                     # 0.15.0-2 is affected
+grep -c 'Cannot commit a disconnected output' "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log"
+for c in /sys/class/drm/card*-DP-*; do echo "${c##*/} $(cat $c/status) $(cat $c/enabled)"; done
+```
+
+A connector that reads `disconnected enabled` is the orphaned pipe.
+
+**2. Recover without rebooting.** Methods reported to work in omarchy 11019:
+
+- Switch to another VT and back (Ctrl+Alt+F2, then the VT your session runs on). It can take two rounds.
+- On an MST dock the VT switch can free the pipes but leave the monitors at `0x0` on the remembered fallback mode. Then re-apply an explicit mode to each external output. MST connectors get new names on every re-dock, so take the names and modes from `hyprctl monitors all`:
+
+```bash
+hyprctl monitors all -j | jq -r '.[] | "\(.name)  \(.width)x\(.height)  \(.availableModes[0])"'
+hyprctl eval 'hl.monitor({ output = "DP-3", mode = "1680x1050@59.95", position = "auto", scale = 1 })'   # repeat for each external output
+```
+
+- On i915, one reporter recovered by disabling every physical output, then re-applying the monitor config. This also works over ssh while the screens are black:
+
+```bash
+hyprctl eval 'hl.monitor({ output = "DP-1", disabled = true })'    # repeat for each external output
+hyprctl eval 'dofile(os.getenv("HOME") .. "/.config/hypr/monitors.lua")'
+```
+
+`hyprctl reload` on its own was reported not to retry the modeset.
+
+**3. Possible prevention until you have 0.15.1 (suggested in omarchy 11019, not confirmed).** Disable the external outputs before you pull the dock, so the disable is committed while the connector still exists, then reload after redocking:
+
+```bash
+hyprctl eval 'hl.monitor({ output = "DP-5", disabled = true })'    # each dock output, before unplugging
+# after plugging back in:
+hyprctl reload
+```
+
+**4. The fix is aquamarine 0.15.1.**
+
+- **Plain Arch:** `sudo pacman -Syu`.
+- **Omarchy 4:** run `omarchy update -y` and check `pacman -Q aquamarine`. As of 2026-10-05 the stable and rc mirrors still serve 0.15.0-2. The edge channel (`omarchy-channel-set edge`) has 0.15.1-1, but see the danger note. Two reporters in omarchy 11019 installed Arch's build directly and confirmed it fixes the bug. It provides the same library version (`libaquamarine.so=14`) as 0.15.0-2, so the installed Hyprland loads it:
+
+```bash
+sudo pacman -U https://archive.archlinux.org/packages/a/aquamarine/aquamarine-0.15.1-1-x86_64.pkg.tar.zst
+```
+
+Then log out and back in so Hyprland loads the new library.
+
+**Verify.** `pacman -Q aquamarine` reports 0.15.1 or newer. Undock, redock, and `hyprctl monitors` shows the externals at their native modes with no new `Cannot commit a disconnected output` lines in the log.
+
+Sources: <https://github.com/omacom/omarchy/issues/11019> · <https://github.com/omacom/omarchy/issues/11066> · <https://github.com/hyprwm/aquamarine/issues/386> · <https://github.com/hyprwm/aquamarine/pull/410> · <https://github.com/hyprwm/aquamarine/releases/tag/v0.15.1> · <https://archlinux.org/packages/extra/x86_64/aquamarine/> · <https://archive.archlinux.org/packages/a/aquamarine/aquamarine-0.15.1-1-x86_64.pkg.tar.zst> · <https://stable-mirror.omarchy.org/extra/os/x86_64/extra.db> · <https://mirror.omarchy.org/extra/os/x86_64/extra.db>
 
 ---
 
@@ -609,6 +681,58 @@ Leave `debug.vfr = false` in place only while testing. It is on by default to co
 **Verify.** `grep -c 'Disabling output' ~/.local/share/hyprland/hyprland.log` (or `hyprctl rollinglog | grep 'Disabling output'`) stops growing, and clicking no longer blanks the panel.
 
 Sources: <https://github.com/hyprwm/Hyprland/issues/13338> · <https://github.com/basecamp/omarchy/issues/8689> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/Basics/Variables.md>
+
+---
+
+## Recover a laptop screen stuck black after turning brightness to the bottom
+
+`backlight-trapped-at-zero-low-max-brightness` · severity: **high** · frequency: **rare** · applies to: `acpi-video`, `apple`, `hyprland`, `intel`, `laptop`, `omarchy`, `omarchy-4`
+
+**Symptom.** I turned the brightness all the way down with Fn+F1 and the screen went completely black. Pressing Fn+F2 (brightness up) does nothing, so I cannot see anything to fix it. Shift+brightness-down does the same thing in one press. Reported on a 2012 13-inch MacBook Pro Retina and an Ivy Bridge HD 4000 laptop, both using `acpi_video0` with `max_brightness` 15.
+
+**Cause.** Below 5%, `omarchy-brightness-display` steps one percent at a time. At 0% it computes a 1% target and runs `brightnessctl -d acpi_video0 set 1%`. With `max_brightness` 15, 1% is 0.15 of a raw step, which brightnessctl rounds to raw 0, so the brightness stays at 0 on every press and the up key can never climb out. The Shift+XF86MonBrightnessDown binding in `default/hypr/bindings/media.lua` runs `omarchy-brightness-display 1%`, which lands on the same raw 0 on these devices. Both are in 4.0.4-1 and on `quattro` as of 2026-10-04. The issue is open, and a reporter confirmed on 4.0.2-1 that a raw +1 step recovers the panel.
+
+> **Audit corrected this record.** The cause holds. brightnessctl 0.5.1 percent_to_val is roundf(percent/100 * max), so 1% of 15 is raw 0, and omarchy-brightness-display turns +5% at 0% into an absolute 1%. Issue #8523 (open) confirms both reports. Two defects in the fix. First, it tells a user with a black screen to type blind, but the stock bindings in default/hypr/bindings/media.lua already escape: SHIFT + XF86MonBrightnessUp runs omarchy-brightness-display 100%, and ALT + XF86MonBrightnessUp runs +1%, which brightnessctl treats as relative and forces to at least one raw step (calc_value sets mod to 1 when rounding gives 0). Second, the prevention block leaves ALT + XF86MonBrightnessDown bound to omarchy-brightness-display 1%-. From raw 1 of 15 that is relative 5.67%, which rounds to raw 1, so brightnessctl forces -1 and lands on raw 0 again. The corrected fix adds the key escape first and unbinds the Alt variant too. --min-value=1 confirmed as brightnessctl 0.5.1's optional-argument form. Not exercised on a panel with max_brightness 15.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Get the picture back with a key.** Press Shift+brightness-up (Shift+Fn+F2 where F2 needs Fn). Omarchy binds it to `omarchy-brightness-display 100%`, which sets full brightness and does not round to 0. Alt+brightness-up also works: it runs `omarchy-brightness-display +1%`, and brightnessctl always moves a relative change by at least one raw step.
+
+If neither key is reachable, type this blind into a terminal (Super+Enter opens one), or run it over ssh. The value is a raw step, not a percentage:
+
+```bash
+brightnessctl -d "$(omarchy-hw-display)" set 5
+```
+
+**Check whether your panel is affected:**
+
+```bash
+omarchy-hw-display
+cat /sys/class/backlight/$(omarchy-hw-display)/max_brightness
+```
+
+A `max_brightness` under 100 can round a 1% target to 0.
+
+**Prevent it (Omarchy 4).** Replace the brightness-down bindings in `~/.config/hypr/bindings.lua` with raw steps that cannot fall below 1. Three default bindings can reach raw 0 on these panels: plain, Shift and Alt brightness-down. Swap `acpi_video0` for the name `omarchy-hw-display` printed:
+
+```lua
+hl.unbind("XF86MonBrightnessUp")
+hl.unbind("XF86MonBrightnessDown")
+hl.unbind("SHIFT + XF86MonBrightnessDown")
+hl.unbind("ALT + XF86MonBrightnessDown")
+o.bind("XF86MonBrightnessUp", "Brightness up", "brightnessctl -d acpi_video0 set +1", { locked = true, repeating = true })
+o.bind("XF86MonBrightnessDown", "Brightness down", "brightnessctl -d acpi_video0 --min-value=1 set 1-", { locked = true, repeating = true })
+```
+
+Shift+brightness-up and Alt+brightness-up keep their stock bindings, so the key escape above still works. These bindings skip Omarchy's on-screen brightness indicator.
+
+**Verify.** Hold brightness-down until it stops, then press Alt+brightness-down a few times. `cat /sys/class/backlight/acpi_video0/brightness` reads 1, not 0, the panel is still faintly lit, and brightness-up raises it again.
+
+Sources: <https://github.com/omacom/omarchy/issues/8523> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/media.lua> · <https://github.com/Hummer12007/brightnessctl/blob/0.5.1/brightnessctl.c>
 
 ---
 
@@ -1197,6 +1321,111 @@ Sources: <https://wiki.archlinux.org/title/Hyprland> · <https://github.com/omac
 
 ---
 
+## Stop Ghostty, Nautilus and other GTK4 apps crashing when a monitor is plugged in
+
+`gtk4-apps-crash-on-monitor-hotplug` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `gtk4`, `hyprland`, `laptop`, `omarchy`, `omarchy-4`, `wayland`
+
+**Symptom.** GTK4 apps such as Ghostty, Nautilus, LocalSend and the Voxtype OSD vanish when a monitor is plugged in or out, when a dock connects, or while the lock screen is flapping the display. Sometimes Nautilus dies seconds after it opens. `coredumpctl list` fills up with them, and the kernel log shows:
+
+```
+segfault at 5d96d4756008 ... error 4 in libgtk-4.so.1.2200.4
+```
+
+**Cause.** gtk4 4.22.4 has a use-after-free in its Wayland dmabuf feedback handling. `linux_dmabuf_format_table()` calls `munmap()` on the wrong pointer. Usually that does nothing, but when `malloc()` has returned a page-aligned chunk it unmaps live heap, and the next `zwp_linux_dmabuf_feedback_v1.done` event segfaults the client. Hyprland resends the format table on every monitor hotplug, so any GTK4 client can die whenever an output is added or removed. GTK fixed it in 4.22.5, which Arch extra has shipped since 2026-09-10. Omarchy installs from a dated stable mirror, and on 2026-10-04 that mirror's `extra.db` (last modified 2026-09-08) still carried `gtk4 1:4.22.4-1`, so `omarchy update` does not deliver the fix.
+
+> **Audit corrected this record.** Confirmed: this workstation has gtk4 1:4.22.4-1. Arch extra has 1:4.22.5-1, last updated 2026-09-10 (archlinux.org JSON). The Omarchy stable mirror's extra.db, downloaded today, is Last-Modified 2026-09-08 and contains gtk4-1:4.22.4-1. The archive URL returns HTTP 200. /usr/bin/omarchy-update-pacman-guard aborts only when the arguments carry both S and u, so pacman -U passes. Issue #12530 is open and matches the cause and the segfault line. The 4.22.5 package has the same unversioned dependency list as the installed 4.22.4. Only the danger was missing. Installing one package from the Arch archive ahead of the Omarchy mirror is a targeted partial upgrade, and the corpus rule is to fill danger for anything that can cause one. The install was not exercised. Second audit confirmed the corrected text: Rechecked the current text, including the danger added by the first audit. Issue #12530 (open) states the munmap use-after-free, the dmabuf feedback done crash, the segfault line, the Nautilus-at-startup and Voxtype OSD reports, and the 4.22.5 fix, so cause and symptom are supported. archlinux.org JSON shows extra gtk4 1:4.22.5-1 last updated 2026-09-10 with an unversioned dependency list. The live stable-mirror.omarchy.org extra.db is still Last-Modified 2026-09-08, the local sync db carries gtk4-1:4.22.4-1, this workstation has gtk4 1:4.22.4-1 and upstream latest is still v4.0.4, so the advice that omarchy update does not deliver the fix holds today. The archive URL returns HTTP 200. No installed package declares a versioned dependency on gtk4 (checked every Required By entry), so pacman -U resolves. The pacman -U install itself was not exercised.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `pacman -U` from the Arch archive installs one package ahead of the rest of the system, which is a small partial upgrade. gtk4 4.22.5-1 declares the same dependencies as 4.22.4-1, so it installs cleanly today, but do not use this pattern for other packages without comparing their dependencies. Until the Omarchy mirror catches up, `omarchy update` will report gtk4 as newer than the repository and leave it alone, which is expected.
+
+**Fix.**
+
+**Check what you have:**
+
+```bash
+pacman -Q gtk4
+coredumpctl list | tail
+```
+
+**Omarchy 4:** either wait for the mirror to advance and run `omarchy update`, or install the fixed build from the Arch package archive now. `pacman -U` is not blocked by Omarchy's update guard, which refuses only a transaction that combines `-S` and `-u`:
+
+```bash
+sudo pacman -U https://archive.archlinux.org/packages/g/gtk4/gtk4-1%3A4.22.5-1-x86_64.pkg.tar.zst
+```
+
+Then close and reopen your GTK4 apps.
+
+**Plain Arch:** a normal full upgrade gets 4.22.5 or later:
+
+```bash
+sudo pacman -Syu
+```
+
+**Verify.** `pacman -Q gtk4` prints `gtk4 1:4.22.5-1` or later. Unplug and replug a monitor a few times with Ghostty and Nautilus open. Both survive, and `coredumpctl list` shows no new entries.
+
+Sources: <https://github.com/omacom/omarchy/issues/12530> · <https://archlinux.org/packages/extra/x86_64/gtk4/>
+
+---
+
+## Stop an HDMI monitor waking and blanking over and over while the session is locked
+
+`hdmi-monitor-relights-locked-screen-loop` · severity: **medium** · frequency: **common** · applies to: `amd`, `desktop`, `hdmi`, `hyprland`, `laptop`, `omarchy`, `omarchy-4`, `quickshell`
+
+**Symptom.** While the session is locked, the display keeps turning on and off. Each time it comes back it shows the password field for a few seconds, then goes dark again, and this repeats for as long as the machine stays locked, all night if you let it. One reporter counted 4,182 display sleep transitions in a single day. The Hyprland log (`$XDG_RUNTIME_DIR/hypr/*/hyprland.log`) has pairs like this, over and over:
+
+```
+drm: Connector HDMI-A-1 disconnected
+ERR from aquamarine ]: drm: Cannot commit a disconnected output
+drm: HDMI-A-1 is not connected, clearing stale crtc 67
+drm: Connector HDMI-A-1 connected
+drm: Modesetting HDMI-A-1 with 3840x2160@60.00Hz
+```
+
+Mostly reported on AMD (APUs and discrete Radeon) with HDMI monitors. GTK4 apps may crash during the loop (see `gtk4-apps-crash-on-monitor-hotplug`).
+
+**Cause.** Five seconds after the session locks, Omarchy's lock blanks the screens with `omarchy-brightness-display off` (DPMS off). Many HDMI monitors drop their hotplug-detect (HPD) line when they go into standby, then raise it again a few seconds later. The kernel reports that as a disconnect and a reconnect. Hyprland removes the output and adds it back with DPMS on, the lock surface is rebuilt for the new output, and the pointer entering that surface counts as activity. The lock wakes, re-arms its 5-second blank, and the loop starts again. On some AMD machines the HDMI audio codec's `SW_VIDEOOUT_INSERT` switch events also count as activity. The Omarchy-side fixes (PRs #8896, #10343 and #13129) are open and not in 4.0.4. amdgpu has an HDMI HPD filter that is off by default. When it is on, a disconnect followed by the same EDID returning within the window never reaches the compositor. The parameter `hdmi_hpd_debounce_delay_ms` was confirmed with `modinfo` on kernel 7.2.5-3-omarchy.
+
+> **Audit corrected this record.** The cause and the AMD branch hold. shell/plugins/lock/Service.qml on 4.0.4-1 has idleBlankTimer at 5000 ms running omarchy-brightness-keyboard off and omarchy-brightness-display off. Issues #13812 and #8863 (both open) give the log pairs, the pointer-enter wake path, the HDMI audio SW_VIDEOOUT_INSERT path and the 4,182 transitions figure. PRs #8896, #10343 and #13129 are all open. modinfo on 7.2.5-3-omarchy lists hdmi_hpd_debounce_delay_ms. amdgpu_dm_connector.c reads it at connector init and clamps it to AMDGPU_DM_MAX_HDMI_HPD_DEBOUNCE_MS, 5000, so the reboot and the stated maximum are right. omarchy_hooks.conf contains modconf and kms. The defect is the mitigation for other GPUs. omarchy toggle idle stay-awake only writes ~/.local/state/omarchy/indicators/stay-awake, which the idle service reads to cancel the idle cycle. beginLock() in the lock service arms the 5 s blank on every lock, with no stay-awake check and no lock-only path in 4.0.4-1. So a lock started by hand, or before suspend, still blanks and loops. The record presents the toggle as stopping the lock from blanking. Rewritten to say what it covers. Not exercised: no lock was triggered here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The initramfs rebuild writes the UKI to the ESP. Run `df -h /boot` first, because a full ESP produces a truncated image that does not boot. `omarchy toggle idle stay-awake` turns off automatic locking, so an unattended machine stays unlocked until you lock it by hand.
+
+**Fix.**
+
+**AMD graphics with an HDMI monitor: turn on amdgpu's HPD debounce.**
+
+```bash
+modinfo -p amdgpu | grep hdmi_hpd     # must list hdmi_hpd_debounce_delay_ms
+echo 'options amdgpu hdmi_hpd_debounce_delay_ms=1500' | sudo tee /etc/modprobe.d/amdgpu-hdmi-hpd.conf
+```
+
+amdgpu is loaded from the initramfs (the `kms` and `modconf` hooks), and the parameter is read only when the module sets up its connectors, so rebuild and reboot:
+
+- **Omarchy 4:** `sudo limine-mkinitcpio && sudo reboot`
+- **Plain Arch:** `sudo mkinitcpio -P && sudo reboot`
+
+1500 ms is the value AMD and the Omarchy PR chose (the kernel caps it at 5000). The filter covers HDMI only, not DisplayPort.
+
+**Any other GPU, or a DisplayPort monitor:** there is no packaged fix yet. The mitigation reporters use is to stop the session locking on idle:
+
+```bash
+omarchy toggle idle stay-awake
+```
+
+That turns off automatic locking and screen-off. It does not change what happens after a lock you start yourself: Omarchy's lock blanks the screens 5 seconds after any lock, so a manual lock on an affected monitor still loops. Until upstream fixes it, leave the machine unlocked only where that is safe, or power the monitor off by its own button while locked. Undo the toggle with `omarchy toggle idle allow-idle`. One reporter instead pins the connector's EDID and forces the connector on, so the kernel never sees the monitor leave. See the record `edid-override-for-bad-or-missing-monitor-edid` for that mechanism, which breaks hot-swapping on that port.
+
+**Verify.** After the reboot, `cat /sys/module/amdgpu/parameters/hdmi_hpd_debounce_delay_ms` prints `1500`. Lock the session and leave it for two minutes. The screen stays dark, and `grep -c 'disconnected' "$XDG_RUNTIME_DIR"/hypr/*/hyprland.log` does not grow while you wait.
+
+Sources: <https://github.com/omacom/omarchy/issues/13812> · <https://github.com/omacom/omarchy/issues/8863> · <https://github.com/omacom/omarchy/pull/13129> · <https://github.com/omacom/omarchy/pull/8896> · <https://github.com/omacom/omarchy/pull/10343> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c>
+
+---
+
 ## HDR / 10-bit enabled: washed-out SDR, banded borders, blank screen shares
 
 `hdr-10bit-washed-out-and-broken-capture` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `omarchy-4`, `wayland`, `xdg-desktop-portal`
@@ -1360,6 +1589,80 @@ Sources: <https://github.com/omacom/omarchy/issues/6909> · <https://github.com/
 
 ---
 
+## Stop a laptop panel flickering or stuttering from Panel Self Refresh
+
+`laptop-panel-flicker-stutter-psr-panel-replay` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `grub`, `intel`, `laptop`, `limine`, `manjaro`, `oled`, `omarchy`, `omarchy-4`, `systemd-boot`
+
+**Symptom.** The laptop's own screen flickers, or short horizontal strips of artefacts flash across part of the screen when scrolling or playing video. External monitors on the same machine are fine. Variants that users report:
+
+- Intel: flicker, sometimes with `[i915] *ERROR* CPU pipe A FIFO underrun` in `journalctl -k`.
+- Newer Intel on the `xe` driver (Dell XPS 13 DX13260, Wildcat Lake): scrolling judders far below the panel's 120 Hz and the cursor moves in jerks. `i915_psr_status` shows `PSR mode: Panel Replay Selective Update enabled (Early Transport)`.
+- AMD: ThinkPad T14 Gen5 AMD OLED with intermittent horizontal artefacts during video and scrolling.
+
+If the whole image freezes instead, with `flip_done timed out` in the log, see the record `amdgpu-flip-done-timed-out`.
+
+**Cause.** Panel Self Refresh (PSR) and its successor Panel Replay are eDP power-saving features. During static periods the GPU stops sending frames and the panel refreshes from its own memory. Bugs in the driver or in a particular panel's wake and exit path cause flicker, artefacts, or late frame delivery when the panel has to wake for an update. That is why cursor movement and scrolling show it most. The Arch wiki documents PSR flicker on Intel and recommends turning it off. On Intel, i915 and xe share one display code path in which `enable_psr` gates PSR only and `enable_panel_replay` gates Panel Replay separately, so turning off PSR alone leaves Panel Replay running. Omarchy's own installer turns off Panel Replay for the ASUS ExpertBook B9406 for that reason. On amdgpu, `dcdebugmask=0x10` turns off PSR v1 and PSR Selective Update, and Panel Replay has its own bit, `0x400`. All six Intel and AMD parameters used below were confirmed with `modinfo -p` on kernel 7.2.5-3-omarchy.
+
+> **Audit corrected this record.** The Intel i915 row is incomplete. modinfo -p i915 on 7.2.5-3-omarchy lists enable_panel_replay, and in mainline intel_psr.c the enable_psr parameter gates only _psr_compute_config, while panel_replay_global_enabled checks only the debug flag and params.enable_panel_replay. So i915.enable_psr=0 leaves Panel Replay on, the same gap the record already warns about for xe. Meteor Lake class panels on i915 can use Panel Replay. The amdgpu row also needs a note: amd_shared.h defines DC_DISABLE_PSR 0x10 as PSR v1 and PSR-SU only, with Panel Replay on a separate bit, DC_DISABLE_REPLAY 0x400. 0x10 is what the T14 Gen5 thread confirmed and stays the first choice. Everything else held: issue #6853 has the XPS i915_psr_status output, the runtime echo 1 test, the both-knobs reasoning and the enable_psr=2 comment, #11016 confirms debug 1 disables both PSR and Panel Replay, the ASUS B9406 script exists and says xe.enable_psr=0 does not cover Panel Replay, and the BBS thread confirms 0x10 for the T14 Gen5 AMD OLED. Cause and verify are rewritten to match. The debugfs write needs root and was not run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Turning off PSR or Panel Replay raises idle power draw. The XPS report estimated 0.5 to 1.5 W, which is a visible hit to battery life. On Omarchy 4, a drop-in written with `=` instead of `+=`, or with `tee` instead of `tee -a`, silently drops Omarchy's own kernel parameters, including `initramfs_async=0`, which keeps the Plymouth LUKS prompt working. `limine-mkinitcpio` rewrites the UKI on the ESP, so check `df -h /boot` first. To recover from a bad parameter, edit it out in the Limine boot menu editor or boot a Limine snapshot entry.
+
+**Fix.**
+
+**Find your display driver:**
+
+```bash
+lspci -k | grep -A3 -E 'VGA|Display'
+```
+
+**Intel only: test at runtime first** (the path is from the XPS report and may differ by PCI address):
+
+```bash
+sudo cat /sys/kernel/debug/dri/0000:00:02.0/eDP-1/i915_psr_status
+echo 1 | sudo tee /sys/kernel/debug/dri/0000:00:02.0/i915_edp_psr_debug
+```
+
+Writing 1 turns off both PSR and Panel Replay. If that makes the flicker or stutter stop at once, PSR or Panel Replay is the cause. It resets at reboot.
+
+**Pick the parameters for the driver `lspci -k` showed as in use:**
+
+| Driver in use | Parameters |
+| --- | --- |
+| `i915` | `i915.enable_psr=0 i915.enable_panel_replay=0` |
+| `xe` | `xe.enable_psr=0 xe.enable_panel_replay=0` |
+| `amdgpu` | `amdgpu.dcdebugmask=0x10` |
+
+On Intel you need both parameters. `enable_psr=0` does not cover Panel Replay, and turning off only Panel Replay falls back to PSR2 selective fetch, which stuttered the same way in the XPS report. One reporter on the same laptop found that `xe.enable_psr=2 xe.enable_panel_replay=0` also cured it, at a smaller battery cost, so try that first if battery matters.
+
+On `amdgpu`, `0x10` turns off PSR v1 and PSR Selective Update, which is what fixed the ThinkPad T14 Gen5 report. It does not turn off Panel Replay. If the artefacts persist, use `amdgpu.dcdebugmask=0x410` instead, which adds the kernel's `DC_DISABLE_REPLAY` bit (`0x400`).
+
+**Omarchy 4:** write only the row for your driver. The block below is the `xe` row. For `i915` the line is `KERNEL_CMDLINE[default]+=" i915.enable_psr=0 i915.enable_panel_replay=0"`, and for `amdgpu` it is `KERNEL_CMDLINE[default]+=" amdgpu.dcdebugmask=0x10"`. Always use `+=`, because a bare `=` would wipe Omarchy's own defaults.
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" xe.enable_psr=0 xe.enable_panel_replay=0"
+EOF
+sudo limine-mkinitcpio && sudo limine-update && sudo reboot
+```
+
+After the reboot, check that the parameters reached the kernel:
+
+```bash
+cat /proc/cmdline
+```
+
+**Plain Arch:** add the parameters for your driver to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`, or append them to `options` in `/boot/loader/entries/*.conf` for systemd-boot. Then reboot.
+
+**Verify.** After the reboot, `cat /proc/cmdline` shows the parameters. On Intel, `cat /sys/module/i915/parameters/enable_psr` and `cat /sys/module/i915/parameters/enable_panel_replay` (or the same files under `/sys/module/xe/parameters/`) both print `0`, and `i915_psr_status` no longer reports PSR or Panel Replay as enabled. On AMD, `cat /sys/module/amdgpu/parameters/dcdebugmask` prints `16` for 0x10, or `1040` for 0x410. Scroll a long page and play a video to check that the flicker and judder are gone.
+
+Sources: <https://wiki.archlinux.org/title/Intel_graphics> · <https://wiki.archlinux.org/title/AMDGPU> · <https://bbs.archlinux.org/viewtopic.php?id=300966> · <https://github.com/omacom/omarchy/issues/6853> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/asus/fix-asus-ptl-b9406-display.sh> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/display/intel_display_types.h> · <https://github.com/omacom/omarchy/issues/11016> · <https://github.com/omacom/omarchy/issues/6768> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/display/intel_display_params.c> · <https://github.com/omacom/omarchy/issues/5423> · <https://github.com/omacom/omarchy/issues/12875> · <https://github.com/omacom/omarchy/issues/11176> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/display/intel_psr.c> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/include/amd_shared.h>
+
+---
+
 ## Write monitor rules that survive a cable swap or a dock replug
 
 `monitor-rules-break-when-ports-swap` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `dock`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`, `wayland`
@@ -1430,6 +1733,69 @@ Sources: <https://github.com/basecamp/omarchy/issues/7242> · <https://github.co
 
 ---
 
+## Find out why a USB-C dock or MST hub hides your monitor's high refresh rate
+
+`mst-dock-high-refresh-mode-pruned-dsc` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `dock`, `endeavouros`, `hyprland`, `intel`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** My 3440x1440 165 Hz (or 2560x1440 240 Hz) monitor runs at full rate plugged straight into the laptop, but through my USB-C dock or MST hub `hyprctl monitors all` tops out lower: 100 Hz for the 3440x1440 165 Hz panel in i915 17207, 120 Hz for a 3440x1440 panel in i915 17228, and 144 Hz for the 2560x1440 240 Hz panel in i915 16640. Windows on the same dock and cable does the full rate. Editing the `mode` line does nothing, because the fast mode is not in `availableModes` at all.
+
+**Cause.** The kernel removes the mode before Hyprland ever sees it, and two limits stack on a dock path.
+
+1. **Two lanes.** Many USB-C docks and hubs that also carry USB 3 data run DisplayPort Alt Mode on two of the four high-speed lanes. Two HBR3 lanes carry about 12.96 Gbps of payload, half of a direct 4-lane link. The Lenovo dock in omarchy 13119 and the hub in i915 16640 both negotiate 2 lanes.
+
+2. **Conservative DSC behind MST.** The mode must then fit after Display Stream Compression, and the Intel driver reports a compressed rate of 16 bits per pixel in `i915_display_info`. In i915 16640 (Raptor Lake) 2560x1440@240 needs about 1056.75 MHz × 16 bpp, roughly 16.9 Gbps, which exceeds the 2-lane budget, so the mode is pruned. The reporter calculates that it would fit at 8 bpp, and the same laptop, hub and monitor run 240 Hz on Windows. i915 17207 (Meteor Lake, Lenovo 40AY dock) shows `port_clock=810000, lane_count=2` and `compressed-bpp:16.0000` with 3440x1440@165 missing, while a direct USB-C to DP cable offers it. i915 17228 (Tiger Lake, Dell WD19) logs the 144, 165 and 180 Hz modes as pruned with `CLOCK_HIGH`. All three are open as of 2026-10-05.
+
+The Omarchy record `monitor-stuck-at-60hz-high-refresh` covers the general case of a missing mode. This record is the dock and MST case, where the cable is fine and the same monitor works direct.
+
+> **Audit corrected this record.** Read i915 16640, 17207 and 17228 and omarchy 13119. All four are open as of 2026-10-05. The lane counts, `port_clock=810000, lane_count=2`, `compressed-bpp:16.0000`, the 1056.75 MHz 240 Hz timing, the 17207 direct-cable result and the 17228 CLOCK_HIGH pruning of 144/165/180 Hz all match. Two specifics are not supported. The symptom says the dock path tops out at 100 or 120 Hz, but 16640 exposes 144 Hz for its 240 Hz panel, and nothing cited shows a 60 Hz only case. The cause says Windows uses 8 bpp, but no source reports what Windows picks: 16640's reporter calculated that 8 bpp would fit and observed Windows running 240 Hz. omarchy 13119 is a different bug (a 7.2.5 amdgpu MST regression) and supports only the 2-lane dock negotiation it is cited for. The fix commands were checked for shape only: amdgpu debugfs `link_settings` exists in amdgpu_dm_debugfs.c and its `Current: 4 0x1e 16` format is shown in drm/amd 5033. The debugfs reads were not run here because they need root. Symptom and cause rewritten, fix kept.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+**Fix.**
+
+**1. Confirm the mode is missing, not misconfigured:**
+
+```bash
+hyprctl monitors all -j | jq -r '.[] | .name, (.availableModes | join(" "))'
+```
+
+If the fast rate is listed, this is not your record. Go to `monitor-stuck-at-60hz-high-refresh`.
+
+**2. Read the link the dock negotiated** (root needed):
+
+Intel (i915 or xe):
+
+```bash
+sudo sh -c 'grep -E "port_clock|lane_count|dsc-dss|compressed-bpp" /sys/kernel/debug/dri/*/i915_display_info'
+```
+
+AMD:
+
+```bash
+journalctl -k -b | grep 'DM_MST'          # e.g. "DM_MST: DP14, 2-lane link detected"
+sudo sh -c 'for f in /sys/kernel/debug/dri/*/DP-*/link_settings; do echo "== $f"; cat "$f"; done'
+```
+
+In `link_settings` the first number after `Current:` is the lane count and the second is the link rate code (`0x14` is 5.4 Gbps per lane, `0x1e` is 8.1 Gbps per lane).
+
+**3. Pick a remedy.** No monitor rule can bring back a mode the kernel pruned.
+
+- Connect the monitor directly with a USB-C to DisplayPort cable. That uses all four lanes, and it is how the i915 17207 reporter got 165 Hz on the same laptop.
+- Put fewer monitors on the hub. MST splits one link's bandwidth across every display behind it.
+- Run the highest rate the dock does offer, copied verbatim from `availableModes`, in `~/.config/hypr/monitors.lua`:
+
+```lua
+hl.monitor({ output = "desc:<description from hyprctl monitors>", mode = "3440x1440@99.98", position = "auto", scale = 1 })
+```
+
+On Intel, follow i915 16640 and 17207 for a driver change to the compressed bpp choice.
+
+**Verify.** On a direct cable the fast rate appears in `availableModes` and `hyprctl monitors` runs it. On the dock, the pinned rate holds after a replug.
+
+Sources: <https://gitlab.freedesktop.org/drm/i915/kernel/-/work_items/16640> · <https://gitlab.freedesktop.org/drm/i915/kernel/-/work_items/17207> · <https://gitlab.freedesktop.org/drm/i915/kernel/-/work_items/17228> · <https://github.com/omacom/omarchy/issues/13119> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_debugfs.c> · <https://gitlab.freedesktop.org/drm/amd/-/work_items/5033>
+
+---
+
 ## Stop VRR flicker and backlight pumping with adaptive sync on
 
 `vrr-flicker-and-brightness-pumping` · severity: **medium** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `nvidia`, `omarchy`, `wayland`
@@ -1470,6 +1836,165 @@ VRR needs DisplayPort on most hardware. Over HDMI it requires HDMI 2.1 VRR suppo
 **Verify.** `hyprctl monitors` shows `vrr: true` only on the outputs you intended, and the flicker stops on the desktop.
 
 Sources: <https://wiki.archlinux.org/title/Variable_refresh_rate> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/Basics/Variables.md> · <https://github.com/hyprwm/Hyprland/issues/5797>
+
+---
+
+## Fix brightness keys that move the OSD but never change the laptop screen
+
+`brightness-keys-drive-wrong-backlight-device` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `grub`, `intel`, `laptop`, `limine`, `manjaro`, `nvidia`, `omarchy`, `omarchy-4`, `systemd-boot`
+
+**Symptom.** The brightness keys show the OSD going up and down, but the screen never gets brighter or dimmer. `ls /sys/class/backlight` lists two devices, for example `intel_backlight` and `nvidia_wmi_ec_backlight`, or `acpi_video0` and `amdgpu_bl1`, and writing to the one in use does nothing. Common on Optimus and MUX laptops and on some Razer, Lenovo and Acer models. The kernel log may show `nvidia-modeset: ACPI reported no NVIDIA native backlight available; attempting to use ACPI backlight.`
+
+**Cause.** The kernel can register more than one backlight interface for the same panel, and only one of them actually drives it. Since Linux 6.1 the kernel picks which types register from ACPI heuristics, and `acpi_backlight=` overrides that choice. On Omarchy, `omarchy-hw-display` picks the device in a fixed order: `gmux_backlight`, then `amdgpu_bl*`, then `intel_backlight`, then `acpi_video*`, then the first device listed. If the working interface is a different one, for example `nvidia_wmi_ec_backlight` on a hybrid laptop, or the earlier entry in the order is the dead one, every key press goes to an interface that the panel ignores.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A wrong kernel parameter can leave you with no backlight control, or a black panel until it is removed. Per the Arch wiki, `acpi_backlight=vendor` can make the interface disappear entirely on NVIDIA-only laptops. On Omarchy 4, writing `KERNEL_CMDLINE[default]=` without the `+`, or using a bare `tee` instead of `tee -a`, wipes Omarchy's own parameters, including `initramfs_async=0`, which keeps the Plymouth LUKS prompt working. `limine-mkinitcpio` rewrites the UKI on the ESP, so run `df -h /boot` first. To recover, remove the parameter in the Limine boot menu editor, or boot a Limine snapshot entry.
+
+**Fix.**
+
+**Find the interface that works.** Try each device listed and watch the screen:
+
+```bash
+ls /sys/class/backlight/
+omarchy-hw-display                       # the one Omarchy's keys use
+brightnessctl -d intel_backlight set 30%
+brightnessctl -d nvidia_wmi_ec_backlight set 30%
+```
+
+**Quick fix with no reboot:** rebind the keys in `~/.config/hypr/bindings.lua` to the device that worked:
+
+```lua
+hl.unbind("XF86MonBrightnessUp")
+hl.unbind("XF86MonBrightnessDown")
+o.bind("XF86MonBrightnessUp", "Brightness up", "brightnessctl -d nvidia_wmi_ec_backlight set +5%", { locked = true, repeating = true })
+o.bind("XF86MonBrightnessDown", "Brightness down", "brightnessctl -d nvidia_wmi_ec_backlight set 5%-", { locked = true, repeating = true })
+```
+
+**Proper fix: make the kernel register the right type.** Pick the parameter from what worked, using the Arch wiki's guidance:
+
+- `acpi_backlight=native`: the GPU's own interface works (`intel_backlight`, `amdgpu_bl*`). The wiki also gives it for NVIDIA-only MUX laptops where `nvidia_wmi_ec_backlight` registers but does nothing.
+- `acpi_backlight=nvidia_wmi_ec`: some Optimus laptops.
+- `acpi_backlight=video`, with `amdgpu.backlight=0` on AMD if needed: Razer Blade 14, Lenovo Yoga Slim 7, Lenovo IdeaPad Gaming 3, Acer AN517-41.
+
+If you already pass an `acpi_backlight=` parameter, remove it first. The wiki says the 6.1 rework made old values counterproductive.
+
+**Omarchy 4** builds the kernel command line into the UKI. Add a drop-in that sorts after `omarchy-defaults.conf`, and always use `+=`:
+
+```bash
+sudo tee -a /etc/limine-entry-tool.d/zz-local.conf >/dev/null <<'EOF'
+KERNEL_CMDLINE[default]+=" acpi_backlight=native"
+EOF
+sudo limine-mkinitcpio && sudo limine-update && sudo reboot
+```
+
+**Plain Arch:** add it to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` and run `sudo grub-mkconfig -o /boot/grub/grub.cfg`, or append it to `options` in `/boot/loader/entries/*.conf` for systemd-boot. Then reboot.
+
+**Verify.** `cat /proc/cmdline` contains the new parameter, `ls /sys/class/backlight` shows the working device (alone, or first in `omarchy-hw-display`'s order), and the brightness keys change the panel.
+
+Sources: <https://wiki.archlinux.org/title/Backlight> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hw-display>
+
+---
+
+## Stop an external monitor going black every time the Display panel opens
+
+`ddc-brightness-probe-blanks-external-monitor` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `ddcutil`, `desktop`, `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `omarchy-4`, `wayland`
+
+**Symptom.** Every time I open the display module in the bar, or run `omarchy brightness display --monitor DP-1`, that one external monitor goes completely black for two or three seconds and then comes back by itself. Nothing is changed on it. It happens on every open, not only the first. Some people see multicoloured pixel noise instead of black. It is common with a monitor behind a USB-C to HDMI adapter, or one that answers `ddcutil detect` but has no readable brightness. With the panel left open, the journal fills with lines like:
+
+```
+Error detecting VCP version using VCP feature xDF: DDCRC_RETRIES; EREMOTEIO(10)
+```
+
+roughly every 50 seconds, and `journalctl -k` shows nothing at all.
+
+**Cause.** `omarchy-brightness-display-ddc` caches each connector's I2C bus in `$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc/<connector>.bus`, so that the expensive `ddcutil --skip-ddc-checks detect --brief` scan runs only once. If the scan finds no monitor it writes an `unavailable <timestamp>` entry that holds for 60 seconds. The failing case takes a different path. When `detect` finds the monitor but `getvcp 10` (brightness) fails, `read_brightness` runs `rm -f "$cache_file"` and keeps no record of the failure. So every later call, and the Display panel calls it each time it opens or refreshes, repeats the full `detect` scan, and that scan probes the DDC channel of every attached display. Some monitors, and some converters inside USB-C to HDMI cables, drop and retrain the link when probed, which is the blank. Because DDC/CI is I2C sideband traffic there is no modeset and no kernel log line. The `rm -f` branch is still present in 4.0.4-1 and on the `quattro` branch as of 2026-10-04, and the issue is open.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The entry disables DDC brightness for that connector name, not for that monitor. If a different monitor later gets the same name, for example after a dock replug renumbers the ports, its brightness keys and slider stop working too. Delete the `.bus` file and the tmpfiles line to undo it.
+
+**Fix.**
+
+**Confirm it is this path.** Replace `DP-2` with the monitor that blanks (`hyprctl monitors | grep ^Monitor`):
+
+```bash
+omarchy-brightness-display --monitor DP-2; echo "exit=$?"
+ls -la "$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc/"
+```
+
+If the command exits 1 and the directory has no `DP-2.bus` entry, this is the bug.
+
+**Workaround (Omarchy 4): write the negative verdict the script does not keep.** The cache check treats an entry as fresh while `now - stamp < 60`, so a far-future stamp makes it permanent and the helper returns before it ever calls `ddcutil`:
+
+```bash
+mkdir -p "$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc"
+echo "unavailable 9999999999" > "$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc/DP-2.bus"
+```
+
+`$XDG_RUNTIME_DIR` is a tmpfs that is emptied at logout, so to keep it across sessions use a user tmpfiles rule:
+
+```
+# ~/.config/user-tmpfiles.d/omarchy-ddc-skip.conf
+d %t/omarchy-brightness-display-ddc 0755 - - -
+f+ %t/omarchy-brightness-display-ddc/DP-2.bus 0644 - - - unavailable 9999999999
+```
+
+The user unit that applies these rules is disabled on Omarchy 4 (checked on 4.0.4-1), so enable it:
+
+```bash
+systemctl --user enable systemd-tmpfiles-setup.service
+systemd-tmpfiles --user --create
+```
+
+This gives up DDC brightness on that connector. On the monitors this bug hits, the brightness read was already failing, so nothing that worked is lost.
+
+**Verify.** Open and close the Display panel several times. The monitor no longer blanks. `cat "$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc/DP-2.bus"` prints `unavailable 9999999999`, and `journalctl --user -b | grep -c DDCRC_RETRIES` stops climbing.
+
+Sources: <https://github.com/omacom/omarchy/issues/6855> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display-ddc>
+
+---
+
+## Pin a 4K monitor to 120 Hz when its 144 Hz DSC mode commits but shows nothing
+
+`dsc-4k144-mode-accepted-but-monitor-black` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `dock`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** 4K 144 Hz monitor on USB-C or DisplayPort, AMD laptop. `hyprctl monitors` says the output is running `3840x2160@144` and there is no config error, but the monitor shows no picture or reports no signal. Setting `3840x2160@120` brings the picture straight back on the same cable and port. Windows runs 144 Hz on the same hardware. Through some USB4 docks, switching to 144 Hz also resets every USB device on the dock.
+
+**Cause.** 4K at 144 Hz with 8-bit colour needs about 1265.75 MHz × 24 bpp, roughly 30.4 Gbps, while a 4-lane DisplayPort 1.4 HBR3 link carries about 25.9 Gbps of payload, so the mode only fits with Display Stream Compression. On the reported Krackan Point machine (drm/amd 5033, open) amdgpu selects DSC, trains HBR3 on 4 lanes, commits the stream and reports success, yet the monitor displays nothing. Through a Lenovo USB4 dock the same switch hits a kernel WARNING in `update_dpia_stream_allocation_table` and a USB topology reset. Because the kernel accepts the commit, Hyprland sees a working mode and never falls back to a neighbouring rate. Omarchy's default catch-all rule uses `mode = "preferred"`, so a monitor whose EDID prefers 144 Hz lands in this state on first plug.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Get the picture back.** From the laptop panel, or over ssh (`hyprctl -i 0` picks the running instance there):
+
+```bash
+hyprctl monitors all -j | jq -r '.[] | "\(.name)  \(.width)x\(.height)@\(.refreshRate)  desc:\(.description)"'
+hyprctl eval 'hl.monitor({ output = "DP-2", mode = "3840x2160@120", position = "auto", scale = 1.5 })'
+```
+
+**2. Confirm DSC was the difference** (AMD, root needed):
+
+```bash
+sudo sh -c 'for f in /sys/kernel/debug/dri/*/DP-*/dsc_clock_en; do echo "$f: $(cat $f)"; done'
+```
+
+A `1` on the connector at 144 Hz and `0` at 120 Hz matches this record.
+
+**3. Pin the working rate.** In `~/.config/hypr/monitors.lua`, add a rule for this monitor below the catch-all. Matching on `desc:` survives a port change. Copy the rate verbatim from `availableModes`:
+
+```lua
+hl.monitor({ output = "desc:<description from step 1>", mode = "3840x2160@120", position = "auto", scale = 1.5 })
+```
+
+On Hyprland 0.54 and older (hyprlang): `monitor = desc:<description>, 3840x2160@120, auto, 1.5`.
+
+**4. Things that do not help** on the reported hardware: changing cables, because 120 Hz already works on the same cable, and asking Hyprland for `highrr`, which picks the broken 144 Hz mode. Watch drm/amd 5033 for a kernel fix before removing the pin.
+
+**Verify.** `hyprctl monitors` shows the output at the pinned 120 Hz rate after a reboot and after replugging, and the monitor shows a picture.
+
+Sources: <https://gitlab.freedesktop.org/drm/amd/-/work_items/5033> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/monitors/modes.md> · <https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_debugfs.c>
 
 ---
 
@@ -1531,6 +2056,111 @@ echo 1 | sudo tee /sys/bus/wmi/devices/86CCFD48-205E-4A77-9C48-2021CBEDE341/forc
 **Verify.** Reboot with only the USB4 cable attached: the bootloader menu and then the Hyprland session both appear on that input, and `hyprctl monitors` shows the native mode.
 
 Sources: <https://github.com/basecamp/omarchy/issues/374> · <https://wiki.archlinux.org/title/Thunderbolt> · <https://github.com/basecamp/omarchy/issues/7328>
+
+---
+
+## Wake a USB4 monitor that stays dark on hotplug by setting a lower mode first
+
+`usb4-monitor-dark-on-hotplug-two-lane-tunnel` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `omarchy`, `thunderbolt`, `usb4`, `wayland`
+
+**Symptom.** AMD Ryzen AI 300 (Strix Point) laptop with USB4, a Framework Laptop 13 in the report. Plug a 4K monitor into the USB4 port: it is detected, the EDID is read and modes are listed, but the screen never lights. Windows lights the same monitor at 4K@60 immediately. The report was made under GNOME, where Mutter logged `Page flip failed: drmModeAtomicCommit: No space left on device` over a thousand times. Under Hyprland the same failure should show the output at `0x0` in `hyprctl monitors all` and failed commits ending in `No space left on device` in the Hyprland log, but no Hyprland report has confirmed that.
+
+**Cause.** On hotplug the USB4 DisplayPort tunnel first comes up as a 2-lane DP 1.4 link, about 12.96 Gbps, and 3840x2160@60 at 8 bits needs about 14.25 Gbps, so the kernel's atomic check fails with `ENOSPC`. The kernel log shows `DM_MST: DP14, 2-lane link detected`. The bandwidth is there once the tunnel settles: in drm/amd 5011 (open) setting 4K@30 first, waiting 3 seconds and then switching to 4K@60 succeeds, with the laptop panel at 2880x1920@120 alongside. The reporter's reading is that the driver neither waits for the full tunnel allocation before the first modeset nor retries after it grows. That is an analysis in the report, not a confirmed driver diagnosis. The workaround was demonstrated under GNOME. On Hyprland the same two-step modeset is done with `hyprctl eval`, which the report did not test.
+
+> **Audit corrected this record.** Read drm/amd 5011 in full (open): Framework 13 Ryzen AI 300 (Strix Point), BenQ RD320UA, `DM_MST: DP14, 2-lane link detected`, 12.96 versus 14.25 Gbps, ENOSPC on every commit, and 4K@30 then a 3-second wait then 4K@60 succeeds with eDP-1 at 2880x1920@120. Three statements go beyond it. The symptom presents Hyprland behaviour (`0x0` in hyprctl, a Hyprland log line) as observed, but the report is GNOME only, where Mutter logged `Page flip failed: drmModeAtomicCommit: No space left on device`. The cause states as fact that the driver neither waits nor retries, which is the reporter's analysis under a heading that says 'appears'. And the fix claims `hyprctl keyword` does nothing under a Lua config, which no source here supports: the Lua-era hyprctl wiki page documents `eval` and `dispatch` and is silent on `keyword`, and `hyprctl --help` on 0.56.2 still lists `keyword`. Confirmed on this machine: `hyprctl eval` exists on 0.56.2, the Hyprland wiki documents the `hl.monitor` fields used, `o.bind` in /usr/share/omarchy/default/hypr/helpers.lua wraps a string in `hl.dsp.exec_cmd`, and SUPER + CTRL + ALT + M is not bound by any Omarchy default. Nothing was exercised on USB4 hardware, and `hyprctl eval` was not run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Confirm the signature:**
+
+```bash
+journalctl -k -b | grep -E 'DM_MST: DP14, [0-9]-lane'
+grep -c 'No space left on device' "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log"
+hyprctl monitors all -j | jq -r '.[] | "\(.name) \(.width)x\(.height)"'
+```
+
+**2. Step the mode up by hand.** Replace `DP-9` with the name from step 1. A rule set with `eval` lasts until the next config reload:
+
+```bash
+hyprctl eval 'hl.monitor({ output = "DP-9", mode = "3840x2160@30", position = "auto", scale = 1.5 })'
+sleep 3
+hyprctl eval 'hl.monitor({ output = "DP-9", mode = "3840x2160@60", position = "auto", scale = 1.5 })'
+```
+
+**3. Keep it one keypress away.** Save it as a script:
+
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/usb4-monitor-kick <<'EOF'
+#!/bin/bash
+out="${1:-DP-9}"
+hyprctl eval "hl.monitor({ output = \"$out\", mode = \"3840x2160@30\", position = \"auto\", scale = 1.5 })"
+sleep 3
+hyprctl eval "hl.monitor({ output = \"$out\", mode = \"3840x2160@60\", position = \"auto\", scale = 1.5 })"
+EOF
+chmod +x ~/.local/bin/usb4-monitor-kick
+```
+
+and bind it in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + ALT + M", "Kick USB4 monitor", "~/.local/bin/usb4-monitor-kick DP-9")
+```
+
+Check the key combination is free first with `omarchy menu keybindings --print`.
+
+**Plain Arch with a hyprlang config (Hyprland 0.54 or older):** `hyprctl keyword monitor DP-9,3840x2160@30,auto,1.5`, wait 3 seconds, then the same with `@60`. Omarchy 4 ships a Lua config, so use the `hyprctl eval` form above there.
+
+**Verify.** `hyprctl monitors` shows the output at `3840x2160@60` and the monitor is lit. `grep -c 'No space left on device'` on the log stops growing.
+
+Sources: <https://gitlab.freedesktop.org/drm/amd/-/work_items/5011> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/advanced-configuration/using-hyprctl.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/monitors/_index.md>
+
+---
+
+## Keep a rotated laptop or handheld panel rotated after a reboot
+
+`rotated-internal-panel-loses-transform-clamshell` · severity: **medium** · frequency: **rare** · applies to: `gpd`, `handheld`, `hyprland`, `laptop`, `omarchy`, `omarchy-4`, `rotated-display`
+
+**Symptom.** I set `transform = 3` in `~/.config/hypr/monitors.lua` to rotate my built-in screen (reported on a GPD handheld, whose panels are natively portrait), and it works until I reboot. After a reboot the config still says `transform = 3` but the screen is not rotated. Changing the transform value, saving, then changing it back fixes it until the next reboot. A related report on a Dell Latitude says the internal panel's manually set `position` snaps back to an automatic one within about a second.
+
+**Cause.** LIKELY, inferred from reading `omarchy-hyprland-monitor-clamshell` and `omarchy-hyprland-monitor-watch` on 4.0.4-1 and not yet confirmed by the reporter. Omarchy autostarts `omarchy-hyprland-monitor-watch`, which runs the clamshell script when it starts at login, again 1, 4 and 11 seconds later, and the same way after every monitor added or removed event. On a machine it treats as a laptop (an ACPI lid switch, or a portable DMI chassis type) it also runs it every 2 seconds while an external monitor is active. It does not run it on a config reload. When the internal panel's active scale differs from the scale the script reads from `monitors.lua`, it re-applies the panel with `hyprctl eval "hl.monitor({ output = \"$INTERNAL\", mode = \"preferred\", position = \"$position\", scale = $scale })"`. That rule carries no `transform`, so the panel falls back to unrotated, and its `position` comes from a single-line rule naming the panel's connector, or `auto` when there is none. A mismatch is expected when the configured scale does not divide the panel's resolution cleanly, which the Hyprland wiki calls an invalid scale, because the active scale then differs from the one written. The reported config used `scale = "1.2"` on the catch-all rule, and the report does not give the panel's resolution. Saving `monitors.lua` reloads the whole config, which re-applies the full rule with its transform, and because a reload does not trigger the watcher, the rotation then holds until the next login or hotplug. That explains why "change it and change it back" works until a reboot. To confirm, watch `hyprctl monitors -j` for the transform dropping to 0 within about 11 seconds of login.
+
+> **Audit corrected this record.** Read /usr/share/omarchy/bin/omarchy-hyprland-monitor-clamshell, omarchy-hyprland-monitor-watch, omarchy-hyprland-monitor-laptop, omarchy-hw-laptop, omarchy-hyprland-monitor-scaling and omarchy-refresh-config on 4.0.4-1, and issues #7066 and #7326 in full. The core inference holds and is honestly flagged LIKELY: sync_internal_scale re-applies the panel with an hl.monitor eval that has no transform when the active scale differs from the configured one, position comes from a connector-named single-line rule or auto, and the reported config is scale "1.2" with transform = 3 on the catch-all. Reading the watcher strengthens it: it runs the clamshell script at login and again 1, 4 and 11 seconds later, and not on configreloaded, which explains why the rotation holds after a save and fails after a reboot. The cause misstated the 2-second poll, which only runs on a machine omarchy-hw-laptop accepts. The danger was wrong: omarchy-refresh-config copies the user file to monitors.lua.bak.<epoch> before replacing it, so nothing is lost. Whether 1.2 is invalid for the reporter's panel is not known, because #7066 gives no resolution. The fix also missed that the Display panel's scale buttons drop the transform the same way. Nothing was reloaded or re-applied on this machine.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not try to reset this with `omarchy refresh config hypr/monitors.lua`. It replaces your file with the shipped template, which has no rotation and no per-panel rule. It saves your version first as `~/.config/hypr/monitors.lua.bak.<epoch seconds>`, so if you ran it, copy that backup back over `monitors.lua`.
+
+**Fix.**
+
+**Give the internal panel its own one-line rule** with the transform, an explicit position, and a scale Hyprland applies exactly. The script matches only single-line rules naming the connector in a quoted string. First read the panel's name, current scale and transform:
+
+```bash
+hyprctl monitors all -j | jq -r '.[] | "\(.name) scale=\(.scale) transform=\(.transform)"'
+```
+
+```lua
+-- ~/.config/hypr/monitors.lua
+hl.monitor({ output = "DSI-1", mode = "preferred", position = "0x0", scale = 1.25, transform = 3 })
+```
+
+Use your panel's name (`eDP-1`, `DSI-1`) and a scale that divides its resolution cleanly, then run `hyprctl reload`. Check that `hyprctl monitors -j` reports exactly the scale you wrote. If it reports a different number, use that number in the rule, so the watcher sees no mismatch and leaves the panel alone.
+
+Or keep the stock `local omarchy_monitor_scale = "auto"`. The watcher does not re-apply a scale it cannot read as a number, but a `transform` on the catch-all rule still applies to every monitor, so a per-panel rule is cleaner.
+
+The Display panel's scale buttons have the same gap: `omarchy-hyprland-monitor-scaling` re-applies the focused monitor with `position = "auto"` and no `transform`, so using them on the rotated panel unrotates it until the next `hyprctl reload`. Change the scale in `monitors.lua` instead.
+
+Also check the record `hyprland-invalid-scale-not-divisible` for choosing a scale Hyprland accepts.
+
+**Verify.** Reboot, wait ten seconds, then run `hyprctl monitors -j | jq '.[] | {name, scale, transform, x, y}'`. The panel still shows `transform: 3` and the position you set, and both survive plugging in and removing an external monitor.
+
+Sources: <https://github.com/omacom/omarchy/issues/7066> · <https://github.com/omacom/omarchy/issues/7326> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-clamshell> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/monitors/positioning.md> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-watch>
 
 ---
 
@@ -1661,6 +2291,79 @@ Log out and back in for the env change to reach already-running apps.
 **Verify.** The cursor is the same apparent physical size on both monitors and stays visible over XWayland windows.
 
 Sources: <https://github.com/basecamp/omarchy/blob/quattro/default/hypr/envs.lua> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/Basics/Variables.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/Advanced%20and%20Cool/XWayland.md> · <https://github.com/basecamp/omarchy/issues/7918>
+
+---
+
+## Make brightness keys control an external monitor over DDC/CI
+
+`external-monitor-ddc-brightness-does-nothing` · severity: **low** · frequency: **common** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `dock`, `endeavouros`, `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `wayland`
+
+**Symptom.** On Omarchy 4 the brightness keys and the Display panel slider work on the laptop panel but do nothing on my external monitor, or the panel shows `FIXED BRIGHTNESS` for it. `omarchy-brightness-display --monitor DP-1` exits 1 with no output.
+
+**Cause.** Omarchy 4 controls external monitor brightness over DDC/CI with ddcutil (`omarchy-brightness-display-ddc`, added in Quattro by omarchy pull request 6490, with ddcutil installed by a migration). The script maps the Hyprland connector to an I2C bus through `ddcutil detect`, then reads and writes VCP feature 0x10. Any of these breaks it:
+
+- DDC/CI is switched off in the monitor's on-screen menu, or a monitor feature such as dynamic contrast or an eye-care mode is holding brightness.
+- `i2c-dev` is not loaded or the user cannot open `/dev/i2c-*`. The ddcutil package loads it at boot through `/usr/lib/modules-load.d/ddcutil.conf`, and its udev rule `/usr/lib/udev/rules.d/60-ddcutil-i2c.rules` tags video-adapter I2C buses `uaccess`.
+- NVIDIA's proprietary driver fails I2C on some cards.
+- The monitor sits behind an MST dock or hub. It appears on a virtual connector with no I2C bus of its own, and ddcutil refuses the physical port's bus because the kernel reports that port disconnected (omarchy 14005, open, no fix in 4.0.4).
+- A failed lookup is cached as `unavailable` for 60 seconds in `$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc/`, so fixing the monitor and retrying immediately still fails.
+
+Apple displays use a different path, and all-in-one built-in panels are wrongly sent down this one. Both have their own records.
+
+> **Audit corrected this record.** Read /usr/share/omarchy/bin/omarchy-brightness-display-ddc and omarchy-brightness-display on this machine: the `ddcutil detect` bus mapping, VCP 0x10, the 60-second `unavailable` cache under `$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc/` and the silent exit 1 all match. PR 6490 'Support external monitor brightness in Quattro' merged 2026-08-01 into quattro. Migration 1785608251.sh runs `omarchy-pkg-add ddcutil`. 'FIXED BRIGHTNESS' is in shell/plugins/panels/monitor/Panel.qml. omarchy 14005 is open and matches the MST description exactly. ddcutil.com/nvidia gives the same `options nvidia NVreg_RegistryDwords=RMUseSwI2c=0x01;RMI2cSpeed=100` line and the /proc check. /etc/mkinitcpio.conf.d here has `modconf` in HOOKS and the nvidia modules in MODULES, so the UKI rebuild with `limine-mkinitcpio` is the right step. One misattribution: /usr/lib/modules-load.d/ddcutil.conf (`i2c-dev`) and the udev rule are owned by the ddcutil 2.2.7-1 package (`pacman -Qo`), not by Omarchy, so plain Arch with ddcutil gets them too. The cause is corrected for that. The fix holds as written. Not exercised: no ddcutil command or module load was run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The NVIDIA `RegistryDwords` option is undocumented by NVIDIA. If the display misbehaves after it, delete `/etc/modprobe.d/nvidia-i2c.conf` and rebuild the initramfs again.
+
+**Fix.**
+
+**1. Run the pieces by hand:**
+
+```bash
+pacman -Q ddcutil
+hyprctl monitors -j | jq -r '.[].name'
+omarchy-brightness-display-ddc DP-1; echo "exit $?"
+ddcutil detect
+```
+
+**2. Act on what `ddcutil detect` shows.**
+
+- **Monitor listed with an I2C bus:** test it directly with `ddcutil --bus N getvcp 10`. If that fails, enable DDC/CI in the monitor's menu and turn off dynamic contrast or eye-care modes. Then clear Omarchy's cache and retry:
+
+```bash
+rm -rf "$XDG_RUNTIME_DIR/omarchy-brightness-display-ddc"
+omarchy-brightness-display --monitor DP-1 50%
+```
+
+- **No `/dev/i2c-*` devices or permission errors:**
+
+```bash
+lsmod | grep i2c_dev || sudo modprobe i2c-dev
+ddcutil environment          # prints what it thinks is wrong
+```
+
+- **NVIDIA proprietary driver and no monitor detected:** ddcutil's documented workaround is an undocumented driver option. Omarchy bakes `/etc/modprobe.d` into the UKI, so rebuild it:
+
+```bash
+echo 'options nvidia NVreg_RegistryDwords=RMUseSwI2c=0x01;RMI2cSpeed=100' | sudo tee /etc/modprobe.d/nvidia-i2c.conf
+# Omarchy 4
+sudo limine-mkinitcpio && sudo reboot
+# plain Arch
+sudo mkinitcpio -P && sudo reboot
+# after reboot
+grep RegistryDwords /proc/driver/nvidia/params
+```
+
+- **Monitor behind an MST dock or hub, not listed at all:** no Omarchy fix as of 4.0.4. Use the monitor's own buttons, or connect it directly, where `ddcutil detect` will list it.
+
+**Plain Arch:** `sudo pacman -S ddcutil`, then `ddcutil --bus N setvcp 10 70` sets an absolute value and `ddcutil --bus N setvcp 10 + 10` a relative one. Bind those to your brightness keys.
+
+**Verify.** `omarchy-brightness-display --monitor DP-1` prints a percentage, the keys move it with the external monitor focused, and the Display panel shows a slider for that monitor.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display-ddc> · <https://github.com/omacom/omarchy/pull/6490> · <https://github.com/omacom/omarchy/issues/14005> · <https://www.ddcutil.com/faq/> · <https://www.ddcutil.com/nvidia/> · <https://www.ddcutil.com/kernel_module/> · <https://www.ddcutil.com/i2c_permissions/> · <https://wiki.archlinux.org/title/Backlight>
 
 ---
 
@@ -1797,6 +2500,349 @@ Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/Configuring/
 
 ---
 
+## Make the text console readable on a HiDPI laptop
+
+`tty-console-font-tiny-on-hidpi` · severity: **low** · frequency: **common** · applies to: `arch`, `endeavouros`, `hidpi`, `laptop`, `mkinitcpio`, `omarchy`, `omarchy-4`, `tty`
+
+**Symptom.** On a 4K or other HiDPI laptop, the text console (Ctrl+Alt+F2, or the screen you land on when Hyprland crashes or an emergency shell opens) uses microscopic text that I can barely read.
+
+**Cause.** The kernel picks its large built-in font, `TER16x32`, for high-resolution displays by itself. Userspace then overrides it. On an install made by archinstall, which Omarchy's installer uses, `/etc/vconsole.conf` contains `FONT=default8x16`, because archinstall's default `console_font` is `default8x16`. systemd-vconsole-setup loads that 8x16 font over the kernel's choice. On Omarchy 4 the `consolefont` hook is in the `HOOKS` set by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, and that hook reads `FONT` from `/etc/vconsole.conf` when the initramfs is built and loads it in early userspace, so the small font is applied from early boot. Checked on this 4.0.4-1 workstation.
+
+> **Audit corrected this record.** Confirmed on this workstation: /etc/vconsole.conf has FONT=default8x16, the kernel has CONFIG_FONT_TER16x32=y, latarcyrheb-sun32 is owned by kbd 2.10.0-1, limine-mkinitcpio exists, and omarchy_hooks.conf includes consolefont. archinstall's locale.py defaults console_font to default8x16, and the Arch HiDPI page supports TER16x32 auto-selection, latarcyrheb-sun32 and the video= workaround. Three defects. The cause credits the drop-in's FILES+=(/etc/vconsole.conf) for the early-boot font, but that block exists for Plymouth's keyboard layout. /usr/lib/initcpio/install/consolefont reads FONT from /etc/vconsole.conf itself and embeds the font regardless of layout. The fix gives the video= parameter with no place to put it, and on Omarchy 4 kernel parameters go in /etc/limine-entry-tool.d/*.conf, the format omarchy-defaults.conf there uses. The danger calls a misspelt font harmless, but the consolefont install hook raises an error, mkinitcpio counts it and warns the image may not be complete. The verify step contained a placeholder 'Super+Alt+...', and loginctl here shows the Hyprland session on VTNr=1. No initramfs was rebuilt and no kernel parameter was exercised.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The initramfs rebuild writes to the ESP on Omarchy 4. Run `df -h /boot` first, because a full ESP produces a truncated image that does not boot, and Omarchy 4 has no fallback image. A misspelt font name is not harmless at build time: the `consolefont` hook fails with `consolefont: requested font not found`, and mkinitcpio warns that the image may not be complete. Correct the name and rebuild before rebooting. If a `video=` mode leaves the console blank, delete `/etc/limine-entry-tool.d/console-mode.conf` and run `sudo limine-mkinitcpio` again.
+
+**Fix.**
+
+**Try a font on the current console.** Run this on the text console itself (Ctrl+Alt+F2, then log in). From a terminal inside Hyprland it has no console to change:
+
+```bash
+setfont latarcyrheb-sun32
+```
+
+`latarcyrheb-sun32` ships in `kbd`, which is always installed. For Terminus, `sudo pacman -S terminus-font` and use `ter-132b` instead.
+
+**Make it permanent:**
+
+```bash
+sudo sed -i 's/^FONT=.*/FONT=latarcyrheb-sun32/' /etc/vconsole.conf
+grep -q '^FONT=' /etc/vconsole.conf || echo 'FONT=latarcyrheb-sun32' | sudo tee -a /etc/vconsole.conf
+sudo systemctl restart systemd-vconsole-setup
+```
+
+Rebuild the initramfs so early boot uses it too, and read the output for `consolefont: requested font not found` before rebooting:
+
+- **Omarchy 4:** `sudo limine-mkinitcpio`
+- **Plain Arch:** `sudo mkinitcpio -P`
+
+**If text turns garbled when you switch to other consoles,** the Arch wiki's fix is to force the native KMS mode with a `video=` kernel parameter, using your panel's resolution, for example `video=2560x1600@60`.
+
+- **Omarchy 4:** the kernel command line is inside the UKI and comes from `/etc/limine-entry-tool.d/*.conf`. Add a drop-in and rebuild:
+
+```bash
+echo 'KERNEL_CMDLINE[default]+=" video=2560x1600@60"' | sudo tee /etc/limine-entry-tool.d/console-mode.conf
+sudo limine-mkinitcpio
+```
+
+- **Plain Arch:** add `video=2560x1600@60` to your boot loader's kernel command line, as described on the Arch wiki's Kernel parameters page.
+
+**Verify.** `grep ^FONT /etc/vconsole.conf` prints the new font. Switch to Ctrl+Alt+F2 and the text is readable. After a reboot it is still large from early boot onwards. Ctrl+Alt+F1 returns you to the Hyprland session, which runs on tty1.
+
+Sources: <https://wiki.archlinux.org/title/HiDPI> · <https://wiki.archlinux.org/title/Linux_console> · <https://github.com/archlinux/archinstall/blob/master/archinstall/lib/models/locale.py>
+
+---
+
+## Make Steam and Proton games open on your main monitor
+
+`xwayland-games-open-on-wrong-monitor` · severity: **low** · frequency: **common** · applies to: `arch`, `desktop`, `gaming`, `hyprland`, `omarchy`, `omarchy-4`, `proton`, `steam`, `wayland`, `xwayland`
+
+**Symptom.** Steam and Proton games open on my second monitor, or open fullscreen at the second monitor's resolution so the picture is squished or offset. After a monitor goes to sleep or is power-cycled, games start landing on the wrong screen again even though it was fixed before.
+
+**Cause.** Wayland has no concept of a primary monitor, but games running through XWayland, which is how Proton runs them, place themselves on X's RandR primary output. Hyprland's config has no setting for it, so the primary is whichever output XWayland happened to choose. A primary set with `xrandr` is lost when that output is removed and re-added, for example when the monitor sleeps and drops its connection, which is why the problem comes back.
+
+> **Audit corrected this record.** The cited blog post supports the cause (Proton runs through XWayland, X's RandR primary decides placement, xrandr --primary fixes it but is lost when the monitor powers off) and the udev fallback. The Hyprland events page documents monitor.layout_changed as firing on monitor add, remove, mode change and config reload, and Omarchy's /usr/share/omarchy/default/hypr/helpers.lua defines o.exec_on_start via hl.on("hyprland.start") calling hl.exec_cmd, so the Lua snippet uses real API. Hyprland's config-options page has no xwayland option for a primary output and src/xwayland in the Hyprland repo has no RandR primary handling, so 'no setting for it' holds. The Arch steam package depends on xorg-xrandr, as the record says. Two defects: the symptom's 'Dota 2 renders squished' appears in no cited source and no omacom/omarchy issue, so it is unsupported precision and is dropped, and the cited Hyprland xwayland.md page covers HiDPI scaling and the abstract socket only and says nothing about a primary monitor, so it does not support the record. The fix was not exercised.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+**Fix.**
+
+**Find the connector name and test:**
+
+```bash
+hyprctl monitors | grep ^Monitor
+pacman -Q xorg-xrandr || sudo pacman -S --needed xorg-xrandr
+xrandr --output DP-1 --primary
+xrandr --listmonitors              # the primary carries a '*'
+```
+
+`xorg-xrandr` usually comes in as a Steam dependency.
+
+**Make it stick (Omarchy 4, Hyprland Lua).** Add this to `~/.config/hypr/autostart.lua`. The second block re-applies the setting whenever the monitor layout changes, which covers sleep and hotplug:
+
+```lua
+o.exec_on_start("xrandr --output DP-1 --primary")
+hl.on("monitor.layout_changed", function()
+  hl.exec_cmd("sleep 2; xrandr --output DP-1 --primary")
+end)
+```
+
+**Hyprland before 0.55 (hyprlang config):**
+
+```
+exec-once = xrandr --output DP-1 --primary
+```
+
+That version has no layout hook. Re-run the command after a monitor wakes, or use a udev rule as in the cited blog post.
+
+**Verify.** `xrandr --listmonitors` shows `*` on your main monitor after a login and after the monitors wake from sleep. Launch a fullscreen game and check that it opens there at the correct resolution.
+
+Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/advanced-configuration/events.md> · <https://kyouha.today/blog/rando/xwayland-game-primary-monitor/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/config-options.md> · <https://archlinux.org/packages/multilib/x86_64/steam/>
+
+---
+
+## Clear the cached device when Studio Display brightness stops working after a replug
+
+`apple-display-brightness-dead-after-replug` · severity: **low** · frequency: **occasional** · applies to: `apple`, `desktop`, `hyprland`, `laptop`, `omarchy`, `thunderbolt`, `wayland`
+
+**Symptom.** Brightness keys on an Apple Studio Display worked, then after replugging the Thunderbolt cable or waking a dock they silently stop. The OSD pops up empty, the brightness never changes, and nothing reports an error. A reboot makes it work again.
+
+**Cause.** `omarchy-brightness-display-apple` caches the display's HID node in `$XDG_RUNTIME_DIR/omarchy-brightness-display-apple.device`. On 4.0.4 it only re-checks that the cached path is still a hiddev character device. After a replug the display's USB interfaces renumber, and the old node can be taken by another of the display's own HID interfaces, so it still passes that check. `asdcontrol` then prints `This device is not a USB monitor!` and exits 0, so the script's retry, which only runs on a non-zero exit, never fires, and the OSD read that follows finds no level. Reported in omarchy pull request 7336 (open). Its author hit it on a Studio Display after a Thunderbolt replug, with key presses still driving `/dev/usb/hiddev3` after the display had moved to `hiddev2`. The reviewer confirmed the exit-0 path in asdcontrol's source and reproduced the stuck cache with a stub on a test VM.
+
+> **Audit corrected this record.** Read /usr/share/omarchy/bin/omarchy-brightness-display-apple on 4.0.4-1: the cache path, the hiddev character-device check and the retry that fires only on a non-zero `asdcontrol` exit all match the cause. Read PR 7336 (open) and its review. The bot reviewer confirmed the 'This device is not a USB monitor!' exit-0 path in asdcontrol v0.6.0 source and with a stub on a VM. The cause says the mechanism was not confirmed on real hardware, but the PR author hit it on a real Studio Display after a Thunderbolt replug, with the journal showing writes to hiddev3 while the display had moved to hiddev2. That sentence is corrected. The fix's key binding is wrong: SUPER + CTRL + ALT + B is an Omarchy default ('Show battery remaining', /usr/share/omarchy/default/hypr/bindings/utilities.lua:93), so the record tells the reader to check the combination and then hands them a taken one. Replaced with SUPER + CTRL + ALT + A, which no default binds. `o.bind` wraps the string in `hl.dsp.exec_cmd`, so `$XDG_RUNTIME_DIR` is expanded by the shell. Not exercised on hardware.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Delete the cache and let the script detect the display again:
+
+```bash
+cat "$XDG_RUNTIME_DIR/omarchy-brightness-display-apple.device"     # the stale node
+rm -f "$XDG_RUNTIME_DIR/omarchy-brightness-display-apple.device"
+omarchy-brightness-display-apple +5%
+```
+
+The cache lives under `$XDG_RUNTIME_DIR`, so logging out and back in also clears it. If it happens on every replug, bind the reset to a key in `~/.config/hypr/bindings.lua`. SUPER + CTRL + ALT + A is free on a stock Omarchy 4.0.4 (SUPER + CTRL + ALT + B is the battery notification), but check your own set with `omarchy menu keybindings --print`:
+
+```lua
+o.bind("SUPER + CTRL + ALT + A", "Re-detect Apple display", 'rm -f "$XDG_RUNTIME_DIR/omarchy-brightness-display-apple.device"')
+```
+
+If brightness still fails after the reset, the cause is one of the gates in `apple-studio-display-brightness-keys-do-nothing`.
+
+**Verify.** The brightness keys change the level again, the OSD shows a percentage, and the cache file holds a new node path.
+
+Sources: <https://github.com/omacom/omarchy/pull/7336> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display-apple> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/utilities.lua>
+
+---
+
+## Get brightness keys working on an Apple Studio Display or Pro Display XDR
+
+`apple-studio-display-brightness-keys-do-nothing` · severity: **low** · frequency: **occasional** · applies to: `apple`, `desktop`, `hyprland`, `laptop`, `omarchy`, `thunderbolt`, `wayland`
+
+**Symptom.** Apple Studio Display or Pro Display XDR on Omarchy 4. The brightness keys do nothing, or the OSD appears with no level. `omarchy-brightness-display` prints nothing and exits 1, or prints `No Apple Display HID device found`. Running `sudo asdcontrol` by hand in a terminal works.
+
+**Cause.** Omarchy 4 sends brightness for these displays through `omarchy-brightness-display-apple`, which runs `sudo asdcontrol` against the display's USB HID node. Three things must all hold, and each fails silently from a keybinding.
+
+1. **Routing.** `omarchy-brightness-display` only takes the Apple path when `omarchy-hyprland-monitor-focused-apple` matches, which needs Hyprland to report make `Apple Computer Inc` and a model matching `StudioDisplay|ProDisplayXDR|Studio XDR` on the focused monitor. Anything else falls through to DDC/CI, which these displays do not answer.
+
+2. **The sudo grant.** Omarchy stopped shipping its own `/etc/sudoers.d/omarchy-asdcontrol` in commit df819a6f (2026-08-30, the 4.0.2 security changes). The grant now comes from the `asdcontrol` package, 1:0.6.0-2, as `/etc/sudoers.d/50-asdcontrol`: NOPASSWD for `%wheel` only, and only for `--detect <hiddev>...`, `<hiddev>` and `<hiddev> -- [+-]N%`. With an older package, or a user outside `wheel`, sudo asks for a password a keybinding cannot type.
+
+3. **The HID node.** `/dev/usb/hiddev*` exists only while the display's USB side is connected, which on these displays rides the same Thunderbolt cable as the picture.
+
+> **Audit corrected this record.** Read /usr/share/omarchy/bin/omarchy-brightness-display, -display-apple and omarchy-hyprland-monitor-focused-apple on this machine: routing, the make `Apple Computer Inc`, the model regex, the `sudo asdcontrol` call shapes and the `No Apple Display HID device found` message all match. Commit df819a6f (2026-08-30) deletes etc/sudoers.d/omarchy-asdcontrol, and the tag trees confirm v4.0.1 has the file and v4.0.2 does not. The omarchy-pkgs asdcontrol.sudoers is a %wheel NOPASSWD grant restricted to the three hiddev shapes, the PKGBUILD is 1:0.6.0-2, and `pacman -Ql asdcontrol` here shows /etc/sudoers.d/50-asdcontrol (unreadable without root, not opened). Issue 8532 supports the scoping. The record does not add security detail beyond it. Default bindings in /usr/share/omarchy/default/hypr/bindings/media.lua match the `o.bind` form used. One defect: the not-routed fallback unbinds the plain brightness keys and points them at the Apple script for every monitor, which on a laptop silently breaks the built-in panel's brightness keys. The fix now uses a separate CTRL combination on laptops, which no Omarchy default binds. Issue 2278 is an Omarchy 3.0.2 report about `/usr/local/bin/asdcontrol` and is historical only. No Apple display was available, so nothing was exercised.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Adding a user to `wheel` gives that account full sudo, far more than brightness control. Only do it for an account that should administer the machine.
+
+**Fix.**
+
+**1. Check each gate:**
+
+```bash
+hyprctl monitors -j | jq -r '.[] | "\(.name)  make=\(.make)  model=\(.model)  focused=\(.focused)"'
+omarchy-hyprland-monitor-focused-apple && echo "routed to asdcontrol" || echo "NOT routed to asdcontrol"
+pacman -Q asdcontrol                         # want 1:0.6.0-2 or newer
+id -nG | tr ' ' '\n' | grep -x wheel          # the package grant covers %wheel only
+ls /dev/usb/hiddev* /dev/hiddev* 2>/dev/null
+sudo -n asdcontrol --detect /dev/usb/hiddev*; echo "exit $?"   # must not say a password is required
+```
+
+**2. Fix the gate that failed.**
+
+- `asdcontrol` missing or older than 1:0.6.0-2: run `omarchy update -y`.
+- Not in `wheel`: the package grants nothing to other users. Run brightness from an account in `wheel`, or add yours with `sudo gpasswd -a "$USER" wheel` and log out and back in (read the danger note).
+- No hiddev node: connect the display's Thunderbolt cable to a port that also carries USB, and check the display's camera or speakers appear in `lsusb`.
+- Not routed (Hyprland reports a different make or model): bind keys to the Apple script directly in `~/.config/hypr/bindings.lua`, and report the model string upstream.
+
+On a laptop, keep the plain brightness keys for the built-in panel and give the Apple display its own combination:
+
+```lua
+o.bind("CTRL + XF86MonBrightnessUp", "Apple display brightness up", "omarchy-brightness-display-apple +5%", { locked = true, repeating = true })
+o.bind("CTRL + XF86MonBrightnessDown", "Apple display brightness down", "omarchy-brightness-display-apple 5%-", { locked = true, repeating = true })
+```
+
+On a desktop where the Apple display is the only screen, replacing the plain keys is fine:
+
+```lua
+hl.unbind("XF86MonBrightnessUp")
+hl.unbind("XF86MonBrightnessDown")
+o.bind("XF86MonBrightnessUp", "Brightness up", "omarchy-brightness-display-apple +5%", { locked = true, repeating = true })
+o.bind("XF86MonBrightnessDown", "Brightness down", "omarchy-brightness-display-apple 5%-", { locked = true, repeating = true })
+```
+
+Do not write a broader sudoers rule for `asdcontrol`, and do not run `sudo omarchy-brightness-display-apple`: the script calls sudo itself, and sudo strips `OMARCHY_PATH`.
+
+**Plain Arch:** the Omarchy scripts do not exist there. Omarchy packages asdcontrol from https://github.com/omakasui/asdcontrol, and the same calls work by hand: `sudo asdcontrol --detect /dev/usb/hiddev*` to find the node, then `sudo asdcontrol /dev/usb/hiddevN -- +5%`.
+
+**Verify.** With the Apple display focused, `omarchy-brightness-display` prints a percentage, the keys change the brightness, and the OSD shows the new level.
+
+Sources: <https://github.com/omacom/omarchy/issues/8532> · <https://github.com/omacom/omarchy/commit/df819a6f> · <https://github.com/omacom-io/omarchy-pkgs/blob/master/pkgbuilds/asdcontrol/asdcontrol.sudoers> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display-apple> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-monitor-focused-apple> · <https://github.com/omacom/omarchy/issues/2278> · <https://github.com/omacom-io/omarchy-pkgs/blob/master/pkgbuilds/asdcontrol/PKGBUILD>
+
+---
+
+## Fix an external monitor that ignores the brightness slider while the OSD says it changed
+
+`ddc-brightness-slider-moves-monitor-unchanged` · severity: **low** · frequency: **occasional** · applies to: `amd`, `ddcutil`, `desktop`, `hyprland`, `laptop`, `omarchy`, `omarchy-4`
+
+**Symptom.** The Display panel finds my external monitor and shows a brightness slider. Dragging it, or pressing the brightness keys with that monitor focused, moves the OSD, but the screen's brightness never changes. The helper even claims success:
+
+```
+$ omarchy-brightness-display --no-osd --monitor DP-1 70%
+$ echo $?
+0
+$ ddcutil --bus 9 getvcp 10 --brief
+VCP 10 C 100 100
+```
+
+Reported with an LG UltraGear evo 27GM950B-B and an ASUS ProArt PA32QCV, both on amdgpu.
+
+**Cause.** `omarchy-brightness-display-ddc` writes brightness on ddcutil's fast path, `ddcutil --bus "$bus" --skip-ddc-checks --noverify setvcp 10 "$raw_target"`. Two kinds of monitor fail behind that one symptom. Some, the LG in the report, accept the fast-path write with no error but ignore it, while a normal `ddcutil --bus 9 setvcp 10 70` with checks enabled works. Others, the ASUS, reject every write on every path with `Verification failed for feature 10` / `DDCRC_VERIFY`, which points at a firmware lock. In both cases the MCCS Set VCP command carries no acknowledgement and `--noverify` turns off the read-back, so the helper exits 0 and `omarchy-brightness-display` hands the requested value to the OSD. The proposed fix, PR #9876, is open and depends on ddcutil 3.0.1 or later. Arch extra has ddcutil 3.0.2, but the Omarchy stable mirror still serves 2.2.7-1 as of 2026-10-04, and the 4.0.4-1 helper still uses the fast path.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Find the monitor's bus and test both write paths:**
+
+```bash
+ddcutil detect --brief
+# then, with the bus number it printed:
+ddcutil --bus 9 --skip-ddc-checks --noverify setvcp 10 70
+ddcutil --bus 9 getvcp 10 --brief      # unchanged means the fast path is ignored
+ddcutil --bus 9 setvcp 10 70
+ddcutil --bus 9 getvcp 10 --brief      # changed means the full-check path works
+```
+
+**If the full-check write works**, add your own bindings that use it. Put them in `~/.config/hypr/bindings.lua`, on a modifier so the stock keys keep driving the laptop panel. ddcutil takes a relative change when `+` or `-` stands alone between spaces:
+
+```lua
+o.bind("CTRL + XF86MonBrightnessUp", "External brightness up", "ddcutil --bus 9 setvcp 10 + 10", { locked = true })
+o.bind("CTRL + XF86MonBrightnessDown", "External brightness down", "ddcutil --bus 9 setvcp 10 - 10", { locked = true })
+```
+
+Saving the file reloads Hyprland. I2C bus numbers can change after a kernel update or a different port, so re-run `ddcutil detect --brief` if the binding stops working.
+
+**If both writes fail with `DDCRC_VERIFY`**, the monitor refuses DDC/CI brightness writes and only its own OSD buttons will change it. Check that DDC/CI is turned on in the monitor's menu. One reporter's panel was in HDR mode (`cm = "hdredid"`), and whether HDR causes the refusal was not tested.
+
+**Verify.** Press the new binding and run `ddcutil --bus 9 getvcp 10 --brief`. The current value moves by 10 each time and the screen visibly changes.
+
+Sources: <https://github.com/omacom/omarchy/issues/8931> · <https://github.com/omacom/omarchy/pull/9876> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display-ddc> · <https://archlinux.org/packages/extra/x86_64/ddcutil/>
+
+---
+
+## Bring night light back after it switches itself off mid-session
+
+`night-light-off-after-hyprsunset-dies` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `hyprland`, `hyprsunset`, `laptop`, `omarchy`, `omarchy-4`
+
+**Symptom.** I turned night light on in the evening, and some time later the screen is cold and blue again although I never turned it off. `omarchy-toggle-nightlight --status` prints `{"enabled":false,"temperature":null}`, and `hyprctl hyprsunset temperature` fails with `Couldn't connect to /run/user/1000/hypr/<signature>/.hyprsunset.sock`. It often follows a monitor flapping, when the journal shows `XWAYLAND: wl_registry#2: error 0: global wl_output (73) is unavailable`. With a scheduled sunset profile, a hyprsunset restart at night leaves the screen neutral until the next sunset.
+
+**Cause.** Omarchy starts hyprsunset as a bare background process, `setsid uwsm-app -- hyprsunset &`, from `omarchy-toggle-nightlight` and from the shell's night light service, with no restart policy. If it dies, for example when an output disappears while it is binding to it, nothing restarts it for the rest of the session. A freshly started hyprsunset applies its default (about 6000K, or the `identity = true` profile in Omarchy's `hyprsunset.conf`), and hyprsunset profiles fire only at their clock time, not the most recent one that has passed. So even a restart leaves the screen neutral until the next scheduled change. Both issues are open against 4.0.4-1.
+
+> **Audit corrected this record.** Issues #8161 and #12334 are open and support the cause: both launch paths (bin/omarchy-toggle-nightlight and the shell's nightlight Service.qml) start hyprsunset with setsid uwsm-app and pgrep -x, unchanged on quattro today, and a fresh hyprsunset comes back neutral. /usr/lib/systemd/user/hyprsunset.service from hyprsunset 0.4.0-3 has Restart=on-failure and PartOf=graphical-session.target as stated. Two defects. The verify step uses pkill -x hyprsunset to prove the restart, but pkill sends SIGTERM, which systemd counts as a clean exit, so Restart=on-failure does not restart it and a correctly working setup fails the check. Second, omarchy restart hyprsunset and omarchy refresh hyprsunset both run omarchy-restart-app, which is pkill -x followed by a bare setsid uwsm-app launch, so either one silently replaces the supervised instance with an unsupervised one until the next login, which the fix does not warn about. The fix also never stops an instance the toggle already started before enabling the unit. Separately, with a running but neutral hyprsunset the toggle picks its target from the reported temperature, so whether one press warms the screen was not confirmed. The corrected fix uses hyprctl hyprsunset temperature 4000, which sets it directly. Nothing was started, killed or enabled on this machine.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Get the warmth back now:** press Super+Ctrl+N, or run:
+
+```bash
+omarchy toggle nightlight
+```
+
+With no hyprsunset running, the toggle starts one and retries until 4000K sticks.
+
+**Have it restart on its own.** The `hyprsunset` package ships a supervised user unit, `/usr/lib/systemd/user/hyprsunset.service`, with `Restart=on-failure` and `PartOf=graphical-session.target`. Stop any instance the toggle already started, then enable the unit:
+
+```bash
+pkill -x hyprsunset
+systemctl --user enable --now hyprsunset.service
+```
+
+Omarchy's toggle finds the running process with `pgrep` and drives it through `hyprctl hyprsunset`, so the keybinding keeps working. If you added `o.launch_on_start("hyprsunset")` to `~/.config/hypr/autostart.lua` for a schedule, remove that line, or you will run two instances.
+
+Once the unit owns hyprsunset, restart it with `systemctl --user restart hyprsunset`. Do not use `omarchy restart hyprsunset` or `omarchy refresh hyprsunset`: both kill it with `pkill` and start a bare copy outside the unit, and systemd treats that kill as a clean exit, so supervision is gone until you log in again.
+
+A restarted hyprsunset still comes back neutral at night. After a crash, set the warmth directly:
+
+```bash
+hyprctl hyprsunset temperature 4000
+```
+
+**Verify.** `systemctl --user is-active hyprsunset` prints `active`. Simulate a crash with `systemctl --user kill --signal=SIGKILL hyprsunset.service`, wait a few seconds, and `systemctl --user is-active hyprsunset` prints `active` again with a new PID from `pgrep -x hyprsunset`. Do not test with `pkill -x hyprsunset`: SIGTERM is a clean exit and `Restart=on-failure` correctly leaves it stopped. `hyprctl hyprsunset temperature` answers instead of failing to connect.
+
+Sources: <https://github.com/omacom/omarchy/issues/8161> · <https://github.com/omacom/omarchy/issues/12334> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-nightlight> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/nightlight/Service.qml>
+
+---
+
+## Stop the mouse cursor turning fluorescent blue with night light on NVIDIA
+
+`nightlight-cursor-blue-outline-nvidia` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `hyprland`, `hyprsunset`, `laptop`, `nvidia`, `omarchy`, `omarchy-4`
+
+**Symptom.** On an NVIDIA card, as soon as night light is on (Super+Ctrl+N), the mouse cursor's outline turns bright fluorescent blue over every window. With night light off the cursor looks normal. Reported with an RTX 3060 Ti on nvidia-open-dkms 610.57.04, Omarchy 4.0.4-1.
+
+**Cause.** hyprsunset tints the screen with a colour transform matrix (CTM). On NVIDIA the hardware cursor plane does not receive that CTM, so the screen is warmed while the cursor keeps its original colours. Against the warmed background its edge reads as blue. The same driver behaviour has been reported on KDE Plasma 6, so it is at least partly in the NVIDIA driver and not specific to Hyprland. The issue is open.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Use a software cursor (Omarchy 4, Hyprland Lua).** Add this to `~/.config/hypr/looknfeel.lua`:
+
+```lua
+hl.config({ cursor = { no_hardware_cursors = 1 } })
+```
+
+Saving reloads Hyprland. `1` means never use hardware cursors. The default `2` turns them off only while a window is tearing.
+
+**Hyprland before 0.55 (hyprlang):**
+
+```
+cursor {
+    no_hardware_cursors = 1
+}
+```
+
+The reporter's alternative was to replace hyprsunset with a gamma-LUT client, `wl-gammarelay-rs`, because a gamma table does reach the hardware cursor. That means leaving Omarchy's night light toggle.
+
+**Verify.** `hyprctl getoption cursor:no_hardware_cursors` reports `1`. Turn night light on, and the cursor is tinted like the rest of the screen, with no blue edge.
+
+Sources: <https://github.com/omacom/omarchy/issues/13912> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/config-options.md>
+
+---
+
 ## TV over HDMI crops the edges of the desktop (overscan) and Wayland has no underscan setting
 
 `tv-overscan-edges-cut-off-over-hdmi` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `omarchy-4`, `wayland`
@@ -1860,5 +2906,89 @@ will upscale *and* still crop, giving you a soft picture with the edges still mi
 **Verify.** Open a terminal and maximise it: all four borders should be visible. `hyprctl monitors -j | jq -r '.[] | "\(.name) \(.reserved)"'` shows the reserved band on the TV output.
 
 Sources: <https://github.com/hyprwm/Hyprland/issues/277> · <https://github.com/labwc/labwc/issues/2049> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Monitors.md> · <https://wiki.archlinux.org/rest.php/v1/page/Kernel_mode_setting> · <https://wiki.hypr.land/Configuring/Basics/Monitors/>
+
+---
+
+## Make brightness keys work on an all-in-one whose built-in screen is DP-1
+
+`aio-builtin-panel-on-dp-fixed-brightness` · severity: **low** · frequency: **rare** · applies to: `apple`, `desktop`, `hyprland`, `imac`, `intel`, `nouveau`, `omarchy`, `omarchy-4`
+
+**Symptom.** On an iMac (or another all-in-one) running Omarchy, the brightness keys do nothing and the Display panel shows `FIXED BRIGHTNESS` with no slider:
+
+```
+$ omarchy-brightness-display; echo "exit=$?"
+exit=1
+$ hyprctl monitors -j | jq -r '.[].name'
+DP-1
+```
+
+The backlight itself is fine: `brightnessctl -d acpi_video0 set 50%` changes the screen at once.
+
+**Cause.** `omarchy-brightness-display` chooses between the kernel backlight and DDC/CI from the connector name alone. `monitor_is_internal` matches only `^(eDP|LVDS|DSI)-`, and everything else is treated as an external monitor and sent to `omarchy-brightness-display-ddc`. All-in-ones wire the built-in panel to a DisplayPort connector, so it is named `DP-1` or `DP-3`. A built-in panel does not answer DDC/CI (`ddcutil detect` reports `I2C slave address x37 is unresponsive`), so the script exits 1 even though `/sys/class/backlight/acpi_video0` exists. Reproduced on an iMac13,1 with nouveau and on an Iris Pro 5200 iMac with i915. The regex is unchanged in 4.0.4-1 and on `quattro` as of 2026-10-04, and the issue is open.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Confirm the routing is the problem:**
+
+```bash
+ls /sys/class/backlight/
+hyprctl monitors -j | jq -r '.[].name'
+ddcutil detect
+brightnessctl -d acpi_video0 set 50%
+```
+
+A backlight device that works, a non-eDP name and no DDC/CI means this record applies.
+
+**Rebind the keys to the backlight directly (Omarchy 4)**, in `~/.config/hypr/bindings.lua`:
+
+```lua
+hl.unbind("XF86MonBrightnessUp")
+hl.unbind("XF86MonBrightnessDown")
+o.bind("XF86MonBrightnessUp", "Brightness up", "brightnessctl -d acpi_video0 set +5%", { locked = true, repeating = true })
+o.bind("XF86MonBrightnessDown", "Brightness down", "brightnessctl -d acpi_video0 set 5%-", { locked = true, repeating = true })
+```
+
+The Display panel keeps showing `FIXED BRIGHTNESS` until upstream changes the routing. Only the keys are fixed here.
+
+**Verify.** Press the brightness keys, then run `cat /sys/class/backlight/acpi_video0/brightness`. The value changes and so does the screen.
+
+Sources: <https://github.com/omacom/omarchy/issues/8015> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-brightness-display>
+
+---
+
+## Fix night light doing nothing when another user is also logged in
+
+`nightlight-toggle-noop-with-second-user-session` · severity: **low** · frequency: **rare** · applies to: `hyprland`, `hyprsunset`, `multi-user`, `omarchy`, `omarchy-4`
+
+**Symptom.** Super+Ctrl+N (`omarchy toggle nightlight`) does nothing. The screen temperature never changes and the toggle exits silently. Another user on the same machine has a Hyprland session open with night light on. `hyprctl hyprsunset temperature` fails with:
+
+```
+Couldn't connect to /run/user/1001/hypr/<signature>/.hyprsunset.sock. (3)
+```
+
+**Cause.** `omarchy-toggle-nightlight` decides whether to start hyprsunset with `pgrep -x hyprsunset`, which matches processes of every user. It finds the other user's hyprsunset, never starts one in your session, and then `hyprctl hyprsunset` has no socket in your Hyprland instance to talk to. The fix, PR #14038, restricts the check to `pgrep -x -u "$UID"`, and it was still open on 2026-10-04. The unpatched check is in 4.0.4-1 and on `quattro`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Start hyprsunset for your own session, then toggle:**
+
+```bash
+pgrep -u "$USER" -x hyprsunset || setsid uwsm-app -- hyprsunset >/dev/null 2>&1 &
+omarchy toggle nightlight
+```
+
+**To make it automatic,** run hyprsunset under your own user manager. It is scoped to your session, so the other user's process no longer matters:
+
+```bash
+systemctl --user enable --now hyprsunset.service
+```
+
+**Verify.** `pgrep -u "$USER" -x hyprsunset` prints a PID, `hyprctl hyprsunset temperature` answers, and Super+Ctrl+N visibly warms the screen.
+
+Sources: <https://github.com/omacom/omarchy/issues/14037> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-nightlight>
 
 ---

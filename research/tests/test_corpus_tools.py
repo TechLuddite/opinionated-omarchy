@@ -103,7 +103,7 @@ class TestFieldsAgreesWithItsConsumers(unittest.TestCase):
                          f"records on disk carry keys corpus.FIELDS does not name: {sorted(missing)}")
 
     def test_field_order_matches_the_corpus_on_disk(self):
-        """Reordering FIELDS rewrites all 505 lines and hides the real diff."""
+        """Reordering FIELDS rewrites all 790 lines and hides the real diff."""
         first = next(iter(corpus.read_jsonl(ROOT / "data" / "problems.jsonl")))
         self.assertEqual(list(first.keys()), corpus.FIELDS)
 
@@ -381,6 +381,21 @@ class TestMergeExtendPath(unittest.TestCase):
         self.assertEqual(got["title"], "THE REAL TITLE")
         self.assertEqual(got["fix"], rec["fix"])
         self.assertEqual(got["audit_status"], "corrected")
+
+    def test_an_ok_on_a_corrected_record_keeps_corrected_and_extends_the_note(self):
+        """A second audit agreeing with a corrected record must not downgrade it to ok
+        or erase the note that says what the first audit found."""
+        rec = a_full_record("second-pass-agrees")
+        payload = {"results": [{"category": "omarchy-core",
+                                "audit": {"verdicts": [
+                                    {"slug": "second-pass-agrees", "status": "ok",
+                                     "confidence": "high", "reason": "holds on 4.0.4"}]}}]}
+        with tempfile.TemporaryDirectory() as td:
+            back = self._run([rec], payload, td)
+        got = back["second-pass-agrees"]
+        self.assertEqual(got["audit_status"], "corrected")
+        self.assertTrue(got["audit_note"].startswith("FIXTURE_NOTE "))
+        self.assertIn("holds on 4.0.4", got["audit_note"])
 
     def test_a_corrected_severity_and_a_removed_source_are_applied(self):
         """Both keys exist because the 2026-09-11 audit hit their absence. One auditor
