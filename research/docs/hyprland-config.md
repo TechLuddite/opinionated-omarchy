@@ -1,6 +1,6 @@
 # Hyprland configuration
 
-40 problems. Sorted by severity, then by how often users hit it.
+67 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix a hypr tool failing with symbol lookup error after a system update
 
@@ -508,6 +508,165 @@ Sources: <https://wiki.hypr.land/Plugins/Using-Plugins/> · <https://github.com/
 
 ---
 
+## Fix SUPER chords flicking through every workspace to 10 on Hyprland 0.56.2
+
+`lua-code-keycode-binds-keyless-workspace-cascade` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** After updating to Omarchy 4.0.4, pressing SUPER (alone, or SUPER+Return, SUPER+Space) races through workspaces 1, 2, 3 ... 10 and leaves you on workspace 10. The terminal you just opened lands on workspace 10, often on the wrong monitor. SUPER+SHIFT+anything throws the focused window to workspace 10. On other machines SUPER+1..0 simply do nothing. `hyprctl configerrors` is empty, but `hyprctl binds -j` lists dozens of binds with `"key": ""` and `"keycode": 0`.
+
+**Cause.** Hyprland 0.56.2's Lua bind parser stores a `MODS + code:N` key as a keysym of 0 (`XKB_KEY_NoSymbol`) plus keycode N and never fills the displayed key, which is why `hyprctl binds -j` shows `key: ""`. The matcher in `CKeybindManager::handleKeybinds` skips a bind only when BOTH the keysym and the keycode differ, so any key event whose keysym is also 0 matches every `code:` bind that shares its modifiers, and they fire in registration order. Laptop hotkey devices that emit unmapped keys (one report traced it to an `LG WMI hotkeys` device sending `KEY_UNKNOWN` beside normal presses) and virtual keyboards produce exactly those events. Omarchy 4.0.4 writes 59 default binds this way (`default/hypr/bindings/tiling.lua`: workspaces 1 to 10 switch, move and move silently, the 12 resize binds on `code:20`/`code:21`, group windows 1 to 5, and in `utilities.lua` the 9 bar panels, the 2 webcam overlay binds and the Omarchy menu on `code:201`). The workspace loop is registered last among them, so the walk ends on 10. Hyprland `main` has rewritten the matcher so a `NoSymbol` event no longer matches a `code:` bind, but that was read in source by a reporter and not confirmed in a release. The reports where SUPER+1 never fires at all are not explained by the same mechanism and their cause is not established. Confirmed on this workstation (Omarchy 4.0.4-1, Hyprland 0.56.2-2): 59 of 228 registered binds are keyless.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Binding by key name ties these shortcuts to one keyboard layout. Anyone switching between layouts with different digit rows will find them dead on the other layout. Undo the block once Hyprland ships the matcher fix, or the unbinds will remove working `code:` binds.
+
+**Fix.**
+
+Confirm you have the keyless binds:
+
+```bash
+hyprctl binds -j | jq '[.[] | select(.key == "" and .keycode == 0)] | length'
+```
+
+A stock Omarchy 4.0.4 install reports 59.
+
+**Omarchy 4.** Rebind them by key name in `~/.config/hypr/bindings.lua`. Each `code:` bind must be unbound first with the exact same string, or the new bind stacks beside the broken one and the cascade continues. `hl.unbind` with the `code:` string does match the keyless bind.
+
+```lua
+-- Hyprland 0.56.2 matches every "code:N" bind on any key event with keysym 0.
+-- Rebind Omarchy's code: binds by key name. Remove once a Hyprland release fixes it.
+local digits = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" }
+
+for ws = 1, 10 do
+  local code = "code:" .. tostring(ws + 9)
+  local key = digits[ws]
+  local target = tostring(ws)
+  hl.unbind("SUPER + " .. code)
+  hl.unbind("SUPER + SHIFT + " .. code)
+  hl.unbind("SUPER + SHIFT + ALT + " .. code)
+  o.bind("SUPER + " .. key, "Switch to workspace " .. ws, hl.dsp.focus({ workspace = target }))
+  o.bind("SUPER + SHIFT + " .. key, "Move window to workspace " .. ws, hl.dsp.window.move({ workspace = target }))
+  o.bind("SUPER + SHIFT + ALT + " .. key, "Move window silently to workspace " .. ws, hl.dsp.window.move({ workspace = target, follow = false }))
+end
+
+for index = 1, 5 do
+  hl.unbind("SUPER + ALT + code:" .. tostring(index + 9))
+  o.bind("SUPER + ALT + " .. digits[index], "Switch to group window " .. index, hl.dsp.group.active({ index = index }))
+end
+
+for panel = 1, 9 do
+  hl.unbind("SUPER + CTRL + code:" .. tostring(panel + 9))
+  o.bind("SUPER + CTRL + " .. digits[panel], "Bar panel " .. panel, "omarchy-shell -q shell togglePanelAt right " .. panel)
+end
+
+-- code:20 is the minus key and code:21 the equal key on a US layout
+local resize = {
+  { "SUPER + ", -100, 0, 100, 0 },
+  { "SUPER + SHIFT + ", 0, -100, 0, 100 },
+  { "SUPER + ALT + ", -25, 0, 25, 0 },
+  { "SUPER + SHIFT + ALT + ", 0, -25, 0, 25 },
+  { "SUPER + CTRL + ", -300, 0, 300, 0 },
+  { "SUPER + CTRL + SHIFT + ", 0, -300, 0, 300 },
+}
+for _, r in ipairs(resize) do
+  hl.unbind(r[1] .. "code:20")
+  hl.unbind(r[1] .. "code:21")
+  o.bind(r[1] .. "minus", "Resize window", hl.dsp.window.resize({ x = r[2], y = r[3], relative = true }))
+  o.bind(r[1] .. "equal", "Resize window", hl.dsp.window.resize({ x = r[4], y = r[5], relative = true }))
+end
+
+hl.unbind("SUPER + ALT + code:34")
+hl.unbind("SUPER + ALT + code:35")
+o.bind("SUPER + ALT + bracketleft", "Make webcam overlay smaller", "omarchy-capture-webcam-resize smaller")
+o.bind("SUPER + ALT + bracketright", "Make webcam overlay larger", "omarchy-capture-webcam-resize larger")
+```
+
+The Omarchy menu bind `SUPER + SHIFT + code:201` has no key name equivalent in the reports. It only fires on SUPER+SHIFT, so leave it, or remove it with `hl.unbind("SUPER + SHIFT + code:201")`.
+
+The digit names above work only where the digits are on the unshifted level. On AZERTY, Czech and similar layouts use that layout's level-1 keysyms instead (read them with `wev`, the `sym` field), for example `ampersand`, `eacute`, `quotedbl` on French AZERTY, or `plus`, `ecaron`, `scaron` on Czech.
+
+**Plain Arch with your own Lua config.** Do not use `code:N` in `hl.bind` on 0.56.2. Bind the keysym name instead (`hl.bind("SUPER + 1", ...)`), and run the same `hyprctl binds -j` check after each reload.
+
+**Verify.** ```bash
+hyprctl binds -j | jq '[.[] | select(.key == "" and .keycode == 0)] | length'
+```
+reports 0 (or 1 if you left the `code:201` menu bind). A bare SUPER tap no longer changes workspace, SUPER+Return opens the terminal on the current workspace, and `SUPER+1` still switches to workspace 1.
+
+Sources: <https://github.com/omacom/omarchy/issues/12050> · <https://github.com/omacom/omarchy/issues/12711> · <https://wiki.hypr.land/Configuring/Basics/Binds/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/KeybindManager.cpp>
+
+---
+
+## Fix keybindings that launch apps failing after setting PATH with hl.env
+
+`hl-env-path-literal-dollar-breaks-binds` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** After I added `hl.env("PATH", "$HOME/.local/bin:$PATH")` (or `~/bin:$PATH`) to my Hyprland Lua config, nothing launches from a keybinding: SUPER+RETURN, SUPER+SPACE and every app bind do nothing. Terminals I already had open still work. Another version: my PATH gets longer every time I save the config, with the same directory repeated many times.
+
+**Cause.** `hl.env(name, value)` in Hyprland 0.56.2 passes the string straight to `setenv()` in the compositor process (`hlEnv` in `src/config/lua/bindings/LuaBindingsConfigRules.cpp`). Lua does no shell expansion, so `$HOME`, `$PATH` and `~` stay as literal text and PATH becomes the single bogus entry `$HOME/.local/bin:$PATH`. Hyprland runs every command bind through `/bin/sh -c` (`src/config/supplementary/executor/Executor.cpp`), and that shell searches the bogus PATH, so `omarchy-launch-terminal`, `omarchy-menu`, `uwsm-app` and the rest are not found. Binds whose action is a dispatcher, such as closing or moving a window, spawn nothing and keep working. The wiki says to read existing variables with `os.getenv()` instead.
+
+On Omarchy 4, fixing the line and reloading is not enough. `default/hypr/envs.lua` rebuilds PATH from the compositor's current, already broken PATH on each load, which leaves `/usr/share/omarchy/bin:$HOME/.local/bin:$PATH` with `/usr/bin` still missing. The compositor has to be restarted from a clean environment.
+
+The systemd user manager is very likely not affected. Hyprland's own first-launch `systemctl --user import-environment ... PATH` and Omarchy's `autostart.lua` import both run through `/bin/sh` with the same broken PATH, so `systemctl` itself is not found and the import never happens. That was read from source and not reproduced.
+
+The growing PATH has a related root. The config is re-run on every reload, so `hl.env("PATH", dir .. ":" .. os.getenv("PATH"))` prepends again each time. Omarchy's `envs.lua` avoids that by removing its own entry before prepending.
+
+> **Audit corrected this record.** The core is confirmed. hlEnv in v0.56.2 LuaBindingsConfigRules.cpp passes the value through CLuaConfigString::parse, which does no expansion, then setenv(). The wiki environment-variables page says to use os.getenv(). Executor.cpp spawns every command with execl("/bin/sh", "/bin/sh", "-c", ...), so the shell searches the bogus PATH. Omarchy's default/hypr/envs.lua rebuilds PATH from os.getenv("PATH"), so removing the line and reloading leaves '/usr/share/omarchy/bin:$HOME/.local/bin:$PATH' with /usr/bin still missing. That is why a restart is needed. The claim that the broken PATH 'is copied into the systemd user manager' is very likely wrong. Both Hyprland's own first-launch import (Executor.cpp line 34) and Omarchy's autostart.lua `systemctl --user import-environment $(env | cut ...)` run through /bin/sh with that same PATH, so `systemctl`, `env` and `cut` are not found and the import never runs. The user manager keeps the PATH uwsm gave it. This is reasoned from source and was not reproduced. The danger built on that claim was rewritten. The title said every keybinding fails, but binds whose action is a dispatcher such as hl.dsp.window.close() never spawn a process and still work, so the title was narrowed. Also missing from the fix: on Omarchy 4, ~/.local/bin is already on the session PATH. /usr/share/omarchy/default/bash/env-bootstrap, sourced by /usr/share/uwsm/env.d/10-omarchy, appends it, and `systemctl --user show-environment` here shows it. uwsm env.d sourcing was confirmed in `man uwsm` (0.26.7-1) and the uwsm README. Issue omacom/omarchy#6977 is about envs.lua prepending /usr/share/omarchy/bin, which hides some omarchy subcommands. It does not concern literal $ in hl.env, so it was removed from sources.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do the fix from a TTY (CTRL+ALT+F3), because the graphical session cannot launch a terminal. Removing the line and reloading does not repair the running compositor's PATH. Reboot, or log out and back in, before judging whether the fix worked.
+
+**Fix.**
+
+**1. Recover.** Switch to a TTY with CTRL+ALT+F3, log in, and remove or fix the line in `~/.config/hypr/*.lua`:
+
+```bash
+grep -n 'hl.env("PATH"' ~/.config/hypr/*.lua
+```
+
+Then reboot, so the compositor starts from a clean environment:
+
+```bash
+systemctl reboot
+```
+
+**2a. Omarchy 4: you may not need anything.** `~/.local/bin` is already on the session PATH. Omarchy's `/usr/share/omarchy/default/bash/env-bootstrap`, which uwsm sources through `/usr/share/uwsm/env.d/10-omarchy`, appends it. Check with:
+
+```bash
+systemctl --user show-environment | grep ^PATH= | tr ':' '\n' | grep -x "$HOME/.local/bin"
+```
+
+For any other directory, or to put `~/.local/bin` ahead of `/usr/bin`, add it through uwsm, not hl.env. uwsm sources `~/.config/uwsm/env` and `~/.config/uwsm/env.d/*` as shell before it starts Hyprland, so `$HOME` and `$PATH` expand. `10-omarchy` names `~/.config/uwsm/env.d/` as the preferred place for overrides:
+
+```bash
+mkdir -p ~/.config/uwsm/env.d
+cat > ~/.config/uwsm/env.d/10-path.sh <<'EOF'
+export PATH="$HOME/bin:$PATH"
+EOF
+```
+
+Log out and back in. The file is read only at session start.
+
+**2b. Plain Arch, or if you need it in the Hyprland config:** build the value with `os.getenv` and guard against repeats:
+
+```lua
+local dir = os.getenv("HOME") .. "/.local/bin"
+local path = os.getenv("PATH") or "/usr/local/bin:/usr/bin"
+if not (":" .. path .. ":"):find(":" .. dir .. ":", 1, true) then
+  hl.env("PATH", dir .. ":" .. path)
+end
+```
+
+The same applies to any variable. `hl.env("SSH_AUTH_SOCK", os.getenv("XDG_RUNTIME_DIR") .. "/ssh-agent.socket")` works and `hl.env("SSH_AUTH_SOCK", "$XDG_RUNTIME_DIR/ssh-agent.socket")` does not.
+
+**Verify.** In a new terminal opened with SUPER+RETURN, `echo "$PATH" | tr ':' '\n'` shows real directories with no literal `$` and no repeats, and `systemctl --user show-environment | grep ^PATH=` matches. SUPER+SPACE opens the menu. The literal-string behaviour was read from the 0.56.2 `hlEnv` source and the uwsm file locations from `man uwsm` (uwsm 0.26.7). The breakage itself was not reproduced.
+
+Sources: <https://wiki.hypr.land/configuring/core/environment-variables/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsConfigRules.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/envs.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/autostart.lua> · <https://github.com/Vladimir-csp/uwsm/blob/master/README.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/supplementary/executor/Executor.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/bash/env-bootstrap>
+
+---
+
 ## Get out of Hyprland emergency mode when a Lua error registered no binds
 
 `hyprland-emergency-mode-no-binds-registered` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`
@@ -589,6 +748,44 @@ That replaces all seven of `~/.config/hypr/.luarc.json`, `autostart.lua`, `bindi
 **Verify.** The emergency banner disappears, `hyprctl configerrors` is empty, and `hyprctl binds` lists your bindings again.
 
 Sources: <https://wiki.hypr.land/Configuring/Start/> · <https://wiki.hypr.land/Crashes-and-Bugs/> · <https://github.com/omacom/omarchy/issues/8637> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/Emergency.hpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp>
+
+---
+
+## Fix the whole desktop freezing when you press a custom Lua keybind
+
+`lua-bind-callback-blocks-desktop-freeze` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** Pressing a custom keybinding freezes everything: the mouse pointer and keyboard stop responding and no window redraws, for seconds or until something is killed. The bind uses a Lua function that calls `io.popen(...)`, `os.execute(...)`, `wl-paste`, `curl` or a `sleep`.
+
+**Cause.** Lua bind callbacks run on the compositor's event loop. A blocking call inside one (`io.popen` waiting on a slow or hung command, clipboard tools such as `wl-paste`, network I/O, sleeps) stops Hyprland from processing input and rendering until it returns. `wl-paste` is a common trap because it can wait on the compositor that is itself blocked.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Run external work outside the callback with the exec dispatcher, which spawns it asynchronously:
+
+```lua
+-- blocks the compositor: do not do this
+-- hl.bind("SUPER + V", function() local p = io.popen("wl-paste") ... end)
+
+-- runs outside the event loop
+hl.bind("SUPER + V", hl.dsp.exec_cmd("sh -c 'wl-paste | my-filter | wl-copy'"))
+```
+
+On Omarchy, `o.bind(keys, description, "command")` already wraps a string in `hl.dsp.exec_cmd`.
+
+If a bind really must read a result back into Lua, bound the wait so a hang cannot last:
+
+```lua
+local p = io.popen("timeout 1 my-probe 2>/dev/null")
+```
+
+To recover from a freeze already in progress, kill the hung child from another session, for example over SSH (`pkill -x wl-paste`). The callback then returns and input resumes.
+
+**Verify.** Press the rewritten bind repeatedly. The pointer keeps moving during the command and the command's effect still happens.
+
+Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/binds/_index.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua>
 
 ---
 
@@ -932,6 +1129,57 @@ Env vars only reach apps launched afterwards, so run `hyprctl reload` and then r
 **Verify.** `hyprctl getoption cursor:no_hardware_cursors` reflects your setting. The pointer is visible and correctly sized over a fullscreen XWayland app (GIMP or Steam) and over a native Wayland one (nautilus/foot) at the same time.
 
 Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hypr.land/FAQ/> · <https://wiki.hypr.land/Configuring/Basics/Variables/> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://github.com/hyprwm/Hyprland/issues/7349> · <https://github.com/basecamp/omarchy/blob/quattro/install/user/hardware/fix-nouveau-cursor.sh> · <https://github.com/basecamp/omarchy/blob/quattro/default/hypr/envs.lua> · <https://wiki.archlinux.org/title/Hyprland>
+
+---
+
+## Fix scripts failing with "')' expected near" from hyprctl dispatch
+
+`hyprctl-dispatch-legacy-syntax-expected-near` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** A script, keybinding helper or bar module that ran `hyprctl dispatch workspace 3`, `hyprctl dispatch exec firefox` or `hyprctl dispatch layoutmsg togglesplit` now fails with:
+
+```
+error: [string "return hl.dispatch(layoutmsg togglesplit)"]:1: ')' expected near 'togglesplit'
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+```
+
+and exit code 7. Or the opposite: `hyprctl eval 'hl.dsp.focus({ workspace = "3" })'` prints `ok` and nothing happens.
+
+**Cause.** With a Lua config (Hyprland 0.55+, Omarchy 4), `hyprctl dispatch <text>` is shorthand for `hyprctl eval 'hl.dispatch(<text>)'`, so the argument must be a Lua dispatcher expression, not the old dispatcher name and arguments. `hl.dsp.*` functions only build a description of an action. Evaluating one on its own, without `hl.dispatch`, does nothing and still returns `ok`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Rewrite each call in the Lua form, single quotes outside so the inner double quotes survive the shell:
+
+```bash
+# old                                  # Lua config
+hyprctl dispatch workspace 3            hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })'
+hyprctl dispatch exec firefox           hyprctl dispatch 'hl.dsp.exec_cmd("firefox")'
+hyprctl dispatch killactive             hyprctl dispatch 'hl.dsp.window.close()'
+hyprctl dispatch togglefloating         hyprctl dispatch 'hl.dsp.window.float({ action = "toggle" })'
+hyprctl dispatch fullscreen             hyprctl dispatch 'hl.dsp.window.fullscreen({ mode = "fullscreen" })'
+hyprctl dispatch layoutmsg togglesplit  hyprctl dispatch 'hl.dsp.layout("togglesplit")'
+```
+
+With `eval`, wrap the dispatcher yourself:
+
+```bash
+hyprctl eval 'hl.dispatch(hl.dsp.focus({ workspace = "3" }))'
+```
+
+Check results by exit code. A failed dispatch exits non-zero and prints `error:` on stdout:
+
+```bash
+out=$(hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })') || echo "dispatch failed: $out" >&2
+```
+
+The full dispatcher list is on the Hyprland wiki Dispatchers page. A config still on `hyprland.conf` (hyprlang) is a different parser, so confirm which one you run before rewriting.
+
+**Verify.** The rewritten command prints `ok`, exits 0, and the action happens.
+
+Sources: <https://github.com/omacom/omarchy/issues/7556> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://wiki.hypr.land/Configuring/Basics/Dispatchers/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/advanced-configuration/using-hyprctl.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/dispatchers.md>
 
 ---
 
@@ -1408,6 +1656,82 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/> · <https://w
 
 ---
 
+## Convert windowrulev2 and layerrule lines into hl.window_rule and hl.layer_rule
+
+`windowrulev2-into-lua-hl-window-rule` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** After moving to the Lua config my window rules are dead: pavucontrol and file pickers open tiled, nothing goes to its workspace, opacity rules are gone. Pasting the old lines gives `<name> expected near '^'` (`windowrulev2 = float, class:^(pavucontrol)$`) or `function arguments expected near 'pavucontrol'` (the 0.53 form `windowrule = match:class pavucontrol, float on`). After a first attempt at Lua the error list shows `hl.window_rule: unknown field 'class'`, `hl.window_rule: unknown field 'noblur'` or `hl.window_rule: unknown match property 'initialClass'`, and the rule still does nothing.
+
+**Cause.** Hyprland 0.55 moved rules to Lua tables: `hl.window_rule({ match = { ... }, <effect> = <value> })` and `hl.layer_rule` with the same shape. Three things differ from hyprlang.
+
+1. Matchers must sit inside the `match` table. In Hyprland 0.56.2 (`hlWindowRule` in `src/config/lua/bindings/LuaBindingsConfigRules.cpp`) any top-level key that is not `name`, `enabled`, `match` or a known effect is reported as `unknown field '<key>'` and skipped. A rule with no match entries never applies at all, because `IRule::canMatch()` in `src/desktop/rule/Rule.cpp` requires at least one matcher. So `hl.window_rule({ class = "pavucontrol", float = true })` floats nothing.
+2. Matcher and effect names are snake_case. The pre-0.53 effect names `noblur`, `noshadow`, `nofocus`, `noanim`, `idleinhibit`, `stayfocused`, `noinitialfocus`, `bordersize`, `bordercolor`, `dimaround`, `keepaspectratio`, `noscreenshare`, `suppressevent`, `persistentsize`, `allowsinput`, `nomaxsize`, `renderunfocused`, `minsize`, `maxsize` became `no_blur`, `no_shadow`, `no_focus`, `no_anim`, `idle_inhibit`, `stay_focused`, `no_initial_focus`, `border_size`, `border_color`, `dim_around`, `keep_aspect_ratio`, `no_screen_share`, `suppress_event`, `persistent_size`, `allows_input`, `no_max_size`, `render_unfocused`, `min_size`, `max_size`. `noborder` and `norounding` have no effect of their own: use `border_size = 0` and `rounding = 0`. Matchers are `class`, `title`, `initial_class`, `initial_title`, `xwayland`, `float`, `fullscreen`, `pin`, `focus`, `group`, `modal`, `tag`, `workspace`, `content`, `xdg_tag` and a few more, not `initialClass` or `floating`.
+3. Values are Lua values. Boolean effects take `true`, sizes take `{ 800, 600 }`, and string arguments such as `workspace = "3 silent"` or `opacity = "0.9 0.8"` are quoted. Class and title are matched with RE2 `FullMatch`, so `class = "firefox"` already means the whole class, and the `negative:` prefix still works inside the string.
+
+Each bad key is a type error, which Hyprland reports and then keeps loading, so the rest of the file still applies and only the broken rule silently does less than it should.
+
+> **Audit corrected this record.** Nearly every claim holds against the v0.56.2 source. hlWindowRule skips name, enabled and match, and reports any other key that is neither a static nor a dynamic effect as 'hl.window_rule: unknown field', with addError rather than a Lua error, so loading continues. Unknown match keys give 'unknown match property'. IRule::canMatch() requires a non-empty matcher set. CRegexMatchEngine uses RE2::FullMatch and honours the 'negative:' prefix. All nineteen renamed effects in the cause exist in WINDOW_RULE_EFFECT_DESCS, there is no no_border or no_rounding, and the matcher names match MATCH_PROP_STRINGS. hl.layer_rule accepts namespace as a matcher and blur as an effect. Lua 5.5.1 here reproduces both quoted parse errors exactly. On Omarchy 4.0.4-1, o.window in helpers.lua builds the match table as described, and default/hypr/apps/system.lua gives the floating-window tag float, center and 875x600. The wiki window-rules page confirms static effects are evaluated once when the window opens. The one defect was in the fix: the Picture-in-Picture example converts a single 'float' line but adds pin = true with no hyprlang line for it, so the comment and the code disagree. The fix now shows the matching pin line. No rule was exercised live.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Find the window's real class first**, because a wrong class is the other common reason a rule never fires:
+
+```bash
+hyprctl clients | grep -E '^Window|class:|title:'
+```
+
+**Convert.** On Omarchy 4 put rules in `~/.config/hypr/hyprland.lua` below `require("default.hypr.toggles")`, or in any `~/.config/hypr/*.lua` it requires. They load after Omarchy's own rules and the last match wins. On plain Arch put them in `~/.config/hypr/hyprland.lua`.
+
+```lua
+-- windowrulev2 = float, class:^(pavucontrol)$
+-- windowrulev2 = size 800 600, class:^(pavucontrol)$
+-- windowrulev2 = center, class:^(pavucontrol)$
+hl.window_rule({
+  match  = { class = "^(pavucontrol|org.pulseaudio.pavucontrol)$" },
+  float  = true,
+  size   = { 800, 600 },
+  center = true,
+})
+
+-- windowrulev2 = workspace 3 silent, class:^(discord)$
+hl.window_rule({ match = { class = "^(discord)$" }, workspace = "3 silent" })
+
+-- windowrulev2 = opacity 0.9 0.8, class:^(code)$
+-- windowrulev2 = noblur, class:^(code)$
+hl.window_rule({ match = { class = "^(code)$" }, opacity = "0.9 0.8", no_blur = true })
+
+-- windowrulev2 = idleinhibit fullscreen, class:.*
+hl.window_rule({ match = { class = ".*" }, idle_inhibit = "fullscreen" })
+
+-- windowrulev2 = float, class:^(firefox)$, title:^(Picture-in-Picture)$
+-- windowrulev2 = pin, class:^(firefox)$, title:^(Picture-in-Picture)$
+hl.window_rule({ match = { class = "^(firefox)$", title = "^(Picture-in-Picture)$" }, float = true, pin = true })
+
+-- layerrule = blur, waybar
+hl.layer_rule({ match = { namespace = "waybar" }, blur = true })
+```
+
+**Omarchy 4 shortcuts.** `o.window(match, effects)` from `/usr/share/omarchy/default/hypr/helpers.lua` builds the `match` table for you, where a string means the class:
+
+```lua
+o.window("^(pavucontrol)$", { float = true })
+o.window({ class = "^(firefox)$", title = "^(Picture-in-Picture)$" }, { float = true, pin = true })
+-- Omarchy's own float + center + 875x600 treatment, defined in default/hypr/apps/system.lua:
+o.window("^(pavucontrol)$", { tag = "+floating-window" })
+```
+
+The effect list for 0.56 is on the wiki window-rules page. A static effect such as `float`, `size` or `workspace` is applied once at window creation against the initial class and title, so it cannot react to a later title change.
+
+**Verify.** `hyprctl configerrors` lists no `hl.window_rule` or `hl.layer_rule` lines. Open the app again (static effects only apply to new windows) and check `hyprctl clients`: the window shows `floating: 1`, the expected `workspace:`, or the tag (`floating-window*`) in `tags:`. Field names and the empty-match behaviour were read from the Hyprland 0.56.2 source. No rule was exercised live.
+
+Sources: <https://wiki.hypr.land/configuring/core/rules/window-rules/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/layer-rules.md> · <https://wiki.hypr.land/0.52.0/Configuring/Window-Rules/> · <https://wiki.hypr.land/0.54.0/Configuring/Window-Rules/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsConfigRules.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/desktop/rule/Rule.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/desktop/rule/matchEngine/RegexMatchEngine.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/system.lua>
+
+---
+
 ## Restore three-finger workspace swiping after gesture:workspace_swipe was removed
 
 `gestures-workspace-swipe-does-not-exist-051` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `laptop`, `omarchy`
@@ -1621,6 +1945,157 @@ On 0.55+ `hyprctl getoption` documents the dot form, so prefer `hyprctl getoptio
 **Verify.** `hyprctl configerrors` is empty and `hyprctl getoption debug:vfr` returns a value.
 
 Sources: <https://github.com/basecamp/omarchy/issues/5758> · <https://hypr.land/news/update55> · <https://wiki.hypr.land/Configuring/Basics/Variables/>
+
+---
+
+## Find the hyprlang lines in a Lua config that do nothing or break the file
+
+`hyprlang-lines-pasted-into-lua-silently-ignored` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** I pasted my old hyprland.conf lines into ~/.config/hypr/bindings.lua (or hyprland.lua) and nothing happens: no error bar, no new keybinding, no cursor size change. Or the opposite: a red error such as `<name> expected near '^'`, `syntax error near '-'`, `unexpected symbol near '$'`, `malformed number near '1920x'`, `attempt to call a nil value (global 'general')` or `attempt to call a nil value (field 'set')`, and every binding I had in that file is gone, including the `hl.unbind` lines, so Omarchy's defaults come back on keys I had replaced.
+
+**Cause.** Hyprland 0.55 and later evaluate `~/.config/hypr/hyprland.lua` and everything it `require`s as Lua, and Omarchy 4 ships only Lua. hyprlang lines fall into two groups when Lua reads them.
+
+Some are valid Lua by accident. `bind = SUPER, Q, exec, kitty` is a multiple assignment: it sets a global named `bind` to the value of the undefined global `SUPER` (nil) and discards the rest. `env = XCURSOR_SIZE,24`, `bezier = myBezier, 0.05, 0.9, 0.1, 1.05`, `animation = windows, 1, 7, myBezier` and `layerrule = blur, waybar` behave the same way. They raise nothing and register nothing. Confirmed by running each line through Lua 5.5.1, which is the `liblua.so.5.5` that Hyprland 0.56.2 links on Omarchy 4.
+
+The rest are syntax or runtime errors: `windowrulev2 = float, class:^(pavucontrol)$` gives `<name> expected near '^'`, `exec-once = waybar` gives `syntax error near '-'`, `$mainMod = SUPER` gives `unexpected symbol near '$'`, `monitor = DP-1, 1920x1080@60, 0x0, 1` gives `malformed number near '1920x'`, `bindm = SUPER, mouse:272, movewindow` gives `<name> expected near '272'`, a section block such as `general { gaps_in = 5 }` is a call of an undefined global and gives `attempt to call a nil value (global 'general')`, and AI-written configs often use `hl.set(...)` or `hl.submap(...)`, which do not exist in the 0.56 API and give `attempt to call a nil value (field 'set')`.
+
+Where the error lands decides how much is lost. Hyprland 0.56.2 replaces `require` with a protected version (`safeLuaRequire` in `src/config/lua/ConfigManager.cpp`): an error inside a required file is added to the config error list as `require("hypr.bindings"): ...` and loading carries on with the next file, so the whole of that one file is lost, binds and unbinds alike. Only the main file is syntax-checked before a reload, so a syntax error in `hyprland.lua` itself makes Hyprland refuse the reload and keep the old config.
+
+> **Audit corrected this record.** The cause holds. Every quoted parse result was reproduced with Lua 5.5.1 on this machine: the five assignment lines run silently, and windowrulev2, the 0.53 windowrule form, exec-once, $mainMod, monitor, bindm, the general block and hl.set give exactly the quoted messages. In v0.56.2, safeLuaRequire (ConfigManager.cpp line 312) turns an error in a required file into a 'require("<module>"): ...' config error and returns an empty table, so that file is lost. Phase 1 of a reload runs luaL_loadfile on the main config only and keeps the old config when that fails. hl.set and a top-level hl.submap are not registered (only hl.dsp.submap and hl.define_submap exist). hl.env, hl.unbind, hl.dsp.window.close, hl.dsp.focus({ workspace }) and hl.dsp.window.move({ workspace }) all exist and match Omarchy's tiling.lua. The fix had a copy-paste defect: the block bound SUPER + Q twice (hl.bind and o.bind) and then called hl.unbind("SUPER + Q"). hlUnbind calls removeKeybind on the key, so pasting the block in order deletes the user's new bind as well. The $mainMod example rebinds SUPER+RETURN, which Omarchy binds to the terminal in default/hypr/bindings/applications.lua, so both would fire. And o.launch_on_start("waybar") on Omarchy 4 adds a second bar beside omarchy-shell. The fix is rewritten with unbind before bind, alternatives commented out, those Omarchy notes added, and a caveat that the step 1 grep also matches field lines inside multi-line Lua tables. The rest of the fix is unchanged. Nothing was exercised inside a running Hyprland.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Find the leftovers.** This lists hyprlang-shaped assignment lines in every Lua file, including the silent ones:
+
+```bash
+grep -nE '^[[:space:]]*(bind[a-z]*|unbind|env|bezier|animation|exec(-once)?|windowrule(v2)?|layerrule|monitor|workspace|source|gesture|\$[A-Za-z_]+)[[:space:]]*=' ~/.config/hypr/*.lua
+grep -nE '^[[:space:]]*[a-z_]+[[:space:]]*\{' ~/.config/hypr/*.lua   # hyprlang section blocks
+hyprctl configerrors
+```
+
+The first `grep` also matches legitimate fields inside a Lua table that spans several lines, such as `  workspace = "3 silent",` or `  animation = "slide",` inside an `hl.window_rule({ ... })`. A leftover hyprlang line sits at the top level of the file and carries commas and no quotes, as in `bind = SUPER, Q, exec, kitty`.
+
+**2. Rewrite each line in the Lua API.** On Omarchy 4, put each kind in the file Omarchy loads it from: binds in `~/.config/hypr/bindings.lua`, input in `~/.config/hypr/input.lua`, look and animations in `~/.config/hypr/looknfeel.lua`, autostart in `~/.config/hypr/autostart.lua`, monitors in `~/.config/hypr/monitors.lua`. All of them load after Omarchy's defaults, so they win. On plain Arch, put them in `~/.config/hypr/hyprland.lua` or a file it `require`s.
+
+Each pair below is one hyprlang line and its Lua equivalent. Where two Lua forms are shown, pick one: pasting both binds the key twice.
+
+```lua
+-- If Omarchy already uses the key, unbind it FIRST, then bind it.
+-- hl.unbind removes every bind on that key, including one you added above it.
+hl.unbind("SUPER + Q")
+
+-- bind = SUPER, Q, exec, kitty
+hl.bind("SUPER + Q", hl.dsp.exec_cmd("kitty"))
+-- or, on Omarchy 4, the helper that takes a plain command and a description for SUPER+K:
+-- o.bind("SUPER + Q", "Terminal", "kitty")
+
+-- Omarchy 4 already binds SUPER+W, SUPER+1..0 and SUPER+SHIFT+1..0 to these actions.
+-- bind = SUPER, W, killactive
+hl.bind("SUPER + W", hl.dsp.window.close())
+-- bind = SUPER, 3, workspace, 3
+hl.bind("SUPER + 3", hl.dsp.focus({ workspace = "3" }))
+-- bind = SUPER SHIFT, 3, movetoworkspace, 3
+hl.bind("SUPER + SHIFT + 3", hl.dsp.window.move({ workspace = "3" }))
+
+-- env = XCURSOR_SIZE,24
+hl.env("XCURSOR_SIZE", "24")
+
+-- general { gaps_in = 5 }   or   keyword general:gaps_in 5
+hl.config({ general = { gaps_in = 5 } })
+
+-- $mainMod = SUPER   (a local is visible only in the file that declares it)
+local mainMod = "SUPER"
+-- SUPER+RETURN is Omarchy's terminal key, so unbind it first on Omarchy 4:
+hl.unbind(mainMod .. " + RETURN")
+hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd("kitty"))
+
+-- exec-once = waybar
+hl.on("hyprland.start", function() hl.exec_cmd("waybar") end)
+-- or, on Omarchy 4, in ~/.config/hypr/autostart.lua:
+-- o.launch_on_start("waybar")
+-- Omarchy 4 draws its own bar with omarchy-shell, so a waybar line copied
+-- from an old config adds a second bar. Drop it there.
+```
+
+`bezier`/`animation`, `windowrule`/`windowrulev2`/`layerrule`, `submap` and `source` each have their own trap. See the records `lua-animation-needs-bezier-key-and-hl-curve`, `windowrulev2-into-lua-hl-window-rule`, `lua-submap-binds-leak-global` and `hyprlang-variables-and-source-to-lua`.
+
+**3. Reload and read the errors.** Hyprland reloads on save by itself. To force it:
+
+```bash
+hyprctl reload
+hyprctl configerrors
+```
+
+**Verify.** `grep` from step 1 prints nothing, `hyprctl configerrors` prints an empty list, and the new bind appears in `hyprctl -j binds` (search for its key) and in `omarchy menu keybindings --print` on Omarchy 4. The Lua parse results above were checked with the Lua 5.5.1 interpreter on Omarchy 4. They were not exercised inside a running Hyprland.
+
+Sources: <https://wiki.hypr.land/configuring/core/> · <https://wiki.hypr.land/configuring/core/dispatchers/> · <https://wiki.hypr.land/configuring/core/autostart/> · <https://wiki.hypr.land/configuring/core/environment-variables/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/bindings.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp>
+
+---
+
+## Read hyprctl configerrors when one ~/.config/hypr/*.lua file breaks and half the config vanishes
+
+`lua-config-one-module-error-partial-load` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** After an edit, some of my settings apply and some do not. My own keybindings are gone but Omarchy's work, or my monitors and input are fine but nothing in autostart runs. The error bar shows something like `require("hypr.bindings"): ... bindings.lua:14: unexpected symbol near ...` or `module 'hypr.bindigns' not found` with a stack traceback. Sometimes the edit just does not take and the old behaviour stays.
+
+**Cause.** Hyprland 0.56.2 handles three kinds of Lua error differently (`src/config/lua/ConfigManager.cpp`).
+
+1. **Syntax error in the main `hyprland.lua`.** Every reload first runs `luaL_loadfile` on the main file only. If that fails, Hyprland records the error and keeps the old config running, so the edit just does not take.
+2. **Error inside a file loaded with `require`.** Hyprland replaces `require` with `safeLuaRequire`. A syntax or runtime error inside the required file is added to the error list as `require("<module>"): <message>`, an empty table is returned, and the caller carries on. On Omarchy 4 a typo in `~/.config/hypr/bindings.lua` therefore drops that file only: your binds and your `hl.unbind` lines are gone, so Omarchy's defaults reappear on keys you had replaced, while monitors, input, look and autostart still load. A runtime error drops the rest of the file from the error line down.
+3. **A module that cannot be found.** `safeLuaRequire` rethrows `module '<name>' not found` as a real error in the calling file. If the typo is in a `require(...)` line in `hyprland.lua`, everything below that line is skipped. On Omarchy 4 that includes `require("default.hypr.toggles")` and any rules you added at the bottom.
+
+If an error leaves zero binds registered, emergency mode starts. That case has its own record, `hyprland-emergency-mode-no-binds-registered`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Read the errors, then match them to the three cases:**
+
+```bash
+hyprctl configerrors
+```
+
+- `require("hypr.<name>"): <file>:<line>: ...` means one module failed. Fix the line it names in `~/.config/hypr/<name>.lua`. The other files loaded fine.
+- `module 'hypr.<name>' not found` means a `require` line names a file that does not exist. Fix the spelling in `~/.config/hypr/hyprland.lua` or create the file. Everything after that line was skipped.
+- An error with no `require(...)` prefix pointing at `hyprland.lua` itself is in the main file.
+
+**Check a file before saving it**, because Hyprland reloads on every save. `luac` is installed on Omarchy 4 with the `lua` package:
+
+```bash
+luac -p ~/.config/hypr/*.lua && echo syntax-ok
+```
+
+That catches syntax errors only. A call to something that does not exist, such as `hl.set`, is still a runtime error.
+
+**Make an optional module unable to take the rest down.** Omarchy 4 ships a helper that skips a missing module but still reports errors inside one that exists:
+
+```lua
+local require_optional = require("default.hypr.require_optional")
+require_optional.module("hypr.extra")
+```
+
+On plain Arch, use `pcall`:
+
+```lua
+local ok, err = pcall(require, "extra")
+if not ok then print("skipped extra: " .. tostring(err)) end
+```
+
+**Read the log** for the full traceback when the bar truncates it:
+
+```bash
+grep -iE 'error|lua' "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log" | tail -n 40
+```
+
+**Verify.** `hyprctl configerrors` prints an empty list and `luac -p ~/.config/hypr/*.lua` prints nothing. Your binds are back in `hyprctl -j binds`. The three behaviours were read from the 0.56.2 `ConfigManager.cpp` and match the wiki's error-behaviour section. They were not reproduced live.
+
+Sources: <https://wiki.hypr.land/configuring/core/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/omarchy.lua>
 
 ---
 
@@ -1845,6 +2320,55 @@ Sources: <https://wiki.hypr.land/Configuring/Basics/Binds/> · <https://wiki.hyp
 
 ---
 
+## Fix a default Omarchy shortcut that still fires after you rebind or unbind it
+
+`unbind-copied-from-keybindings-print-does-nothing` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** You add your own binding in `~/.config/hypr/bindings.lua` on a key Omarchy already uses (for example SUPER+W) and now pressing it does your action AND the old one, or neither seems to work. Or you copy a combo from `omarchy menu keybindings --print`, which shows it as `SUPER SHIFT + S`, into `hl.unbind("SUPER SHIFT + S")` and the default shortcut keeps firing. No error appears anywhere.
+
+**Cause.** Hyprland runs every bind registered for a chord, top to bottom, so `o.bind` on a key Omarchy has already bound adds a second action instead of replacing the first. `hl.unbind("keys")` removes all binds for that key registered before it, but only when the string matches the registered one exactly. Omarchy 4 binds use a `+` between every part (`"SUPER + SHIFT + S"`). `omarchy menu keybindings --print` formats the modifiers from the modmask as space-separated words (`SUPER SHIFT`, see `modmask_to_text` in `/usr/share/omarchy/bin/omarchy-menu-keybindings`) with a single `+` before the key, so a combo pasted from it never matches and the unbind silently does nothing. Confirmed on 4.0.4-1 by reading the script.
+
+> **Audit corrected this record.** The main claim holds. modmask_to_text in /usr/share/omarchy/bin/omarchy-menu-keybindings (4.0.4-1) prints space-separated modifiers, and parse_binding_records adds one ` + ` before the key. Issue 7627 reports exactly this. o.rebind exists on quattro helpers.lua (line 154) and is absent from the 4.0.4 helpers.lua. The quattro bindings.lua template documents it. One claim is wrong for 0.56.2. In v0.56.2 source, hl.unbind calls CKeybindManager::removeKeybind(displayKeys), and that function compares the strings after removing all spaces and lowercasing both. `SUPER + Tab` therefore does unbind `SUPER + TAB`, despite what the wiki says. The `SUPER SHIFT + S` paste still fails, because after normalising it becomes `supershift+s` against `super+shift+s`, so the missing `+` is the real cause. The fix is rewritten with the case sentence corrected and everything else kept. Second audit confirmed the corrected text: The current corrected text holds. In /usr/share/omarchy/bin/omarchy-menu-keybindings on 4.0.4-1, modmask_to_text prints space-separated modifiers (65 becomes 'SUPER SHIFT'), and parse_binding_records joins modifiers and key with a single ' + '. --print is handled at line 583. Issue #7627 (open) reports exactly this. In Hyprland v0.56.2, removeKeybind(displayKeys) strips spaces and lowercases both sides, so the case claim and the missing-plus claim are both right. tiling.lua registers ALT+TAB twice, which confirms that stacked binds all run. o.rebind is present at line 154 of quattro's helpers.lua and absent from the 4.0.4 helpers.lua. A default SUPER+SHIFT+S bind exists (Google Maps, applications.lua:31, modmask 65, key 'S'), so the verify count of 1 after the fix is meaningful. Nothing was rebound live.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4.0.4.** In `~/.config/hypr/bindings.lua`, unbind the default with the full `+` separated form, then bind your replacement:
+
+```lua
+-- --print shows "SUPER SHIFT + S". The Lua form needs a + between every part.
+hl.unbind("SUPER + SHIFT + S")
+o.bind("SUPER + SHIFT + S", "Screenshot", "omarchy-capture-screenshot")
+
+-- Move close window from SUPER+W to SUPER+Q
+hl.unbind("SUPER + W")
+hl.unbind("SUPER + Q")
+o.bind("SUPER + Q", "Close window", hl.dsp.window.close())
+```
+
+Unbind the target key too when it already has a default action, or you get both again. What has to match is the `+` between every part. Hyprland 0.56.2 strips spaces and ignores case when it compares the `hl.unbind` string, so `SUPER + Tab` does remove `SUPER + TAB`, but `SUPER SHIFT + S` (no `+` between the modifiers) never matches `SUPER + SHIFT + S`. The wiki still describes the match as case-sensitive, so keep the same case anyway for newer releases.
+
+Find the exact registered key and modmask for a default when in doubt:
+
+```bash
+hyprctl binds -j | jq -r '.[] | select(.description == "Close window") | "\(.modmask) \(.key)"'
+```
+
+Modmask values: SHIFT 1, CTRL 4, ALT 8, SUPER 64, added together.
+
+**Newer Omarchy builds.** The `quattro` branch template now offers `o.rebind(keys, description, dispatcher)`, which is `hl.unbind(keys)` followed by `o.bind`. It is not in 4.0.4, so check `grep -n 'function o.rebind' /usr/share/omarchy/default/hypr/helpers.lua` before using it.
+
+**Plain Arch.** The same rules hold for `hl.bind` and `hl.unbind` in your own `hyprland.lua`: unbind before rebinding, and put a `+` between every part of the key string.
+
+**Verify.** After saving, `hyprctl binds -j | jq '[.[] | select(.modmask == 65 and .key == "S")] | length'` returns 1 (your bind) rather than 2, and the old action no longer runs.
+
+Sources: <https://github.com/omacom/omarchy/issues/7627> · <https://github.com/omacom/omarchy/issues/12050> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/bindings.lua> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/binds/_index.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/KeybindManager.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp>
+
+---
+
 ## Make a window rule fire when an app renames its own title
 
 `windowrule-float-on-title-change-never-fires` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
@@ -1926,6 +2450,175 @@ hl.bind("SUPER + code:10", hl.dsp.focus({ workspace = "1" }))
 **Verify.** `hyprctl binds` shows the bind, and pressing SUPER+<key> switches workspace.
 
 Sources: <https://wiki.hypr.land/0.54.0/Configuring/Binds/> · <https://wiki.hypr.land/Configuring/Basics/Binds/>
+
+---
+
+## Fix JetBrains IDE focus problems: autocomplete steals focus, tabs drop while dragging
+
+`jetbrains-ide-focus-stolen-popups-tab-drag` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** In IntelliJ IDEA, PyCharm or another JetBrains IDE under Hyprland, the autocomplete popup steals keyboard focus until you move the mouse, and dragging an editor tab past the tab bar drops it instead of letting you split or move it.
+
+**Cause.** JetBrains IDEs run under XWayland, and their popups and drag windows are separate X11 windows that Hyprland focuses when they map. Focusing them takes input away from the editor and cancels the tab drag.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Stop Hyprland giving XWayland windows initial focus.
+
+**Plain Arch**, in `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.window_rule({
+  match = { xwayland = true },
+  no_initial_focus = true,
+})
+```
+
+**Omarchy 4**, in `~/.config/hypr/hyprland.lua` below the defaults:
+
+```lua
+o.window({ xwayland = true }, { no_initial_focus = true })
+```
+
+That rule touches every XWayland app. To limit it to the IDEs, match their class instead. Read the class with `hyprctl clients -j | jq -r '.[] | select(.xwayland) | .class'` and use it, for example:
+
+```lua
+o.window("^(jetbrains-.*)$", { no_initial_focus = true })
+```
+
+**Verify.** Typing in the editor while autocomplete opens keeps focus in the editor, and a dragged tab can be dropped into a split.
+
+Sources: <https://wiki.archlinux.org/title/Hyprland> · <https://github.com/hyprwm/Hyprland/issues/1120> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/desktop/rule/Rule.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/jetbrains.lua>
+
+---
+
+## Fix submaps after the Lua migration: hl.submap is nil, or the submap keys fire everywhere
+
+`lua-submap-binds-leak-global` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** After converting my resize submap to Lua, either the config errors with `attempt to call a nil value (field 'submap')` and every bind below it in that file is missing, or the submap binds are active all the time: the arrow keys resize the focused window in every app, I cannot move the cursor in a text editor, Escape does nothing in apps, and `hyprctl submap` says `default`. Another variant: `hl.bind: catchall keybinds are only allowed in submaps.`
+
+**Cause.** hyprlang opened a submap with the keyword `submap = resize`, listed binds, and closed it with `submap = reset`. Lua has no section markers. In Hyprland 0.56.2 a bind belongs to a submap only if `hl.bind` runs while `hl.define_submap(name, fn)` is executing `fn`: `hlDefineSubmap` in `src/config/lua/bindings/LuaBindingsToplevel.cpp` sets the current submap, calls `fn`, then restores the previous one, and `hlBind` stamps each bind with whatever submap is current at that moment.
+
+So a literal translation fails two ways. `hl.submap("resize")` does not exist (the API has `hl.define_submap` to define one and the dispatcher `hl.dsp.submap(name)` to enter one), so the call raises a runtime error that aborts the rest of that file. Writing `hl.dsp.submap("resize")` on its own line as a section opener only builds a dispatcher object and discards it, so the `right`, `left`, `up`, `down` and `escape` binds that follow are registered in the global map and take those keys from every application. `catchall` is refused outside a submap for the same reason.
+
+> **Audit corrected this record.** Read hlBind and hlDefineSubmap in Hyprland v0.56.2 src/config/lua/bindings/LuaBindingsToplevel.cpp: define_submap sets m_currentSubmap, pcalls fn, restores the previous submap, hlBind stamps kb.submap from it, and catchall outside a submap gives exactly the quoted error. The 0.56.2 stub /usr/share/hypr/stubs/hl.meta.lua (owned by hyprland 0.56.2-2) has define_submap at top level and submap only under hl.dsp, so hl.submap is nil. The wiki submaps page (hyprwm/hyprland-wiki content/configuring/core/binds/submaps.md) matches the fix, the optional reset second argument, submap_universal, and the --instance 0 recovery in danger. ALT+R is not bound by any file in /usr/share/omarchy/default/hypr/bindings/ on 4.0.4-1. Two defects in the commands. The diagnostic grep looked for '"key": "Right"', but hyprctl -j binds reports the key as written in the bind string, so a bind written "right" never matches a case-sensitive grep. And `omarchy menu keybindings --print | grep -i 'alt.*r'` returned 59 lines on this machine, because the --print format is 'SUPER SHIFT + RETURN  -> ...' and almost every line with ALT matches, so it cannot confirm the key is free. The verify said 'none with an empty submap', but every global bind has submap "" (confirmed in hyprctl -j binds output here). Cause holds. Not exercised live: no submap was defined or entered.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A submap with no `escape` (or other `hl.dsp.submap("reset")`) bind leaves the keyboard with no working binds once entered. Recovery is `hyprctl dispatch 'hl.dsp.submap("reset")'` from an open terminal, or from a TTY with `hyprctl dispatch --instance 0 'hl.dsp.submap("reset")'`.
+
+**Fix.**
+
+**Get your keys back now** if the arrows or Escape are hijacked. From a terminal (open one with SUPER+RETURN on Omarchy 4):
+
+```bash
+hyprctl submap                                        # where you are
+hyprctl -j binds | grep -i -B3 -A10 '"key": "right"'   # check the "submap" field
+```
+
+An arrow bind with `"submap": ""` is global and is the leak. Fix the file and save, which reloads Hyprland.
+
+**Write the submap with `hl.define_submap`.** On Omarchy 4 this goes in `~/.config/hypr/bindings.lua`. On plain Arch, in `~/.config/hypr/hyprland.lua`.
+
+```lua
+-- hyprlang:
+--   bind = ALT, R, submap, resize
+--   submap = resize
+--   binde = , right, resizeactive, 10 0
+--   bind = , escape, submap, reset
+--   submap = reset
+
+hl.bind("ALT + R", hl.dsp.submap("resize"))
+
+hl.define_submap("resize", function()
+  hl.bind("right", hl.dsp.window.resize({ x = 10, y = 0, relative = true }), { repeating = true })
+  hl.bind("left",  hl.dsp.window.resize({ x = -10, y = 0, relative = true }), { repeating = true })
+  hl.bind("up",    hl.dsp.window.resize({ x = 0, y = -10, relative = true }), { repeating = true })
+  hl.bind("down",  hl.dsp.window.resize({ x = 0, y = 10, relative = true }), { repeating = true })
+  hl.bind("escape", hl.dsp.submap("reset"))   -- always give a way out
+end)
+-- binds below this line are global again
+```
+
+`binde` (repeat) becomes `{ repeating = true }`. To leave the submap automatically after any bind inside it fires, pass `"reset"` as the second argument: `hl.define_submap("launch", "reset", function() ... end)`. A bind that must work in every submap takes `{ submap_universal = true }`. `catchall` is allowed only inside the function.
+
+On Omarchy 4, check the key you pick is free, or `hl.unbind` it first. `ALT + R` is not used by Omarchy's defaults on 4.0.4. The `--print` list writes modifiers as `ALT + R`, so match the whole key at the start of the line:
+
+```bash
+omarchy menu keybindings --print | grep -E '^ALT \+ R '   # no output means the key is free
+```
+
+**Verify.** `hyprctl -j binds` shows the arrow and escape binds with `"submap": "resize"`, and no bind for `right`, `left`, `up` or `down` with `"submap": ""` (global binds always show an empty submap, so only the arrow ones matter). Arrow keys work normally in an editor, ALT+R then Right resizes the window, and Escape returns `hyprctl submap` to `default`. The API shape was read from the 0.56.2 source, the 0.56.2 stub file and the wiki. Not exercised live.
+
+Sources: <https://wiki.hypr.land/configuring/core/binds/submaps/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp> · <https://wiki.hypr.land/configuring/core/dispatchers/>
+
+---
+
+## Stop the screenshot window picker deleting your own TAB, RETURN and arrow binds
+
+`screenshot-picker-removes-user-binds-on-tab-return-arrows` · severity: **medium** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** A custom binding on CTRL+TAB, TAB, RETURN, CTRL+RETURN or an arrow key (for example a window switcher on CTRL+TAB) randomly stops working. Nothing in the logs, `hyprctl binds` simply has no entry for it any more. It comes back after `hyprctl reload` or a re-login, then vanishes again later. It disappears right after you take a screenshot with the window picker (PRINT).
+
+**Cause.** Omarchy 4.0.4's `default/hypr/bindings/utilities.lua` binds `RETURN`, `CTRL + RETURN`, `TAB`, `CTRL + TAB` and `LEFT`, `RIGHT`, `UP`, `DOWN` whenever a layer named `selection` opens (slurp's picker). It keeps the handles and calls `keybind:unbind()` on each when the last such layer closes. Its comment says this protects same-key user binds. It does not. In Hyprland 0.56.2 a handle's `unbind()` calls `CKeybindManager::removeKeybind(modmask, key)`. That erases every bind whose modifier mask, key text and keycode equal the handle's, not only the bind the handle refers to. The key text comparison is exact and case-sensitive. A user bind spelled the way Omarchy spells it (`CTRL + TAB`, `RETURN`, `LEFT`) is removed, and one spelled `CTRL + Tab`, `Return` or `Left` is not. The bind stays gone until the next config reload. Any layer-shell client that names its layer `selection` triggers it, not only the screenshot tool. Confirmed by reading `/usr/share/omarchy/default/hypr/bindings/utilities.lua` on 4.0.4-1 (unchanged on `quattro`), and `src/config/lua/objects/LuaKeybind.cpp` and `src/managers/KeybindManager.cpp` at Hyprland v0.56.2. The case behaviour was read in source and not exercised.
+
+> **Audit corrected this record.** The mechanism is real. utilities.lua on 4.0.4-1 and on quattro binds the picker keys on layer.opened and calls keybind:unbind() on each handle. Issue #12546 (open) reports the loss with a reproduction. Reading Hyprland v0.56.2 source sharpens the cause. LuaKeybind.cpp keybindRemove calls removeKeybind(modmask, {key, keycode, catchAll}), and that function erases every bind whose key string is exactly equal, case included. hl.unbind normalises case, but this path does not. So a user bind spelled `CTRL + TAB` is removed and one spelled `CTRL + Tab` survives. The record missed this, and it gives a simpler mitigation. The cause and fix were rewritten to say so. The timer workaround is kept, and hl.timer's {timeout, type = "oneshot"} signature was confirmed in LuaBindingsToplevel.cpp. The case-sensitivity was read in source and not exercised. Running slurp here would have touched the operator's session.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4 on Hyprland 0.56.2.** Use one of these three options in `~/.config/hypr/bindings.lua`.
+
+1. Move your binding to a chord the picker does not borrow. The picker borrows `RETURN`, `TAB`, `LEFT`, `RIGHT`, `UP` and `DOWN`, both bare and with CTRL. Anything else is safe.
+
+2. Keep the chord and spell the key in different case from Omarchy's upper-case names. The picker's removal compares key text exactly, so this bind survives it:
+
+```lua
+o.bind("CTRL + Tab", "Window switcher", "my-window-switcher")
+```
+
+Use `Return`, `Left`, `Right`, `Up` and `Down` the same way. This depends on how 0.56.2 compares key text, so check it again after a Hyprland update.
+
+3. Re-add the bind after the last selection layer closes. Replace the command with yours. The short timer matters, because Omarchy unbinds from its own handler for the same event and the order of the two handlers is not fixed.
+
+```lua
+local function bind_window_switcher()
+  hl.unbind("CTRL + TAB")
+  o.bind("CTRL + TAB", "Window switcher", "my-window-switcher")
+end
+bind_window_switcher()
+
+local my_selection_layers = 0
+hl.on("layer.opened", function(layer)
+  if layer.namespace == "selection" then
+    my_selection_layers = my_selection_layers + 1
+  end
+end)
+hl.on("layer.closed", function(layer)
+  if layer.namespace ~= "selection" or my_selection_layers == 0 then return end
+  my_selection_layers = my_selection_layers - 1
+  if my_selection_layers > 0 then return end
+  hl.timer(bind_window_switcher, { timeout = 50, type = "oneshot" })
+end)
+```
+
+To get the bind back right now without editing anything, reload the config from a terminal: `hyprctl reload`.
+
+**Verify.** ```bash
+hyprctl binds -j | grep -c '"description": "Window switcher"'   # 1
+slurp & sleep 1; pkill slurp; sleep 1
+hyprctl binds -j | grep -c '"description": "Window switcher"'   # still 1
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/12546> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/binds/_index.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/objects/LuaKeybind.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/KeybindManager.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp>
 
 ---
 
@@ -2049,6 +2742,51 @@ hyprctl clients -j | jq '.[] | select(.class | test("^steam_app_|^gamescope")) |
 Expected `"fullscreen": 2` and `"inhibitingIdle": true`. Two reporters confirmed controller-only play past the idle timeout with neither screensaver nor lock activating.
 
 Sources: <https://github.com/omacom/omarchy/issues/6947> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/steam.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://github.com/omacom/omarchy/pull/9651> · <https://github.com/omacom/omarchy/pull/9667> · <https://github.com/omacom/omarchy/blob/v4.0.3/default/hypr/apps/steam.lua> · <https://wiki.hypr.land/configuring/core/rules/window-rules/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/window-rules.md>
+
+---
+
+## Fix "module 'omarchy.workspace-layouts.1' not found" on every reload
+
+`workspace-layouts-module-not-found-custom-hyprland-lua` · severity: **medium** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** After pressing SUPER+L once, every config reload shows an error overlay: `require("default.hypr.workspace-layouts"): /usr/share/omarchy/default/hypr/require_all.lua:32: module 'omarchy.workspace-layouts.1' not found:` followed by a list of `no file '...'` paths. The list includes `~/.local/state/omarchy/toggles/hypr/...`, `~/.config/...` and `/usr/share/omarchy/...` entries, but never `~/.local/state/omarchy/workspace-layouts/1.lua`.
+
+**Cause.** The toggle saves `~/.local/state/omarchy/workspace-layouts/<id>.lua`. `/usr/share/omarchy/default/hypr/workspace-layouts.lua` loads that file through `require_all` as the module `omarchy.workspace-layouts.<id>`, which resolves only when `~/.local/state/?.lua` is on Lua's `package.path`. That entry is added by `/usr/share/omarchy/default/hypr/bootstrap.lua`, which the shipped `~/.config/hypr/hyprland.lua` template loads with a `dofile` line near its top. A `hyprland.lua` written before the bootstrap existed has its own `package.path = ...` block, which lists only `~/.config` and `$OMARCHY_PATH`. Migration `1781063758` replaces that block with the `dofile` line only when the block's comment and first line match the old stock text exactly. An edited file therefore keeps the old list and never gains `~/.local/state`. The bootstrap has included `~/.local/state` since at least 4.0.2, so a config that loads it is not affected. Issue 9664 reports the error on 4.0.2-1, and the path list in its error shows a config without the bootstrap. Both the issue and its fix PR 9889 were still open on 2026-10-05.
+
+> **Audit corrected this record.** The mechanism holds. bootstrap.lua on 4.0.4-1 prepends ~/.local/state/?.lua. The shipped config/hypr/hyprland.lua template loads it with dofile. Migration 1781063758.sh rewrites the old package.path block only when its comment and first line match the old stock text exactly. omarchy-refresh-config saves `.bak.$(date +%s)` and prints a diff, so the danger text is accurate. Two claims are wrong. The cause says the 4.0.2 stock path list lacked the entry, but bootstrap.lua at tag v4.0.2 already adds ~/.local/state, and so does the template at v4.0.2. Issue #9664's reporter must therefore have had a pre-bootstrap or edited hyprland.lua. The symptom says none of the listed paths is under ~/.local/state, but the error quoted in #9664 starts with `~/.local/state/omarchy/toggles/hypr/...`. toggles.lua prepends that directory and then requires workspace-layouts, which is consistent with the quote. The cause also says the dofile is on the template's first line, but it is on line 4 after comments. The cause and symptom were rewritten. The fix was left as it is. #9664 and its fix PR #9889 are both still open.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `omarchy-refresh-config hypr/hyprland.lua` overwrites your `hyprland.lua`. It saves the old one as `~/.config/hypr/hyprland.lua.bak.<epoch>` and prints a diff, so copy your own lines back from that file.
+
+**Fix.**
+
+**Omarchy 4.** Make sure `~/.config/hypr/hyprland.lua` starts by loading the bootstrap, before any `require`:
+
+```bash
+grep -n 'bootstrap.lua\|package.path' ~/.config/hypr/hyprland.lua
+```
+
+If there is no `bootstrap.lua` line, replace your `package.path = ...` block with:
+
+```lua
+-- Omarchy's bootstrap keeps path setup out of this user config.
+dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
+```
+
+Or reset the file to the shipped template and port your additions back from the backup it prints:
+
+```bash
+omarchy-refresh-config hypr/hyprland.lua
+```
+
+Then `hyprctl reload`.
+
+**Verify.** `hyprctl configerrors` is empty after a reload, and a workspace toggled with SUPER+L keeps its layout after `hyprctl reload`.
+
+Sources: <https://github.com/omacom/omarchy/issues/9664> · <https://github.com/omacom/omarchy/pull/9889> · <https://github.com/omacom/omarchy/blob/v4.0.2/default/hypr/bootstrap.lua> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1781063758.sh>
 
 ---
 
@@ -2400,6 +3138,49 @@ Sources: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/XWayland/> · <ht
 
 ---
 
+## Autostart an app onto a specific workspace under the Lua config
+
+`autostart-app-to-workspace-bracket-rule-fails` · severity: **low** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** An autostart line such as `o.launch_on_start("[workspace 2 silent] firefox")` in `~/.config/hypr/autostart.lua` never opens anything, with no error on screen. `journalctl --user` shows `uwsm_app-daemon[...]: sent: error 'Error: Command not found: "[workspace"' 1`. Or, on a hand-written Lua config, `hl.exec_cmd(...)` autostarts open on the current workspace and ignore the workspace you asked for.
+
+**Cause.** Omarchy's `o.launch()` and `o.launch_on_start()` prefix the command with `uwsm-app -- `. `uwsm-app` parses its own argv and treats `[workspace` as the program name, so the hyprlang-style bracket prefix never reaches Hyprland. Separately, Hyprland applies exec rules by the PID it spawned. A command that hands off to another process (a wrapper like `uwsm-app`, a single-instance app such as a browser that is already running, `ghostty +new-window`) opens a window from a PID Hyprland did not record, so the rule never matches.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Use Lua's rule table on `hl.exec_cmd` directly, inside the start event, so it runs once at login:
+
+**Omarchy 4**, in `~/.config/hypr/autostart.lua`:
+
+```lua
+hl.on("hyprland.start", function()
+  hl.exec_cmd("foot", { workspace = "3 silent" })
+  hl.exec_cmd("spotify-launcher", { workspace = "special silent" })
+end)
+```
+
+This bypasses `uwsm-app`, so the app is not placed in its own uwsm scope.
+
+For apps that fork or reuse an existing instance, use a class rule instead. It is permanent rather than per launch:
+
+```lua
+-- ~/.config/hypr/hyprland.lua
+o.window("^(firefox)$", { workspace = "2 silent" })
+o.launch_on_start("firefox")
+```
+
+Find the class with `hyprctl clients -j | jq -r '.[].class'`.
+
+**Plain Arch.** The same `hl.exec_cmd(cmd, { workspace = "N silent" })` form inside `hl.on("hyprland.start", ...)`, or `hl.window_rule({ match = { class = "^(firefox)$" }, workspace = "2 silent" })`.
+
+**Verify.** Log out and in. `hyprctl clients -j | jq -r '.[] | "\(.workspace.name) \(.class)"'` shows each app on its intended workspace.
+
+Sources: <https://github.com/omacom/omarchy/issues/10137> · <https://github.com/hyprwm/Hyprland/discussions/14619> · <https://wiki.hypr.land/Configuring/Basics/Dispatchers/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/dispatchers.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/window-rules.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/supplementary/executor/Executor.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua>
+
+---
+
 ## Run hyprctl from a TTY, cron or SSH by setting the instance signature
 
 `hyprctl-fails-outside-session-instance-signature` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `grub`, `hyprland`, `manjaro`, `omarchy`, `systemd-boot`
@@ -2519,6 +3300,177 @@ Sources: <https://github.com/omacom/omarchy/issues/8817> · <https://github.com/
 
 ---
 
+## Fix Lua animations that error with 'bezier or spring is required' or 'no such bezier'
+
+`lua-animation-needs-bezier-key-and-hl-curve` · severity: **low** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** My animation lines in Lua are rejected or ignored. The error list shows `hl.animation("windows"): bezier or spring is required` even though I wrote `curve = "myBezier"` exactly as the wiki shows, or `hl.animation("windows"): no such bezier "myBezier"`, `hl.curve("myBezier"): "points" must contain exactly 2 points`, `hl.curve("bouncy"): dampening expects a number`, `unknown config key 'animations.bezier'`, or `hl.animation: no such animation leaf "workspace"`. On Omarchy 4, switching workspaces never slides no matter what I set.
+
+**Cause.** Hyprland 0.55 replaced the hyprlang `bezier =` and `animation =` keywords with two functions, `hl.curve(name, spec)` and `hl.animation(spec)`. They do not live under `hl.config`: the `animations` config category in 0.56 holds only `enabled` and `workspace_wraparound`, so `hl.config({ animations = { bezier = ... } })` is an unknown key.
+
+In Hyprland 0.56.2 `hlAnimation` (`src/config/lua/bindings/LuaBindingsConfigRules.cpp`) reads the curve only from a field named `bezier` or `spring`. Any other name, including `curve`, ends in `bezier or spring is required`. The wiki animations page is inconsistent here: its syntax line and its `popin 80%` and `slide left` examples use `curve = "default"`, while its first examples use `bezier =`. Only `bezier` and `spring` work on 0.56.2. The named curve must already exist when `hl.animation` runs, so a curve defined lower in the file, or in a file loaded later, gives `no such bezier`. `hl.curve` wants the two control points as a nested table `{ {x0, y0}, {x1, y1} }`. The flat hyprlang order `0.05, 0.9, 0.1, 1.05` is rejected as not exactly two points. A spring curve, `hl.curve(name, { type = "spring", ... })`, needs `mass`, `stiffness` and a damping field, each greater than 0.5. Hyprland 0.56.2 reads that field only as `dampening`, so the wiki's `damping = 10` fails with `hl.curve("<name>"): dampening expects a number` and the curve is never created. Later Hyprland source on `main` reads `damping` and falls back to `dampening`, so `dampening` works on both. Leaf names are the animation tree names (`windows`, `windowsIn`, `workspaces`, `specialWorkspace`, `fadeIn`, `border`, `layers` and so on), case-sensitive.
+
+On Omarchy 4, `/usr/share/omarchy/default/hypr/looknfeel.lua` sets `hl.animation({ leaf = "workspaces", enabled = false })`, so workspace switching is instant by design until you enable that leaf yourself. It also defines the curves `easeOutQuint`, `easeInOutCubic`, `linear`, `almostLinear` and `quick`, which load before your files and can be reused.
+
+> **Audit corrected this record.** Most of the record holds against v0.56.2 LuaBindingsConfigRules.cpp. hlAnimation reads only bezier or spring and otherwise errors 'bezier or spring is required'. It checks bezierExists and reports 'no such bezier'. It rejects unknown leaves with 'no such animation leaf' and requires speed greater than 0. hlCurve needs exactly two nested points, and the error strings match. hl.config reports 'unknown config key' for animations.bezier. The current wiki page uses curve = in its syntax line and three examples, as the record says. Omarchy 4.0.4-1 default/hypr/looknfeel.lua disables the workspaces leaf and defines the five named curves, and the user looknfeel.lua loads after the defaults. The fix's spring example is wrong on 0.56.2. hlCurve reads the damping coefficient from a field named 'dampening' and returns 'hl.curve("<name>"): dampening expects a number' when it is missing. It also requires mass, stiffness and dampening each to be greater than 0.5. So the record's hl.curve("bouncy", { ..., damping = 10 }), copied from the wiki, never creates the curve, and the next line then fails with 'no such spring'. Hyprland main now reads damping and falls back to dampening, so dampening works on both. Fix, cause and symptom are updated. Nothing was exercised live.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4: put animation changes in `~/.config/hypr/looknfeel.lua`.** It loads after Omarchy's defaults, so your lines win and Omarchy's curves already exist.
+
+```lua
+-- ~/.config/hypr/looknfeel.lua
+
+-- hyprlang: bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+hl.curve("myBezier", { type = "bezier", points = { { 0.05, 0.9 }, { 0.1, 1.05 } } })
+
+-- hyprlang: animation = windows, 1, 7, myBezier
+-- use bezier = (or spring =), not curve =
+hl.animation({ leaf = "windows", enabled = true, speed = 7, bezier = "myBezier" })
+hl.animation({ leaf = "windowsIn", enabled = true, speed = 7, bezier = "myBezier", style = "popin 80%" })
+
+-- Omarchy turns workspace animations off. Turn them back on with a shipped curve:
+hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "easeOutQuint", style = "slide" })
+
+-- a spring curve:
+-- Hyprland 0.56.2 reads "dampening", not the wiki's "damping".
+-- mass, stiffness and dampening must each be greater than 0.5.
+hl.curve("bouncy", { type = "spring", mass = 1, stiffness = 70, dampening = 10 })
+hl.animation({ leaf = "fadeIn", enabled = true, speed = 3, spring = "bouncy" })
+
+-- disable one leaf, or all animations:
+hl.animation({ leaf = "border", enabled = false })
+-- hl.config({ animations = { enabled = false } })
+```
+
+**Plain Arch:** the same calls go in `~/.config/hypr/hyprland.lua`. Define every `hl.curve` above the first `hl.animation` that names it.
+
+`speed` is in deciseconds (`speed = 7` is 700 ms) and must be greater than 0. Valid `style` values depend on the leaf: `slide`, `popin`, `gnomed` for windows, and `slide`, `slidevert`, `fade`, `slidefade`, `slidefadevert` for workspaces.
+
+**Verify.** `hyprctl configerrors` shows no `hl.animation` or `hl.curve` lines, and `hyprctl animations` lists your curve name and the leaf with the speed you set. Switching workspaces with SUPER+1 and SUPER+2 now animates if you enabled the `workspaces` leaf. The `bezier`/`spring` requirement was read from the 0.56.2 source. It was not exercised live.
+
+Sources: <https://wiki.hypr.land/configuring/core/animations/> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsConfigRules.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/looknfeel.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/looknfeel.lua> · <https://github.com/hyprwm/Hyprland/blob/main/src/config/lua/bindings/LuaBindingsConfigRules.cpp>
+
+---
+
+## Stop autostart apps spawning another copy every time you save hyprland.lua
+
+`lua-autostart-duplicates-on-every-config-save` · severity: **low** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** Each time you save `hyprland.lua` (or run `hyprctl reload`) another waybar, nm-applet, notification daemon or terminal appears. After a few edits there are several bars stacked on top of each other and several tray icons.
+
+**Cause.** Hyprland re-evaluates `hyprland.lua` on every save and on every reload. In the Lua config there is no `exec-once`. A bare `hl.exec_cmd(...)` at the top level of the file is ordinary code, so it runs again on each evaluation. Commands meant to run once must be inside the `hyprland.start` event, which fires once per session.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Plain Arch.** Move every autostart into the start event in `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.on("hyprland.start", function()
+  hl.exec_cmd("waybar")
+  hl.exec_cmd("nm-applet")
+  -- under uwsm: hl.exec_cmd("uwsm app -- mycommand")
+end)
+```
+
+**Omarchy 4.** Put extra autostarts in `~/.config/hypr/autostart.lua` with the helper, which wraps `hyprland.start` for you:
+
+```lua
+o.launch_on_start("my-service")
+```
+
+Then clear the duplicates already running, for example:
+
+```bash
+pkill -x nm-applet
+hyprctl dispatch 'hl.dsp.exec_cmd("nm-applet")'
+```
+
+**Verify.** Save `hyprland.lua` twice, then `pgrep -c -x nm-applet` (or your app) still prints 1.
+
+Sources: <https://wiki.archlinux.org/title/Hyprland> · <https://wiki.hypr.land/Configuring/Basics/Autostart/> · <https://wiki.hypr.land/configuring/core/autostart/> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/LuaEventHandler.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/autostart.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/autostart.lua> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/autostart.md>
+
+---
+
+## Fix Lua keybindings that do nothing, or launch the app at reload instead of on keypress
+
+`lua-bind-function-hl-dsp-not-dispatched` · severity: **low** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** A keybinding I wrote with a Lua function does nothing when pressed, with no error, for example `hl.bind("SUPER + X", function() hl.dsp.window.float({ action = "toggle" }) end)`. Or kitty opens by itself every time I save the config, and the bind I meant for it errors with `hl.bind: dispatcher must be a dispatcher (e.g. hl.dsp.window.close()) or a lua function`. Same error for `hl.bind("SUPER + Q", "kitty")`.
+
+**Cause.** Hyprland 0.56 has two families of functions that look alike.
+
+- `hl.dsp.*` functions (`hl.dsp.exec_cmd`, `hl.dsp.window.close`, `hl.dsp.focus`, ...) only build a dispatcher object. The wiki dispatchers page says plainly that writing `hl.dsp.whatever()` on its own does nothing. Inside a bind function each one has to be passed to `hl.dispatch(...)`.
+- `hl.exec_cmd(cmd)` runs the command right now and returns nothing (`exec_cmd fun(cmd, rules?): nil` in `/usr/share/hypr/stubs/hl.meta.lua`).
+
+So `hl.bind("SUPER + E", hl.exec_cmd("kitty"))` launches kitty while the config loads, on every reload, and then hands `hl.bind` a nil. `hl.bind` accepts only a Lua function or a dispatcher object. `Internal::pushDispatcherFunction` in `src/config/lua/bindings/LuaBindingsDispatcherUtils.cpp` rejects anything else, including a plain command string, and `hlBind` reports the error above. That is a type error, so loading continues and only that bind is missing.
+
+> **Audit corrected this record.** Cause confirmed in the v0.56.2 source. In LuaBindingsDispatcherUtils.cpp, hl.dsp.* factories wrap a function in an HL.Dispatcher userdata, and calling one only builds that object. pushDispatcherFunction accepts only a Lua function or that userdata, so nil and plain strings fail. hlBind then calls Internal::configError, which in LuaBindingsInternal.cpp reports the error and returns 0 without raising, so loading continues. The wiki dispatchers page states verbatim that hl.dsp.whatever() on its own does nothing. The stub /usr/share/hypr/stubs/hl.meta.lua confirms `exec_cmd fun(cmd, rules?): nil`. The float action "set" is accepted (LuaBindingsDispatchers.cpp line 749), HL.Window has a `class` field, and o.bind in default/hypr/helpers.lua wraps strings in hl.dsp.exec_cmd. hyprctl -j binds shows `"dispatcher": "__lua"`. Defect: the fix binds SUPER+X, which Omarchy 4.0.4 already binds to 'Universal cut' (default/hypr/bindings/clipboard.lua:47). hl.bind adds a second bind and does not replace the first, so on Omarchy both fire and the window toggles while a CTRL+X is sent to the app. The Omarchy branch now unbinds first. Not exercised live.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `hyprctl dispatch` runs the action immediately on the live session. Test something harmless, not `hl.dsp.exit()`.
+
+**Fix.**
+
+**A bind with one action:** pass the dispatcher object directly.
+
+```lua
+hl.bind("SUPER + E", hl.dsp.exec_cmd("kitty"))                 -- not hl.exec_cmd
+hl.bind("SUPER + X", hl.dsp.window.float({ action = "toggle" }))
+```
+
+**A bind with logic or several actions:** wrap each dispatcher in `hl.dispatch`.
+
+```lua
+hl.bind("SUPER + X", function()
+  local w = hl.get_active_window()
+  if w ~= nil and w.class == "htop" then
+    hl.dispatch(hl.dsp.window.float({ action = "set" }))
+  else
+    hl.dispatch(hl.dsp.window.float({ action = "toggle" }))
+  end
+end)
+```
+
+`hl.exec_cmd("cmd")` is correct inside a bind function or a `hyprland.start` handler, where running immediately is what you want.
+
+**Omarchy 4:** SUPER+X is already Omarchy's "Universal cut" bind. `hl.bind` adds a bind and does not replace one, so unbind the default first or both actions fire. `o.bind` in `/usr/share/omarchy/default/hypr/helpers.lua` accepts a command string and wraps it in `hl.dsp.exec_cmd` for you, which is why the shipped `~/.config/hypr/bindings.lua` examples pass strings:
+
+```lua
+-- ~/.config/hypr/bindings.lua
+o.bind("SUPER + SHIFT + R", "SSH", "alacritty -e ssh your-server")
+
+hl.unbind("SUPER + X")   -- Omarchy's "Universal cut"
+o.bind("SUPER + X", "Float", hl.dsp.window.float({ action = "toggle" }))
+```
+
+Check whether a key is already taken before you bind it:
+
+```bash
+omarchy menu keybindings --print | grep -E '^SUPER \+ X '
+```
+
+**Try a dispatcher before binding it:**
+
+```bash
+hyprctl dispatch 'hl.dsp.window.float({ action = "toggle" })'
+```
+
+**Verify.** `hyprctl configerrors` has no `hl.bind` lines, saving the config no longer opens a window by itself, and pressing the key performs the action. The bind appears in `hyprctl -j binds` with `"dispatcher": "__lua"`. The type rules were read from the 0.56.2 source and the stub file on this machine. Not exercised live.
+
+Sources: <https://wiki.hypr.land/configuring/core/dispatchers/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/advanced-configuration/lua-utilities.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsDispatcherUtils.cpp> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/bindings.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/clipboard.lua>
+
+---
+
 ## Fix 'misc:new_window_takes_over_fullscreen does not exist' after an update
 
 `misc-new-window-takes-over-fullscreen-does-not-exist` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`
@@ -2552,6 +3504,114 @@ hyprctl getoption misc:on_focus_under_fullscreen
 **Verify.** `hyprctl getoption misc:on_focus_under_fullscreen` returns a value rather than `no such option`, and the error disappears from `hyprctl configerrors`.
 
 Sources: <https://github.com/basecamp/omarchy/issues/4023> · <https://hypr.land/news/update53>
+
+---
+
+## Stop new windows opening fullscreen while a video is fullscreen
+
+`new-window-inherits-fullscreen-on-focus-under-fullscreen` · severity: **low** · frequency: **common** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** While mpv or a browser video is fullscreen, opening a terminal with SUPER+Return brings the terminal up fullscreen too, and SUPER+F is needed to get it back. Related: after the screensaver appears, dismissing it with a trackpad click leaves the app underneath (Chrome, a terminal) fullscreen.
+
+**Cause.** Omarchy sets `misc.on_focus_under_fullscreen = 1` (take over) in `/usr/share/omarchy/default/hypr/looknfeel.lua`, deliberately, so an app launched over a fullscreen window comes to the front instead of hiding behind it. With 1, a window that gains focus on a workspace with a fullscreen window inherits the fullscreen state. The screensaver is a floating fullscreen window, so a click that moves focus to the window beneath hands fullscreen to that window. Hyprland's own default is 2 (exit fullscreen). Adding `fullscreen = false` to a window rule does not help, since an explicit false and no rule take the same path. Confirmed `on_focus_under_fullscreen = 1` in 4.0.4-1.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4.** Override it in `~/.config/hypr/looknfeel.lua`, which loads after Omarchy's defaults:
+
+```lua
+hl.config({
+  misc = {
+    -- 2: the fullscreen window leaves fullscreen and the new one opens tiled
+    -- 0: the new window opens behind the fullscreen one, unfocused
+    on_focus_under_fullscreen = 2,
+  },
+})
+```
+
+This applies to every app, not only terminals.
+
+**Plain Arch.** You only see this if your config sets `on_focus_under_fullscreen = 1`. Remove it or set 2.
+
+**Verify.** `hyprctl getoption misc:on_focus_under_fullscreen` reports 2 (or 0). Fullscreen a video, press SUPER+Return, and the terminal opens tiled.
+
+Sources: <https://github.com/omacom/omarchy/issues/8751> · <https://github.com/omacom/omarchy/issues/13157> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/config-options.md>
+
+---
+
+## Get smart gaps (no gaps with one window) back under the Lua config
+
+`smart-gaps-no-gaps-when-only-lua` · severity: **low** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** You want no gaps and no border when a workspace has a single window, as `no_gaps_when_only` used to do, but that option no longer exists. Under the Lua config, `hl.config({ dwindle = { no_gaps_when_only = 1 } })` is reported as `unknown config key 'dwindle.no_gaps_when_only'`, and an old `workspace = w[tv1], gapsout:0` line copied into a `.lua` file is a Lua syntax error, `<name> expected near '0'`.
+
+**Cause.** Hyprland removed `no_gaps_when_only` in favour of workspace and window rules keyed on workspace selectors (`w[tv1]` for a workspace with one visible tiled window, `f[1]` for one with a maximized window). The hyprlang rule syntax does not carry over to Lua, so it has to be rewritten as `hl.workspace_rule` and `hl.window_rule` calls.
+
+> **Audit corrected this record.** The fix matches the hyprland-wiki code-snippets page ('Smart gaps' and 'Smart gaps (ignoring special workspaces)') line for line, and gaps_in and gaps_out are real hl.workspace_rule fields in v0.56.2 (WORKSPACE_RULE_FIELDS in LuaBindingsConfigRules.cpp). Discussion 8530 is the question about keeping gaps on special workspaces that the s[false] variant answers. no_gaps_when_only is absent from the current config-options page. On Omarchy 4.0.4-1, ~/.config/hypr/looknfeel.lua is required by the shipped hyprland.lua after the defaults, and omarchy-hyprland-window-gaps-toggle exists and toggles default/hypr/toggles/window-no-gaps.lua. The symptom was wrong: it quotes the hyprlang error 'config option ... does not exist', which cannot appear under a Lua config. In Lua an unknown option is reported by hl.config as unknown config key '<category>.<key>' (LuaBindingsConfigRules.cpp line 1002), and the old workspace line is a Lua syntax error, confirmed with Lua 5.5.1: 'workspace = w[tv1], gapsout:0' gives <name> expected near '0'. Symptom rewritten. The rules were not exercised in a live session.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Plain Arch**, in `~/.config/hypr/hyprland.lua` (the Hyprland wiki snippet):
+
+```lua
+hl.workspace_rule({ workspace = "w[tv1]", gaps_out = 0, gaps_in = 0 })
+hl.workspace_rule({ workspace = "f[1]", gaps_out = 0, gaps_in = 0 })
+hl.window_rule({ match = { float = false, workspace = "w[tv1]" }, border_size = 0 })
+hl.window_rule({ match = { float = false, workspace = "w[tv1]" }, rounding = 0 })
+hl.window_rule({ match = { float = false, workspace = "f[1]" }, border_size = 0 })
+hl.window_rule({ match = { float = false, workspace = "f[1]" }, rounding = 0 })
+```
+
+To keep gaps on special workspaces (the scratchpad), append `s[false]` with no space: `"w[tv1]s[false]"` and `"f[1]s[false]"`.
+
+**Omarchy 4.** Put the same lines in `~/.config/hypr/looknfeel.lua`. For gaps off everywhere instead, Omarchy already has a toggle: `omarchy-hyprland-window-gaps-toggle`.
+
+**Verify.** Open one tiled window on a workspace: it fills the screen with no border. Open a second: gaps and borders return.
+
+Sources: <https://wiki.hypr.land/configuring/code-snippets/> · <https://github.com/hyprwm/Hyprland/discussions/8530> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsConfigRules.cpp>
+
+---
+
+## Stop SUPER+J throwing 'no such layoutmsg for scrolling'
+
+`super-j-togglesplit-error-on-scrolling-layout` · severity: **low** · frequency: **common** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** Pressing SUPER+J (Toggle window split) shows a red notification: `Runtime error in lua: ?:?: no such layoutmsg for scrolling` (also seen as `error: =[C]:-1: no such layoutmsg for scrolling`). It happens only on some workspaces, the ones you switched with SUPER+L.
+
+**Cause.** Omarchy's default `SUPER + J` in `/usr/share/omarchy/default/hypr/bindings/tiling.lua` always sends `hl.dsp.layout("togglesplit")`. `togglesplit` is a dwindle layout message. SUPER+L (`omarchy-hyprland-workspace-layout-toggle`) can put any workspace on the scrolling layout, which rejects that message, and Hyprland surfaces the dispatcher error as a Lua runtime error. Still unconditional in 4.0.4-1 and on the `quattro` branch, with several unmerged PRs proposing different behaviours.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4.** Replace the bind in `~/.config/hypr/bindings.lua` with one that checks the layout first:
+
+```lua
+hl.unbind("SUPER + J")
+o.bind("SUPER + J", "Toggle window split", function()
+  local ws = hl.get_active_special_workspace() or hl.get_active_workspace()
+  if ws and ws.tiled_layout == "dwindle" then
+    hl.dispatch(hl.dsp.layout("togglesplit"))
+  elseif ws and ws.tiled_layout == "scrolling" then
+    -- optional: a column action on scrolling, or delete this branch for a no-op
+    hl.dispatch(hl.dsp.layout("consume_or_expel next"))
+  end
+end)
+```
+
+The function form matters: a dispatcher passed directly is built once at load time, so the layout check would never run per keypress.
+
+**Plain Arch.** Same shape in your own config if you bind `togglesplit` and use per-workspace layouts.
+
+**Verify.** On a scrolling workspace (`hyprctl activeworkspace -j | jq .tiledLayout` prints `"scrolling"`), SUPER+J produces no error notification. On a dwindle workspace it still toggles the split.
+
+Sources: <https://github.com/omacom/omarchy/issues/7556> · <https://github.com/omacom/omarchy/issues/9726> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/layout/algorithm/tiled/scrolling/ScrollingAlgorithm.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/objects/LuaWorkspace.cpp>
 
 ---
 
@@ -2741,5 +3801,343 @@ To automate it, bind the moves to a key or drive them from a `monitoradded` hand
 **Verify.** `hyprctl workspacerules` lists a `monitor` entry for each bound workspace. After `hyprctl reload` with both displays attached, `hyprctl -j workspaces | jq -r '.[] | "\(.id) -> \(.monitor)"'` shows each workspace on its intended output.
 
 Sources: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/> · <https://wiki.hypr.land/Configuring/Basics/Monitors/> · <https://wiki.hypr.land/Configuring/Basics/Dispatchers/> · <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/> · <https://github.com/hyprwm/Hyprland/discussions/13755> · <https://github.com/hyprwm/Hyprland/issues/3120>
+
+---
+
+## Stop Lua autostart apps jumping back to the workspace you started on
+
+`lua-autostart-apps-pulled-to-initial-workspace` · severity: **low** · frequency: **occasional** · applies to: `arch`, `hyprland`
+
+**Symptom.** After moving the config from `hyprland.conf` to `hyprland.lua`, apps autostarted in `hl.on("hyprland.start", ...)` open on workspace 1 even though you already switched to another workspace while they were loading. With `exec-once` in the old config they opened where you were.
+
+**Cause.** Hyprland 0.56.2 gives processes started by `hl.exec_cmd` inside the Lua `hyprland.start` event the `HL_INITIAL_WORKSPACE_TOKEN` variable. The legacy `exec-once` path is exempt and the Lua path is not. With `misc.initial_workspace_tracking = 1` (the default), a window that maps within the tracking window and has no workspace rule is moved to the workspace that was active when it was launched.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Plain Arch.** Either drop the token for autostarted commands:
+
+```lua
+hl.on("hyprland.start", function()
+  hl.exec_cmd("unset HL_INITIAL_WORKSPACE_TOKEN; slack")
+end)
+```
+
+or turn the tracking off entirely:
+
+```lua
+hl.config({ misc = { initial_workspace_tracking = 0 } })
+```
+
+**Omarchy 4.** Not affected by default: `/usr/share/omarchy/default/hypr/looknfeel.lua` already sets `initial_workspace_tracking = 0`. Check that your own `looknfeel.lua` does not set it back to 1.
+
+**Verify.** `hyprctl getoption misc:initial_workspace_tracking` shows 0, or an autostarted app's environment (`tr '\0' '\n' < /proc/$(pgrep -n slack)/environ | grep HL_INITIAL`) has no token, and the app opens on the workspace you are on.
+
+Sources: <https://github.com/hyprwm/Hyprland/discussions/16137> · <https://wiki.hypr.land/configuring/core/config-options/> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/looknfeel.lua>
+
+---
+
+## Fix a conditional keybinding that always does the same thing
+
+`lua-bind-condition-frozen-at-config-load` · severity: **low** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** A Lua bind meant to behave differently depending on state, such as `hl.bind("SUPER + L", hl.dsp.exec_cmd("foot", { float = not (hl.get_active_window().title == "foot") }))`, always does whatever was true when the config last loaded. It changes behaviour only after a reload, and sometimes the config errors at load because no window was focused.
+
+**Cause.** Arguments to `hl.bind` are evaluated once, when the config file runs. The condition is computed at load time and baked into the dispatcher, so the bind stays fixed until the next reload. Only a function passed as the bind action is evaluated on each keypress.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Wrap the logic in a function and call `hl.dispatch` inside it:
+
+```lua
+hl.bind("SUPER + L", function()
+  local w = hl.get_active_window()
+  local is_foot = w and w.title == "foot"
+  hl.dispatch(hl.dsp.exec_cmd("foot", { float = not is_foot }))
+end)
+```
+
+On Omarchy 4 the same works through the helper in `~/.config/hypr/bindings.lua`, since `o.bind` passes a function straight to `hl.bind`:
+
+```lua
+o.bind("SUPER + L", "Foot toggle float", function()
+  local w = hl.get_active_window()
+  hl.dispatch(hl.dsp.exec_cmd("foot", { float = not (w and w.title == "foot") }))
+end)
+```
+
+A bare `hl.dsp.*` call inside the function without `hl.dispatch` does nothing.
+
+**Verify.** Press the bind with different windows focused and get different results without reloading.
+
+Sources: <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/binds/_index.md> · <https://wiki.hypr.land/Configuring/Basics/Dispatchers/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/dispatchers.md> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua>
+
+---
+
+## Fix SUPER+mouse window drag needing two presses after typing
+
+`lua-mouse-drag-bind-needs-two-presses` · severity: **low** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`
+
+**Symptom.** A mouse-button bind for moving or resizing windows, such as `hl.bind("mouse:275", hl.dsp.window.drag(), { drag = true })`, ignores the first press after you type anything. The second press starts the drag, and it keeps working until you type again.
+
+**Cause.** In the Lua bind API, `drag = true` (and `click = true`) sets the bind to fire on release, after the pointer moved past `binds:drag_threshold`. That makes a continuous dispatcher such as `window.drag()` or `window.resize()` miss the first press after any keystroke. In Hyprland 0.56.2, `hlBind` does not parse a `mouse` field at all, so `{ mouse = true }` is silently ignored and `hyprctl binds -j` reports `"mouse": false` even for Omarchy's own SUPER + mouse:272 bind. The drag still works without it, because the `window.drag()` and `window.resize()` dispatchers start the mouse action themselves. What fixes the double press is removing `drag = true`.
+
+> **Audit corrected this record.** The symptom and the fix's effect hold, but the cause is wrong for 0.56.2. hlBind in Hyprland v0.56.2 LuaBindingsToplevel.cpp reads click and drag (each sets kb.release = true) and never reads a `mouse` field, so kb.mouse is never set from Lua. On this workstation, `hyprctl binds -j` (read-only) shows Omarchy's own SUPER + mouse:272 bind with "mouse": false although tiling.lua passes { mouse = true }. Issue 15700 reports both halves: mouse is silently ignored, and drag = true swallows the first press. The issue was closed by the bot without a fix. window.drag() works because the dispatcher itself runs the mouse movewindow action, and what breaks it is the release latch that `drag` adds. The commands stay valid because { mouse = true } is harmless and matches the wiki, but the cause and the explanation are rewritten. Second audit confirmed the corrected text: Second pass over the 2026-10-04 correction, which holds. hlBind in v0.56.2 LuaBindingsToplevel.cpp reads repeating, locked, release, non_consuming, auto_consuming, transparent, ignore_mods, dont_inhibit, long_press, submap_universal, click and drag, and never a mouse field. click and drag each set kb.release = true. dsp_mouseDrag and dsp_mouseResize in LuaBindingsDispatchers.cpp call CA::mouse("movewindow") and CA::mouse("resizewindow ...") themselves, which is why the drag works without the mouse flag. Issue 15700 describes both halves, including the releasePending latch that a keystroke clears, and was closed by the bot without a fix. The bind flags wiki defines drag as firing on release past binds:drag_threshold. On this workstation the read-only hyprctl binds -j query shows Omarchy's SUPER + mouse:272 and mouse:273 binds with release false and mouse false, as the record says, and default/hypr/bindings/tiling.lua lines 70 and 71 bind them with { mouse = true }. The jq check in the fix runs as written. This record already carries audit_status corrected, and this verdict confirms that correction rather than replacing it.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Remove `drag = true` from drag and resize binds. `{ mouse = true }` is what the wiki and Omarchy's defaults use. Hyprland 0.56.2 ignores it, but it is harmless and keeps the bind correct for releases that parse it.
+
+**Plain Arch**, `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), { mouse = true })
+hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), { mouse = true })
+hl.bind("mouse:275", hl.dsp.window.drag(), { mouse = true })
+```
+
+**Omarchy 4.** The defaults in `/usr/share/omarchy/default/hypr/bindings/tiling.lua` already bind SUPER + left and SUPER + right this way. For extra buttons, add in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("mouse:275", "Move window", hl.dsp.window.drag(), { mouse = true })
+o.bind("mouse:276", "Resize window", hl.dsp.window.resize(), { mouse = true })
+```
+
+Check that no drag bind carries the release latch:
+
+```bash
+hyprctl binds -j | jq -c '.[] | select(.key | startswith("mouse:")) | {modmask, key, release, mouse}'
+```
+
+`release` must be `false` for drag and resize binds. On 0.56.2, `mouse` reads `false` for every Lua bind and that is expected. Keep `drag = true` and `click = true` for actions that should run once on release, such as floating a window on click.
+
+**Verify.** Type a few characters, then press the bound button once and move: the window follows on the first press.
+
+Sources: <https://github.com/hyprwm/Hyprland/issues/15700> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/binds/devices/mouse.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/binds/flags.md> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp>
+
+---
+
+## Make nwg-displays workspace-to-monitor assignments actually apply
+
+`nwg-displays-workspaces-lua-never-loaded` · severity: **low** · frequency: **occasional** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`
+
+**Symptom.** You assign workspaces to monitors in nwg-displays and press Apply. Monitor resolution and position change correctly, but workspace 5 still opens on whatever monitor is focused instead of the one you assigned. `hyprctl configerrors` is clean.
+
+**Cause.** nwg-displays 0.4.3 writes two files for a Lua Hyprland config: `~/.config/hypr/monitors.lua` (`hl.monitor`) and `~/.config/hypr/workspaces.lua` (`hl.workspace_rule`). Omarchy 4's stock `~/.config/hypr/hyprland.lua` requires `hypr.monitors` but never `hypr.workspaces`, so the rules are written and never read. Nothing errors because the file is simply not loaded. The same template is on `quattro` and in 4.0.4-1 (`/usr/share/omarchy/config/hypr/hyprland.lua`).
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4.** Add one line after `require("hypr.monitors")` in `~/.config/hypr/hyprland.lua`. Use the optional loader Omarchy ships so the line is harmless when the file does not exist:
+
+```lua
+require("hypr.monitors")
+require("default.hypr.require_optional").module("hypr.workspaces")
+```
+
+Then `hyprctl reload`. Workspace rules apply when a workspace is created, so move workspaces that already exist once (or log out and in).
+
+**Plain Arch.** Add `require("workspaces")` (or whatever path nwg-displays wrote, next to your `monitors.lua`) to your `hyprland.lua` the same way.
+
+**Verify.** `hyprctl workspacerules -j | jq -r '.[] | "\(.workspaceString) \(.monitor)"'` lists your assignments, and a newly created workspace opens on its assigned monitor.
+
+Sources: <https://github.com/omacom/omarchy/issues/9422> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/nwg-piotr/nwg-displays/blob/main/nwg_displays/main.py> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp>
+
+---
+
+## Make omarchy_default_bindings = false actually disable Omarchy's keybindings
+
+`omarchy-default-bindings-false-no-effect` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** I set `omarchy_default_bindings = false` (or `omarchy_preinstalled_bindings = false`) to start from a clean keymap, reloaded, and every Omarchy binding still works: SUPER+SPACE still opens the menu, SUPER+RETURN still opens the terminal, and my own binds on the same keys fire as well as Omarchy's.
+
+**Cause.** Omarchy 4 reads these flags once, as globals, at the moment its defaults load. `/usr/share/omarchy/default/hypr/omarchy.lua` wraps the binding modules in `if _G.omarchy_default_bindings ~= false then ... end`, and `o.preinstalled_bindings_enabled()` in `default/hypr/helpers.lua` checks `_G.omarchy_preinstalled_bindings` while `default/hypr/bindings/applications.lua` loads. `~/.config/hypr/hyprland.lua` runs `require("default.hypr.omarchy")` partway down. The flag is ignored if it is:
+
+- set below that `require` line, because the binds are already registered,
+- set in `~/.config/hypr/bindings.lua`, which is required after the defaults,
+- declared `local omarchy_default_bindings = false`, which is not the global `_G` field the check reads,
+- left commented out. The shipped `hyprland.lua` carries it as `-- omarchy_default_bindings = false`.
+
+The flag only skips binding modules (media, clipboard, tiling, utilities, voxtype, applications). Environment, look, input and window rules still load.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** With `omarchy_default_bindings = false` and nothing in `bindings.lua`, the session has no keybindings at all. Hyprland's emergency binds (SUPER+Q terminal, SUPER+R run, SUPER+M exit) only appear when a config error left zero binds, so a clean config with no binds gives you no way to open a terminal. Write the replacement binds first. Recovery is a TTY (CTRL+ALT+F3), editing the file there, and saving.
+
+**Fix.**
+
+Edit `~/.config/hypr/hyprland.lua` so the global is set **above** the defaults:
+
+```lua
+dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
+
+omarchy_default_bindings = false          -- global, no `local`, uncommented
+-- or keep window-manager binds and drop only the app/web-app ones:
+-- omarchy_preinstalled_bindings = false
+
+require("default.hypr.omarchy")
+```
+
+Then add every bind you want in `~/.config/hypr/bindings.lua`, at minimum a terminal, a launcher and a way to log out, before you save `hyprland.lua`:
+
+```lua
+-- ~/.config/hypr/bindings.lua
+o.bind("SUPER + RETURN", "Terminal", { omarchy = "terminal" })
+o.bind("SUPER + SPACE", "Omarchy menu", "omarchy-menu toggle")
+o.bind("SUPER + ESCAPE", "System menu", "omarchy-menu toggle system")
+o.bind("SUPER + W", "Close window", hl.dsp.window.close())
+```
+
+For `omarchy_preinstalled_bindings` there is also a file switch that needs no Lua: the helper treats the existence of `~/.local/state/omarchy/preinstalls-removed` as false unless the global is set.
+
+To replace only a few defaults, leave the flag alone and use `hl.unbind("SUPER + SPACE")` followed by your own bind in `bindings.lua`, as the shipped file's comments show.
+
+**Verify.** `hyprctl -j binds | grep -c '"key"'` drops from about 228 (the 4.0.4 default count on this machine) to the number you defined, and `omarchy menu keybindings --print` lists only your binds. Read from the 4.0.4 source on this machine. Not exercised live, to avoid stripping the workstation's binds.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/default/hypr/omarchy.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/omacom/omarchy/blob/quattro/config/hypr/bindings.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/helpers.lua> · <https://wiki.hypr.land/configuring/core/> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/ConfigManager.cpp>
+
+---
+
+## Fix gaps, borders and rounding in looknfeel.lua being ignored on Omarchy 4
+
+`omarchy-window-gaps-toggle-overrides-looknfeel` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** I set `gaps_in`, `gaps_out`, `border_size` or `rounding` in `~/.config/hypr/looknfeel.lua` and they have no effect: windows sit edge to edge with no border no matter what I write, and it survives reboots and `omarchy update`. It started after I pressed something by accident.
+
+**Cause.** Omarchy 4 has a permanent toggle for this. SUPER+SHIFT+BACKSPACE runs `omarchy-hyprland-window-gaps-toggle`, which calls `omarchy-hyprland-toggle window-no-gaps`. That copies `/usr/share/omarchy/default/hypr/toggles/window-no-gaps.lua` to `~/.local/state/omarchy/toggles/hypr/window-no-gaps.lua` and reloads Hyprland. The file sets `gaps_out = 0`, `gaps_in = 0`, `border_size = 0` and `rounding = 0`.
+
+Load order makes it win. `~/.config/hypr/hyprland.lua` requires Omarchy's defaults, then your `hypr.monitors`, `hypr.input`, `hypr.bindings`, `hypr.looknfeel`, `hypr.autostart`, and only then `require("default.hypr.toggles")`, which loads every `.lua` file in `~/.local/state/omarchy/toggles/hypr/`. So the toggle overrides `looknfeel.lua`. Because the state file persists, the override survives reboots and updates. SUPER+CTRL+BACKSPACE does the same thing for `single-window-aspect-ratio.lua`, which forces `layout.single_window_aspect_ratio = { 1, 1 }`.
+
+> **Audit corrected this record.** Mechanism confirmed on 4.0.4-1. default/hypr/bindings/utilities.lua:20 binds SUPER+SHIFT+BACKSPACE to omarchy-hyprland-window-gaps-toggle, which runs `omarchy-hyprland-toggle window-no-gaps`. That script copies $OMARCHY_PATH/default/hypr/toggles/window-no-gaps.lua into ~/.local/state/omarchy/toggles/hypr/, `off` removes it, and every path ends in `hyprctl reload`. window-no-gaps.lua sets gaps_out, gaps_in, border_size and rounding to 0. The user hyprland.lua requires hypr.looknfeel before default.hypr.toggles, which loads every .lua in the state dir through require_all, so the toggle wins. SUPER+CTRL+BACKSPACE (utilities.lua:21) and single-window-aspect-ratio.lua `{ 1, 1 }` confirmed. `hyprctl getoption general.gaps_in` printed `css gap data: 5 5 5 5` here. Two small inaccuracies in the fix. flags.lua is not empty, it holds two comment lines. And the 'directory always needs one file' warning is in flags.lua's own comment, not in the script. The fix was rewritten with those two points correct and nothing else changed. Not exercised: the toggle was not pressed.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**See which toggles are active:**
+
+```bash
+ls ~/.local/state/omarchy/toggles/hypr/
+# flags.lua is always there and holds only comments. Anything else is an active toggle.
+```
+
+**Turn the gaps toggle off.** Press SUPER+SHIFT+BACKSPACE again, or:
+
+```bash
+omarchy-hyprland-toggle window-no-gaps off
+omarchy-hyprland-toggle single-window-aspect-ratio off   # if that one is on too
+```
+
+The script removes the state file and runs `hyprctl reload` itself. Do not delete `flags.lua`. Its own comment says the directory always needs at least one file.
+
+**If you want your values to win even while a toggle is on**, set them below the toggles line in `~/.config/hypr/hyprland.lua` instead of in `looknfeel.lua`:
+
+```lua
+-- Toggle config flags dynamically.
+require("default.hypr.toggles")
+
+hl.config({ general = { gaps_in = 5, gaps_out = 10, border_size = 2 } })
+```
+
+That makes the SUPER+SHIFT+BACKSPACE toggle do nothing, so pick one approach.
+
+**Verify.** `ls ~/.local/state/omarchy/toggles/hypr/` shows only `flags.lua`, and `hyprctl getoption general.gaps_in` reports your value (Omarchy's default prints `css gap data: 5 5 5 5`). Load order and toggle mechanics were read from the 4.0.4 files on this machine. The toggle was not pressed during this check.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/config/hypr/hyprland.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/toggles.lua> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/toggles/window-no-gaps.lua> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-toggle> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-hyprland-window-gaps-toggle> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/utilities.lua>
+
+---
+
+## Make SUPER+L switch layouts on a named workspace
+
+`workspace-layout-toggle-noop-on-named-workspace` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** On a named workspace (for example a per-project `name:my-repo` workspace), SUPER+L shows `Workspace layout set to scrolling` but the windows stay in dwindle. `hyprctl activeworkspace -j` shows an id like `-1340` and `tiledLayout: "dwindle"`. The toggle works fine on workspaces 1 to 10.
+
+**Cause.** `omarchy-hyprland-workspace-layout-toggle` takes the workspace selector from `hyprctl activeworkspace -j | jq -r '.id'`. Named workspaces have negative ids, and a workspace rule keyed `workspace = "-1340"` matches nothing. `hyprctl eval` still answers `ok`, so the failure is silent, and the fallback `hyprctl keyword workspace ...` can never work under a Lua config. A rule using the `name:<name>` selector applies immediately. Unchanged in 4.0.4-1 and on `quattro`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4.** Set the layout by name in `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.workspace_rule({ workspace = "name:my-project", layout = "scrolling" })
+```
+
+Or apply it live without editing a file:
+
+```bash
+hyprctl eval 'hl.workspace_rule({ workspace = "name:my-project", layout = "scrolling" })'
+```
+
+Remove the dead state files the toggle left behind for negative ids:
+
+```bash
+rm -f -- ~/.local/state/omarchy/workspace-layouts/-*.lua
+```
+
+**Verify.** `hyprctl activeworkspace -j | jq '{id,name,tiledLayout}'` on the named workspace shows `"tiledLayout": "scrolling"`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12947> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/workspace-rules.md>
+
+---
+
+## Get your configured master layout back after SUPER+L pinned a workspace to dwindle
+
+`workspace-layout-toggle-overrides-global-layout` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** You set `general = { layout = "master" }` in `~/.config/hypr/looknfeel.lua`, but some workspaces always come back as dwindle or scrolling after a reload or reboot. Pressing SUPER+L only flips between dwindle and scrolling and never returns to master. Restoring your `~/.config/hypr` backup changes nothing.
+
+**Cause.** `omarchy-hyprland-workspace-layout-toggle` (SUPER+L) writes `hl.workspace_rule({ workspace = "<id>", layout = "<dwindle|scrolling>" })` to `~/.local/state/omarchy/workspace-layouts/<id>.lua`, and `/usr/share/omarchy/default/hypr/workspace-layouts.lua` loads every file in that directory on each config load. A workspace rule outranks `general.layout`, so one press pins that workspace for good. The script maps `dwindle` to `scrolling` and everything else to `dwindle`, so master can never be reached again through it. The state lives outside `~/.config/hypr`, which is why a config restore does not help. Confirmed in the 4.0.4-1 script and on `quattro`.
+
+> **Audit corrected this record.** The cause and fix hold. /usr/share/omarchy/bin/omarchy-hyprland-workspace-layout-toggle on 4.0.4-1 is byte-identical to quattro. It maps dwindle to scrolling and everything else to dwindle, and writes hl.workspace_rule to ~/.local/state/omarchy/workspace-layouts/<id>.lua. workspace-layouts.lua loads that directory on every config load through require_all. Issue #7612 (open) reports exactly this. The verify step is wrong. In Hyprland v0.56.2, HyprCtl.cpp's workspacerules JSON never emits a layout field. It only emits workspaceString, enabled, monitor, gaps and similar fields. So `select(.layout != null)` always prints nothing, even when stale rules exist. This workstation shows it: state files 1.lua and 2.lua exist, and `hyprctl workspacerules -j` lists workspaces 1 and 2 with no layout key. The verify was rewritten. Deleting state files and reloading were not exercised here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4.** Delete the saved per-workspace layouts, then reload:
+
+```bash
+ls ~/.local/state/omarchy/workspace-layouts/
+rm -f -- ~/.local/state/omarchy/workspace-layouts/*.lua
+hyprctl reload
+```
+
+If you never want SUPER+L to persist a layout, remove the bind in `~/.config/hypr/bindings.lua`:
+
+```lua
+hl.unbind("SUPER + L")
+```
+
+To pin a workspace to a layout on purpose, write the rule yourself in `~/.config/hypr/hyprland.lua`, where you can see it:
+
+```lua
+hl.workspace_rule({ workspace = "3", layout = "master" })
+```
+
+Workspaces that already exist keep the live rule until the reload, and a fresh login is the cleanest check.
+
+**Verify.** ```bash
+ls ~/.local/state/omarchy/workspace-layouts/ 2>/dev/null
+hyprctl workspacerules -j | jq -r '.[].workspaceString'
+hyprctl activeworkspace -j | jq .tiledLayout
+```
+The directory is empty or missing. No `workspaceString` entry remains for the workspaces you had toggled, unless your own config defines one. Hyprland 0.56.2 does not print a rule's layout in this JSON, so a leftover entry is the only sign. The active workspace reports `"master"`.
+
+Sources: <https://github.com/omacom/omarchy/issues/7612> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/debug/HyprCtl.cpp>
 
 ---

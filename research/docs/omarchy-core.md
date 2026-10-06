@@ -1,6 +1,6 @@
 # Omarchy core
 
-50 problems. Sorted by severity, then by how often users hit it.
+71 problems. Sorted by severity, then by how often users hit it.
 
 ## Break out of an SDDM login loop after an NVIDIA DKMS update
 
@@ -530,6 +530,59 @@ Sources: <https://github.com/basecamp/omarchy/issues/8319> · <https://github.co
 
 ---
 
+## Keep your snapshot history when the Quattro upgrade replaces the Snapper config
+
+`quattro-upgrade-replaces-snapper-config-deletes-snapshots` · severity: **critical** · frequency: **occasional** · applies to: `btrfs`, `omarchy`, `omarchy-3`, `omarchy-4`, `quattro-upgrade`, `snapper`
+
+**Symptom.** A few minutes after upgrading from Omarchy 3 to 4 with `omarchy-upgrade-to-quattro`, most btrfs snapshots are gone and only the newest 5 numbered snapshots remain. That includes ones you took by hand with `omarchy-snapshot create` or `snapper create -c number`. If the upgrade's package transactions created extra numbered snapshots (for example with `snap-pac` installed, which Omarchy does not ship), the pre-upgrade snapshot the upgrade itself took is deleted too. Right after the upgrade everything was still listed. `/etc/snapper/configs/root` is now byte-identical to `/usr/share/omarchy/default/snapper/root`, and `/home` snapshots stopped being made.
+
+**Cause.** `configure_snapper_policy()` in the Quattro upgrade runs `install/config/snapper.sh`, which does `install -m 0644 "$template" /etc/snapper/configs/root` with no merge, no backup and no message beyond `Configuring Omarchy Snapper snapshot retention`. The template, `/usr/share/omarchy/default/snapper/root` (checked on 4.0.4-1), sets `NUMBER_LIMIT="5"`, `NUMBER_LIMIT_IMPORTANT="5"`, `NUMBER_MIN_AGE="0"` and `TIMELINE_CREATE="no"`. With a minimum age of 0 the next `snapper-cleanup.timer` run (`OnBootSec=10m`, then hourly) can delete any number-cleanup snapshot beyond the newest 5, however young. The same script also rewrites `/etc/conf.d/snapper` to `SNAPPER_CONFIGS="root"`, de-registering a `home` config. btrfs snapshot deletion is irreversible.
+
+> **Audit corrected this record.** Confirmed on 4.0.4-1 and quattro: install/config/snapper.sh is identical in both. It installs the template over /etc/snapper/configs/root, writes SNAPPER_CONFIGS="root" to /etc/conf.d/snapper, and ends with `systemctl enable --now snapper-cleanup.timer`. The template sets NUMBER_MIN_AGE=0, NUMBER_LIMIT=5, NUMBER_LIMIT_IMPORTANT=5 and TIMELINE_CREATE=no. The timer is OnBootSec=10m and OnUnitActiveSec=1h. bin/omarchy-upgrade-to-quattro calls create_pre_upgrade_snapshot (omarchy-snapshot create, which uses `-c number`) and then configure_snapper_policy. snapper(8) documents `modify -c` and `set-config`. The fix holds. #12551 is open and PR #9633 for the conf.d overwrite is unmerged. Two corrections. First, #12551 says the pre-upgrade snapshot was pushed past the limit by snap-pac's pre/post pairs, and snap-pac is not an Omarchy default. Without it the pre-upgrade snapshot can survive, so the symptom now carries that condition. Snapshots made with plain `snapper create` without -c also survive. Second, the danger now notes that `MAX_SNAPSHOT_ENTRIES=6` in /etc/limine-entry-tool.d/omarchy-defaults.conf caps the Limine menu whatever NUMBER_LIMIT is, and that snapshots without a cleanup algorithm accumulate. Not exercised: no snapper command was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Raising `NUMBER_LIMIT` keeps more snapshots and uses more disk space. `omarchy update` refuses to start with under 10 GiB free, so choose limits your root filesystem can hold. Snapshots created without a cleanup algorithm are never removed automatically and accumulate until you delete them. The Limine menu still lists at most 6 snapshots (`MAX_SNAPSHOT_ENTRIES=6` in `/etc/limine-entry-tool.d/omarchy-defaults.conf`), so to boot more of them set a higher `MAX_SNAPSHOT_ENTRIES` in `/etc/default/limine`.
+
+**Fix.**
+
+Stopping `snapper-cleanup.timer` beforehand does not help: the upgrade's own `install/config/snapper.sh` ends with `systemctl enable --now snapper-cleanup.timer`. Protect snapshots in a way the upgrade cannot undo. Snapper's cleanup only deletes snapshots that carry a cleanup algorithm, so a snapshot made without `-c` survives any `NUMBER_LIMIT`.
+
+Before running the Quattro upgrade, save your policy and take a rollback snapshot that cleanup will never touch:
+
+```bash
+sudo cp -a /etc/snapper/configs/root /etc/snapper/configs/root.pre-quattro
+sudo cp -a /etc/conf.d/snapper /etc/conf.d/snapper.pre-quattro
+sudo snapper -c root create -d "before quattro upgrade"
+sudo snapper -c root list    # the new snapshot shows an empty Cleanup column
+```
+
+For existing snapshots you want to keep, clear their cleanup algorithm the same way, using the numbers from `snapper list`, and check the Cleanup column is empty afterwards:
+
+```bash
+sudo snapper -c root modify -c "" 42
+```
+
+Right after the upgrade finishes, put back the values you want with snapper itself:
+
+```bash
+diff /etc/snapper/configs/root.pre-quattro /etc/snapper/configs/root
+sudo snapper -c root set-config NUMBER_MIN_AGE=1800 NUMBER_LIMIT=10 NUMBER_LIMIT_IMPORTANT=10
+sudo snapper -c root get-config | grep -E 'NUMBER_|TIMELINE'
+```
+
+If you had a `home` config, restore its registration with `sudo cp /etc/conf.d/snapper.pre-quattro /etc/conf.d/snapper` and check `sudo snapper -c home list`.
+
+If the upgrade already ran, do the `set-config` step immediately to protect what is left. Snapshots already deleted cannot be recovered. Snapshots made without a cleanup algorithm are never removed automatically, so delete them yourself with `sudo snapper -c root delete <number>` once you no longer need them.
+
+**Verify.** `sudo snapper -c root get-config` shows your `NUMBER_MIN_AGE` and `NUMBER_LIMIT`, and `snapper -c root list` still shows the pre-upgrade snapshot an hour after the upgrade (after at least one `snapper-cleanup.service` run in `journalctl -u snapper-cleanup`).
+
+Sources: <https://github.com/omacom/omarchy/issues/12551> · <https://github.com/omacom/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-upgrade-to-quattro> · <https://github.com/omacom/omarchy/pull/9633>
+
+---
+
 ## Hyprland customizations silently revert after the Quattro upgrade because ~/.config/hypr/*.conf is no longer read
 
 `hypr-conf-overrides-ignored-after-quattro` · severity: **high** · frequency: **very-common** · applies to: `omarchy-4`
@@ -821,6 +874,63 @@ sudo ls /boot/EFI/Linux/
 If you took the sbctl route instead, `sudo sbctl verify` reports every EFI binary signed and `bootctl status` reports `Secure Boot: enabled (user)`.
 
 Sources: <https://learn.omacom.io/2/the-omarchy-manual/50/getting-started> · <https://learn.omacom.io/2/the-omarchy-manual/96/manual-installation> · <https://github.com/omacom/omarchy/blob/quattro/manual/02-getting-started.md> · <https://github.com/omacom/omarchy/blob/quattro/manual/50-dual-boot-install.md> · <https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot> · <https://github.com/Foxboron/sbctl>
+
+---
+
+## Bring the bar back when omarchy update ends with no shell running
+
+`bar-gone-after-update-shell-restart-race` · severity: **high** · frequency: **common** · applies to: `hyprland`, `omarchy`, `omarchy-4`, `omarchy-shell`, `quickshell`
+
+**Symptom.** `omarchy update` reports success, prints `Restarting shell` and `All plugins have been reloaded`, and then the bar is gone. Super+Space and every menu keybinding do nothing, notifications stop, but Hyprland and windows work. The supervisor logged no `relaunching` or `Giving up` line. The user journal shows a 5 to 6 second gap and then a refusal:
+
+```
+omarchy-shell[931]:  INFO: Exiting due to IPC request.
+omarchy-shell[3248]: An instance of this configuration is already running.
+```
+
+Running `omarchy restart shell` by hand may print `Omarchy shell did not become ready after restart.` and exit 1 even though the bar appears a few seconds later.
+
+**Cause.** `omarchy-update-restart` ends with `omarchy-restart-shell || true`. On 4.0.4-1 that script runs `while timeout 5 quickshell kill -p "$CONFIG_DIR" --any-display; do :; done` and then launches `omarchy-launch-shell`. When the old shell takes more than 5 seconds to tear down, which is common right after an update has replaced its QML, `timeout` ends the wait, the loop exits, and the replacement `quickshell -n` (no-duplicate) sees the dying instance still registered and exits 0. `omarchy-launch-shell` treats exit 0 as a deliberate stop (`(( status == 0 )) && exit 0`), so nothing relaunches, and `|| true` hides the failure from the update. Separately, the restart's readiness poll is 20 attempts at 0.1 s with a 0.5 s IPC timeout, about 2 seconds when no shell is listening yet, while a cold start measured 5 to 6 seconds on slow hardware, hence the false `did not become ready`. Both loops confirmed in the 4.0.4-1 scripts on this workstation. This is a different failure from the crash loop where the supervisor gives up after 6 relaunches. Upstream fixed both on `quattro` in PR #11015, merged 2026-10-04, which per its closing comment waits up to 30 seconds for the old shell, checks that its instance has gone, and allows 60 seconds for readiness. As of 2026-10-05 the latest release is still v4.0.4, so stable installs keep the race until a newer release ships.
+
+> **Audit corrected this record.** Re-read omarchy-restart-shell, omarchy-launch-shell and omarchy-update-restart on 4.0.4-1: `while timeout 5 quickshell kill ...`, launch via `hyprctl dispatch 'hl.dsp.exec_cmd("omarchy-launch-shell")'`, `quickshell -n`, `(( status == 0 )) && exit 0`, the 20-attempt ping loop at 0.5 s IPC timeout, and `omarchy-restart-shell || true` all hold. `quickshell list -p /usr/share/omarchy/shell` prints one `Instance ...:` block here, so the grep count works. Two defects. The verify step still says `quickshell list --all` shows exactly one instance, which the first audit found false (other Quickshell configs are listed) and corrected only in the fix, so the verify contradicts the fix. And the cause is stale: #14085 and #14013 were closed on 2026-10-04 as fixed on quattro by PR #11015 (merged 2026-10-04), and quattro's restart-shell now uses `timeout 30`. The latest release is still v4.0.4, so stable is still affected. Cause updated to say so, verify corrected. The restart was not exercised.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Never run `omarchy restart shell` over ssh or while the session is locked. On a locked session it re-locks and waits for the lock to come back, and Omarchy 4's lock screen cannot be released headlessly. `omarchy refresh shell` overwrites `~/.config/omarchy/shell.json`.
+
+**Fix.**
+
+From a terminal in your unlocked desktop session:
+
+```bash
+omarchy restart shell
+```
+
+If it prints `Omarchy shell did not become ready after restart.`, wait about ten seconds before doing anything else, then check rather than re-running it:
+
+```bash
+OMARCHY_SHELL_IPC_TIMEOUT=10s omarchy-shell shell ping   # expect: ok
+hyprctl layers | grep omarchy-bar
+quickshell list -p /usr/share/omarchy/shell | grep -c '^Instance'   # expect: 1
+```
+
+Do not use `quickshell list --all` for that count: it also lists Quickshell instances of other configs.
+
+To confirm this was the restart race and not a crash:
+
+```bash
+journalctl --user -b -t omarchy-shell --no-pager | grep -E 'Exiting due to IPC|already running|relaunching|Giving up'
+```
+
+`Exiting due to IPC request` followed within seconds by `already running`, with no `relaunching` line, is this problem.
+
+Use `omarchy restart shell`, not `omarchy refresh shell`: the refresh resets `~/.config/omarchy/shell.json` to defaults and throws away a customised bar layout.
+
+**Verify.** `omarchy-shell shell ping` prints `ok`, `hyprctl layers` lists the `omarchy-bar` namespace, `quickshell list -p /usr/share/omarchy/shell | grep -c '^Instance'` prints `1`, and Super+Space opens the menu.
+
+Sources: <https://github.com/omacom/omarchy/issues/14085> · <https://github.com/omacom/omarchy/issues/14013> · <https://github.com/omacom/omarchy/issues/14012> · <https://github.com/omacom/omarchy/issues/13995> · <https://github.com/omacom/omarchy/pull/11015>
 
 ---
 
@@ -1875,6 +1985,51 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
+## Get the Omarchy 4.0.3 or 4.0.4 ISO past the logo when it hangs at boot
+
+`iso-installer-stuck-on-logo-usb-timing` · severity: **high** · frequency: **occasional** · applies to: `desktop`, `installer`, `iso`, `laptop`, `omarchy`, `omarchy-4`
+
+**Symptom.** Booting the Omarchy 4.0.3 or 4.0.4 installer USB stops on the Omarchy logo and never reaches the installer. Pressing Esc shows:
+
+```
+sh: can't access tty; job control turned off
+```
+
+and the keyboard does nothing else. The same stick works on other machines, and an Ubuntu stick boots fine on the affected one. Reported on a TUXEDO InfinityBook Pro AMD Gen10, a Lenovo ThinkPad X9 (Core Ultra 7 258V) and a Beelink mini PC.
+
+**Cause.** The early boot environment cannot find the USB device again when it needs to mount the live image, and drops to an emergency shell behind the splash. Reporters traced it to USB timing: fast USB 3 sticks, hubs and some ports fail, while a slower stick plugged directly into the machine succeeds. Upstream has not identified the exact mechanism, so treat the timing explanation as the reporters' diagnosis.
+
+> **Audit corrected this record.** Re-read #12773 in full (still open). Hardware, the `sh: can't access tty; job control turned off` line, the different-stick and direct-port workaround and the Raspberry Pi Imager detail all match. The cause is correctly labelled as the reporters' diagnosis. One fabricated specific remains in the fix: 'USB 2.0 is fine'. No reporter used or mentioned a USB 2.0 stick. They said 'a slower usb drive', and one gave write speeds of 22 MB/s (worked) against 40 MB/s (failed). The corrected fix says that instead. The dd and lsblk steps and the danger are sound. The ISO file name is still unverified and left as a placeholder the reader replaces.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> ⚠️ **Risk.** `dd` overwrites the whole target device without asking. Pointing it at the wrong device, such as an internal disk, destroys that disk's data. Confirm the device with `lsblk` before running it.
+
+**Fix.**
+
+Write the ISO to a different, slower USB stick, plug it directly into the machine rather than through a hub or dock, and try another port if it still hangs. One reporter's working stick wrote at about 22 MB/s where a 40 MB/s stick failed. Upstream has not established a speed or USB-generation threshold.
+
+Verify the download first, comparing against the checksum published where you downloaded it:
+
+```bash
+sha256sum omarchy-*.iso
+```
+
+Identify the stick before writing. Run `lsblk` with the stick unplugged and again plugged in, and use the device that appeared (a whole disk such as `/dev/sdb`, never a partition such as `/dev/sdb1`):
+
+```bash
+lsblk -o NAME,SIZE,MODEL,TRAN
+sudo dd if=omarchy-4.0.4.iso of=/dev/sdX bs=4M status=progress oflag=sync
+```
+
+Replace `omarchy-4.0.4.iso` with the file you downloaded and `/dev/sdX` with the stick. On macOS, where balenaEtcher errored for one reporter, Raspberry Pi Imager wrote a working stick.
+
+**Verify.** The ISO boots past the logo into the Omarchy installer's configurator.
+
+Sources: <https://github.com/omacom/omarchy/issues/12773>
+
+---
+
 ## Fix 'Limine config not found' when the installer wrote a working one
 
 `limine-snapper-wrong-config-path` · severity: **high** · frequency: **occasional** · applies to: `arch`, `omarchy`
@@ -1936,6 +2091,171 @@ omarchy-refresh-limine     # moves the old file to /boot/limine.conf.bak, rewrit
 **Verify.** `sudo limine-mkinitcpio` runs without the "Limine config not found" error, and snapshot entries appear in the boot menu.
 
 Sources: <https://github.com/basecamp/omarchy/issues/3543>
+
+---
+
+## Finish an update that a migration aborted with 'could not put ... on the bar: omarchy-shell is not responding'
+
+`migration-bar-put-not-responding-aborts-update` · severity: **high** · frequency: **occasional** · applies to: `dev-channel`, `edge-channel`, `omarchy`, `omarchy-4`, `omarchy-shell`
+
+**Symptom.** `omarchy update` aborts during migrations, after the package step succeeded:
+
+```
+Running migration (1789581661)
+Install Elsewhen, the world clock plugin
+...
+omarchy-bar: could not put omacom.elsewhen on the bar: omarchy-shell is not responding
+
+Something went wrong during the update!
+```
+
+Re-running fails at the same migration, sometimes several times in a row. Migration `1790042972` fails the same way. Often seen when switching from stable to edge.
+
+**Cause.** `omarchy-shell` wraps every IPC call in `timeout ${OMARCHY_SHELL_IPC_TIMEOUT:-2s}` and maps a timeout to `omarchy-shell is not responding`. `ask_to_put` in `omarchy-bar` retries 50 times when the shell is starting (`not ready`) or absent, but treats a timeout as fatal on the first attempt. During an update the shell is busy reloading the QML the same transaction just replaced, and the migration calls `rescanPlugins` on the line before the put, so the put often outlasts 2 seconds even though the shell does write the widget into `shell.json`. The migration dies under `set -euo pipefail`, `omarchy-migrate` writes no completion marker, and every later step (hooks, AUR, mise, orphans, shell restart) is skipped. Reported on `omarchy-dev` r2186 and r2304. Neither migration is in the stable 4.0.4-1 tree here.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not run `omarchy restart shell` over ssh or on a locked session: it re-locks the session and the Omarchy 4 lock screen cannot be released headlessly.
+
+**Fix.**
+
+Give the shell IPC more time for this run. The variable is inherited through `script` and `omarchy-migrate` down to `omarchy-shell`:
+
+```bash
+OMARCHY_SHELL_IPC_TIMEOUT=15s omarchy update
+```
+
+Alternatively restart the shell first from your unlocked session, give it a few seconds to settle, then retry:
+
+```bash
+omarchy restart shell
+sleep 10
+omarchy update
+```
+
+The migrations are idempotent, so a retry finishes them. Check that nothing is left pending:
+
+```bash
+ls ~/.local/state/omarchy/migrations/ | sort | tail -3
+ls /usr/share/omarchy/migrations/ | sort | tail -3
+```
+
+**Verify.** The update ends without the red banner and prints `omacom.elsewhen is on the bar` (or the relevant widget), and the newest migration file name in `/usr/share/omarchy/migrations/` also exists in `~/.local/state/omarchy/migrations/`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12777> · <https://github.com/omacom/omarchy/issues/13301>
+
+---
+
+## Stop an Omarchy mise wrapper (claude, gh, codex, omp) looping forever and burning CPU
+
+`mise-wrapper-infinite-loop-cpu` · severity: **high** · frequency: **occasional** · applies to: `mise`, `omarchy`, `omarchy-4`, `systemd`
+
+**Symptom.** Fans spin up and a core sits busy for hours. `ps` shows a `~/.local/bin/<tool>` process repeatedly running `mise use -g --quiet <tool>` about twice a second in the same PID, often reparented to `systemd --user`. Or the machine becomes progressively unresponsive with thousands of short-lived processes when a terminal or editor calls `omp` or another wrapped tool. GUI apps that probe CLIs with a timeout (Hermes Desktop, Electron tools) report the tool as `Not installed` or hang. Nothing logs an error.
+
+**Cause.** The wrapper `omarchy-mise-install` writes ends with `exec mise x "<pkg>" -- "<bin>" "$@"`, and `mise x` resolves `<bin>` through PATH. Two shapes make it find the wrapper itself again. (1) The tool is not actually installed in mise (an install failed or never ran): no shim exists, so the wrapper in `~/.local/bin` is the only `<bin>` on PATH, and stub and mise recurse as a fork storm. (2) A process inherited a PATH snapshot with `~/.local/bin` ahead of both the tool's install directory and `~/.local/share/mise/shims`, as in a systemd unit's `Environment=PATH=` or the child PATH Hermes gives ACP agents: with the shims directory present `mise x` leaves PATH order alone, so the wrapper re-execs itself in the same PID forever. Each iteration also runs `mise use -g`, which can silently upgrade the tool once mise's version cache expires.
+
+> **Audit corrected this record.** Both triggers match #13040 (PATH snapshot with ~/.local/bin ahead of the install dir and shims, incl. the Hermes ACP and Electron-probe comments) and #13177 (mise cannot provide the bin, stub recurses). The wrapper template in /usr/bin/omarchy-mise-install on 4.0.4-1 is as described. Defects in the fix: (1) the Case 1 check `mise ls --installed | grep -i omp` can never match, because mise lists the tool as `github:can1357/oh-my-pi`, so it always falls through. Checked with `mise ls --installed` here. `mise which --tool github:can1357/oh-my-pi omp` is the working test and prints `omp is not a mise bin` when the tool cannot provide it. (2) `pkill -f "$HOME/.local/bin/claude"` kills by pattern. Replaced with kill by the PID pgrep shows. (3) The hardening is given as an edit of one line, but the stale pre-`--quiet` wrappers most users still have would keep printing to stdout. The corrected fix writes the whole wrapper with `--quiet`. `mise which --tool <pkg> <bin>` was confirmed to exist in mise 2026.9.10 (`-t, --tool`) and to resolve gh to its install path here. Hardening is moved first because it fails fast (exit 1) for both triggers, which is what #13040 and its commenters confirmed. 'A later migration can put the old form back' was refined: upstream's 1787573629.sh skips edited wrappers, but `omarchy-refresh-applications` (which runs install/user/mise.sh) rewrites every default wrapper.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Find the looping wrapper and stop it by PID:
+
+```bash
+pgrep -af "$HOME/.local/bin/"
+kill <PID>        # the PID of the wrapper that keeps running mise use -g
+```
+
+Make the wrapper exec an absolute path, so it can never find itself. When mise cannot provide the binary, `mise which` fails and the wrapper exits 1 instead of recursing, so this covers both triggers. Rewrite the whole wrapper, taking the package and binary from its existing `exec mise x "<pkg>" -- "<bin>"` line (gh shown):
+
+```bash
+cat > ~/.local/bin/gh <<'EOF'
+#!/bin/bash
+export MISE_MINIMUM_RELEASE_AGE=0
+mise use -g --quiet "gh" || exit 1
+bin_path=$(mise which --tool "gh" "gh") || exit 1
+exec mise x "gh" -- "$bin_path" "$@"
+EOF
+chmod +x ~/.local/bin/gh
+```
+
+For a tool with a backend prefix use the package string from the old wrapper in all three places, for example `"github:can1357/oh-my-pi"` with binary `"omp"`.
+
+Then deal with the trigger.
+
+Tool not provided by mise. Check, then install it once or remove the wrapper if you do not use the tool:
+
+```bash
+mise which --tool github:can1357/oh-my-pi omp   # 'omp is not a mise bin' means mise cannot provide it
+mise use -g github:can1357/oh-my-pi
+# or: rm ~/.local/bin/omp
+```
+
+Bad PATH in a systemd unit or app. Drop the hardcoded `Environment=PATH=` so the unit inherits the session environment, or put `~/.local/share/mise/shims` before `~/.local/bin` in it:
+
+```bash
+systemctl --user cat <unit> | grep -n PATH
+systemctl --user edit <unit>
+systemctl --user restart <unit>
+```
+
+`omarchy-refresh-applications`, or running `omarchy-mise-install` for that command, rewrites the wrapper back to the stock form, so re-check it after either.
+
+**Verify.** `pgrep -af 'mise use -g'` stays empty while the tool is idle, and the formerly looping command under the same environment returns promptly, for example `systemctl --user restart <unit>` followed by low CPU in `top`.
+
+Sources: <https://github.com/omacom/omarchy/issues/13040> · <https://github.com/omacom/omarchy/issues/13177>
+
+---
+
+## Fix 'OMARCHY_PATH: unbound variable' when omarchy update runs from zsh, cron or a stripped shell
+
+`omarchy-path-unbound-variable-zsh-cron` · severity: **high** · frequency: **occasional** · applies to: `cron`, `omarchy`, `omarchy-4`, `systemd`, `zsh`
+
+**Symptom.** `omarchy update` takes the snapshot, then aborts:
+
+```
+/usr/bin/omarchy-update-dev: line 7: OMARCHY_PATH: unbound variable
+
+Something went wrong during the update!
+```
+
+It works from the normal terminal but fails from a zsh started as a non-login shell, a cron job or systemd timer, an agent or editor terminal, or `sudo omarchy update`. Related commands fail the same way:
+
+```
+/usr/bin/omarchy-channel-current: line 10: OMARCHY_PATH: unbound variable
+```
+
+**Cause.** `omarchy-update-dev` and `omarchy-channel-current` run under `set -euo pipefail` and read `$OMARCHY_PATH` with no default (`[[ $OMARCHY_PATH != "/usr/share/omarchy" ]] || exit 0`), confirmed in the 4.0.4-1 scripts here. The variable is only exported by `/usr/share/omarchy/default/bash/env-bootstrap`, which is sourced from `/etc/profile.d/omarchy.sh` (login shells), `~/.bashrc`, the uwsm session env and the bash rc chain. A non-login zsh reads none of those (`/etc/zsh/zprofile` is login-only), cron and `env -i` start empty, and `sudo` resets the environment, so the variable is unset and `set -u` kills the update after the snapshot is already taken.
+
+> **Audit corrected this record.** Confirmed on 4.0.4-1: omarchy-update-dev line 7 and omarchy-channel-current line 10 read bare `$OMARCHY_PATH` under `set -euo pipefail`, omarchy-update-dev runs after `omarchy-snapshot create` and `omarchy-update-stay-awake start`, /etc/profile.d/omarchy.sh (omarchy-settings) sources env-bootstrap, and env-bootstrap is POSIX-compatible so sourcing it from ~/.zshenv works. #12858 (open, 4.0.4-1) supports the error and triggers, and a commenter reproduces it in non-login zsh. #8769 is the sibling omarchy-update-available crash. Two problems. The verify `zsh -c 'echo $OMARCHY_PATH'` passes without any fix inside a graphical terminal, because envs.lua sets OMARCHY_PATH with hl.env for the whole Hyprland session, so it proves nothing. And the cron/timer advice omits that an unattended update stalls anyway: omarchy-update runs inside a `script` pty, so omarchy-update-stay-awake sees a tty and calls `sudo -v`, which waits for a password nobody types unless sudo is passwordless, and -y still stops at the orphan and reboot prompts on 4.0.4-1. Fix and verify corrected. No cron or zsh run was exercised (zsh is not installed here).
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Run the update through a bash login shell, as your own user, never through sudo:
+
+```bash
+bash -lc 'omarchy update'
+```
+
+If zsh is your shell, make every zsh pick up the Omarchy environment by adding this to `~/.zshenv` (read by login and non-login zsh alike):
+
+```sh
+[ -r /usr/share/omarchy/default/bash/env-bootstrap ] &&
+  . /usr/share/omarchy/default/bash/env-bootstrap
+```
+
+For a cron job or systemd user timer, `bash -lc 'omarchy update -y'` or `Environment=OMARCHY_PATH=/usr/share/omarchy` in the unit clears this error, but on 4.0.4-1 that alone does not make an unattended update work. `omarchy-update` runs inside a pty opened by `script`, so its sleep-inhibitor step sees a terminal and calls `sudo -v`, and paccache, snapper and pacman also run through sudo. Without passwordless sudo the run waits at a password prompt nobody can answer. `-y` also still stops at the orphan and reboot prompts on 4.0.4-1. Run updates from a terminal unless you have arranged both.
+
+**Verify.** `env -u OMARCHY_PATH zsh -c 'echo $OMARCHY_PATH'` prints `/usr/share/omarchy` (the `env -u` matters, because a terminal inside the Hyprland session already inherits the variable), and `omarchy update` gets past `Create system snapshot` without the unbound-variable line.
+
+Sources: <https://github.com/omacom/omarchy/issues/12858> · <https://github.com/omacom/omarchy/issues/8769>
 
 ---
 
@@ -2032,6 +2352,264 @@ stat -c '%a %U' /etc/chromium/policies/managed /opt/zen-browser/distribution 2>/
 Use `omarchy-theme-set-browser` and not `omarchy-theme-set-browser-policy` for the exit-status check. The policy script requires a six hex digit colour argument and prints its usage line and returns 1 without one, on the fixed script as well, so a bare call proves nothing.
 
 Sources: <https://github.com/omacom/omarchy/issues/8832> · <https://github.com/omacom/omarchy/issues/8833> · <https://github.com/omacom/omarchy/pull/8835> · <https://github.com/omacom/omarchy/commit/62eb5182d073191e62bee137bf8e2521414445cc> · <https://github.com/omacom/omarchy/releases/tag/v4.0.2> · <https://github.com/omacom/omarchy/commit/bafc9a1000> · <https://github.com/omacom/omarchy/commit/5925929cb6> · <https://github.com/omacom/omarchy/blob/v4.0.2/bin/omarchy-theme-set-browser-policy> · <https://github.com/omacom/omarchy/blob/v4.0.2/migrations/1787515927.sh>
+
+---
+
+## Update or upgrade an Omarchy 3 install after the master branch disappeared
+
+`omarchy3-update-fails-master-branch-gone` · severity: **high** · frequency: **occasional** · applies to: `arch`, `omarchy`, `omarchy-3`, `quattro-upgrade`
+
+**Symptom.** On Omarchy 3 (git checkout at `~/.local/share/omarchy`), `omarchy-update` fails at the `Update Omarchy` git step, typically with git saying `Your configuration specifies to merge with the ref 'refs/heads/master' from the remote, but no such ref was fetched.` The documented path to Omarchy 4 (update first, then Omarchy To Quattro) is blocked by it. The manual install command from an existing Arch system also fails:
+
+```
+curl -fsSL https://omarchy.org/install | bash
+curl: (22) The requested URL returned error: 404
+```
+
+**Cause.** Upstream's `master` branch, which Omarchy 3 checkouts track, was removed around 2026-09-14. The GitHub API now resolves `branches/master` to `quattro`, and raw URLs under `refs/heads/master` return 404. Omarchy 3's `bin/omarchy-update-git` runs `git -C $OMARCHY_PATH pull --autostash` against the tracked branch, which no longer exists. `https://omarchy.org/install` still serves `eval "$(curl -fsSL https://raw.githubusercontent.com/basecamp/omarchy/refs/heads/master/boot.sh)"`, and that URL returns 404 (checked 2026-10-04). The `rc` branch still exists and carries both `bin/omarchy-update-git` and `bin/omarchy-upgrade-to-quattro`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The Quattro upgrade is one-way and multi-stage. It replaces the pacman configuration and the Snapper retention policy. Take a snapshot and a backup of anything important first.
+
+**Fix.**
+
+Omarchy 3 install: point the checkout at `rc`, update, then upgrade to Quattro:
+
+```bash
+cd ~/.local/share/omarchy
+git fetch origin
+git switch rc
+omarchy-update
+omarchy-upgrade-to-quattro
+```
+
+The last step is also in the Omarchy 3 menu under Update > Omarchy To Quattro. Read the Quattro upgrade records before starting it: back up `/etc/snapper/configs/root`, and do not reboot if it prints `Upgrade incomplete - do NOT reboot.`
+
+New install: use the Omarchy ISO. The curl installer from an existing Arch system is broken. A reporter's attempt with `OMARCHY_REF=rc` and the `rc` `boot.sh` failed at the rc mirror, and it installs Omarchy 3 that then needs the Quattro upgrade anyway.
+
+**Verify.** `git -C ~/.local/share/omarchy rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'` prints `origin/rc`, `omarchy-update` completes, and after the upgrade `pacman -Q omarchy` reports a 4.x package.
+
+Sources: <https://github.com/omacom/omarchy/issues/12436> · <https://omarchy.org/install> · <https://github.com/omacom/omarchy/blob/rc/boot.sh> · <https://github.com/omacom/omarchy/blob/rc/bin/omarchy-update-git> · <https://github.com/omacom/omarchy/blob/rc/bin/omarchy-upgrade-to-quattro>
+
+---
+
+## Stop booting the stock Arch kernel that sits beside linux-omarchy
+
+`still-booting-stock-linux-kernel-after-linux-omarchy` · severity: **high** · frequency: **occasional** · applies to: `direct-boot`, `limine`, `omarchy`, `omarchy-4`, `uki`
+
+**Symptom.** `uname -r` shows a stock kernel such as `7.2.3-arch1-3` instead of `7.2.5-3-omarchy`, days or weeks after the update that installed `linux-omarchy` and asked for a reboot. Nothing looks wrong: the migration is marked done and the Limine menu lists `linux-omarchy` first. With Direct Boot enabled, `efibootmgr` shows the Omarchy entry pointing at `\EFI\LINUX\OMARCHY_LINUX.EFI`. Fixes that shipped only in linux-omarchy never take effect, and one report traced btrfs corruption to an accidental boot of the stale stock kernel.
+
+**Cause.** Two kernels are installed on most Omarchy 4 systems. Fresh 4.0.4 ISO installs get stock `linux` from archinstall's base package set (#13537). Migration `1789325478` installs `linux-omarchy` but deliberately leaves `linux` installed as a fallback, and only sets `BOOT_ORDER="linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"` in `/etc/default/limine`. `limine-mkinitcpio` builds one UKI per kernel package, named `omarchy_<pkgname>.efi` because `/etc/limine-entry-tool.d/omarchy-defaults.conf` sets `CUSTOM_UKI_NAME="omarchy"`. So `omarchy_linux.efi` is the stock kernel and `omarchy_linux-omarchy.efi` is the Omarchy one.
+
+The confirmed way to keep booting the stock kernel is Direct Boot. An EFI entry created before the migration still points at `omarchy_linux.efi`, because Direct Boot bypasses Limine and its `BOOT_ORDER` (#12145, reproduced on a second machine in its comments). `omarchy-setup-direct-boot` also picks the UKI with `find ... -name "omarchy*.efi" | head -1`, which is unpredictable once two files exist. Through Limine, the stock entry stays in the menu one selection away, and #13537 reports a machine that landed on it three weeks after install.
+
+#12664 blames the template's `default_entry: 2`. Limine's `menu.c` counts the expanded `/+Omarchy` directory as entry 1, so entry 2 is the first kernel listed under it, which is `linux-omarchy` when `BOOT_ORDER` is applied. That index points somewhere else only if the menu is ordered differently, which this audit could not check on the reporter's machine. Confirmed on this workstation: both kernels installed, the template carries `default_entry: 2`, and the machine booted `Omarchy.linux-omarchy`.
+
+> **Audit corrected this record.** Confirmed on this workstation: linux 7.2.3.arch1-3 and linux-omarchy 7.2.5-3 both installed, migration 1789325478.sh keeps linux and only rewrites BOOT_ORDER in /etc/default/limine, CUSTOM_UKI_NAME="omarchy" in /etc/limine-entry-tool.d/omarchy-defaults.conf, UKI path built as ${UKI_PREFIX}_${KERNEL_NAME}.efi in limine-mkinitcpio-install, omarchy-setup-direct-boot still uses find | head -1 on quattro, and the template still has default_entry: 2. The ALPM guard hook triggers only on Operation = Upgrade, so `pacman -R linux` is not blocked, and ntsync-autoload depends on NTSYNC-MODULE, which linux-omarchy also provides. #12145 (with a second-machine confirmation) and #13537 support the Direct Boot and accidental-boot paths. The default_entry part of the cause does not hold up: Limine's common/menu.c print_tree counts the expanded /+Omarchy directory as entry 1, so default_entry: 2 is the first kernel under it, which is linux-omarchy when BOOT_ORDER is applied. #12664 numbers only the kernel leaves and has no maintainer reply. This workstation, with both kernels and the same template, booted Omarchy.linux-omarchy per LoaderEntrySelected, though whether by default or by hand is not recorded. Cause rewritten to stop asserting that mechanism. Frequency lowered to occasional, because the two-kernel state is common but booting the stock kernel needs Direct Boot or a manual pick. The hardware regressions in the danger are real (#12097, #12550, #13795, #13849, #13959). The danger now also says to check DKMS modules before removing linux. Fix steps unchanged. Not exercised: no kernel was removed and no EFI entry was changed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Removing `linux` removes your fallback kernel. Many linux-omarchy 7.2.5 regressions are reported on specific hardware where the stock kernel works, among them older MacBooks, some Wi-Fi chips (ath9k, mt7925e) and PoE devices. Boot linux-omarchy successfully on your machine and use it for a while before removing the stock one, and keep the Limine snapshot menu available. On NVIDIA or other DKMS systems, check that `dkms status` shows the module built for the `-omarchy` kernel before removing `linux`. Never remove the kernel you are currently running.
+
+**Fix.**
+
+Check what you are running and what is installed:
+
+```bash
+uname -r
+pacman -Q linux linux-omarchy
+sudo efibootmgr | grep -i omarchy
+```
+
+If you are on the stock kernel, reboot and pick `linux-omarchy` by hand in the Omarchy Bootloader menu (Direct Boot users: choose Limine from the firmware boot menu). Use it for a while. Once you are satisfied it works on your hardware, remove the stock kernel while running linux-omarchy. The package's ALPM hooks remove its Limine entry and UKI:
+
+```bash
+uname -r | grep -q -- '-omarchy$' && sudo pacman -R linux
+```
+
+If pacman refuses because something depends on `linux` (for example a prebuilt `nvidia-open` module package), stop and switch that package to its DKMS or linux-omarchy equivalent first.
+
+With Direct Boot, re-point the EFI entry at the remaining UKI. The script removes the entry on the first run and creates a new one on the second:
+
+```bash
+omarchy-setup-direct-boot   # answer yes to: Disable direct boot
+omarchy-setup-direct-boot   # answer yes to: Setup direct boot
+sudo efibootmgr | grep -i omarchy   # expect ...OMARCHY_LINUX-OMARCHY.EFI
+```
+
+Plain Arch with no Omarchy kernel is not affected. Apple T2 Macs keep `linux-t2` and are skipped by the migration on purpose.
+
+**Verify.** After a reboot without touching the menu, `uname -r` ends in `-omarchy`, `pacman -Q linux` reports it is not installed, and on Direct Boot systems `sudo efibootmgr -v | grep -i omarchy` names `OMARCHY_LINUX-OMARCHY.EFI`.
+
+Sources: <https://github.com/omacom/omarchy/issues/13537> · <https://github.com/omacom/omarchy/issues/12664> · <https://github.com/omacom/omarchy/issues/12145> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md> · <https://github.com/limine-bootloader/limine/blob/trunk/common/menu.c> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-setup-direct-boot> · <https://github.com/omacom/omarchy/blob/quattro/default/limine/limine.conf> · <https://github.com/omacom/omarchy/issues/12097> · <https://github.com/omacom/omarchy/issues/13795> · <https://github.com/omacom/omarchy/issues/13959>
+
+---
+
+## Run omarchy update on a non-English locale when it aborts with 'unsafe Omarchy update inhibitor state path'
+
+`update-aborts-unsafe-inhibitor-path-non-english-locale` · severity: **high** · frequency: **occasional** · applies to: `dev-channel`, `edge-channel`, `locale`, `omarchy`, `omarchy-4`
+
+**Symptom.** `omarchy update` stops right after the snapshot step and never upgrades anything:
+
+```
+Create system snapshot
+Snapshots can be selected during boot.
+Refusing to use an unsafe Omarchy update inhibitor state path.
+
+Something went wrong during the update!
+...
+Refusing to use an unsafe Omarchy update inhibitor state path.
+```
+
+The desktop language is French, German, Spanish, Portuguese, Hungarian, Chinese or similar. The bar's update icon and the menu entry fail the same way every time.
+
+**Cause.** Dev-channel builds (`omarchy-dev` 4.0.0.rNNNN, reported on r6646, r6688, r6689 and r6691, and on a dev checkout at e1614f2b) ship a hardened `omarchy-update-stay-awake`. Its `root_owned_parent_chain()` walks `$XDG_RUNTIME_DIR` up to `/` and runs `stat -Lc '%u %a %F'`, then requires `$type == "directory"`. coreutils translates `%F`, so it prints `répertoire`, `directorio`, `diretório`, `könyvtár` or `目录`, the comparison always fails, the helper calls `fail_state_boundary`, and `omarchy-update` (under `set -e`) aborts before pacman runs. The stable 4.0.4-1 helper on this workstation has no `%F` check and is not affected, and no cited report confirms an edge-channel build. The same check is still on `quattro` as of 2026-10-05. Fixes are open upstream (PR #13352 forces `LC_ALL=C` on that `stat`, #14023 drops the redundant check) and neither was merged as of 2026-10-05.
+
+> **Audit corrected this record.** Rechecked on 2026-10-05: PR #13352 and #14023 are both still OPEN, quattro bin/omarchy-update-stay-awake still has `/usr/bin/stat -Lc '%u %a %F'` at line 71 with `$type == "directory"` at line 72, and the stable 4.0.4-1 helper here (/usr/bin/omarchy-update-stay-awake, symlinked from /usr/share/omarchy/bin) has no such check. The bar widget (SystemUpdate.qml line 20) and the menu entry update.omarchy in default/omarchy/omarchy-menu.jsonc both run `omarchy-launch-floating-terminal-with-presentation omarchy-update`, which execs `bash -c`, and envs.lua puts /usr/share/omarchy/bin first on the session PATH, so the fix holds. omarchy-update-system-pkgs does pass `--overwrite '/usr/share/omarchy/*'`. The cause's version range is fabricated precision: the cited issues report omarchy-dev 4.0.0.r6646, r6688, r6689 and r6691 (and pending r6693) plus a dev checkout at e1614f2b. No source here mentions r2304 or r6694, and none reports an edge-channel build. #13376 labels itself 4.0.4-1 but the stable helper here cannot produce the message, so that label is likely a mislabelled dev build. Cause rewritten to the versions the sources support. The update itself was not run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Run the update from a terminal with the C locale for that one command. It only changes the language of command output for this run:
+
+```bash
+LC_ALL=C omarchy update
+```
+
+The bar's update icon and the Omarchy menu cannot take that prefix. Both run `omarchy-launch-floating-terminal-with-presentation omarchy-update`, which starts a non-interactive `bash -c` that reads no rc file, inside the Hyprland session environment, and `/usr/share/omarchy/default/hypr/envs.lua` puts `/usr/share/omarchy/bin` first on that PATH. A PATH shim in `~/.bashrc` or in the uwsm environment never reaches them. Use the terminal until a package carrying PR #13352 or #14023 lands. Check whether the installed helper still has the localized check:
+
+```bash
+pacman -Q omarchy-dev omarchy 2>/dev/null
+grep -c "%u %a %F" /usr/share/omarchy/bin/omarchy-update-stay-awake   # 0 means fixed
+```
+
+Do not patch `/usr/share/omarchy/bin` in place: `omarchy-update-system-pkgs` reinstalls that tree with `--overwrite '/usr/share/omarchy/*'`.
+
+**Verify.** `stat -Lc '%F' /run/user` prints a translated word (confirms you are affected) while `LC_ALL=C omarchy update` runs past `Create system snapshot` into `Update system packages` and finishes without the red banner.
+
+Sources: <https://github.com/omacom/omarchy/issues/13320> · <https://github.com/omacom/omarchy/issues/13385> · <https://github.com/omacom/omarchy/issues/13892> · <https://github.com/omacom/omarchy/issues/14087> · <https://github.com/omacom/omarchy/pull/13352> · <https://github.com/omacom/omarchy/issues/13376> · <https://github.com/omacom/omarchy/pull/14023>
+
+---
+
+## Release the root-owned sleep inhibitor an interrupted omarchy update left behind
+
+`update-stale-root-inhibitor-blocks-suspend` · severity: **high** · frequency: **occasional** · applies to: `desktop`, `laptop`, `omarchy`, `omarchy-4`, `systemd`
+
+**Symptom.** Suspend from the system menu silently does nothing, and `systemctl suspend` is refused, hours after an `omarchy update` that was interrupted or killed. Nothing is updating. `systemd-inhibit --list` still shows:
+
+```
+WHO             WHAT        WHY                         MODE
+omarchy-update  sleep:idle  Omarchy update in progress  block
+```
+
+Running `omarchy-update-stay-awake stop` prints `Failed to stop the Omarchy update sleep inhibitor.` It first looks like a laptop or NVIDIA suspend bug.
+
+**Cause.** On Omarchy 4.0.4-1 stable, `/usr/bin/omarchy-update-stay-awake start` launches `sudo systemd-inhibit --what=sleep:idle --who=omarchy-update ... --mode=block sleep infinity &` (or `pkexec` when stdin is not a terminal) and records `$!` in `$XDG_RUNTIME_DIR/omarchy-update-stay-awake/inhibit-pid`. That PID is the root-owned `sudo` process. `stop` runs as the desktop user and does `kill "$inhibit_pid" >/dev/null 2>&1 || true`, which fails with EPERM and is swallowed. When the update is interrupted before its own cleanup, the privileged inhibitor survives with no owner, and because `start` begins by calling `stop`, later updates cannot clear it either. Confirmed by reading the 4.0.4-1 script on this workstation. Upstream `quattro` already replaced this with a holder that drops to the invoking user (PR #9467, refined in #13361), but that had not reached stable 4.0.4.
+
+> **Audit corrected this record.** Read /usr/bin/omarchy-update-stay-awake on 4.0.4-1 here: start() runs `sudo` (tty) or `pkexec` (no tty) `systemd-inhibit --what=sleep:idle --who=omarchy-update ... --mode=block sleep infinity &`, stores `$!` plus start time, and stop() does `kill ... || true` then prints `Failed to stop the Omarchy update sleep inhibitor.` and returns 1 when the process survives. start() calls stop() first. Issue #14205 (open, 2026-10-04) reports exactly this on stable 4.0.4-1 with the same inhibitor table and process chain, and states quattro fixed it via #9467 and #13361, which supports the cause. Upstream latest release is still v4.0.4, so 'newer than 4.0.4' holds. Two defects in the fix: `sudo pkill -f -- 'who=omarchy-update'` also matches the command line of the `sudo` process running pkill (pkill only excludes itself), so the pattern needs the `[w]` bracket form, and the 'Remove it anyway' step only lists processes with `pgrep -af '^sleep infinity$'`, which also matches unrelated `sleep infinity` processes and removes nothing. Fix rewritten for both. The EPERM itself and the kill were not exercised, by brief.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not kill the inhibitor while an update is genuinely running. Suspending mid-transaction is exactly what it exists to prevent, and a suspend or power loss during the pacman step can leave packages half-installed.
+
+**Fix.**
+
+Make sure nothing is actually updating first:
+
+```bash
+pgrep -a omarchy-update; pgrep -ax pacman; pgrep -ax yay
+systemd-inhibit --list --no-pager | grep omarchy-update
+pgrep -af 'who=omarchy-update'
+```
+
+If the only hits are the `sudo systemd-inhibit ... sleep infinity` chain, kill it with privilege, then let the helper clear its state file and the stay-awake idle toggle it set:
+
+```bash
+sudo pkill -f -- '[w]ho=omarchy-update'
+omarchy-update-stay-awake stop
+```
+
+The `[w]` keeps the pattern from matching the `sudo pkill` command line itself, which contains the same text.
+
+A leftover `sleep infinity` reparented to init is harmless once `systemd-inhibit` is gone, because the inhibitor lock belonged to that process. Other programs also run `sleep infinity`, so look before removing anything:
+
+```bash
+ps -o pid,ppid,user,args -C sleep
+```
+
+Only a root-owned `sleep infinity` whose PPID is 1 is the leftover. Remove it with `sudo kill` on that PID, or leave it.
+
+A reboot also clears it. The permanent fix is the upstream rewrite of `omarchy-update-stay-awake` (PR #9467, refined in #13361), which arrives with an Omarchy release newer than 4.0.4. Check with `pacman -Q omarchy`.
+
+**Verify.** `systemd-inhibit --list --no-pager | grep omarchy-update` prints nothing, `ls $XDG_RUNTIME_DIR/omarchy-update-stay-awake/` reports no such directory or an empty one, and Suspend from the system menu now suspends the machine.
+
+Sources: <https://github.com/omacom/omarchy/issues/14205> · <https://github.com/omacom/omarchy/issues/13385> · <https://man.archlinux.org/man/systemd-inhibit.1>
+
+---
+
+## Protect Windows and other Linux boot entries before running an Omarchy factory reset
+
+`factory-reset-drops-dual-boot-entries` · severity: **high** · frequency: **rare** · applies to: `dual-boot`, `limine`, `omarchy`, `omarchy-4`, `windows`
+
+**Symptom.** After `omarchy-system-factory-reset` on a machine that shares its ESP with Windows or another Linux, the Omarchy Bootloader menu lists only Omarchy. Windows still boots from the firmware boot menu, but its Limine entry is gone. A second Linux install managed by limine-entry-tool loses its entry and its `/<machine-id>/` boot directory on the ESP.
+
+**Cause.** `reset_limine_config` in `omarchy-system-factory-reset` (present on 4.0.4-1 here) copies the shipped template over the ESP's `limine.conf`, which removes every entry that is not the new Omarchy one, including `/Windows`. It then deletes the ESP directory of every `machine-id=` the old `limine.conf` referenced except the new one, which includes another limine-entry-tool-managed Linux. The comment in the script says only ids from the old file are removed, but a foreign install's id is in that file too. `omarchy-provision-owner` repeats the same logic on the first boot after the reset (`limine_entries_stale` treats any other machine-id as stale), so a fix applied between the two is lost again. Windows' own boot files under `EFI/Microsoft` survive.
+
+> **Audit corrected this record.** Read reset_limine_config in /usr/share/omarchy/bin/omarchy-system-factory-reset (lines 190-214) and limine_entries_stale plus reset_limine_config in omarchy-provision-owner (lines 945-1035) on 4.0.4-1. Both copy the template over limine.conf and rm -rf every machine-id directory the old file named except the current one, as the cause says. #13689 and its comment report exactly this. The cause holds. limine-install with FIND_BOOTLOADERS=yes only re-adds systemd-boot, rEFInd and the EFI fallback, never Windows, so the manual /Windows stanza is needed. `protocol: efi` with `path:` is valid per Limine CONFIG.md. The fix has a gap for the second Linux: restoring its /boot/<id>/ directory alone does not bring back its menu entry, because the stanza that pointed at it is gone from limine.conf. A limine-entry-tool distro sharing Limine often has no firmware entry of its own to boot from either. Fix rewritten to restore both the directory and its stanza from the .pre-reset copy, with real commands for the backup. Not exercised: no reset was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A factory reset discards the user, user-installed packages and `/etc` changes by design. Editing `/boot/limine.conf` wrongly can leave the menu unparseable, so keep the `.pre-reset` copy until every OS boots.
+
+**Fix.**
+
+Before resetting, keep a copy of the menu on the ESP (the reset rewrites `limine.conf` but leaves other files there) and note which machine-ids it names:
+
+```bash
+sudo cp /boot/limine.conf /boot/limine.conf.pre-reset
+cat /etc/machine-id    # this install's id, the only one the reset should replace
+sudo grep -o 'machine-id=[0-9a-f]\{32\}' /boot/limine.conf | sort -u
+```
+
+The reset deletes the boot directory of every other id printed, so copy each one to a USB drive. Do not keep it in `/root` or your home directory, because the reset swaps the root subvolume and discards the user:
+
+```bash
+lsblk -o NAME,MOUNTPOINTS          # find where the USB drive is mounted
+sudo cp -a /boot/<other-machine-id> /run/media/$USER/<usb-drive>/
+```
+
+After the reset, and only after first-boot setup has finished (it repeats the cleanup), add Windows back to the end of `/boot/limine.conf` with `sudo nano /boot/limine.conf`:
+
+```
+/Windows
+    protocol: efi
+    path: boot():/EFI/Microsoft/Boot/bootmgfw.efi
+```
+
+Compare with the stanza in `/boot/limine.conf.pre-reset` and copy it exactly if it differs.
+
+For another Linux, restore its boot directory and then its menu entry:
+
+```bash
+sudo cp -a /run/media/$USER/<usb-drive>/<other-machine-id> /boot/
+sudo grep -n -B4 -A12 'machine-id=<other-machine-id>' /boot/limine.conf.pre-reset
+```
+
+Copy that install's whole entry block, from its `/` title line down to the line before the next top-level `/` entry, to the end of `/boot/limine.conf`. The `#` hashes on its paths stay valid because the restored files are unchanged. If that system has its own firmware boot entry, you can instead boot it from the firmware boot menu and rebuild its entry from inside it (on a limine-entry-tool distro, `sudo limine-mkinitcpio`).
+
+**Verify.** The Omarchy Bootloader menu lists Windows (and the other Linux) again after a reboot, and each one boots from it.
+
+Sources: <https://github.com/omacom/omarchy/issues/13689> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md>
 
 ---
 
@@ -2565,6 +3143,58 @@ Sources: <https://learn.omacom.io/2/the-omarchy-manual/103/system-sleep> · <htt
 
 ---
 
+## Stop gh, claude and other mise wrappers printing 'mise ... tools:' before their output
+
+`mise-wrappers-print-status-line-to-stdout` · severity: **medium** · frequency: **common** · applies to: `mise`, `omarchy`, `omarchy-4`
+
+**Symptom.** Every run of `gh`, `claude`, `codex`, `opencode` and similar tools prints an extra first line:
+
+```
+$ gh --version 2>/dev/null
+mise ~/.config/mise/config.toml tools: gh@2.102.0
+gh version 2.102.0 (2026-09-30)
+```
+
+Scripts that capture output break: `gh ... --json` no longer parses, `$(claude --version)` holds two lines, and one user published the status line into a pull request description through `gh pr edit --body-file`.
+
+**Cause.** Omarchy installs these tools as lazy wrappers in `~/.local/bin`, written by `omarchy-mise-install`. Wrappers written before the template gained `--quiet` (installs from about 4.0.1 and earlier, and any wrapper no later migration happened to rewrite) run `mise use -g "<pkg>" || exit 1` on every invocation, and mise prints its `tools:` status line to stdout. The current template writes `mise use -g --quiet`, but an existing wrapper is only rewritten when something calls `omarchy-mise-install` for it again. The migration that rewrites stale wrappers (`1787573629.sh`) exists on the `quattro` branch but is not in the 4.0.4 package, so `omarchy update` on stable 4.0.4 does not fix it.
+
+The line only appears when the wrapper itself runs. An interactive shell with `mise activate` may find the tool's install directory first and look fine, while scripts, git credential helpers, Hyprland keybindings and GUI apps hit the wrapper.
+
+> **Audit corrected this record.** Problem and cause confirmed. /usr/bin/omarchy-mise-install on 4.0.4-1 writes `mise use -g --quiet`, 13 wrappers in ~/.local/bin on this workstation still carry the unquiet `mise use -g "<pkg>" || exit 1` form, and migration 1787573629.sh exists on `quattro` (fetched) but is absent from /usr/share/omarchy/migrations, matching #13994's comment that the backport had not shipped. Latest release is still v4.0.4. Defect in the fix, reproduced in a scratch HOME: the loop matches any file with an unquiet `mise use -g` line, so a wrapper the user hardened per the sibling record mise-wrapper-infinite-loop-cpu (`exec mise x "codex" -- "$bin_path" "$@"`) had `$bin_path` captured as the binary name and was rewritten to `exec mise x "codex" -- \$bin_path "$@"`, a broken wrapper. The corrected loop only rewrites files byte-identical to the stale template (the same rule upstream's migration uses), and was re-run in the scratch HOME: stock wrappers regenerated with --quiet, the hand-edited one left alone, second run a no-op. Also found that `omarchy-refresh-applications` runs install/user/mise.sh and rewrites every default wrapper from the current template, added as an alternative with its side effects. Verify corrected: in an interactive terminal `mise activate` puts tool install dirs ahead of ~/.local/bin, so `gh --version` may bypass the wrapper and pass while the wrapper is still stale. The check must run the wrapper by path. Cause trimmed of the workstation-specific '13 wrappers' sentence, which is not a fact about the reader's machine.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Regenerate only wrappers that are exactly the stale stock form, keeping each wrapper's package and binary. A wrapper you edited by hand is skipped, because regenerating it would drop your edit:
+
+```bash
+for w in ~/.local/bin/*; do
+  [[ -f $w && -x $w && ! -L $w ]] || continue
+  (( $(stat -c%s "$w") <= 1024 )) || continue
+  pkg=$(sed -n 's/^mise use -g "\(.*\)" || exit 1$/\1/p' "$w")
+  bin=$(sed -n 's/^exec mise x ".*" -- "\([^"$]*\)" "\$@"$/\1/p' "$w")
+  [[ -n $pkg && -n $bin ]] || continue
+  expected=$(printf '#!/bin/bash\nexport MISE_MINIMUM_RELEASE_AGE=0\nmise use -g "%s" || exit 1\nexec mise x "%s" -- "%s" "$@"' "$pkg" "$pkg" "$bin")
+  [[ $(<"$w") == "$expected" ]] || continue
+  echo "regenerating ${w##*/} ($pkg)"
+  omarchy-mise-install "$pkg" "${w##*/}" "$bin"
+done
+```
+
+The size check skips real binaries in `~/.local/bin`, and wrappers already using `--quiet` match nothing, so re-running it changes nothing. A wrapper you edited yourself (for example the absolute-path hardening for the mise exec loop) is left as is: add `--quiet` to its `mise use -g` line by hand.
+
+Alternative: `omarchy-refresh-applications`, run from a desktop terminal, rewrites every default wrapper from the current template. It also overwrites wrappers you edited, recreates default wrappers you deleted on purpose, runs the Hermes CLI installer, and copies Omarchy's `.desktop` files over any same-named ones in `~/.local/share/applications`.
+
+**Verify.** Run a wrapper by its path, so an activated mise install directory cannot answer instead: `~/.local/bin/gh --version 2>/dev/null | head -1` starts with `gh version`. `grep -L -- '--quiet' $(grep -l '^mise use -g' ~/.local/bin/*)` prints nothing, or only wrappers you edited by hand.
+
+Sources: <https://github.com/omacom/omarchy/issues/13994> · <https://github.com/omacom/omarchy/issues/11971> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1787573629.sh>
+
+---
+
 ## Make Omarchy usable in a VM without GPU acceleration
 
 `omarchy-in-vm-no-gpu-acceleration` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
@@ -3032,6 +3662,57 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
+## New snapshots missing from the Limine menu for hours after booting from Windows
+
+`dual-boot-clock-hides-new-snapshots-limine` · severity: **medium** · frequency: **occasional** · applies to: `dual-boot`, `limine`, `omarchy`, `omarchy-4`, `snapper`, `windows`
+
+**Symptom.** On a Windows dual-boot machine, `snapper -c root list` shows the snapshot `omarchy update` just took, the journal says `Saved: snapshots.json` and `Updated: limine.conf`, but the Snapshots submenu in the Omarchy Bootloader has no entry for it or any snapshot after it. The entries appear on their own a few hours later, roughly your UTC offset.
+
+**Cause.** Windows keeps the hardware clock in local time and Linux reads it as UTC. In a time zone east of UTC (a positive offset, such as most of Europe, Africa and Asia), Omarchy therefore starts after a Windows session with the clock ahead by the UTC offset until NTP corrects it. A snapshot taken in that window, such as the pre-update snapshot, carries a future timestamp. limine-snapper-sync up to 1.31.0 records the newest snapshot time as `lastUTCTime` and treats a later snapshot as new only if its time is later than that stamp, so every real-time snapshot afterwards is ignored until real time passes the bad stamp. The tool logs nothing about it. West of UTC the clock runs behind instead, the stray snapshot lies in the past and nothing is hidden. Reported upstream as limine-snapper-sync work item 17 and fixed in limine-snapper-sync 1.32.1 (2026-10-03), which also accepts a higher snapshot ID as new when the stored stamp is in the future. As of 2026-10-05 Omarchy's stable repository still ships 1.31.0-1.1.
+
+> **Audit corrected this record.** The mechanism holds: #13367 and GitLab work item 17 describe it, and the registry command matches the Arch wiki System_time page word for word. What changed since the first pass: Zesko fixed it upstream in commit 6865e06d ('Fix #17'), released in limine-snapper-sync 1.32.1 on 2026-10-03, whose release notes read 'Do not ignore new snapshots with older UTC timestamps when the last UTC timestamp in the manifest is in the future'. A #13367 comment reports the same. Omarchy's stable repository (pkgs.omarchy.org/stable omarchy.db, fetched 2026-10-05) still ships limine-snapper-sync 1.31.0-1.1, which is also what is installed here, so the problem is current on Omarchy 4.0.4 but will end with a package update. The cause and fix now say so. Verified that `omarchy update` snapshots through omarchy-snapshot create, which uses `snapper create -c number`. Not exercised: no clock was changed and no snapshot was taken.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check which limine-snapper-sync you have:
+
+```bash
+pacman -Q limine-snapper-sync
+```
+
+Version 1.32.1 or later no longer hides the snapshots. It reaches Omarchy through `omarchy update` once Omarchy's repository carries it (on 2026-10-05 it still shipped 1.31.0-1.1). A wrong clock still stamps snapshots with the wrong time, so settle the clock convention either way.
+
+Preferred: make Windows keep UTC. In an elevated Windows command prompt:
+
+```
+reg add "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /d 1 /t REG_DWORD /f
+```
+
+Or make Linux read the RTC as local time instead:
+
+```bash
+timedatectl set-local-rtc 1
+```
+
+Until then, after coming back from Windows, wait for NTP before updating:
+
+```bash
+timedatectl show -p NTPSynchronized --value   # wait for: yes
+omarchy update
+```
+
+Snapshots already hidden reappear once real time passes the future stamp, or once 1.32.1 or later runs. They are intact in `snapper -c root list` in the meantime.
+
+**Verify.** `timedatectl` shows the correct local time immediately after booting from Windows, and a fresh `omarchy-snapshot create` appears in the Limine Snapshots submenu on the next boot.
+
+Sources: <https://github.com/omacom/omarchy/issues/13367> · <https://gitlab.com/Zesko/limine-snapper-sync/-/work_items/17> · <https://wiki.archlinux.org/title/System_time> · <https://wiki.archlinux.org/title/Dual_boot_with_Windows> · <https://gitlab.com/Zesko/limine-snapper-sync/-/commit/6865e06ddfbba3ab1165ed7743f4239c669ced66> · <https://gitlab.com/Zesko/limine-snapper-sync/-/tags/1.32.1>
+
+---
+
 ## Update > Firmware finds nothing, or reboots without applying the BIOS/UEFI capsule
 
 `firmware-update-fwupd-not-applied` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `omarchy-4`
@@ -3475,6 +4156,135 @@ Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy
 
 ---
 
+## Repair mise tools left root-owned by running 'sudo omarchy update'
+
+`sudo-omarchy-update-root-owned-mise-files` · severity: **medium** · frequency: **occasional** · applies to: `mise`, `omarchy`, `omarchy-4`
+
+**Symptom.** After running the update under sudo with your environment kept (`sudo -E omarchy update`, or a sudoers `env_keep` that keeps HOME), mise tools stop updating:
+
+```
+$ mise use -g opencode
+mise ✗ opencode@1.18.32  3ms · failed: Permission denied (os error 13)
+mise ERROR Failed to install aqua:anomalyco/opencode@latest: Permission denied (os error 13)
+```
+
+The header of `omarchy-update` says `omarchy:requires-sudo=true`, so the sudo looked right. The Omarchy menu under Setup > Defaults > Agent fails with `Could not set <name> as the default coding agent`, while already-installed agents still launch. `find ~ -xdev ! -user "$USER"` lists hundreds of files.
+
+**Cause.** `omarchy-update` escalates only the steps that need root (paccache, snapper, pacman) with its own `sudo` calls. The per-user steps, including `omarchy-update-mise`, which runs `MISE_MINIMUM_RELEASE_AGE=0 mise up`, are meant to run as the user. When an outer sudo keeps your environment, the whole chain runs as root with your `$HOME`, so mise writes root-owned installs, symlinks and caches under `~/.local/share/mise` and `~/.cache/mise`, and later user-level `mise use -g` cannot replace them. With Arch's default sudo settings a plain `sudo omarchy update` resets HOME to `/root` and drops `OMARCHY_PATH`, so on 4.0.4-1 it aborts earlier at `omarchy-update-dev: line 7: OMARCHY_PATH: unbound variable` and never reaches mise. Confirmed in the 4.0.4-1 `omarchy-update`, `omarchy-update-dev` and `omarchy-update-mise` here.
+
+> **Audit corrected this record.** Confirmed on 4.0.4-1: omarchy-update carries `omarchy:requires-sudo=true`, omarchy-update-mise runs `MISE_MINIMUM_RELEASE_AGE=0 mise up` with no privilege handling, omarchy-default-agent prints `Could not set $name as the default coding agent` and calls `mise use -g`, and the menu path setup.default.agent exists (Setup > Defaults > Agent). The sudoers manual (sudo.ws) confirms that under env_reset HOME is set from the target user, which supports the first audit's reading that only `sudo -E` or an env_keep reaches the user's home. /etc/sudoers and /etc/sudoers.d are not readable unprivileged, so whether this install keeps HOME is unchecked, and #13329's reporter says plain `sudo omarchy update -y` did write 588 files, which is why confidence stays medium. One defect: the verify runs `mise use -g gh`, which installs gh and adds it to the user's global mise config as a side effect of checking, and `find ~ ! -user` can legitimately list unrelated root-owned files (container volumes, for example). Verify rewritten to check the mise trees and run `mise up`, the same call the update makes.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Check the `find` output before a recursive chown. Only chown paths inside your own home directory.
+
+**Fix.**
+
+Give your files back, then always run the update as yourself:
+
+```bash
+find ~ -xdev ! -user "$USER" | head -50     # see what root took
+sudo chown -R "$USER:$(id -gn)" ~/.local/share/mise ~/.cache/mise ~/.config/mise
+omarchy update                                # no sudo in front
+```
+
+If the `find` lists other paths (for example under `~/.cache/yay`), chown those as well. The same rule holds for every `omarchy-*` command: they call sudo themselves where needed. If a plain `sudo omarchy update` stopped with `OMARCHY_PATH: unbound variable` instead, nothing was written to your home and only the last line applies.
+
+**Verify.** `find ~/.local/share/mise ~/.cache/mise ~/.config/mise -xdev ! -user "$USER" 2>/dev/null` prints nothing, and `mise up` completes as your user without `Permission denied`.
+
+Sources: <https://github.com/omacom/omarchy/issues/13329> · <https://github.com/omacom/omarchy/issues/12858> · <https://www.sudo.ws/docs/man/sudoers.man/>
+
+---
+
+## Unstick an 'omarchy update -y' that hangs after the orphan list or the kernel update
+
+`update-y-hangs-orphan-or-reboot-prompt` · severity: **medium** · frequency: **occasional** · applies to: `automation`, `omarchy`, `omarchy-4`, `ssh`
+
+**Symptom.** An unattended `omarchy update -y` (from a script, an agent, ssh or a supervisor) stops producing output and never exits. The last lines are an orphan list:
+
+```
+Orphan system packages
+  asar
+  vulkan-headers
+
+<nothing more>
+```
+
+or it got further and stops after a kernel or Hyprland upgrade. `/tmp/omarchy-update.log` ends in a box drawing asking `Remove N orphaned package(s)?` or `Linux kernel has been updated. Reboot?`. Keystrokes sent to the process are echoed back rather than answering.
+
+**Cause.** `-y` sets `OMARCHY_UPDATE_UNATTENDED=1`, documented in `omarchy-update` as a promise not to ask anything, but two steps on 4.0.4-1 ignore it. `omarchy-update-orphan-pkgs` decides interactivity only from `[[ ! -t 0 || ! -t 1 ]]`, and `omarchy-update` re-executes itself under `script -qefc ... /tmp/omarchy-update.log`, which supplies a pty, so the guard passes and `gum confirm` waits forever. `omarchy-update-restart`'s `confirm_reboot()` on 4.0.4-1 is a bare `gum confirm "$1"` with no unattended check at all. Both confirmed by reading the scripts on this workstation. By the time either prompt appears the package transaction has already completed, so the system is fine and only the tail of the update (log analysis, status, shell restart) is waiting.
+
+> **Audit corrected this record.** Read on 4.0.4-1: omarchy-update re-execs under `script -qefc ... /tmp/omarchy-update.log`, exports OMARCHY_UPDATE_UNATTENDED=1 for -y, and runs orphan-pkgs before update-restart. omarchy-update-orphan-pkgs guards only on `[[ ! -t 0 || ! -t 1 ]]` and uses `gum confirm --default=false "Remove N orphaned package(s)?"`, handling a non-zero answer with `Keeping orphaned packages.`. omarchy-update-restart has a bare `confirm_reboot` and three prompts with exactly the strings the pkill patterns use, and it has no set -e, so a killed gum falls through. quattro's confirm_reboot prints `Run omarchy-system-reboot when ready.` under OMARCHY_UPDATE_UNATTENDED, and quattro's orphan step still has the tty-only guard. Issues #13356, #8986 and #13416 support all of this. One inaccuracy: the fix says to expect one prompt on a run that upgrades the kernel or Hyprland, but a 'no' to the kernel prompt falls through to the Hyprland check, so a run upgrading both asks twice (#13416 shows both lines). That sentence corrected. No update was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Removing orphans with `pacman -Rns` can remove build dependencies or tools you installed as dependencies and still use. Read the list before answering yes.
+
+**Fix.**
+
+From another shell, find the waiting `gum` and kill it. Killing it answers no and the update carries on to the next step:
+
+```bash
+pgrep -af 'gum confirm'
+pkill -f 'gum confirm --default=false Remove'          # the orphan prompt
+pkill -f 'gum confirm Linux kernel has been updated'   # reboot prompt after a kernel upgrade
+pkill -f 'gum confirm Hyprland has been updated'       # reboot prompt after a Hyprland upgrade
+pkill -f 'gum confirm Updates require reboot'          # reboot prompt from the reboot-required marker
+```
+
+To avoid the orphan prompt on unattended runs, review and clear orphans beforehand in an interactive terminal:
+
+```bash
+pacman -Qtdq
+omarchy-update-orphan-pkgs      # asks, then runs sudo pacman -Rns on the list
+```
+
+There is no flag that skips the reboot prompts on 4.0.4-1. On `quattro`, `confirm_reboot` already prints `Run omarchy-system-reboot when ready.` instead of asking when `-y` is used, so that half goes away with a later release. Until then, expect to kill one reboot prompt for each condition that applies. A run that upgrades both the kernel and Hyprland asks twice, because answering no to the kernel prompt falls through to the Hyprland check. Reboot when convenient afterwards.
+
+**Verify.** The update prints its final status and `Restarting shell`, the process exits, and `pgrep -af 'omarchy-update|gum confirm'` returns nothing.
+
+Sources: <https://github.com/omacom/omarchy/issues/13356> · <https://github.com/omacom/omarchy/issues/13416> · <https://github.com/omacom/omarchy/issues/8986>
+
+---
+
+## Remove the resume parameters 'omarchy hibernation remove' leaves in the kernel command line
+
+`hibernation-remove-leaves-stale-resume-offset` · severity: **medium** · frequency: **rare** · applies to: `btrfs`, `hibernation`, `laptop`, `limine`, `omarchy`, `omarchy-4`
+
+**Symptom.** After `omarchy hibernation remove`, `cat /proc/cmdline` still carries `resume=/dev/mapper/root resume_offset=1929151` pointing at a swapfile that no longer exists. Worse, after setting hibernation up again later, hibernate writes an image and powers off but the next boot starts fresh and the session is lost.
+
+**Cause.** `omarchy-hibernation-setup` writes `/etc/limine-entry-tool.d/resume.conf` (`KERNEL_CMDLINE[default]+=" resume=... resume_offset=..."`). `omarchy-hibernation-remove` on 4.0.4-1 deletes the swapfile, the `/swap` subvolume, the fstab line and `/etc/mkinitcpio.conf.d/omarchy_resume.conf`, then runs `limine-mkinitcpio`, but never deletes `resume.conf`, so the UKI keeps the old parameters. A later setup only writes `resume.conf` when it is missing (`if [[ ! -f $RESUME_DROP_IN ]]`), so the new swapfile's physical offset is never recorded and resume reads the wrong place. Both confirmed by reading the 4.0.4-1 scripts here.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+After removing hibernation, delete the drop-in and rebuild the UKI:
+
+```bash
+sudo rm -f /etc/limine-entry-tool.d/resume.conf
+sudo limine-mkinitcpio
+```
+
+If you are setting hibernation up again and the drop-in survived from an earlier setup, remove it first so setup writes the current offset:
+
+```bash
+sudo rm -f /etc/limine-entry-tool.d/resume.conf
+omarchy hibernation setup
+cat /etc/limine-entry-tool.d/resume.conf
+sudo btrfs inspect-internal map-swapfile -r /swap/swapfile   # must equal resume_offset
+```
+
+**Verify.** After a reboot, `grep -o 'resume[^ ]*' /proc/cmdline` prints nothing when hibernation is removed, or a `resume_offset` equal to `sudo btrfs inspect-internal map-swapfile -r /swap/swapfile` when it is set up. A test `systemctl hibernate` restores the session.
+
+Sources: <https://github.com/omacom/omarchy/issues/13583> · <https://github.com/omacom/omarchy/issues/12096>
+
+---
+
 ## Understand and restore a Caps Lock key that appears dead
 
 `caps-lock-does-nothing` · severity: **low** · frequency: **very-common** · applies to: `hyprland`, `omarchy`, `wayland`
@@ -3675,6 +4485,47 @@ Sources: <https://github.com/omacom/omarchy/issues/7648> · <https://github.com/
 
 ---
 
+## Collect a debug log when 'omarchy debug' says Unknown Omarchy command
+
+`omarchy-debug-unknown-command` · severity: **low** · frequency: **common** · applies to: `omarchy`, `omarchy-4`
+
+**Symptom.** In a terminal opened from the desktop, `omarchy --help` lists `omarchy debug` under Common commands, and the bug-report instructions say to attach its output, but it fails:
+
+```
+$ omarchy debug
+Unknown Omarchy command: omarchy debug
+Run 'omarchy commands --all' to discover available commands.
+```
+
+`omarchy commands --all | grep debug` shows nothing. The same command can work over ssh or on a TTY.
+
+**Cause.** The `omarchy` router only scans the directory it was started from (`OMARCHY_BIN_DIR` is derived from `BASH_SOURCE`) for `omarchy-*` scripts. On 4.0.4-1, `omarchy-debug` is shipped by `omarchy-settings` as a real file at `/usr/bin/omarchy-debug` and is absent from `/usr/share/omarchy/bin`, while the help text hardcodes the route. `/usr/share/omarchy/default/hypr/envs.lua` puts `/usr/share/omarchy/bin` first on the Hyprland session PATH, so every terminal opened from the desktop runs `/usr/share/omarchy/bin/omarchy`, which cannot see it. An ssh or TTY login runs `/usr/bin/omarchy`, which scans `/usr/bin` and does find it. Confirmed on this workstation with `pacman -Qo /usr/bin/omarchy-debug` and by comparing `commands --all` from both routers. The bundled agent skill documentation repeats the broken form.
+
+> **Audit corrected this record.** Re-confirmed: /usr/bin/omarchy-debug is owned by omarchy-settings 4.0.4-1 and is absent from /usr/share/omarchy/bin. /usr/share/omarchy/bin/omarchy is a symlink to /usr/bin/omarchy, and the router derives OMARCHY_BIN_DIR from the unresolved BASH_SOURCE path, so the directory scanned depends on which path launched it. envs.lua prepends /usr/share/omarchy/bin to the session PATH, and env-bootstrap prepends nothing on a production install, so ssh and TTY shells resolve /usr/bin/omarchy. Here, `/usr/share/omarchy/bin/omarchy commands --all` lists no debug route and `/usr/bin/omarchy commands --all` lists both debug routes. The fix and its flags match the script's argument parser. One correction: the danger overstated the network exposure. omarchy-debug runs `inxi -Farz`, and inxi's -z filter masks IP and MAC addresses and serial numbers in its own section. The log also writes the hostname, the current boot's warning-and-error journal (which can name networks, addresses and usernames), dmesg unless --no-sudo, and the full installed package list. It also always writes /tmp/omarchy-debug.log. Danger rewritten. Cited issues #14014, #13702, #7185, #12374 and #12629 all describe this defect.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The log contains your hostname, the full list of installed packages, the current boot's warnings and errors from the journal, and kernel messages unless you pass `--no-sudo`. The `inxi` section masks IP and MAC addresses and serial numbers, but journal lines can still contain network names, IP and MAC addresses and usernames. The script also always leaves a copy at `/tmp/omarchy-debug.log`. Read the log before uploading it or pasting it into a public issue.
+
+**Fix.**
+
+Call the script directly. It is on PATH:
+
+```bash
+omarchy-debug --no-sudo --print > ~/omarchy-debug.txt
+less ~/omarchy-debug.txt
+```
+
+Without `--print` it writes the log and offers to upload it. Without `--no-sudo` it asks for your password to include privileged sections.
+
+**Verify.** `omarchy-debug --no-sudo --print | head` prints system information instead of `Unknown Omarchy command`.
+
+Sources: <https://github.com/omacom/omarchy/issues/14014> · <https://github.com/omacom/omarchy/issues/13702> · <https://github.com/omacom/omarchy/issues/7185> · <https://github.com/omacom/omarchy/issues/12374> · <https://github.com/omacom/omarchy/issues/12629>
+
+---
+
 ## Stop ttfx dumping core every time the screensaver is torn down by the lock
 
 `ttfx-screensaver-core-dump-on-lock` · severity: **low** · frequency: **common** · applies to: `desktop`, `laptop`, `omarchy`, `ttfx`
@@ -3713,6 +4564,50 @@ coredumpctl list ttfx --since '-1h'
 ```
 
 Sources: <https://github.com/omacom/omarchy/issues/6995> · <https://github.com/omacom/ttfx/pull/18> · <https://github.com/omacom/omarchy/issues/6762> · <https://github.com/omacom/omarchy/issues/6764> · <https://github.com/omacom/omarchy/pull/7131> · <https://github.com/omacom/omarchy/pull/7132> · <https://github.com/omacom/ttfx/blob/master/Cargo.toml>
+
+---
+
+## Switching update channel from the menu installs a new kernel but never offers to reboot
+
+`channel-switch-skips-reboot-offer` · severity: **low** · frequency: **occasional** · applies to: `edge-channel`, `omarchy`, `omarchy-update`
+
+**Symptom.** Switching channel from the Omarchy menu (Update > Channel, or `omarchy-channel-set edge` / `stable` / `rc`) finishes without the usual "Reboot now?" choice, even though the switch replaced the kernel or Hyprland. The last lines are plain text instead of a prompt:
+
+```
+Linux kernel has been updated. Reboot? Run omarchy-system-reboot when ready.
+Hyprland has been updated. Reboot? Run omarchy-system-reboot when ready.
+```
+
+The user closes the terminal, keeps working on a kernel whose modules are gone, and things like USB devices, VPN modules or a new monitor stop working until the next reboot.
+
+**Cause.** `omarchy-channel-set` ends by handing off to `omarchy-update -y` (line 99 of `/usr/bin/omarchy-channel-set` on 4.0.4-1). `-y` sets `OMARCHY_UPDATE_UNATTENDED=1`. On builds from the `quattro` branch (the `edge` and `dev` channels at the time of upstream #13416), `confirm_reboot()` in `omarchy-update-restart` checks exactly that variable and prints the fallback text instead of calling `gum confirm`. The switch is launched into a real floating terminal with a person watching, so the variable suppresses the one question that mattered.
+
+On the stable 4.0.4-1 package `confirm_reboot()` does not check the variable, so the reboot prompt still appears after a channel switch there. The fault therefore shows when switching to or between edge builds, or once a stable release picks up the `quattro` change.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+After any channel switch, check by hand whether a reboot is needed.
+
+```sh
+uname -r                          # the running kernel
+ls /usr/lib/modules/              # the installed kernels
+ls ~/.local/state/omarchy/reboot-required 2>/dev/null && echo 'reboot marker set'
+readlink /proc/$(pgrep -x Hyprland)/exe   # ends in (deleted) if Hyprland was replaced
+```
+
+If the running kernel has no directory under `/usr/lib/modules/`, the marker exists, or Hyprland shows `(deleted)`, save your work and reboot:
+
+```sh
+omarchy-system-reboot
+```
+
+Switching to or from `dev` always sets the marker (`omarchy-state set reboot-required` in `omarchy-channel-set`), so always reboot after those two.
+
+**Verify.** After the reboot, `uname -r` matches a directory in `/usr/lib/modules/`, `~/.local/state/omarchy/reboot-required` is gone, and `omarchy-channel-current` reports the channel you chose.
+
+Sources: <https://github.com/omacom/omarchy/issues/13416> · <https://github.com/omacom/omarchy/issues/8986> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-restart>
 
 ---
 
@@ -3770,6 +4665,170 @@ systemctl --user is-active omarchy-crash-watch.service
 `off` and `inactive` while disabled. Crash something (`sleep 100 & kill -SEGV $!`) and no toast appears.
 
 Sources: <https://github.com/omacom/omarchy/issues/7711> · <https://github.com/omacom/omarchy/pull/8980> · <https://github.com/omacom/omarchy/pull/9010> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/notifications/components/NotificationCard.qml> · <https://github.com/omacom/omarchy/blob/v4.0.3/shell/plugins/notifications/components/NotificationCard.qml>
+
+---
+
+## Stop a twitching mouse cancelling the Limine autoboot countdown
+
+`limine-autoboot-cancelled-by-mouse` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `limine`, `omarchy`, `omarchy-4`
+
+**Symptom.** On every power-on the Omarchy Bootloader menu stays up forever instead of booting after the countdown. A pointer drifts across the entries, the countdown stops, and sometimes a different entry ends up highlighted. It is most often reported on desktops with a USB optical mouse plugged in, but on UEFI any pointing device the firmware exposes can do it. Pressing Enter on the right entry boots normally.
+
+**Cause.** Limine added mouse support in 12.5.0 and it is on by default. Its CONFIG.md says using the mouse stops the `timeout` countdown just as pressing a key does, and optical mice often report motion during POST. Omarchy's shipped template `/usr/share/omarchy/default/limine/limine.conf` has no `mouse:` line (checked on 4.0.4-1, with limine 12.8.0-1 installed).
+
+> **Audit corrected this record.** Limine CONFIG.md (trunk) says `mouse` defaults to yes and using the mouse stops the timeout countdown. The ChangeLog puts mouse support in 12.5.0 (2026-07-16). limine 12.8.0-1 is installed and /usr/share/omarchy/default/limine/limine.conf has no `mouse:` line, the same as on quattro. omarchy-refresh-limine copies the template over /boot/limine.conf, as the record says. #11442 is open and describes exactly this, with `mouse: no` as the workaround. A Limine maintainer said on 2026-10-02 they would handle it in Limine instead. The sed was run on a scratch copy of the template and inserts `mouse: no` above `interface_branding:` as intended. ENABLE_ENROLL_LIMINE_CONFIG is not enabled on Omarchy, so editing the file needs no re-enrolment. One overstatement: on UEFI, CONFIG.md says any pointer device the firmware exposes is used, so the problem is not limited to desktops with a USB mouse. Symptom corrected. Not exercised: /boot/limine.conf was not edited.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A typo in the global section of `/boot/limine.conf` can stop the menu from parsing. Keep a copy first: `sudo cp /boot/limine.conf /boot/limine.conf.bak`.
+
+**Fix.**
+
+Add one global option near the top of `/boot/limine.conf`, above the first line starting with `/`:
+
+```bash
+sudo sed -i '0,/^interface_branding:/s//mouse: no\n&/' /boot/limine.conf
+sudo grep -n '^mouse\|^timeout\|^default_entry' /boot/limine.conf
+```
+
+Or open it with `sudo nano /boot/limine.conf` and add:
+
+```
+mouse: no
+```
+
+The keyboard still selects snapshots. `limine-entry-tool` rewrites the entries and keeps the global header, but `omarchy-refresh-limine` copies the template over the whole file, so re-add the line after running it.
+
+**Verify.** Power on with the mouse connected and moving: the countdown keeps running and the default entry boots on its own.
+
+Sources: <https://github.com/omacom/omarchy/issues/11442> · <https://github.com/limine-bootloader/limine/blob/trunk/CONFIG.md> · <https://github.com/limine-bootloader/limine/blob/trunk/ChangeLog>
+
+---
+
+## A script that shadows an omarchy command works over ssh but never runs from the desktop
+
+`local-bin-override-ignored-from-desktop` · severity: **low** · frequency: **occasional** · applies to: `customization`, `hyprland`, `omarchy`, `path`
+
+**Symptom.** I copied an Omarchy command to `/usr/local/bin/omarchy-<name>` (or `~/.local/bin/omarchy-<name>`) and edited it. From ssh or a TTY my version runs. From a terminal opened in Hyprland, from a keybinding, or from the Omarchy menu, the stock version still runs and my change has no effect. `which omarchy-<name>` in a desktop terminal prints `/usr/share/omarchy/bin/omarchy-<name>`. A copy in `~/.local/bin` is never used anywhere.
+
+**Cause.** Omarchy 4's Hyprland config puts the Omarchy bin directory first on the session's `PATH`. `/usr/share/omarchy/default/hypr/envs.lua` (lines 30 to 36 on 4.0.4-1) removes `$OMARCHY_PATH/bin` from wherever it is in `PATH`, inserts it at position 1, and exports the result with `hl.env("PATH", ...)`. Every process Hyprland starts, including terminals, keybindings and the menu, inherits a `PATH` that begins with `/usr/share/omarchy/bin`, ahead of `/usr/local/bin`. On 4.0.4 that directory holds a symlink for almost every `omarchy-*` command (pointing at `/usr/bin/omarchy-*`), so the stock command wins.
+
+Outside the desktop the order is different. `/etc/security/pam_env.conf` sets `PATH DEFAULT=/usr/local/sbin:/usr/local/bin:/usr/bin:@{HOME}/.local/share/mise/shims:@{HOME}/.local/bin`, and `/usr/share/omarchy/default/bash/env-bootstrap` only prepends the Omarchy bin directory when `OMARCHY_PATH` is not `/usr/share/omarchy` (a dev link). So over ssh `/usr/local/bin` comes before `/usr/bin` and an override there works. `~/.local/bin` is appended after `/usr/bin` by both PAM and `env-bootstrap`, so a copy there loses to `/usr/bin/omarchy-*` in every context.
+
+> **Audit corrected this record.** Cause confirmed on 4.0.4-1. /usr/share/omarchy/default/hypr/envs.lua lines 30-36 strip `$OMARCHY_PATH/bin`, re-insert it at position 1 and `hl.env("PATH", ...)`. A desktop terminal's PATH here has `/usr/share/omarchy/bin` ahead of `/usr/local/bin`. /usr/share/omarchy/bin holds 441 entries, symlinks to /usr/bin/omarchy-* (445 there). /etc/security/pam_env.conf line 76 and env-bootstrap are as quoted, and env-bootstrap prepends the bin dir only in dev-link mode. ~/.config/hypr/hyprland.lua requires `default.hypr.omarchy` before user code, so a line at the end runs after envs.lua. Three fix defects: (1) `mv /usr/local/bin/omarchy-<name> ~/...` fails without root, since /usr/local/bin is root-owned. Corrected to copy and then remove with sudo. (2) The binding instruction names raw `hl.bind`/`hl.dsp.exec_cmd`, but the user's bindings.lua uses Omarchy's `o.bind(keys, description, command)` helper (/usr/share/omarchy/default/hypr/helpers.lua:92, which wraps those two). A concrete line is given. (3) A copy into ~/.local/omarchy-overrides/bin needs to be executable. Cited `https://wiki.hypr.land/Configuring/Environment-variables/` returns 404 (curl 2026-10-05). The page is `https://wiki.hypr.land/configuring/core/environment-variables/` (200, source content/configuring/core/environment-variables.md documents `hl.env` and `os.getenv`). Whether os.getenv sees envs.lua's hl.env value is still unconfirmed and the record already says so. I did not probe it, because that would mean reloading the operator's session.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A shadowed omarchy command is no longer updated by `omarchy update`. When upstream changes the stock script, your copy keeps the old behaviour, and other Omarchy scripts that call it by name will run your copy.
+
+**Fix.**
+
+**Recommended:** do not shadow the stock name. Give your script its own name and bind that, so an Omarchy update can never silently bypass it:
+
+```sh
+install -Dm755 /usr/bin/omarchy-<name> ~/.local/bin/my-<name>
+$EDITOR ~/.local/bin/my-<name>
+```
+
+Then add a binding in `~/.config/hypr/bindings.lua` with Omarchy's helper, the same form as the examples in that file (unbind the default first if you are replacing one):
+
+```lua
+hl.unbind("SUPER + SHIFT + X")
+o.bind("SUPER + SHIFT + X", "My <name>", "my-<name>")
+```
+
+Menu entries and other Omarchy scripts still call the stock name, so this only covers bindings you control.
+
+**If you must shadow the name for the whole desktop session,** use a dedicated directory that holds only your overrides, and put it first after Omarchy's defaults have loaded. Add this at the end of `~/.config/hypr/hyprland.lua`, which runs after `require("default.hypr.omarchy")`:
+
+```lua
+hl.env("PATH", os.getenv("HOME") .. "/.local/omarchy-overrides/bin:" .. (os.getenv("PATH") or "/usr/local/bin:/usr/bin"))
+```
+
+```sh
+mkdir -p ~/.local/omarchy-overrides/bin
+install -m755 /usr/local/bin/omarchy-<name> ~/.local/omarchy-overrides/bin/
+sudo rm /usr/local/bin/omarchy-<name>    # optional, keeps one copy to maintain
+```
+
+Log out and back in so every process starts from the new environment. Keep `~/.local/bin` itself out of that line: it holds the mise wrappers, and moving it ahead of mise's own directories is what makes them exec-loop (upstream #13040).
+
+Whether `os.getenv("PATH")` at that point already reflects the `hl.env` call in `envs.lua` has not been confirmed, so check the result with the verify step rather than assuming it.
+
+**Plain Arch with your own Hyprland config:** nothing reorders `PATH` for you, and an override in `/usr/local/bin` wins as usual.
+
+**Verify.** Open a new terminal from the desktop and run:
+
+```sh
+echo "$PATH" | tr ':' '\n' | head -3
+command -v omarchy-<name>
+```
+
+The override directory should be first and `command -v` should print your copy. Trigger the binding or menu entry and confirm your change takes effect.
+
+Sources: <https://github.com/omacom/omarchy/issues/12846> · <https://github.com/omacom/omarchy/issues/13040> · <https://wiki.archlinux.org/title/Environment_variables> · <https://wiki.hypr.land/configuring/core/environment-variables/>
+
+---
+
+## 'gh: command not found' after cleaning ~/.local/bin, and omarchy update never brings it back
+
+`mise-stubs-gone-after-clearing-local-bin` · severity: **low** · frequency: **occasional** · applies to: `mise`, `omarchy`, `path`
+
+**Symptom.** After emptying or pruning `~/.local/bin`, commands Omarchy promised would install themselves on first run (`gh`, `claude`, `codex`, `opencode`, `copilot`, `pi`, `grok` and others) now give `command not found`. Running `omarchy update` does not restore them, and nothing logs an error. A tool that mise had already installed may still run in a terminal, because mise puts its install directory or shim on `PATH`, so the loss shows first for tools never run before and in scripts or apps that do not have mise on `PATH`.
+
+**Cause.** Omarchy 4 does not ship those tools as packages. At install time `/usr/share/omarchy/install/user/mise.sh` runs `omarchy-mise-install` for each one, which writes a lazy-install wrapper into `~/.local/bin`. The migration that regenerates wrappers, `/usr/share/omarchy/migrations/1784909971.sh`, finds the packages to rebuild by iterating the wrappers that already exist in `~/.local/bin`, so with the directory empty it recreates nothing. `omarchy-refresh-applications` does rebuild the full set, because it runs `install/user/mise.sh`, but `omarchy update` only calls it through a migration that has already run once. Reported on 4.0.4 as upstream #13708.
+
+> **Audit corrected this record.** #13708 (open) matches the reproduction and the behaviour of migration 1784909971.sh, read on 4.0.4-1. The cause overstates one point. That migration is not the only thing that rebuilds wrappers. /usr/bin/omarchy-refresh-applications on 4.0.4-1 runs `bash "$OMARCHY_PATH/install/user/mise.sh"`, which calls `omarchy-mise-install` for every default tool and so recreates the whole set from nothing. Migration 1786183928.sh calls it, but a migration runs once, so `omarchy update` does not repeat it. #13708's line that this 'does not help' is true only of update, and the issue missed the command. The symptom also needs a qualifier. A tool mise already installed through `mise use -g` stays reachable after the wrapper is deleted: an activated shell has its install dir on PATH (this desktop terminal's PATH lists ~/.local/share/mise/installs/gh/... first) and the shims dir also resolves it. So `command not found` hits tools never run before, and shells or apps without mise on PATH. The verify step's `command -v gh  # ~/.local/bin/gh` is therefore wrong in an activated shell and was replaced. The cleanup grep `^mise use -g` misses the Hermes wrapper (its mise line is indented, written by omarchy-install-hermes-cli) and was extended. mise.sh contents confirmed: it sets `upgrade.auto_prune false` and runs `omarchy-install-hermes-cli`. cursor-agent and muse are behind `omarchy-cmd-missing`.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Recreate only the wrappers you want, with the same commands the installer used. List them:
+
+```sh
+grep 'omarchy-mise-install ' /usr/share/omarchy/install/user/mise.sh
+```
+
+Then run the lines for the tools you need, for example:
+
+```sh
+omarchy-mise-install gh
+omarchy-mise-install claude
+omarchy-mise-install codex
+omarchy-mise-install opencode
+omarchy-mise-install npm:@xai-official/grok grok
+```
+
+The Hermes wrapper has its own installer: `omarchy-install-hermes-cli`. Each mise wrapper installs its tool through mise the first time it runs.
+
+To restore the whole default set in one step, run this from a terminal on the desktop, where `OMARCHY_PATH` is set:
+
+```sh
+omarchy-refresh-applications
+```
+
+It also recreates wrappers you deleted on purpose, overwrites any wrapper you edited, runs the Hermes CLI installer, sets mise's `upgrade.auto_prune` to false, and copies Omarchy's `.desktop` files over any same-named ones in `~/.local/share/applications`.
+
+In future, when cleaning `~/.local/bin`, keep the files these print:
+
+```sh
+grep -l '^mise use -g' ~/.local/bin/*
+grep -l 'Written by omarchy-install-hermes-cli' ~/.local/bin/*
+```
+
+**Verify.** ```sh
+ls -l ~/.local/bin/gh   # the wrapper exists again
+~/.local/bin/gh --version   # installs gh through mise on first run, then prints the version
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/13708>
 
 ---
 

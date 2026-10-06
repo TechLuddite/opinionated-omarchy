@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -12,8 +12,9 @@ Last updated: 2026-10-03
 >
 > **What "back on track" means, in the order the dependencies run:**
 >
-> 1. **Expand the corpus.** 505 records across 13 categories: one interrupted harvest, one
->    gap-fill pass, and the O4 issue-tracker harvest merged on 2026-09-11. `CLAUDE.md` "Regenerating the corpus"
+> 1. **Expand the corpus.** 790 records across 13 categories since 2026-10-05: one interrupted
+>    harvest, one gap-fill pass, the O4 issue-tracker harvest merged on 2026-09-11, and the
+>    first full harvest through the O6 append path, 285 records with two audits each. `CLAUDE.md` "Regenerating the corpus"
 >    names the three workflow scripts, what each does, and that `harvest-workflow.js`
 >    costs about 35 agents. Check `/usage-credits` first; the first harvest died on a spend
 >    limit. Pass the corpus root in `args`. Every new record lands with its provenance
@@ -83,6 +84,86 @@ Last updated: 2026-10-03
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-10-04/05: the corpus grows to 790, and the second audit still found 64% wrong
+
+The first full harvest since O6 ran on 2026-10-04 and was merged on 2026-10-05: **285 new records,
+505 to 790.** The existing 505 came through every merge byte-identical, checked by comparison
+after each step.
+
+### What ran, and what it cost
+
+| Step | Agents | Subagent tokens | Wall clock | Output |
+| --- | --- | --- | --- | --- |
+| `harvest-workflow.js`, 12 categories | 36 | 6.85M | 99 min | 341 records: 143 `ok`, 66 `corrected`, 132 `gapfill-unaudited` |
+| Dedupe | 1 | 0.35M | 8 min | 56 removed, 285 kept |
+| `audit-existing-workflow.js`, 40 batches of 4 to 8 | 40 | 5.89M | 23 min | 285 verdicts: 182 `corrected`, 103 `ok` |
+
+Results are in `research/raw/harvest-2026-10-04-result.json`, `harvest-2026-10-04-deduped.json` and
+`audit-2026-10-05-harvest-result.json`.
+
+### The first auditor passed what the second rejected
+
+The harvest's own auditor, one per category seeing 14 to 23 records at once, passed 143 records
+`ok` and rejected none. The second pass, six to eight records per auditor against the sources, the
+`quattro` tree and this workstation at 4.0.4-1, **corrected 182 of 285, 64%**, including 74 the
+first auditor had passed. 90 had their cause rewritten, 39 their symptom, 38 their verify step, 32
+their danger and 10 their title, and 10 cited sources were removed. That is lower than the
+near-100% earlier second passes found, plausibly because the harvesters now read
+`reaudit-brief.md` before writing, but it is still most of the batch. **Budget the second audit as
+part of every harvest, not an optional extra.** Neither pass rejected a single record.
+
+### The new verdict fields were used at once
+
+The four fields added to both workflows in this session were used in the first run that had
+them: 10 corrected titles, 8 corrected frequencies and 10 source removals, every one of which would
+otherwise have landed in `reason` and been lost. A fifth gap was found before it cost anything: an
+`ok` from the second auditor on a record the first had corrected would have downgraded it and
+erased its note. `merge_gapfill.py` now keeps `corrected` and extends the note in that case, which
+fired 16 times. Test added, suite at 36.
+
+### Duplicates came from inside the harvest, not from the corpus
+
+Telling each harvester to read its category's existing records worked: overlap with the existing
+505 was one record. The duplicates were internal. The gap-fill agent never sees the harvester's
+batch, so it repeats it, and five records on Intel PSR flicker and three on the 4.0.x locale abort
+came from different agents. One agent judged 33 heuristic candidate pairs plus a full title scan,
+and 56 records were dropped with their extra sources carried over to the survivor (82 URLs, each
+checked to be cited by the dropped record). It also held 34 close pairs apart as distinct faults.
+**`harvest-workflow.js` should pass the harvester's slugs and titles into the gap-fill prompt**,
+which would remove most of this step.
+
+### The lint, and the baseline
+
+53 new records hit `lint_corpus.py`. All 53 were read: every hit is a labelled plain-Arch branch,
+a command named only to forbid it, a global-option or entry edit to `/boot/limine.conf` (which
+Omarchy itself makes, unlike kernel parameters), or a record about Omarchy 3 on purpose. The
+baseline went from 157 to 210 with every earlier entry unchanged. That is O7 again: the lint
+cannot tell "run this" from "never run this".
+
+### Two mistakes of mine, both caught
+
+- **`research/raw/harvest-result.json` is tracked provenance of the 2026-08 harvest** and was
+  overwritten with this run's output. Restored from git before any commit, and this run's files
+  now carry their date.
+- **Agents leave downloads in the working tree.** `jb.html` (a JetBrains blog page, at the repo
+  root) and `research/dbg.c` (AMD kernel source) appeared during the two runs and were removed.
+  Check `git status` for strays after any workflow.
+
+### Security
+
+The harvest and audit prompts carried the gate-1 rule, and two scans of the merged records found no
+mention of the Docker DNS mechanism reported privately as `GHSA-8p6g-pf3r-g2rg`. Three records
+describe Omarchy's Docker DNS configuration only as far as its source files and public issue
+#11757 do.
+
+### Where to pick this up
+
+1. **Merge PR #76 and this session's PR** in that order. The site republishes with 790 records.
+2. **Pass the harvester's records into the gap-fill prompt** before the next harvest, see above.
+3. **`shell/` and most of `bin/` are unreviewed** for security, under the HackerOne terms.
+4. **Tier 2 and 3 security topics**, 23 of them, still untouched.
+5. **Then the skill.** The corpus is 56% larger than when the skill design was written.
 
 ## Session of 2026-10-03: the reporting channel moved to HackerOne, and O6
 

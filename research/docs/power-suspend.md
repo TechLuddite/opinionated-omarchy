@@ -1,6 +1,6 @@
 # Power, suspend & thermal
 
-37 problems. Sorted by severity, then by how often users hit it.
+64 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix a total hang on the second suspend caused by Intel Wi-Fi firmware
 
@@ -311,6 +311,48 @@ The per-device udev rule as given is correct. Note that disabling wakeup on the 
 **Verify.** `systemctl suspend` and leave it for 60 seconds. It should stay asleep and wake only on the power button. Compare `grep -F "" /sys/class/wakeup/*/device/power/wakeup_count` before and after a sleep cycle to see which source fired.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate>
+
+---
+
+## Make the laptop hibernate at critical battery instead of dying
+
+`critical-battery-dies-instead-of-hibernating` · severity: **high** · frequency: **common** · applies to: `arch`, `hibernate`, `laptop`, `omarchy`, `upower`
+
+**Symptom.** Hibernation is set up and works, but when the battery runs out the laptop just powers off hard at about 2%. The next boot runs fsck on the ESP and the journal says the previous boot was `uncleanly shut down`. Nothing was written to disk and my session is gone. Omarchy only shows a 'Time to recharge!' notification.
+
+**Cause.** UPower decides what happens at critical battery. The stock `/etc/UPower/UPower.conf` (upower 1.91.3) has `CriticalPowerAction=Auto` and `PercentageAction=2.0`. `Auto` hands the decision to logind's `Sleep()`, which on a machine with hibernation resolves to `suspend-then-hibernate` (`busctl call org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower GetCriticalAction` returns `"Sleep"`). At 2% there is often not enough charge to suspend and then wake to write the image. Raising only the threshold makes it worse, because the machine first suspends to RAM. Omarchy's `omarchy-battery-low` only sends a notification and runs a hook. Reported on Omarchy 4.0.4-1 and confirmed fixed by a real battery drain.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** If hibernation is broken on your hardware, the machine powers off cleanly at 5% instead, and unsaved work is lost either way. Test a hibernate and resume on AC before relying on this. UPower's percentage can occasionally be wrong (one report showed 3% while the kernel said 33%), which would hibernate early. `systemctl restart upower` clears that.
+
+**Fix.**
+
+First make sure hibernation really works on AC: `systemctl hibernate` must resume into the same session. On Omarchy 4 set it up with `omarchy hibernation setup` (see the hibernation records).
+
+Then set the critical action to hibernate directly, with margin. Use a drop-in, since `/etc/UPower/UPower.conf` is package-owned. upower requires the file name to start with two digits and end in `.conf`:
+
+```bash
+sudo tee /etc/UPower/UPower.conf.d/70-critical-hibernate.conf <<'EOF'
+[UPower]
+CriticalPowerAction=Hibernate
+PercentageCritical=8.0
+PercentageAction=5.0
+EOF
+sudo systemctl restart upower
+```
+
+This is the same on plain Arch. If hibernation is not available, UPower falls back to `PowerOff`, which is still a clean shutdown rather than a dead battery.
+
+Hibernating on battery under memory pressure took over 110 seconds in the report, so do not set `PercentageAction` lower than 5.
+
+**Verify.** ```bash
+busctl call org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower GetCriticalAction
+# s "Hibernate"
+```
+On a real drain, `journalctl` should show logind logging a hibernate requested by `upowerd` near 5%.
+
+Sources: <https://github.com/omacom/omarchy/issues/13256>
 
 ---
 
@@ -790,6 +832,69 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 ---
 
+## Stop a laptop suspending with the lid open when a USB-C charger glitch reports a lid close
+
+`false-lid-close-on-usb-c-charger-suspends-open-laptop` · severity: **high** · frequency: **occasional** · applies to: `arch`, `dell`, `hyprland`, `laptop`, `omarchy`, `systemd`, `usb-c`
+
+**Symptom.** The laptop is open and in use, often playing video, on a USB-C charger. The screen suddenly goes black and the machine is asleep. Unplugging or reseating the charger wakes it. `journalctl -b | grep -i lid` shows `systemd-logind: Lid closed.` followed by `Suspending...`, and `Lid opened.` when the cable moved, though the lid never moved. Reported on a Dell XPS 14.
+
+**Cause.** Some firmware sends a false lid-switch close event during a USB-C power-delivery renegotiation or a cable tug. Both logind and Hyprland see the same input switch event. logind applies `HandleLidSwitch=suspend`, the systemd default. Omarchy's own logind drop-ins set only `HandlePowerKey=ignore` and `InhibitDelayMaxSec=15`. Omarchy's `switch:on:Lid Switch` binding runs `omarchy-system-lid-close`, which locks the session when `/proc/acpi/button/lid/*/state` reads closed and no external monitor is connected. Neither debounces the event, so a few seconds of false close suspends the machine. Upstream issue #10690 is open. The firmware fault itself is not something Omarchy can fix.
+
+> **Audit corrected this record.** Read issue #10690 (open, no comments). It supports the Dell XPS 14 report, the `Lid closed.` then `Suspending...` journal, and the fact that Omarchy's only logind drop-ins are 10-ignore-power-button.conf and 20-inhibit-delay.conf, which I confirmed in /etc/systemd/logind.conf.d on this workstation. HandleLidSwitch reads `suspend` and HandleLidSwitchExternalPower reads an empty string over busctl here. logind.conf(5) confirms that HandleLidSwitchExternalPower is ignored until set explicitly, and the Arch wiki says to reload systemd-logind. The unit is Type=notify-reload, CanReload=yes. Three corrections. (1) The issue's own trigger is unplugging or reseating the charger. At that moment external power can be offline, so logind may apply HandleLidSwitch=suspend and HandleLidSwitchExternalPower=ignore does not help. The fix now says so and gives the reporter's stronger workaround direction as a labelled option. (2) The claim that restarting systemd-logind tears down the session on Omarchy 4 has no Omarchy-specific source. It was reworded to what the wiki supports: reload is enough. (3) The fix says a real lid close on AC turns the internal panel off. omarchy-hyprland-monitor-clamshell disables the internal output only when omarchy-hw-clamshell is true and an external monitor is active, so with no external monitor the panel stays on. omarchy-system-lid-close locks only when /proc/acpi/button/lid reads closed and no external monitor is connected, so the cause was tightened. Nothing was exercised: changing logind on this workstation is out of bounds.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** With `HandleLidSwitchExternalPower=ignore`, closing the lid on AC does not suspend. With `HandleLidSwitch=ignore` as well, closing the lid never suspends. If you then unplug and bag the laptop without suspending it from the System menu, it keeps running and can overheat and drain the battery.
+
+**Fix.**
+
+**1. Confirm the lid was not really closed:**
+
+```bash
+journalctl -b -u systemd-logind | grep -E 'Lid (closed|opened)|Suspending'
+journalctl -k -b | grep -iE 'ucsi|typec|thunderbolt' | tail -20
+cat /proc/acpi/button/lid/*/state
+```
+
+A `Lid closed.` that lines up with USB-C or UCSI messages while the lid was open is this problem.
+
+**2. Stop logind suspending on lid close while on external power.** `HandleLidSwitchExternalPower` is ignored until it is set explicitly:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/systemd/logind.conf.d/90-lid-on-ac.conf <<'EOF'
+[Login]
+HandleLidSwitchExternalPower=ignore
+EOF
+sudo systemctl reload systemd-logind
+```
+
+A reload applies the change, so there is no need to restart `systemd-logind`.
+
+This covers a false close while the charger stays online. If the false close happens as you unplug or reseat the cable, external power may already be offline when logind decides, and `HandleLidSwitch=suspend` still applies. The only logind-level way to stop that is to stop it suspending on any lid close:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/systemd/logind.conf.d/90-lid-on-ac.conf <<'EOF'
+[Login]
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+EOF
+sudo systemctl reload systemd-logind
+```
+
+With that, closing the lid never suspends, on battery or AC. Suspend from the System menu (Super+Escape) before closing the lid.
+
+On Omarchy 4, a real lid close still runs `omarchy-system-lid-close` through the Hyprland binding. It locks the session when no external monitor is connected, and the internal panel is turned off only when an external monitor is active.
+
+**3.** Check the vendor's BIOS and dock firmware updates for USB-C power-delivery fixes, because the false event comes from the firmware.
+
+**Verify.** `busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager HandleLidSwitchExternalPower` prints `s "ignore"`. Reseating the charger with the lid open no longer suspends, and `journalctl -f -u systemd-logind` logs any `Lid closed.` with no `Suspending...` after it.
+
+Sources: <https://github.com/omacom/omarchy/issues/10690> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-lid-close> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/utilities.lua> · <https://man.archlinux.org/man/logind.conf.5> · <https://wiki.archlinux.org/title/Power_management>
+
+---
+
 ## Fix hibernation that hangs or reboots instead of powering off
 
 `hibernate-does-not-power-off-hibernatemode-shutdown` · severity: **high** · frequency: **occasional** · applies to: `amd`, `arch`, `asus`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -847,6 +952,97 @@ grep -o 'resume=[^ ]*' /proc/cmdline
 **Verify.** `systemctl hibernate` results in a fully powered-off machine (fans off, no LEDs), and pressing the power button resumes the previous session rather than booting fresh. For a log-level check, add `pm_debug_messages=1` to the kernel command line first, because the hibernation progress lines are debug-only: `Image created (N pages copied, N zero pages)` from `kernel/power/snapshot.c` says the image was built, and `Hibernation image restored successfully.` from `kernel/power/hibernate.c` appears only on the resume-from-image path, so together they prove a real write, power-off and restore cycle. Read them with `journalctl -k -b | grep -i 'hibernation'`.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://man.archlinux.org/man/systemd-sleep.conf.5.en> · <https://github.com/omacom/omarchy/issues/8589> · <https://github.com/omacom/omarchy/issues/10038> · <https://github.com/torvalds/linux/blob/master/kernel/power/hibernate.c> · <https://github.com/torvalds/linux/blob/master/kernel/power/snapshot.c>
+
+---
+
+## Get a low-battery warning when a dock or weak charger is connected but the battery still drains
+
+`omarchy-low-battery-warning-silent-while-docked-draining` · severity: **high** · frequency: **occasional** · applies to: `dock`, `laptop`, `omarchy`, `upower`, `usb-c`
+
+**Symptom.** The laptop was on a dock or a low-wattage USB-C charger, the battery drained to about 2% and the machine shut down, hibernated or suspended with no "Time to recharge!" warning at any point. `upower -i /org/freedesktop/UPower/devices/DisplayDevice` shows `state: discharging` while `cat /sys/class/power_supply/AC/online` prints `1`, and `busctl get-property org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower OnBattery` prints `b false`. The journal shows `upowerd` requesting the sleep or power-off.
+
+**Cause.** Omarchy's warning comes from the shell's battery service. `isDischarging()` in `shell/plugins/services/battery/BatteryModel.js` requires both `UPower.onBattery` and a `Discharging` battery state. UPower sets `OnBattery` only when the battery is discharging and no line-power supply is online, so a supply that delivers less than the machine draws produces a draining battery with the warning suppressed for the whole discharge. Omarchy's default AC power profile is `performance`, which makes this more likely on a weak dock. The threshold is hard-coded to 10% in `Service.qml` and has no setting. UPower then takes its own critical action at `PercentageAction` (2% in the stock `/etc/UPower/UPower.conf`). With the stock `CriticalPowerAction=Auto`, UPower calls logind's `Sleep()`, which uses the first supported entry of logind's `SleepOperation=` (default `suspend-then-hibernate suspend hibernate`), so on a machine without hibernation the action is a suspend on a nearly empty battery. `BatteryModel.js` is byte-identical on 4.0.4-1 and `quattro`. Issue #10939 is open.
+
+> **Audit corrected this record.** Read issue #10939 (open). It supports the isDischarging onBattery guard and the docked-but-draining symptom. Confirmed on this workstation that BatteryModel.js is byte-identical to quattro and Service.qml hard-codes batteryThreshold 10. Quattro's Service.qml differs only by an added power-profile poll. Read UPower 1.91.3 source (installed upower 1.91.3-1): up-daemon.c sets OnBattery to display-device-discharging AND no line power online, which confirms the mechanism. The cause and danger were wrong about the critical action. up-backend.c maps CriticalPowerAction=Auto to logind's Sleep() call, not a HybridSleep, Hibernate, PowerOff chain. logind's Sleep picks from SleepOperation=, default `suspend-then-hibernate suspend hibernate` (logind.conf(5), systemd 256+), so on a stock machine the action is a suspend on a nearly empty battery, which is exactly what the issue's journal shows (`suspend requested from client ... upowerd`). The danger said it powers off or hibernates. The record's Hibernate fallback statement is correct: an explicit Hibernate falls to PowerOff when CanHibernate is false. The UPower drop-in path and 70-critical.conf name match the regex in /etc/UPower/UPower.conf.d/README.md shipped by upower. The fix's timer also fires on a normal battery discharge, where the shell already warns, so a laptop on battery would get two warnings. The corrected script only covers the OnBattery=false case. omarchy-powerprofiles-set ac balanced, omarchy hibernation setup and /usr/bin/omarchy-battery-low exist on 4.0.4-1. The manual says the AC default is performance, which supports step 2. The timer was not exercised.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** UPower's critical action runs without asking. With the stock `CriticalPowerAction=Auto` it suspends through logind, and the session is lost when the battery then dies, so unsaved work is lost when no warning came first. `CriticalPowerAction=Hibernate` without working hibernation falls back to power-off.
+
+**Fix.**
+
+**1. Confirm the mismatch:**
+
+```bash
+upower -i /org/freedesktop/UPower/devices/DisplayDevice | grep -E 'state|percentage'
+busctl get-property org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower OnBattery
+grep . /sys/class/power_supply/*/online
+```
+
+**2. Stop the drain.** Use a charger rated for the laptop, or a lighter power profile while docked. Omarchy 4 remembers the AC profile separately, and its default is `performance`:
+
+```bash
+omarchy-powerprofiles-set ac balanced
+```
+
+**3. Add a warning for the docked case.** A user timer that calls Omarchy's own warning script only when the battery drains while UPower says a charger is online. The shell already warns when `OnBattery` is true, so this does not duplicate it:
+
+```bash
+mkdir -p ~/.local/bin ~/.config/systemd/user
+cat > ~/.local/bin/battery-drain-warn <<'EOF'
+#!/bin/bash
+# Warn at or below 10% while discharging with a charger online.
+info=$(upower -i /org/freedesktop/UPower/devices/DisplayDevice)
+state=$(awk '/^ *state:/ {print $2}' <<<"$info")
+pct=$(awk '/^ *percentage:/ {gsub("%", "", $2); print int($2)}' <<<"$info")
+on_battery=$(busctl get-property org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower OnBattery)
+flag="${XDG_RUNTIME_DIR:-/tmp}/battery-drain-warned"
+if [[ $state == discharging && $on_battery == "b false" ]] && (( pct <= 10 )); then
+  [[ -e $flag ]] || { /usr/bin/omarchy-battery-low "$pct" && touch "$flag"; }
+elif (( pct > 10 )); then
+  rm -f "$flag"
+fi
+EOF
+chmod +x ~/.local/bin/battery-drain-warn
+
+cat > ~/.config/systemd/user/battery-drain-warn.service <<'EOF'
+[Service]
+Type=oneshot
+Environment=OMARCHY_PATH=/usr/share/omarchy
+ExecStart=%h/.local/bin/battery-drain-warn
+EOF
+
+cat > ~/.config/systemd/user/battery-drain-warn.timer <<'EOF'
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now battery-drain-warn.timer
+```
+
+**4. Optional: make the last-resort action safer.** The stock `CriticalPowerAction=Auto` suspends, and a suspended laptop on an empty battery loses its session when the battery dies. If hibernation is set up (`omarchy hibernation setup`), prefer it and act a little earlier, through a UPower drop-in:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/UPower/UPower.conf.d/70-critical.conf <<'EOF'
+[UPower]
+PercentageAction=4.0
+CriticalPowerAction=Hibernate
+EOF
+sudo systemctl restart upower
+```
+
+Without working hibernation, use `CriticalPowerAction=PowerOff` instead, which at least shuts down cleanly.
+
+**Verify.** `systemctl --user list-timers battery-drain-warn.timer` shows the next run. Running `~/.local/bin/battery-drain-warn` by hand at or below 10% while docked and discharging shows the "Time to recharge!" notification once. `upower --dump | grep -iE 'critical|action'` reflects the UPower drop-in if you added it.
+
+Sources: <https://github.com/omacom/omarchy/issues/10939> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/battery/BatteryModel.js> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/battery/Service.qml> · <https://github.com/omacom/omarchy/blob/quattro/manual/36-system-sleep.md> · <https://wiki.archlinux.org/title/Power_management> · <https://gitlab.freedesktop.org/upower/upower/-/raw/v1.91.3/src/up-daemon.c> · <https://gitlab.freedesktop.org/upower/upower/-/raw/v1.91.3/src/linux/up-backend.c> · <https://man.archlinux.org/man/logind.conf.5>
 
 ---
 
@@ -943,6 +1139,161 @@ Masking an _OSI string changes which ACPI code path the firmware takes for every
 **Verify.** `cat /proc/cmdline` contains the parameter, and `systemctl suspend` now stays asleep. `dmesg | grep -i _OSI` shows the string being masked.
 
 Sources: <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers>
+
+---
+
+## Fix lid close doing nothing on the linux-omarchy kernel
+
+`linux-omarchy-kernel-lid-close-no-suspend` · severity: **high** · frequency: **rare** · applies to: `asus`, `laptop`, `limine`, `omarchy`, `systemd-logind`
+
+**Symptom.** Since the Omarchy 4.0.4 update moved me to the `linux-omarchy` kernel, closing the lid does nothing: no suspend and no `Lid closed.` in the journal. `/proc/acpi/button/lid/LID/state` does change to `closed`. Booting the old Arch kernel from the Limine menu, lid close suspends normally. Reported on an ASUS Zenbook.
+
+**Cause.** On `linux-omarchy 7.2.5-3` the ACPI button driver updates the lid state in `/proc` but emits no `SW_LID` input event on `/dev/input/event0`, so logind and Hyprland never see the lid close. Nothing is grabbing the device. The same userspace on stock `7.2.3-arch1-3` works. Root cause not confirmed: the kernel maintainer offered a 7.2.7 pre-release for A/B testing, and the issue is open. Omarchy migration `1789325478` installs `linux-omarchy`, puts it first in `BOOT_ORDER`, and leaves the previous kernel installed as a fallback.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Editing `/etc/default/limine` and rebuilding changes what boots. Keep the other lines in that file untouched, since on Omarchy 4 it carries the root and `cryptdevice` command line. Check `limine-entry-tool --tree` lists both kernels before rebooting. Do not remove `linux` or `linux-omarchy` while testing.
+
+**Fix.**
+
+**1. Confirm it is the kernel:**
+
+```bash
+uname -r                                   # ...-omarchy
+journalctl -b | grep -E 'Watching system buttons.*Lid|Lid (closed|opened)'
+cat /proc/acpi/button/lid/*/state          # close the lid partly to see it change
+pacman -Q linux linux-omarchy
+```
+
+If the state changes but the journal never logs `Lid closed.`, you have this bug.
+
+**2. Workaround: boot the stock Arch kernel.** At the Limine menu pick the `linux` entry instead of `linux-omarchy`. The migration leaves it installed.
+
+**3. To make that the default until a fixed kernel ships,** change `BOOT_ORDER` in `/etc/default/limine`, which overrides every drop-in, and rebuild:
+
+```bash
+grep BOOT_ORDER /etc/default/limine
+sudo sed -i 's/^BOOT_ORDER=.*/BOOT_ORDER="linux, linux-omarchy, *, *fallback, Snapshots"/' /etc/default/limine
+sudo limine-mkinitcpio
+sudo limine-entry-tool --tree
+```
+
+Put it back to `BOOT_ORDER="linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"` once an updated `linux-omarchy` fixes lid events. Report your model on issue #12873 so the kernel maintainer can match it.
+
+**Verify.** `uname -r` shows the Arch kernel (`-arch1-`), and closing the lid logs `Lid closed.` in `journalctl -b -f` and suspends.
+
+Sources: <https://github.com/omacom/omarchy/issues/12873> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1789325478.sh>
+
+---
+
+## Fix 'Screen did not lock before suspend' when logind is still enforcing a 5 second delay window
+
+`omarchy-sleep-lock-4000ms-budget-logind-not-reloaded` · severity: **high** · frequency: **rare** · applies to: `hyprland`, `laptop`, `omarchy`, `systemd`, `wayland`
+
+**Symptom.** After resume the desktop is unlocked and a critical notification says "Screen did not lock before suspend", with the body "The session was left unlocked (the shell did not secure the session within 4000ms)." It happens mostly on lid close, especially when closing the lid also switches a display off. `journalctl --user -u omarchy-sleep-lock.service` shows `omarchy-system-sleep-lock: suspending without a secure lock (the shell did not secure the session within 4000ms)`.
+
+**Cause.** Omarchy locks before suspend from `omarchy-sleep-lock.service`, which holds a logind delay inhibitor and runs `omarchy-system-sleep-lock` when `PrepareForSleep` arrives. A delay inhibitor is a timer: logind suspends anyway when `InhibitDelayMaxSec` expires. The script reads logind's live `InhibitDelayMaxUSec` with a 1 second `busctl` call and keeps a reserve for logind, so its budget is the window minus a fifth of it (never less than 1 second), capped at 12 seconds. A 4000 ms budget comes from one of two things. Either logind is enforcing systemd's default 5 second window rather than the 15 seconds `omarchy-settings` ships in `/etc/systemd/logind.conf.d/20-inhibit-delay.conf`, or the `busctl` read failed or took longer than 1 second at sleep time, in which case the script assumes 5 seconds and logs nothing to say so. For the first: logind only reads drop-ins at start or on reload. The update that added the drop-in relies on migration `1784970000.sh` to reload logind, and when that reload does not take, the migration only sets the reboot-required flag, so the old window stays until a reboot. A local drop-in that sorts after `20-` and sets a smaller value has the same effect. The upstream comment in the drop-in says 5 seconds is not enough when a lid close also reconfigures displays. This is distinct from the stalled-lock latch (corpus slug `stalled-lock-latch-suspends-unlocked`), which exhausts the full 12000 ms budget. Budget arithmetic and the fallback read from `/usr/share/omarchy/bin/omarchy-system-sleep-lock` on 4.0.4-1, byte-identical to `quattro`.
+
+> **Audit corrected this record.** Read /usr/share/omarchy/bin/omarchy-system-sleep-lock and omarchy-system-sleep-monitor (byte-identical to quattro), the drop-in /etc/systemd/logind.conf.d/20-inhibit-delay.conf (`InhibitDelayMaxSec=15`, identical to quattro) and migration 1784970000.sh. The arithmetic, the notification text, the stderr line, the 12000 ms cap, the reload-then-reboot-flag behaviour and `CanReload=yes` on systemd-logind all hold. This machine reads `InhibitDelayMaxUSec` `t 15000000`. What the record misses: `derive_budget_ms` reads the property with `timeout 1s busctl ...` at the moment PrepareForSleep arrives, and if that read fails or times out it assumes `window=5000000`, which also gives exactly 4000 ms. So the cause's "a 4000 ms budget therefore means logind is enforcing the 5 second default" is wrong as stated: a 4000 ms message with logind reading 15000000 afterwards points at a failed read during sleep preparation, which a reload does not fix and the script does not log separately. The cause and fix are rewritten to cover both branches. Not exercised: no suspend, no reload.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not restart `systemd-logind` on Omarchy 4. It ends the graphical session and loses unsaved work.
+
+**Fix.**
+
+**1. Read the window logind is actually enforcing.** No root needed:
+
+```bash
+busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+  org.freedesktop.login1.Manager InhibitDelayMaxUSec
+# t 15000000 is Omarchy's value. t 5000000 is systemd's default and gives the 4000 ms budget.
+systemd-analyze cat-config systemd/logind.conf | grep -E '^# /|InhibitDelayMaxSec'
+pacman -Qkk omarchy-settings 2>&1 | grep logind
+```
+
+**2. If the drop-in is present but logind reports 5000000**, reload logind. Reload, never restart, because restarting `systemd-logind` tears down the graphical session:
+
+```bash
+sudo systemctl reload systemd-logind
+```
+
+Read the property again. A reboot also applies it.
+
+**3. If a later drop-in overrides it**, the `cat-config` output shows which file sets `InhibitDelayMaxSec` last. Remove that line, or set it to 15 or more, then reload as above.
+
+**4. If `pacman -Qkk` reports the Omarchy drop-in missing**, recreate it with the shipped setting and reload:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/systemd/logind.conf.d/20-inhibit-delay.conf <<'EOF'
+[Login]
+InhibitDelayMaxSec=15
+EOF
+sudo systemctl reload systemd-logind
+```
+
+**5. If logind already reports 15000000 and you still got the 4000 ms message**, the script's own read of the window failed or took over 1 second while the machine was preparing to sleep, and it fell back to assuming 5 seconds. Nothing on the logind side fixes that. Check what else was happening at that suspend:
+
+```bash
+journalctl -b --since '-1h' -u systemd-logind
+journalctl --user -b -u omarchy-sleep-lock.service
+```
+
+and report it upstream with that output, since the script does not log the failed read separately.
+
+Raising the window above 15 seconds does not extend the lock wait, because the script caps its own budget at 12 seconds.
+
+**Verify.** `busctl get-property ... InhibitDelayMaxUSec` prints `t 15000000`. After the next lid close and open, the lock screen is showing and `journalctl --user -u omarchy-sleep-lock.service -b | grep 'suspending without a secure lock'` prints nothing.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/etc/systemd/logind.conf.d/20-inhibit-delay.conf> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-sleep-lock> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-sleep-monitor> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1784970000.sh> · <https://man.archlinux.org/man/logind.conf.5>
+
+---
+
+## Fix the pre-suspend lock never firing because a Homebrew dbus-monitor shadows the system one
+
+`omarchy-sleep-lock-restart-loop-shadowed-dbus-monitor` · severity: **high** · frequency: **rare** · applies to: `dbus`, `homebrew`, `laptop`, `omarchy`, `systemd`
+
+**Symptom.** Suspending from the System menu (Super+Escape, Suspend) or with `systemctl suspend` wakes onto the unlocked desktop, and no "Screen did not lock before suspend" notification appears. A lid close with no external monitor still locks, because the Hyprland lid binding locks through a separate path. `systemctl --user show omarchy-sleep-lock.service -p NRestarts,SubState` shows thousands of restarts and `SubState=auto-restart`. `journalctl --user -u omarchy-sleep-lock.service` repeats every 2 seconds: `Failed to open connection to system bus: Failed to connect to socket /home/linuxbrew/.linuxbrew/var/run/dbus/system_bus_socket: No such file or directory`. Homebrew on Linux is installed with its `brew shellenv` line in the shell profile.
+
+**Cause.** `omarchy-system-sleep-monitor` starts `dbus-monitor --system` by bare name. Omarchy's `autostart.lua` imports the whole session environment into the systemd user manager (`systemctl --user import-environment $(env | cut -d'=' -f 1)`), so a `PATH` with Homebrew's `bin` ahead of `/usr/bin` reaches `omarchy-sleep-lock.service`. Homebrew's `dbus` formula builds a `dbus-monitor` whose default system-bus socket is under the Homebrew prefix, so it exits at once. The script's `--inhibited` branch then exits 0 regardless, and `Restart=always` with `RestartSec=2` starts it again, forever. `omarchy-system-sleep-lock` is never reached, so no lock is requested and no failure notification is sent. Any other `dbus-monitor` earlier in `PATH` would behave the same way. Confirmed on 4.0.4-1 that the monitor still calls bare `dbus-monitor` and is byte-identical to `quattro`. Issue #7412 is open.
+
+> **Audit corrected this record.** Read issue #7412 in full (open, no comments). It supports the mechanism, the journal line, the NRestarts/SubState evidence and the unconditional exit 0 in the --inhibited branch. Confirmed on this workstation (4.0.4-1, upstream latest v4.0.4) that /usr/share/omarchy/bin/omarchy-system-sleep-monitor calls bare dbus-monitor and is byte-identical to quattro, that the unit is Restart=always RestartSec=2, and that autostart.lua line 3 runs systemctl --user import-environment of the whole session env. Every binary the lock path calls (omarchy-shell, omarchy-notification-send, omarchy-hyprland-monitor-clamshell, busctl, jq, timeout) is in /usr/bin, so the PATH drop-in is sound. Two things were wrong. The symptom says the laptop wakes unlocked after every suspend, which the issue does not claim: a lid close with no external monitor still locks through the Hyprland binding switch:on:Lid Switch -> omarchy-system-lid-close -> omarchy-system-lock, which does not depend on dbus-monitor. The suspends that go through unlocked are the ones with no separate lock, such as the System menu's Suspend, which is plain `systemctl suspend` in default/omarchy/omarchy-menu.jsonc. For the same reason the verify step (lid close then open shows the lock screen) passes with or without the fix, so it was replaced. The drop-in was not exercised. Whether Homebrew's PATH reaches the user manager depends on where the shellenv line lives, and that rests on the reporter's evidence only.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Confirm the shadowing:**
+
+```bash
+systemctl --user show-environment | grep '^PATH='
+which -a dbus-monitor
+systemctl --user show omarchy-sleep-lock.service -p NRestarts,SubState
+```
+
+**2. Pin a system PATH for this one unit.** A unit's `Environment=` overrides the variable imported into the user manager. Everything the lock path calls (`omarchy-system-sleep-lock`, `omarchy-shell`, `omarchy-notification-send`, `busctl`, `jq`, `dbus-monitor`) is in `/usr/bin` on Omarchy 4:
+
+```bash
+mkdir -p ~/.config/systemd/user/omarchy-sleep-lock.service.d
+cat > ~/.config/systemd/user/omarchy-sleep-lock.service.d/10-system-path.conf <<'EOF'
+[Service]
+Environment=PATH=/usr/local/bin:/usr/bin
+EOF
+systemctl --user daemon-reload
+systemctl --user restart omarchy-sleep-lock.service
+```
+
+The alternative is to remove Homebrew's `dbus` formula, but other formulae may depend on it, so the drop-in is the less disruptive change.
+
+Do not disable or mask the unit to stop the restart noise. It is the only thing that locks the session before suspend.
+
+**Verify.** `systemctl --user show omarchy-sleep-lock.service -p NRestarts,SubState` shows `SubState=running` and the count stops climbing. `systemd-inhibit --list --what=sleep` lists `Omarchy` with `Lock screen before suspend`. Suspend from the System menu (Super+Escape, then Suspend), not with the lid, because a lid close locks through a different path even while this unit is broken. On wake the lock screen is showing.
+
+Sources: <https://github.com/omacom/omarchy/issues/7412> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-sleep-monitor> · <https://github.com/omacom/omarchy/blob/quattro/default/systemd/user/omarchy-sleep-lock.service> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/autostart.lua> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-lid-close>
 
 ---
 
@@ -1246,6 +1597,76 @@ Sources: <https://wiki.archlinux.org/title/Power_management> · <https://wiki.ar
 
 ---
 
+## Stop the Omarchy 4 screensaver and lock firing over a playing browser video
+
+`screensaver-fires-during-browser-video-dbus-inhibit-dropped` · severity: **medium** · frequency: **very-common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
+
+**Symptom.** Since upgrading to Omarchy 4 the screensaver starts on top of a YouTube or Twitch video I am watching in Zen, Flatpak Firefox or an Electron app, and a few minutes later the session locks. It never happened on Omarchy 3. `journalctl --user` shows lines like:
+```
+xdg-desktop-portal-gtk: Backend call failed: Cannot invoke method; proxy is for the well-known name org.freedesktop.ScreenSaver without an owner
+```
+and `xdg-desktop-portal` logs `Inhibiting other than idle not supported`.
+
+**Cause.** Omarchy 3 used hypridle, which owned the D-Bus name `org.freedesktop.ScreenSaver` and honoured `Inhibit()` calls. Omarchy 4 replaced it with an idle service inside `omarchy-shell` (`shell/plugins/services/idle/Service.qml`), which uses a Quickshell `IdleMonitor { respectInhibitors: true }`. That honours only the Wayland `zwp_idle_inhibit_manager_v1` protocol. Applications that ask for an inhibit over D-Bus or through the portal (`xdg-desktop-portal-hyprland` does not implement `Inhibit`, so the request falls through to `xdg-desktop-portal-gtk`, which proxies to `org.freedesktop.ScreenSaver`) reach a name that nothing owns, and the inhibit is silently dropped. Reproduced by several users on 4.0.0 through 4.0.4-1. Two upstream fixes are open and unmerged as of 2026-10-04: PR #6572, and PR #13359, which the upstream review bot recommends because #6572 exports only `/ScreenSaver` while Chromium and Chrome call `/org/freedesktop/ScreenSaver`.
+
+> **Audit corrected this record.** Mechanism, log lines and reproductions match issue #6475 (open, reproduced on 4.0.4-1 by three commenters, including a non-video Electron case). Installed and quattro Service.qml both keep `IdleMonitor { respectInhibitors: true }` with no D-Bus owner. PR #6572 and #13359 are both still open and unmerged (gh pr view, 2026-10-05). omarchybot's review on #6572 recommends #13359 for the stated /org/freedesktop/ScreenSaver reason, so the cause stands. Hyprland v0.56.2 IdleInhibitor.cpp confirms a fullscreen idle_inhibit rule feeds both the compositor inhibit and `inhibitingIdle` (isWindowInhibiting with onlyHl=false), so the workaround and verify hold. Omarchy journals the idle service as `omarchy-shell` with `idle-cycle-start` lines, confirmed in journalctl --user. SUPER + CTRL + I is bound in utilities.lua via o.bind_toggle("idle"). One defect: the menu path. omarchy-menu.jsonc puts Stay Awake at trigger.toggle.idle-lock, which is Trigger > Toggle > Stay Awake, not 'under Toggle'. The fix also now names the shipped `firefox-based-browser` tag (browser.lua, unchanged on quattro), which covers Zen, Firefox and LibreWolf in one rule. Not exercised: no rule applied, no reload.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Confirm it is this bug** while a video is playing:
+
+```bash
+busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s org.freedesktop.ScreenSaver
+# b false   -> nothing owns the name, D-Bus inhibits are being dropped
+hyprctl clients -j | jq -r '.[] | "\(.class) inhibitingIdle=\(.inhibitingIdle)"'
+```
+
+**Workaround 1, manual (Omarchy 4):** turn on Stay Awake while watching, and turn it off afterwards. It is also on Super+Ctrl+I, and in the Super+Space menu under Trigger > Toggle > Stay Awake.
+
+```bash
+omarchy toggle idle stay-awake
+# when done
+omarchy toggle idle allow-idle
+```
+
+If idle never comes back after turning Stay Awake off, see the record `omarchy-idle-never-rearms-after-stay-awake`.
+
+**Workaround 2, automatic for fullscreen video:** give the browser a compositor-side idle inhibitor while it is fullscreen. Hyprland's own `idle_inhibit` rule is a compositor-side inhibitor, which the Omarchy idle service does honour. Find the window class first:
+
+```bash
+hyprctl clients -j | jq -r '.[].class' | sort -u
+```
+
+Then add a rule to `~/.config/hypr/hyprland.lua`, below the `require("default.hypr.omarchy")` line. Omarchy already tags Firefox, Zen and LibreWolf windows with `firefox-based-browser` in `/usr/share/omarchy/default/hypr/apps/browser.lua`, so one rule covers all three:
+
+```lua
+o.window({ tag = "firefox-based-browser" }, { idle_inhibit = "fullscreen" })
+```
+
+For any other app, match the class you found instead (`zen` here is an example):
+
+```lua
+o.window({ class = "^zen$" }, { idle_inhibit = "fullscreen" })
+```
+
+```bash
+hyprctl reload
+```
+
+Omarchy already ships this rule shape for Moonlight, RetroArch, GeForce NOW and Steam in `/usr/share/omarchy/default/hypr/apps/`. It does not help with windowed playback.
+
+**Plain Arch with hypridle:** not affected. hypridle registers `org.freedesktop.ScreenSaver` itself, so check that `hypridle.service` is running.
+
+**Verify.** Play a video fullscreen and leave the input devices alone past `idle.screensaver` (150 seconds by default). `hyprctl clients -j` should show the browser with `inhibitingIdle: true`, and `journalctl --user -b | grep idle-cycle-start` should log nothing new during playback.
+
+Sources: <https://github.com/omacom/omarchy/issues/6475> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/idle/Service.qml> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-idle> · <https://github.com/omacom/omarchy/pull/6572> · <https://github.com/omacom/omarchy/pull/13359> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/browser.lua> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/input/IdleInhibitor.cpp>
+
+---
+
 ## Diagnose 'systemctl suspend does nothing' when an inhibitor is holding it
 
 `suspend-blocked-by-inhibitor-lock` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`
@@ -1404,6 +1825,54 @@ systemd-inhibit --what=sleep --why="backup running" -- restic backup /home
 **Verify.** `systemd-inhibit --list --mode=block` is empty (or lists only things you expect), then `systemctl suspend` without `-i` actually suspends. On Omarchy 4, `systemd-inhibit --list --what=sleep` should still show three `delay` entries, including `Omarchy` with `Lock screen before suspend`, and `systemctl --user is-active omarchy-sleep-lock.service` prints `active`. For an idle or lock complaint on Omarchy 4, `omarchy-toggle-idle status` prints `{"enabled":false,...}` once stay-awake is off, `omarchy-shell idle status` reports `"enabled":true`, and `hyprctl clients -j | jq '.[] | select(.inhibitingIdle == true)'` returns nothing once the offending app is closed.
 
 Sources: <https://man.archlinux.org/man/systemd-inhibit.1.en> · <https://man.archlinux.org/man/logind.conf.5.en> · <https://man.archlinux.org/man/systemctl.1.en> · <https://wiki.hypr.land/Hypr-Ecosystem/hypridle/> · <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-idle> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-sleep-monitor> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-sleep-lock> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/idle/Service.qml> · <https://github.com/omacom/omarchy/blob/quattro/default/systemd/user/omarchy-sleep-lock.service>
+
+---
+
+## Find the Chromium window that stops the screen ever locking or blanking
+
+`chromium-idle-inhibit-session-never-locks` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** With Chromium, Brave or a Chrome web app open, my laptop never locks or blanks, even overnight, though no video is playing and the window is not fullscreen. `omarchy-shell idle status` sits at `"lastEvent": "idle-monitor: active"` for hours. Closing the browser fixes it at once.
+
+**Cause.** Chromium-family browsers assert the Wayland `zwp_idle_inhibit_manager_v1` inhibitor on ordinary pages, including a paused video, and keep it. Hyprland treats any visible surface with a protocol inhibitor as inhibiting idle, and both the Omarchy 4 idle service (`IdleMonitor { respectInhibitors: true }`) and hypridle on plain Arch respect that, so idle never fires and the lock timeout is never reached. First reported for Chromium 146 on Omarchy 3.4.2 with hypridle, re-tested on Chromium 151 with Omarchy 4.0.0, and reported for Brave on CachyOS with hypridle. A Hyprland `idle_inhibit = "none"` window rule adds no inhibitor but, according to the Hyprland 0.56.2 source quoted in the issue, cannot cancel one the client set itself. One commenter reports it working for Chrome web-app windows, so treat that rule as unconfirmed.
+
+> **Audit corrected this record.** Cause and steps 1, 2 and 4 match issue #5092 (open) and Hyprland v0.56.2 IdleInhibitor.cpp. SUPER + CTRL + L runs omarchy-system-lock (utilities.lua:126). The defect is step 3's claim that the `chromium-based-browser` tag covers Chrome web apps. Hyprland v0.56.2 RegexMatchEngine.cpp uses `re2::RE2::FullMatch`, so the browser.lua pattern `((google-)?[cC]hrom(e|ium)|[bB]rave-browser|[mM]icrosoft-edge|Vivaldi-stable|helium)` tags only those exact classes. Web-app windows (class `chrome-<site>__...`, launched by omarchy-launch-webapp with --app) are never tagged. That excludes the only case the issue reports working: eds-4d5 matched `class = "^chrome.*"` for Chrome web apps on 4.0.2. A reader whose inhibitor is a web app would apply the tag rule, see no change, and wrongly remove it. The fix now covers both. The earlier audit note's 'web apps included' was wrong for the same reason. Not exercised: no rule applied, no reload.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Find which window holds the inhibitor:**
+
+```bash
+hyprctl clients -j | jq -r '.[] | select(.inhibitingIdle==true) | "\(.class) | \(.title)"'
+```
+
+**2. Close or reload that window or tab.** Quitting the browser fully clears the inhibitor. That is the only fix confirmed by every reporter.
+
+**3. Optional, unconfirmed (Omarchy 4):** try telling Hyprland to ignore Chromium-family windows, then check whether step 1 still lists them. Omarchy tags the main browser windows (classes `chromium`, `chrome`, `google-chrome`, `brave-browser`, `microsoft-edge`, `Vivaldi-stable`, `helium`) with `chromium-based-browser` in `/usr/share/omarchy/default/hypr/apps/browser.lua`. Hyprland matches a rule's regex against the whole class, so web-app windows, whose class looks like `chrome-<site>__-Default`, do not get that tag. Cover both. Add this to `~/.config/hypr/hyprland.lua` below the `require("default.hypr.omarchy")` line:
+
+```lua
+o.window({ tag = "chromium-based-browser" }, { idle_inhibit = "none" })
+o.window({ class = "^chrome-.*" }, { idle_inhibit = "none" })
+```
+
+If step 1 printed a class neither line matches, add one more line matching that class.
+
+```bash
+hyprctl reload
+hyprctl clients -j | jq -r '.[] | select(.inhibitingIdle==true) | .class'
+```
+
+The only report of this working is for Chrome web-app windows. If the browser still shows `inhibitingIdle=true`, the rule has no effect on your build, so remove it.
+
+**4. Lock by hand when you walk away:** Super+Ctrl+L on Omarchy 4 (`omarchy-system-lock`), or `loginctl lock-session` on plain Arch with hypridle.
+
+**Verify.** After closing the offending window, the command in step 1 prints nothing, and the screensaver appears after `idle.screensaver` seconds.
+
+Sources: <https://github.com/omacom/omarchy/issues/5092> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/idle/Service.qml> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/apps/browser.lua> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/desktop/rule/matchEngine/RegexMatchEngine.cpp> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/input/IdleInhibitor.cpp>
 
 ---
 
@@ -1754,6 +2223,68 @@ Sources: <https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernat
 
 ---
 
+## Stop an Intel Bluetooth controller autosuspending when Omarchy's modprobe option and the btusb option change nothing
+
+`intel-bluetooth-hwdb-autosuspend-ble-reconnect-timeout` · severity: **medium** · frequency: **common** · applies to: `arch`, `bluetooth`, `intel`, `laptop`, `omarchy`, `systemd`, `tlp`, `usb`
+
+**Symptom.** A Bluetooth LE mouse or keyboard (Logitech MX Master 3S, ERGO K860 and similar) will not reconnect after the laptop sits idle or resumes. Omarchy's Bluetooth panel times out connecting, and the device only comes back after Forget and a fresh pair. The journal shows `Bluetooth: hci0: command 0x2013 tx timeout` then `Bluetooth: hci0: Resetting usb device.`, and on some machines `INFO: task kworker/... blocked for more than 122 seconds` with `__usb_queue_reset_device` in the trace. Omarchy's `/etc/modprobe.d/omarchy-usb-autosuspend.conf`, writing `-1` to `/sys/module/usbcore/parameters/autosuspend` at runtime, and `options btusb enable_autosuspend=n` made no difference.
+
+**Cause.** systemd ships `/usr/lib/udev/hwdb.d/60-autosuspend-chromiumos.hwdb`, the Chromium OS autosuspend allowlist, which matches on every system and marks many Intel Bluetooth USB IDs (`8087:0025`, `8087:0026`, `8087:0a2a`, `8087:0aaa` and others) with `ID_AUTOSUSPEND=1`. `/usr/lib/udev/rules.d/60-autosuspend.rules` then writes `power/control=auto` for that device when it is added. The device's idle delay comes from `usbcore.autosuspend` at enumeration, which is 2 seconds because Omarchy's modprobe.d file cannot apply to the built-in usbcore. `btusb enable_autosuspend=n` does not help because the udev rule has already allowed runtime suspend. Writing the usbcore parameter at runtime does not help either, because per the kernel documentation it only affects devices detected afterwards, and reloading btusb does not re-enumerate the USB device. A `usbcore.autosuspend=-1` on the kernel command line would give the controller a negative delay at boot, which the kernel documentation says prevents autosuspend, but that has not been tested on this hardware. With the controller runtime-suspended, the BLE reconnect from a bonded device does not complete. Confirmed on this workstation (systemd 261.2-1): the hwdb entry and the rule line are present, and its Intel `8087:0aaa` controller reads `ID_AUTOSUSPEND=1`, `power/control=auto`, `runtime_status=suspended`. The reconnect failure and the blocked reset worker are from the reporters on issue #12095, not reproduced here. TLP adds a further layer: its udev hook rewrites `power/control` and the delay after udev rules run, so TLP users need a TLP-side exclusion as well, and no kernel parameter protects them.
+
+> **Audit corrected this record.** Confirmed on this workstation (systemd 261.2-1): `/usr/lib/udev/hwdb.d/60-autosuspend-chromiumos.hwdb` lists `8087:07DC`, `0A2A`, `0AAA`, `0026`, `0025` under `ID_AUTOSUSPEND=1`, `60-autosuspend.rules` writes `power/control="auto"` only on `add`, and the Intel `8087:0aaa` controller reads `ID_AUTOSUSPEND=1`, `control=auto`, `runtime_status=suspended`. Issue #12095 and its comments support the symptom, the 0x2013 timeout and blocked reset worker, the 61- udev rule working, and the TLP layer, and PR #12950 (open) ships the TLP `USB_DENYLIST` drop-in. The fix holds. What does not hold is the claim that the per-device write wins over `usbcore.autosuspend`. The issue's test wrote -1 to the parameter at runtime and reloaded btusb, but the USB device was not re-enumerated, and the kernel doc says the parameter only affects devices detected afterwards, so the controller kept its 2000 ms delay. The rule writes no delay for these IDs, and the kernel doc says a negative delay means never autosuspend, so a command-line `usbcore.autosuspend=-1` would likely keep a non-TLP controller awake. Nobody has tested that. The title and cause are corrected to what the evidence supports. The udev rule stays the recommended fix because it is narrow and independent of the command line. Not exercised: no rule installed, no reconnect test.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Keeping the Bluetooth controller powered costs a little idle battery. A rule with no vendor and product match would pin every USB device on.
+
+**Fix.**
+
+**1. Find the controller and its state.** No root needed:
+
+```bash
+for i in $(grep -l '^DRIVER=btusb' /sys/bus/usb/devices/*/uevent 2>/dev/null); do
+  d=$(dirname "$i"); d=${d%%:*}; echo "$d"
+done | sort -u | while read -r d; do
+  echo "$d $(cat $d/idVendor):$(cat $d/idProduct) control=$(cat $d/power/control) status=$(cat $d/power/runtime_status)"
+  udevadm info -q property "$d" | grep ID_AUTOSUSPEND
+done
+```
+
+`control=auto` with `ID_AUTOSUSPEND=1` is this problem.
+
+**2. Pin it on with a rule that runs after systemd's.** Use the vendor and product IDs printed above, in the lowercase form sysfs shows:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/udev/rules.d/61-bluetooth-no-autosuspend.rules <<'EOF'
+ACTION=="add|bind|change", SUBSYSTEM=="usb", ATTR{idVendor}=="8087", ATTR{idProduct}=="0aaa", TEST=="power/control", ATTR{power/control}="on"
+EOF
+sudo udevadm control --reload
+sudo udevadm trigger --action=change --subsystem-match=usb --attr-match=idVendor=8087
+```
+
+`60-autosuspend.rules` only acts on `add`, so the `change` trigger applies the new rule without undoing it. Rules in `/etc/udev/rules.d/` and `/usr/lib/udev/rules.d/` are ordered together by file name, so `61-` runs after `60-`.
+
+**3. If TLP is installed**, also exclude the controller in a TLP drop-in, because TLP re-applies `auto` after udev:
+
+```
+# /etc/tlp.d/10-bluetooth.conf
+USB_DENYLIST="8087:0aaa"
+```
+
+```bash
+sudo systemctl restart tlp.service
+```
+
+Then reconnect the device. If it was already wedged, remove and re-pair it once.
+
+**Verify.** Re-run step 1: the controller shows `control=on status=active`. `udevadm test /sys/bus/usb/devices/<dev> 2>&1 | grep power/control` lists the `60-autosuspend.rules` write followed by the `61-bluetooth-no-autosuspend.rules` write. The BLE device reconnects after an idle period and after a suspend and resume without re-pairing.
+
+Sources: <https://github.com/omacom/omarchy/issues/12095> · <https://github.com/omacom/omarchy/pull/12950> · <https://wiki.archlinux.org/title/Power_management> · <https://docs.kernel.org/driver-api/usb/power-management.html>
+
+---
+
 ## Quiet a hot, loud Intel laptop by running thermald
 
 `intel-laptop-hot-loud-no-thermald` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `intel`, `laptop`, `manjaro`, `omarchy`
@@ -1940,6 +2471,64 @@ journalctl -b -u fprintd.service | grep 'on client request'
 Check the last command first, because a hook in the wrong directory or without the executable bit fails silently. When the hook fires, systemd logs `fprintd.service: Sent signal SIGKILL to main process <pid> on client request`. One reporter running this form out of `/usr/lib/systemd/system-sleep/` recorded that line landing between `System returned from sleep operation 'suspend'` and `Successfully thawed unit 'user.slice'`, the hook taking 28ms, and the finger accepted three seconds later. Two other reporters proved the negative case: with the hook in `/etc/systemd/system-sleep/` it never executed and fprintd carried the same PID straight through the suspend.
 
 Sources: <https://github.com/omacom/omarchy/issues/7229> · <https://github.com/omacom/omarchy/pull/7158> · <https://github.com/omacom/omarchy/pull/9868> · <https://github.com/omacom/omarchy/pull/9919> · <https://github.com/omacom/omarchy/issues/7172> · <https://github.com/omacom/omarchy/issues/7176> · <https://github.com/omacom/omarchy/issues/10252> · <https://github.com/omacom/omarchy/releases/tag/v4.0.3> · <https://github.com/omacom/omarchy/compare/v4.0.2...v4.0.3> · <https://github.com/omacom/omarchy/blob/v4.0.3/migrations/1788662350.sh> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-apply-lock> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-setup-security-fingerprint> · <https://gitlab.freedesktop.org/libfprint/fprintd/-/blob/master/data/fprintd.service.in>
+
+---
+
+## Make USB autosuspend actually turn off, because Omarchy's modprobe.d option never applies
+
+`omarchy-usb-autosuspend-modprobe-conf-has-no-effect` · severity: **medium** · frequency: **common** · applies to: `arch`, `bluetooth`, `desktop`, `laptop`, `limine`, `omarchy`, `usb`
+
+**Symptom.** USB devices still drop out after sitting idle or after resume, even though Omarchy ships `/etc/modprobe.d/omarchy-usb-autosuspend.conf` containing `options usbcore autosuspend=-1`. `cat /sys/module/usbcore/parameters/autosuspend` prints `2`, not `-1`. Reported forms: dock keyboard and mouse vanish for most of a minute after resume, a USB Bluetooth adapter drops an A2DP stream every few minutes (`spa.bluez5.sink.media: Missing completion reports for packet`), or a device plugged into a USB-C or Thunderbolt port after boot is never detected at all.
+
+**Cause.** `usbcore` is built into the kernel (`CONFIG_USB=y`) in both `linux-omarchy` and stock Arch `linux`. Files in `/etc/modprobe.d/` are only read when modprobe loads a module, and a built-in module is never loaded, so the option is silently ignored and the parameter stays at the compiled default of 2 seconds. The Arch wiki and the kernel's USB power-management documentation both say a built-in module's parameter has to go on the kernel command line. Confirmed on this workstation (omarchy-settings 4.0.4-1, linux-omarchy 7.2.5-3): the file is owned by `omarchy-settings`, `usbcore` is listed in `/lib/modules/$(uname -r)/modules.builtin`, the parameter reads `2`, and `/proc/cmdline` carries no `usbcore` option. The upstream `quattro` branch still ships the same file as of 2026-10-04, and the PRs that move it to the command line (#10140, #10111) are open and unmerged. Limits on what the parameter does even when set correctly: it only sets the default idle delay for devices as they enumerate, so a runtime write does nothing for devices already present. A device that systemd's hwdb marks `ID_AUTOSUSPEND=1` gets `power/control=auto` from `60-autosuspend.rules`, but that rule does not write a delay unless the hwdb also sets `ID_AUTOSUSPEND_DELAY_MS`, so per the kernel documentation it should inherit the negative delay and not autosuspend. That case has not been tested with the parameter on the command line. TLP is different: it writes `autosuspend_delay_ms` explicitly, so TLP users keep autosuspend regardless of this parameter. That is a separate record.
+
+> **Audit corrected this record.** Core claim confirmed on this workstation: the file contains `options usbcore autosuspend=-1`, usbcore is in modules.builtin for 7.2.5-3-omarchy, the parameter reads 2, /proc/cmdline has no usbcore option. Quattro still ships the same file. Issues #8097, #12294, #13982 and PRs #10140 and #10111 (both open) support the cause and the symptoms, including the Thunderbolt hotplug case (#8097). The kernel USB power-management doc confirms that a built-in usbcore takes `usbcore.autosuspend=` on the command line and that a runtime write only affects devices detected afterwards. The drop-in approach is right: limine-common-functions loads /etc/limine-entry-tool.d/*.conf and the installer's /etc/default/limine appends with `+=`, and migration 1786482992.sh rebuilds with `limine-mkinitcpio`. Two errors. First, the verify step: the parameter is in seconds and the per-device `autosuspend_delay_ms` is in milliseconds (here a parameter of 2 gives 2000 on every device), so `-1` produces `-1000`, not `-1`. Second, the cause says a device udev sets to `power/control=auto` through the hwdb keeps autosuspending regardless. 60-autosuspend.rules writes only `power/control` (and a delay only when the hwdb sets ID_AUTOSUSPEND_DELAY_MS), and the kernel doc says a negative delay means never autosuspend, so such a device should inherit -1000 and stay awake. The evidence in #12095 for the contrary wrote the parameter at runtime and reloaded btusb without re-enumerating the USB device, which by the kernel doc cannot change its delay. TLP is the confirmed exception because it writes the delay explicitly. Not exercised: no command line was changed and nothing rebuilt.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Disabling USB autosuspend for every device raises idle power draw on laptops. A syntax error in the `limine-entry-tool.d` drop-in can make `limine-mkinitcpio` fail, so read its output before rebooting and keep the Limine snapshot entries available as a way back.
+
+**Fix.**
+
+**Check that you are affected.** Neither command needs root:
+
+```bash
+cat /sys/module/usbcore/parameters/autosuspend          # 2 means the modprobe.d file did nothing
+grep -c usbcore /lib/modules/$(uname -r)/modules.builtin  # 1 means usbcore is built in
+tr ' ' '\n' < /proc/cmdline | grep usbcore               # empty means no command-line override
+```
+
+**Omarchy 4 (Limine, UKI).** The command line is embedded in the UKI, so it goes in a `limine-entry-tool` drop-in and the image is rebuilt. Never edit `/boot/limine.conf`, which `limine-entry-tool` regenerates.
+
+```bash
+echo 'KERNEL_CMDLINE[default]+=" usbcore.autosuspend=-1"' | sudo tee /etc/limine-entry-tool.d/90-usb-autosuspend.conf
+sudo limine-mkinitcpio
+```
+
+`limine-mkinitcpio` is the same rebuild Omarchy's own migration `1786482992.sh` runs after a command-line change. Read its output for errors, then reboot.
+
+**Plain Arch.** Add `usbcore.autosuspend=-1` to your boot loader's kernel command line: `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` followed by `sudo grub-mkconfig -o /boot/grub/grub.cfg`, or the `options` line in `/boot/loader/entries/*.conf` for systemd-boot, or `/etc/kernel/cmdline` followed by `sudo mkinitcpio -P` for a UKI built from presets.
+
+**To test before rebooting.** The parameter is writable at runtime, but per the kernel documentation it only sets the delay for devices that enumerate afterwards, so replug the device after writing it:
+
+```bash
+echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend
+```
+
+**Pin one device instead of all of them.** If only one device misbehaves, a udev rule is narrower and keeps autosuspend for everything else. Writing `on` to `power/control` prevents autosuspend for that device:
+
+```
+# /etc/udev/rules.d/61-usb-no-autosuspend.rules
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0bda", ATTR{idProduct}=="8156", TEST=="power/control", ATTR{power/control}="on"
+```
+
+Replace the IDs with the ones `lsusb` prints for your device. The `61-` prefix makes it run after systemd's `60-autosuspend.rules`.
+
+**Verify.** After the reboot, `cat /sys/module/usbcore/parameters/autosuspend` prints `-1` and `tr ' ' '\n' < /proc/cmdline | grep usbcore` prints `usbcore.autosuspend=-1`. The per-device delay is in milliseconds, so `cat /sys/bus/usb/devices/*/power/autosuspend_delay_ms | sort | uniq -c` shows `-1000` for devices that enumerated with the new default (a value of 2 seconds shows as `2000`). A device that still shows `2000` had its delay written by something else, such as TLP or a hwdb `ID_AUTOSUSPEND_DELAY_MS` entry.
+
+Sources: <https://github.com/omacom/omarchy/issues/8097> · <https://github.com/omacom/omarchy/issues/12294> · <https://github.com/omacom/omarchy/issues/13982> · <https://github.com/omacom/omarchy/blob/quattro/etc/modprobe.d/omarchy-usb-autosuspend.conf> · <https://github.com/omacom/omarchy/pull/10140> · <https://wiki.archlinux.org/title/Kernel_module> · <https://wiki.archlinux.org/title/Power_management> · <https://docs.kernel.org/driver-api/usb/power-management.html> · <https://github.com/omacom/omarchy/pull/10111> · <https://github.com/omacom/omarchy/issues/12095> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1786482992.sh>
 
 ---
 
@@ -2291,6 +2880,222 @@ Sources: <https://wiki.archlinux.org/title/Fan_speed_control> · <https://wiki.a
 
 ---
 
+## Restore touchpad two-finger scroll and gestures that die after resume
+
+`i2c-touchpad-gestures-dead-after-resume` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `hyprland`, `intel`, `laptop`, `omarchy`
+
+**Symptom.** After resuming from suspend, or sometimes just after the screen blanks and comes back, my touchpad still moves the pointer and tap-to-click works, but two-finger scrolling and three-finger gestures stop working until I reboot. There are no `i2c_hid` errors in `dmesg`. Hyprland's log shows `Touchpad: kernel bug: Touch jump detected and discarded` and a stream of `palm: keyboard timeout`. Seen on a Lenovo Yoga Slim 7 Pro (Synaptics `06CB:CE44` on AMD `AMDI0010`).
+
+**Cause.** Some I2C-HID touchpads come back from resume, or from a display power cycle, stuck in a state where they send only single-touch or relative reports and no multitouch reports, while the kernel driver stays bound and reports no error. Re-probing the device through an `i2c_hid_acpi` unbind and bind restores multitouch, but only if it runs once resume has settled. Running it in the same second as `PM: suspend exit` did not help in the report. Omarchy 4 ships `omarchy-restart-trackpad`, which does the reseat, but nothing runs it automatically.
+
+> **Audit corrected this record.** Issue #12409 (open) supports the symptom, the libinput lines, the DPMS-only trigger, the same-second rebind failing, the rebind about 4 s later working, and the reporter's note that `omarchy restart trackpad` also reseats the I2C keyboard `i2c-ITE8350:00`. /usr/share/omarchy/bin/omarchy-restart-trackpad on 4.0.4-1 is byte-identical to quattro: `requires-sudo=true`, loops over every `/sys/bus/i2c/drivers/i2c_hid_acpi/i2c-*`, reloads intel_quicki2c if loaded. /usr/lib/systemd/system-sleep/ holds only keyboard-backlight, nvidia and unmount-fuse, so nothing runs it on resume, as the cause says. The defect is in the fix order: it tells the reader to run `omarchy restart trackpad` first and only afterwards says to check for an I2C keyboard, so a reader pasting top to bottom reseats the keyboard before reading the warning. A third commenter on the issue (Framework 13) shows the shipped script also walks other I2C devices such as `FRMW0004`/`FRMW0005`. The fix is reordered so the listing comes first. Not exercised: no driver was unbound here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `omarchy restart trackpad` unbinds every `i2c_hid_acpi` device, not only the touchpad. On laptops with an I2C keyboard (the reporter's has `i2c-ITE8350:00`) the internal keyboard drops out for about a second, and if a rebind fails it stays gone until reboot. Keep a USB keyboard to hand, or use the single-device form.
+
+**Fix.**
+
+**1. List the I2C-HID devices first.** No root needed:
+
+```bash
+ls /sys/bus/i2c/drivers/i2c_hid_acpi/
+# e.g. i2c-MSFT0001:00  i2c-ITE8350:00
+```
+
+If only the touchpad is listed, step 2 is safe. If anything else is listed (an internal keyboard such as `i2c-ITE8350:00`, or other vendor devices), use step 3 instead, because the shipped script reseats every device in that directory.
+
+**2. Omarchy 4, only the touchpad on the bus.** Run the shipped reset from a terminal after resume. It unbinds and rebinds every `i2c_hid_acpi` device and reloads `intel_quicki2c` if that module is loaded:
+
+```bash
+omarchy restart trackpad
+```
+
+Do not prefix it with `sudo`. The script calls sudo itself.
+
+**3. Plain Arch, or Omarchy 4 with other devices on the bus.** Reseat only the touchpad by hand, using the name from step 1:
+
+```bash
+echo -n 'i2c-MSFT0001:00' | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/unbind
+sleep 1
+echo -n 'i2c-MSFT0001:00' | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/bind
+```
+
+If you automate it with a resume hook, wait until the system has settled (for example until `systemctl is-system-running` reports `running`, which took about 4 seconds in the report) rather than running it at the instant of resume. A reseat run in the same second as `PM: suspend exit` re-probed the device but left multitouch dead.
+
+**Verify.** Two-finger scroll works again straight after the reset. `hyprctl devices` still lists the touchpad, and Hyprland's log shows `Touchpad: device removed` followed by `New device ... Touchpad`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12409> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-restart-trackpad>
+
+---
+
+## Apply the saved battery power profile when the laptop boots unplugged
+
+`omarchy-battery-power-profile-ignored-when-booting-on-battery` · severity: **medium** · frequency: **occasional** · applies to: `laptop`, `omarchy`, `power-profiles-daemon`
+
+**Symptom.** I chose Power Saver for battery and it works when I unplug. But if I boot the laptop already on battery, it runs `performance` all day. `powerprofilesctl get` says `performance` while `cat ~/.local/state/omarchy/powerprofiles/battery` says `power-saver`.
+
+**Cause.** `omarchy-powerprofiles-set autodetect` decides AC or battery from `busctl get-property org.freedesktop.UPower ... OnBattery`. Only the exact answer `b true` selects battery. Any failure, such as UPower not answering yet early in the session, is silently treated as AC, and with no AC profile saved the script picks `performance`. The shell's battery service applies a profile only on AC/battery *changes*, so nothing corrects it until you plug in and unplug again. Reported on 4.0.4-1 with power-profiles-daemon 0.30. The UPower timing is the reporter's analysis, shown to be possible but not proven for that boot.
+
+> **Audit corrected this record.** Cause confirmed against the installed omarchy-powerprofiles-set: only the exact `b true` from busctl selects battery, any failure falls to `ac`, and with no saved AC profile it picks `performance`. Issue #12734 (open, 4.0.4-1, ppd 0.30-1) supports this and the transition-only shell service. `o.exec_on_start` exists in default/hypr/helpers.lua and registers an hl.on("hyprland.start") handler, ~/.config/hypr/autostart.lua is required after default.hypr.omarchy, and Omarchy itself runs `sleep 2 && omarchy-hook post-boot` through hl.exec_cmd, so the shell form works. The defect is ordering. omarchy-powerprofiles-set applies the requested profile immediately, whatever the current power source. The record runs `omarchy-powerprofiles-set battery` first and `omarchy-powerprofiles-set ac balanced` last, so a reader on battery ends the procedure running Balanced, not their saved Power Saver. The fix saves the AC profile first and finishes with autodetect. Not exercised: no profile was changed and no reboot was done. Second audit confirmed the corrected text: Issue #12734 (open, 4.0.4-1, ppd 0.30-1) supports the cause, the hedge on UPower timing and the transition-only shell service. omarchy-powerprofiles-set is identical on quattro: only `b true` selects battery, and an absent ac file falls back to performance. The quattro battery Service.qml added only a 2 s read of ActiveProfile and still calls omarchy-powerprofiles-set only from onOnBatteryChanged, so the defect is current. The corrected ordering is right. `ac balanced` applies balanced, then `autodetect` applies the saved battery profile when on battery. `o.exec_on_start` in default/hypr/helpers.lua wraps hl.on("hyprland.start") + hl.exec_cmd. Omarchy itself runs `sleep 2 && omarchy-hook post-boot` the same way. The stock ~/.config/hypr/autostart.lua (template /usr/share/omarchy/config/hypr/autostart.lua) is required by hyprland.lua after default.hypr.omarchy. Not exercised: no profile change, no reboot.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**First, save an explicit AC profile,** so that a wrong guess of AC does not jump straight to `performance`. Do this before the next step, because `omarchy-powerprofiles-set` applies the profile it saves at once, even on battery:
+
+```bash
+omarchy-powerprofiles-set ac balanced
+```
+
+**Then apply the right profile for the current power source:**
+
+```bash
+omarchy-powerprofiles-set autodetect
+powerprofilesctl get
+```
+
+On battery this should print your saved battery profile, for example `power-saver`. If it does not, apply it explicitly with `omarchy-powerprofiles-set battery`.
+
+**Persistent workaround on Omarchy 4:** run autodetect again a few seconds after login, once UPower is up. Add this line to `~/.config/hypr/autostart.lua`:
+
+```lua
+o.exec_on_start("sleep 10 && omarchy-powerprofiles-set autodetect")
+```
+
+`o.exec_on_start` is Omarchy's helper that runs the command on `hyprland.start`, the same hook that already runs `omarchy-powerprofiles-init`. It takes effect at the next login.
+
+**Verify.** Shut down, unplug, boot on battery and log in. After about 15 seconds `powerprofilesctl get` should print the profile stored in `~/.local/state/omarchy/powerprofiles/battery`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12734> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-powerprofiles-set> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/autostart.lua> · <https://github.com/omacom/omarchy/blob/quattro/manual/36-system-sleep.md> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/battery/Service.qml>
+
+---
+
+## Restore the Omarchy screensaver and idle lock after Stay Awake is turned off
+
+`omarchy-idle-never-rearms-after-stay-awake` · severity: **medium** · frequency: **occasional** · applies to: `hyprland`, `omarchy`
+
+**Symptom.** I turned Stay Awake off (bar indicator, or `omarchy toggle idle allow-idle`) but the screensaver and idle lock never come back. `omarchy-shell idle status` says `"enabled":true,"stayAwake":false`, yet the machine sits idle for ages and nothing happens. It started after a reboot while Stay Awake was still on.
+
+**Cause.** Stay Awake is a state file, `~/.local/state/omarchy/indicators/stay-awake`, and it survives reboots. If the shell starts while that file exists, the idle service builds its `IdleMonitor` with `enabled: false`. When Stay Awake is later turned off, the binding flips to `true` but the underlying `ext_idle_notification_v1` object is apparently never re-created, so the compositor never sends another idle event. The service reports itself healthy the whole time. Reported on 4.0.3 (aarch64) and open upstream. The exact layer is the reporter's suspicion, not confirmed.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Restarting the shell on a locked session can leave you at a fresh lock screen. Only run it from an unlocked desktop session.
+
+**Fix.**
+
+Restart the shell once while Stay Awake is off and the session is **unlocked**:
+
+```bash
+omarchy toggle idle allow-idle     # make sure the state file is gone
+ls ~/.local/state/omarchy/indicators/stay-awake 2>/dev/null || echo 'stay-awake off'
+omarchy restart shell
+```
+
+To avoid it, turn Stay Awake off before you shut down or reboot, so the next shell starts with idle enabled.
+
+Do **not** run `omarchy restart shell` from ssh or on a locked session. On a locked session with a dead locker it re-locks and waits for the lock to come back, which leaves you with a lock you have to type the password into.
+
+**Verify.** Temporarily lower `idle.screensaver` in `~/.config/omarchy/shell.json` to 20 and leave the machine alone. `journalctl --user -b | grep -E 'idle-monitor: idle|idle-cycle-start'` should show a new cycle after 20 seconds. Put the value back afterwards.
+
+Sources: <https://github.com/omacom/omarchy/issues/12302> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-idle> · <https://github.com/omacom/omarchy/pull/12603> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/idle/Service.qml>
+
+---
+
+## Clear a 'Time to recharge!' notification that repeats every few seconds or stays after plugging in
+
+`omarchy-low-battery-toast-storm-or-stuck-after-charging` · severity: **medium** · frequency: **occasional** · applies to: `laptop`, `omarchy`, `upower`, `usb-c`
+
+**Symptom.** Near empty, Omarchy shows "Time to recharge! Battery is down to N%" every 3 to 4 seconds, and hundreds of them pile up on screen. Or a single warning stays on screen after the charger is connected and the battery shows charging, until it is dismissed by hand. The kernel log during the storm shows `ucsi_acpi USBC000:00: unknown error 256`, and the AC adapter's udev events alternate between plugged and unplugged.
+
+**Cause.** In `BatteryModel.js`, the notified latch is recomputed as `notifiedLowBattery: low` on every check, and `Service.qml` runs `checkBattery()` from `onOnBatteryChanged`. When the AC online status flaps, which is a USB-C power-delivery or UCSI fault, each flap runs one check that sees AC and clears the latch and one that sees battery and notifies again. The warning is sent with critical urgency, and Omarchy's notification service keeps critical notifications until they are dismissed. Nothing dismisses the warning when the charger connects either. `BatteryModel.js` is unchanged on 4.0.4-1 and `quattro`. The latch fix, PR #9883, is open and unmerged.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Dismiss them.** Super+Shift+Comma dismisses all notifications. From a terminal, by summary substring:
+
+```bash
+omarchy-notification-dismiss "Time to recharge"
+```
+
+**Find the flapping supply.** The storm is caused by the power supply bouncing, so watch it directly:
+
+```bash
+journalctl -k -b | grep -i ucsi
+udevadm monitor --subsystem-match=power_supply
+```
+
+If the AC device toggles every few seconds, reseat the USB-C cable, try another port or another charger, and check the laptop vendor's firmware updates for USB-C power-delivery fixes. Once the supply stops flapping, the latch holds and only one warning is sent per low-battery episode.
+
+After plugging in, the leftover single warning has to be dismissed by hand until upstream dismisses it on AC connect.
+
+**Verify.** `udevadm monitor --subsystem-match=power_supply` stays quiet while the charger is connected, and draining past 10% produces exactly one "Time to recharge!" notification.
+
+Sources: <https://github.com/omacom/omarchy/issues/9670> · <https://github.com/omacom/omarchy/issues/8813> · <https://github.com/omacom/omarchy/pull/9883> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/battery/BatteryModel.js> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/utilities.lua>
+
+---
+
+## Quiet fans stuck at full speed on AC after a fresh Omarchy install
+
+`omarchy-performance-profile-fans-max-on-ac` · severity: **medium** · frequency: **occasional** · applies to: `alienware`, `dell`, `laptop`, `omarchy`, `power-profiles-daemon`
+
+**Symptom.** On a fresh Omarchy 4 install, with the laptop plugged in and doing nothing, both fans run at or near maximum. CPU is 40-55 °C and the GPU is cool. `powerprofilesctl get` prints `performance` and `cat /sys/firmware/acpi/platform_profile` prints `performance`. Seen on Alienware 16 Aurora, Dell G15 5510, and a Lenovo Yoga Pro 14.
+
+**Cause.** At session start Omarchy runs `omarchy-powerprofiles-init`, which calls `omarchy-powerprofiles-set autodetect`. With no profile saved for AC, the script picks `performance` whenever that profile exists. power-profiles-daemon passes this to the firmware platform profile, and on several vendor platform drivers `performance` is a turbo mode that pins the fans. On Alienware it is G-Mode (thermal profile `0xAB`), which ignores temperature.
+
+> **Audit corrected this record.** Cause matches issue #7516 and the installed omarchy-powerprofiles-set (identical on quattro). With no ac state file it picks `performance` when available, and autostart.lua runs omarchy-powerprofiles-init on hyprland.start. `omarchy-powerprofiles-set ac balanced` writes ~/.local/state/omarchy/powerprofiles/ac and applies it. Init (autodetect) and the battery service's `omarchy-powerprofiles-set ac` on plug-in both read it back. The menu (`autodetect <profile>`) and the power panel (`ac` while not discharging) save it too. Defects: (1) the firmware-file paragraph says a direct `quiet` write 'resets at the next profile change'. The G15 comment in #7516 reports the opposite: power-profiles-daemon kept and saved the quieter firmware mode across restarts. On Omarchy, init and plug-in re-apply the saved profile, which can replace it. Neither outcome is confirmed, so the fix now says what the source supports and adds the persistent route (`ac power-saver`) with a check of the resulting firmware mode. (2) Frequency: three reporters on specific vendor drivers (Alienware, Dell G15, one Yoga 'same issue') is occasional, not common. Not exercised: no profile changed.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4:** save a quieter AC profile. It is remembered in `~/.local/state/omarchy/powerprofiles/ac` and restored at every login and AC plug-in:
+
+```bash
+omarchy-powerprofiles-set ac balanced
+powerprofilesctl get
+cat /sys/firmware/acpi/platform_profile
+```
+
+The same choice is in the Super+Space menu and the battery panel while you are on AC.
+
+If the fans are still loud on `balanced`, list what the firmware offers:
+
+```bash
+cat /sys/firmware/acpi/platform_profile_choices
+```
+
+power-profiles-daemon exposes only `power-saver`, `balanced` and `performance`. To keep a quieter mode persistently, save `power-saver` for AC and check which firmware mode the daemon chose for it:
+
+```bash
+omarchy-powerprofiles-set ac power-saver
+cat /sys/firmware/acpi/platform_profile
+```
+
+A vendor mode such as `quiet` or `cool` can also be written to the firmware directly. Omarchy re-applies the saved profile at every login and AC plug-in, which can replace it, so use this to find which mode is quiet on your machine rather than as a permanent setting:
+
+```bash
+echo quiet | sudo tee /sys/firmware/acpi/platform_profile
+```
+
+**Plain Arch with power-profiles-daemon:** `powerprofilesctl set balanced`. The daemon saves its own choice in `/var/lib/power-profiles-daemon/state.ini`.
+
+**Verify.** `cat ~/.local/state/omarchy/powerprofiles/ac` prints `balanced`. After a reboot on AC, `powerprofilesctl get` prints `balanced` and `sensors` shows fan RPM following temperature instead of sitting at maximum.
+
+Sources: <https://github.com/omacom/omarchy/issues/7516> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-powerprofiles-set> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/autostart.lua> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/battery/Service.qml>
+
+---
+
 ## Fix Omarchy's power menu crashing after masking power-profiles-daemon for TLP
 
 `omarchy-powerprofilesctl-crash-ppd-masked` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `laptop`, `omarchy`, `power-profiles-daemon`, `tlp`
@@ -2331,6 +3136,176 @@ echo balance_power | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/energy_perfor
 **Verify.** `powerprofilesctl` prints the profile list and exits 0. The Omarchy power panel opens and switching profiles no longer produces an ABRT in the logs.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8596> · <https://linrunner.de/tlp/faq/ppd.html> · <https://wiki.archlinux.org/title/CPU_frequency_scaling>
+
+---
+
+## Fix power profile switching that breaks after a power-profiles-daemon update when mise provides python3
+
+`powerprofilesctl-shebang-reverted-mise-python-no-gi` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `laptop`, `mise`, `omarchy`, `power-profiles-daemon`, `python`
+
+**Symptom.** Power profile changes stop working after an update: the power panel does nothing and the profile no longer follows AC and battery. Running the CLI by hand fails:
+
+```
+$ powerprofilesctl get
+ModuleNotFoundError: No module named 'gi'
+```
+
+`head -1 /usr/bin/powerprofilesctl` prints `#!/usr/bin/env python3`, and `which python3` points under `~/.local/share/mise`.
+
+**Cause.** `powerprofilesctl` is a Python script that imports `from gi.repository import Gio, GLib` (PyGObject), which only the system Python has. With `#!/usr/bin/env python3` it runs whichever `python3` is first in `PATH`, and a mise-installed Python has no `gi` module. Omarchy's installer step `install/config/fix-powerprofilesctl-shebang.sh` rewrites the shebang to `#!/bin/python3`, but it runs once at install and there is no pacman hook, so any reinstall or upgrade of `power-profiles-daemon` restores the packaged line. `omarchy-powerprofiles-set` and `omarchy-powerprofiles-list` both call `powerprofilesctl`. Confirmed on this workstation that the edited shebang is in place and `pacman -Qkk power-profiles-daemon` reports the file altered. Issue #11031 is open.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Restore it now:**
+
+```bash
+sudo sed -i '1s|^#!/usr/bin/env python3$|#!/usr/bin/python3|' /usr/bin/powerprofilesctl
+head -1 /usr/bin/powerprofilesctl
+```
+
+**Keep it across upgrades** with a pacman hook. `/etc/pacman.d/hooks` is pacman's default `HookDir`:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/pacman.d/hooks/90-powerprofilesctl-system-python.hook <<'EOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = power-profiles-daemon
+
+[Action]
+Description = Pin powerprofilesctl to the system python3
+When = PostTransaction
+Exec = /usr/bin/sed -i '1s|^#!/usr/bin/env python3$|#!/usr/bin/python3|' /usr/bin/powerprofilesctl
+EOF
+```
+
+Then re-apply the profile for the current power source:
+
+```bash
+omarchy-powerprofiles-set autodetect
+```
+
+**Verify.** `powerprofilesctl get` prints a profile name, and `head -1 /usr/bin/powerprofilesctl` still reads `#!/usr/bin/python3` after the next `power-profiles-daemon` upgrade. `pacman -Qkk power-profiles-daemon` reporting the file as altered is expected.
+
+Sources: <https://github.com/omacom/omarchy/issues/11031> · <https://github.com/omacom/omarchy/blob/quattro/install/config/fix-powerprofilesctl-shebang.sh> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-powerprofiles-set> · <https://wiki.archlinux.org/title/Pacman> · <https://man.archlinux.org/man/alpm-hooks.5>
+
+---
+
+## Fix power profiles failing with 'Error writing .../boost: Invalid argument' on AMD
+
+`ppd-amd-pstate-boost-write-invalid-argument` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `desktop`, `laptop`, `omarchy`, `power-profiles-daemon`
+
+**Symptom.** Power profile switching does nothing on my AMD machine. The Omarchy menu shows the profiles, but picking Performance or Power Saver has no effect. `powerprofilesctl set performance` and the journal show:
+```
+Failed to activate CPU driver 'amd_pstate': Error writing '/sys/devices/system/cpu/cpufreq/policy11/boost': Invalid argument
+```
+It fails at every boot (`Failed to activate initial profile`). Reported on Ryzen 5 5600G desktop, Ryzen 7 250 Lenovo LOQ, ThinkPad E16 and Strix Halo.
+
+**Cause.** power-profiles-daemon 0.30's `amd_pstate` driver writes each policy's `boost` file before it writes `energy_performance_preference`, and treats a failed boost write as fatal. The kernel rejects any write to a per-policy `boost` with `EINVAL` while core performance boost is disabled driver-wide, and on some CPPC platforms where the firmware owns boost. The switch aborts before the EPP is written. Fixed upstream in principle (ppd issues #172 and #189, merge request !235, still open on 2026-10-04). Arch still ships 0.30, the last release (2025-02-18).
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Check the global boost state:**
+
+```bash
+cat /sys/devices/system/cpu/cpufreq/boost
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver
+```
+
+If `boost` reads `0`, boost is off driver-wide. Turn Core Performance Boost (CPB) back on in the firmware setup, or enable it for this boot and retry:
+
+```bash
+echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+powerprofilesctl set performance && powerprofilesctl get
+```
+
+**2. If boost must stay off, or the write still fails,** stop power-profiles-daemon loading its `amd_pstate` driver. This uses the daemon's documented `--block-driver` option. On Arch the binary is `/usr/lib/power-profiles-daemon`, not the `/usr/libexec` path the upstream README shows:
+
+```bash
+sudo systemctl edit power-profiles-daemon.service
+```
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/lib/power-profiles-daemon --block-driver=amd_pstate
+```
+
+```bash
+sudo systemctl try-restart power-profiles-daemon.service
+powerprofilesctl list
+```
+
+On a laptop that has `/sys/firmware/acpi/platform_profile`, the profiles then drive the firmware profile only. On a desktop with no platform profile, the profiles become placeholders that change nothing, and the EPP stays at its kernel default, so this only removes the errors.
+
+Do not mask power-profiles-daemon on Omarchy 4: the power menu calls `powerprofilesctl`, which crashes when the daemon is masked (record `omarchy-powerprofilesctl-crash-ppd-masked`).
+
+**Verify.** `journalctl -b -u power-profiles-daemon` has no `Failed to activate` line after a reboot, and `powerprofilesctl set power-saver && powerprofilesctl get` prints `power-saver`.
+
+Sources: <https://github.com/omacom/omarchy/issues/12805> · <https://github.com/omacom/omarchy/issues/6898> · <https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/work_items/189> · <https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/work_items/172> · <https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/merge_requests/235> · <https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/raw/main/README.md> · <https://archlinux.org/packages/extra/x86_64/power-profiles-daemon/>
+
+---
+
+## Stop an AMD Ryzen laptop waking when the charger is plugged in or the lid closes
+
+`ryzen-gpio-spurious-wake-s2idle` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `grub`, `laptop`, `limine`, `omarchy`
+
+**Symptom.** My AMD Ryzen 7000-series laptop wakes straight back up after suspend, or wakes from s2idle when I plug in the charger or close the lid. Disabling USB wakeups in `/proc/acpi/wakeup` changes nothing. With PM debug messages on, `dmesg` shows a line like `GPIO 3 is active: 0x30047ce0`.
+
+**Cause.** On some Ryzen 7000-series systems the GPIO controller `AMDI0030:00` raises a redundant interrupt on certain pins during suspend, which the kernel treats as a wake event. Which pins depends on the model, usually 2, 3 or 4. The workaround is to have the kernel ignore those pins' interrupts with `gpiolib_acpi.ignore_interrupt`.
+
+> **Audit corrected this record.** Re-checked the earlier correction against the Power management/Wakeup triggers wiki (section Ryzen 7000 Series) and the kernel source. AMDI0030:00, the pm_debug_messages method, the `GPIO 3 is active: 0x30047ce0` line, pins 2 to 4, the debugfs S0i3/S3 columns and the comma-separated form all hold. drivers/gpio/Makefile builds gpiolib-acpi.o from gpiolib-acpi-core.o and gpiolib-acpi-quirks.o, so the parameter prefix is still `gpiolib_acpi`, and gpiolib-acpi-quirks.c declares `ignore_interrupt` as a single charp described as `controller@pin[,controller@pin[,...]]`, which confirms one parameter with commas. The Omarchy 4 branch is right: /usr/lib/limine/limine-common-functions loads /etc/limine-entry-tool.d/*.conf and `limine-mkinitcpio` rebuilds the UKI. One defect remained in the plain Arch branch: it said a UKI setup only needs `mkinitcpio -P`, but on plain Arch a UKI takes its command line from /etc/kernel/cmdline (or the preset's options), so the parameter must go there before the rebuild. The fix below changes only that paragraph. This would ideally be a `recheck` verdict to keep the earlier audit note, but the output schema offers only ok, corrected and reject, so the merge should append rather than replace the note if possible. Not exercised: no affected hardware and no cmdline change here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Ignoring the wrong GPIO pin can disable a real function wired to it, such as the lid switch or a button. Ignore only the pin the debug log names, and check that lid close and the power button still work afterwards.
+
+**Fix.**
+
+**1. Find the pin** responsible:
+
+```bash
+echo 1 | sudo tee /sys/power/pm_debug_messages
+systemctl suspend
+# after it wakes:
+sudo dmesg | grep -E 'GPIO [0-9]+ is active'
+```
+
+For more detail, mount debugfs and look for pins with entries in the `S0i3` and `S3` columns:
+
+```bash
+sudo mount -t debugfs none /sys/kernel/debug 2>/dev/null
+sudo cat /sys/kernel/debug/gpio
+```
+
+**2. Ignore those pins** on the kernel command line. Use one `gpiolib_acpi.ignore_interrupt=` parameter and list the pins in it separated by commas, for example `gpiolib_acpi.ignore_interrupt=AMDI0030:00@2,AMDI0030:00@3`. Do not repeat the parameter once per pin.
+
+Omarchy 4 (Limine and UKI, the command line is built into the UKI), for pin 3:
+
+```bash
+printf '%s\n' 'KERNEL_CMDLINE[default]+=" gpiolib_acpi.ignore_interrupt=AMDI0030:00@3"' \
+  | sudo tee /etc/limine-entry-tool.d/gpio-wake.conf
+sudo limine-mkinitcpio
+```
+
+Plain Arch with GRUB: add `gpiolib_acpi.ignore_interrupt=AMDI0030:00@3` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then run `sudo grub-mkconfig -o /boot/grub/grub.cfg`. Plain Arch with a UKI built by mkinitcpio: append the parameter to the single line in `/etc/kernel/cmdline` (or to the file your preset's `default_options` names), then run `sudo mkinitcpio -P`. Other bootloaders: add it to the entry's options line.
+
+Reboot, then turn the debug messages back off:
+
+```bash
+echo 0 | sudo tee /sys/power/pm_debug_messages
+```
+
+**Verify.** `cat /proc/cmdline` contains `gpiolib_acpi.ignore_interrupt=`. A suspend stays suspended, and plugging in the charger no longer wakes it.
+
+Sources: <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers> · <https://github.com/torvalds/linux/blob/master/drivers/gpio/gpiolib-acpi-quirks.c> · <https://github.com/torvalds/linux/blob/master/drivers/gpio/Makefile>
 
 ---
 
@@ -2581,6 +3556,67 @@ Sources: <https://github.com/omacom/omarchy/blob/quattro/config/omarchy/shell.js
 
 ---
 
+## Recognise the omarchy-sleep-lock.service FAILURE logged around each suspend as a self-healing restart race
+
+`omarchy-sleep-lock-service-failed-every-resume` · severity: **low** · frequency: **very-common** · applies to: `laptop`, `omarchy`, `systemd`
+
+**Symptom.** Every suspend or resume leaves this in `journalctl --user -u omarchy-sleep-lock.service`:
+
+```
+systemd-inhibit[42152]: Failed to inhibit: The operation inhibition has been requested for is already running
+omarchy-sleep-lock.service: Main process exited, code=exited, status=1/FAILURE
+omarchy-sleep-lock.service: Failed with result 'exit-code'.
+omarchy-sleep-lock.service: Scheduled restart job, restart counter is at 8.
+Started Lock Omarchy before suspend.
+```
+
+It looks like the lock-before-suspend service is broken.
+
+**Cause.** `omarchy-system-sleep-monitor` handles exactly one `PrepareForSleep` event and then exits, releasing its delay inhibitor as soon as the lock is secure. The unit relies on `Restart=always` with `RestartSec=2` to come back. That restart can land while logind's sleep operation is still in flight, on resume or during suspend preparation, and logind refuses a new `Inhibit()` call during an active sleep operation, so `systemd-inhibit` exits 1. The next restart about 2 seconds later normally succeeds. The lock was already secure before the suspend. One reporter counted 31 failures across 132 sleep transitions with zero unlocked suspends. The real cost is a window of about 2 seconds, sometimes several failed restarts on a slow resume, in which no Omarchy delay inhibitor is held, so a second suspend inside it is not delayed for the lock. If the sleep operation never finishes, because a suspend wedged in the kernel, every restart fails and the unit loops for the rest of the session with no inhibitor at all. Measured by two reporters, the shipped restart spacing of about 2.25 s keeps the unit below the default start limit, so the restart path loops rather than landing in `failed`. Open upstream as #7280, #8112, #13160 and #13701, unchanged on 4.0.4-1.
+
+> **Audit corrected this record.** Read #7280 with all comments, #13160 with its comment, #13701, and #8112. The race, the one-failure-then-recovery pattern, the 31 failures across 132 transitions with zero report_unsecured lines (#13701), and the shipped Restart=always RestartSec=2 (confirmed on this workstation, StartLimitBurst=5, StartLimitIntervalUSec=10s) all hold. Three things were wrong or missing. (1) The title calls it harmless, but #7280 shows the collision also happens on the way down, during suspend preparation, and #8112 shows a fast second suspend can beat the respawn and proceed with no Omarchy delay inhibitor. Self-healing is accurate. Harmless is not. (2) The record misses the variant two #7280 commenters measured: when logind's sleep operation never finishes (a suspend wedged in the kernel, `PreparingForSleep` stays `b true`), every restart fails, 662 in 25 minutes and 3267 in two hours, and no inhibitor is held for the rest of the session. A reader with that log would be told it is harmless. (3) The start-limit-hit branch: two commenters showed by measurement that the restart path cannot trip the limiter at RestartSec=2 because systemd spaces restarts about 2.25 s apart, so six starts never fit in 10 s. It can only happen from manual or target-triggered starts. The reset-failed commands are still correct, so they were kept with that framing. The advice not to raise RestartSec is supported: commenters found 4 s and 10 s did not prevent the collision and a longer delay widens the uninhibited window. Nothing was exercised on a suspend here, because this workstation's session must not be suspended.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Nothing needs repairing when each failure is followed by a successful start. Check that the unit recovered and that no suspend went through unlocked:
+
+```bash
+systemctl --user is-active omarchy-sleep-lock.service        # active
+systemd-inhibit --list --what=sleep | grep Omarchy           # Lock screen before suspend
+journalctl --user -u omarchy-sleep-lock.service -b | grep -c 'Failed to inhibit'
+journalctl --user -u omarchy-sleep-lock.service -b | grep 'suspending without a secure lock'
+```
+
+A few `Failed to inhibit` lines per sleep transition, each run ending in a successful start, is this behaviour. A `suspending without a secure lock` line is a different problem. See the corpus records `stalled-lock-latch-suspends-unlocked` and `omarchy-sleep-lock-4000ms-budget-logind-not-reloaded`.
+
+**If the failures never stop**, with the restart counter climbing every 2 seconds long after resume, logind is stuck in a sleep operation rather than racing one:
+
+```bash
+busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager PreparingForSleep
+systemctl status systemd-suspend.service
+```
+
+`b true` long after resume, or `systemd-suspend.service` stuck in `activating`, means a suspend wedged below Omarchy. The pre-suspend lock is disarmed for the rest of the session. Save your work and reboot, then look for the kernel or driver error around the wedged suspend with `journalctl -k -b -1`.
+
+If the unit ever shows `failed` with `start-limit-hit`, which the restart path alone does not reach but repeated manual starts can, clear it:
+
+```bash
+systemctl --user reset-failed omarchy-sleep-lock.service
+systemctl --user start omarchy-sleep-lock.service
+```
+
+Do not disable or mask the unit, and do not raise `RestartSec` to quiet the log. Reporters found 4 and 10 seconds did not stop the collision, and a longer delay widens the window with no inhibitor.
+
+**Verify.** `systemctl --user is-active omarchy-sleep-lock.service` prints `active` a few seconds after resume, and the Omarchy entry is back in `systemd-inhibit --list --what=sleep`.
+
+Sources: <https://github.com/omacom/omarchy/issues/7280> · <https://github.com/omacom/omarchy/issues/13160> · <https://github.com/omacom/omarchy/issues/13701> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-system-sleep-monitor> · <https://github.com/omacom/omarchy/blob/quattro/default/systemd/user/omarchy-sleep-lock.service> · <https://github.com/omacom/omarchy/issues/8112>
+
+---
+
 ## Work around the Omarchy lock screen not accepting keystrokes after lid-open
 
 `omarchy-lockscreen-no-keyboard-focus-after-resume` · severity: **low** · frequency: **common** · applies to: `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `wayland`
@@ -2626,6 +3662,482 @@ If hypridle is not holding a sleep inhibitor, `inhibit_sleep` is not in effect a
 **Verify.** Suspend, resume, and type immediately. Characters appear in the field without clicking it first.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8520> · <https://github.com/basecamp/omarchy/issues?q=is%3Aissue+suspend> · <https://raw.githubusercontent.com/basecamp/omarchy/master/config/hypr/hypridle.conf>
+
+---
+
+## Get the power button to shut down or suspend again on Omarchy 4
+
+`omarchy-power-button-short-press-ignored` · severity: **low** · frequency: **common** · applies to: `arch`, `desktop`, `hyprland`, `laptop`, `omarchy`, `systemd`
+
+**Symptom.** The power button no longer shuts the machine down or suspends it the way it did on plain Arch, GNOME or KDE. On Omarchy 4 a short press opens the System menu instead. When Hyprland stops handling input, for example after hotplugging a display or dock while the session is locked, pressing it does nothing at all, and the only way out is holding it until the firmware cuts power.
+
+**Cause.** `omarchy-settings` ships `/etc/systemd/logind.conf.d/10-ignore-power-button.conf` with `HandlePowerKey=ignore`, and Omarchy binds `XF86PowerOff` to the System menu in `/usr/share/omarchy/default/hypr/bindings/utilities.lua` with `locked = true`, so the binding is meant to work on the lock screen too. logind never acts on the key, and the compositor is the only thing that handles it. logind's `HandlePowerKeyLongPress=` defaults to `ignore`, so a held press does nothing either until the firmware's own forced power-off. When Hyprland is not handling input at all, as in the hotplug-while-locked deadlock reported in issue #10965, nothing handles the key. Confirmed on this workstation (omarchy-settings 4.0.4-1): `busctl` reports `HandlePowerKey` and `HandlePowerKeyLongPress` both `ignore`. Plain Arch defaults `HandlePowerKey` to `poweroff`.
+
+> **Audit corrected this record.** Confirmed on this workstation: /etc/systemd/logind.conf.d/10-ignore-power-button.conf (owned by omarchy-settings 4.0.4-1, identical to quattro) sets `HandlePowerKey=ignore`, busctl reports HandlePowerKey and HandlePowerKeyLongPress both `ignore`, no handle-power-key inhibitor is held, and systemd-logind has `CanReload=yes`. logind.conf(5) here gives the 60-90 range for /etc drop-ins and HandlePowerKeyLongPress defaulting to ignore. systemd's logind-button.c on main has `LONG_PRESS_DURATION (5 * USEC_PER_SEC)`, starts the long-press timer only when the long-press action differs from the short one and is not ignore, and logs `Power key pressed short.` / `Power key pressed long.`, so the fix and verify hold. The defect is in symptom and cause: the binding in /usr/share/omarchy/default/hypr/bindings/utilities.lua is `o.bind("XF86PowerOff", "Power menu", "omarchy-menu toggle system", { locked = true })` (quattro uses `{ menu = "system" }` with the same `locked = true`), so it is meant to fire on a locked session. The symptom's blanket "locked with the screen off, nothing at all" is not supported. Issue #10965 (filed by an AI agent, one human confirmation) describes the hotplug-while-locked input deadlock, where the compositor stops handling input entirely, and that is the case the cause should name. Not exercised: no drop-in written, no button pressed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `HandlePowerKey=poweroff` shuts down on a single accidental press, with no prompt and no chance to save work.
+
+**Fix.**
+
+Read what logind is enforcing first:
+
+```bash
+busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+  org.freedesktop.login1.Manager HandlePowerKey HandlePowerKeyLongPress
+systemd-inhibit --list --what=handle-power-key
+```
+
+Omarchy's drop-in is `10-`, so a local drop-in has to sort after it. `logind.conf(5)` suggests the 60 to 90 range for local overrides.
+
+**Omarchy 4, keep the System menu on a short press and add a clean power-off on a long press.** This is also the way out when the compositor is stuck:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/systemd/logind.conf.d/90-power-key.conf <<'EOF'
+[Login]
+HandlePowerKeyLongPress=poweroff
+EOF
+sudo systemctl reload systemd-logind
+```
+
+logind counts a long press as 5 seconds (`LONG_PRESS_DURATION` in `logind-button.c`). Firmware that forces power off at 4 seconds will win that race, so check how your machine behaves.
+
+**Omarchy 4, plain-Arch behaviour on a short press.** Use `suspend` instead of `poweroff` if you prefer:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/systemd/logind.conf.d/90-power-key.conf <<'EOF'
+[Login]
+HandlePowerKey=poweroff
+EOF
+sudo systemctl reload systemd-logind
+```
+
+Hyprland's binding still opens the System menu on the same press, which is harmless because logind acts on the key independently.
+
+Use `reload`, never `restart`. Restarting `systemd-logind` tears down the graphical session, as Omarchy's migration `1784970000.sh` notes.
+
+**Plain Arch.** The default is already `poweroff`. If the button does nothing, the `busctl` output above shows which value is in force, and the `systemd-inhibit` line shows whether a desktop component holds a `handle-power-key` block.
+
+**Verify.** `busctl get-property ... HandlePowerKey HandlePowerKeyLongPress` shows the values you set. With `journalctl -f -u systemd-logind` open in a second terminal, a press logs `Power key pressed short.` or, with the long-press setting, `Power key pressed long.` after 5 seconds, followed by the action.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/etc/systemd/logind.conf.d/10-ignore-power-button.conf> · <https://github.com/omacom/omarchy/blob/quattro/default/hypr/bindings/utilities.lua> · <https://github.com/omacom/omarchy/issues/10965> · <https://man.archlinux.org/man/logind.conf.5> · <https://wiki.archlinux.org/title/Power_management> · <https://github.com/systemd/systemd/blob/main/src/login/logind-button.c> · <https://raw.githubusercontent.com/systemd/systemd/main/src/login/logind-button.c>
+
+---
+
+## Stop powertop --auto-tune making the USB mouse and keyboard lag or drop out
+
+`powertop-auto-tune-usb-input-lag` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `omarchy`, `powertop`
+
+**Symptom.** Since I added a `powertop --auto-tune` service for battery life, my USB mouse freezes for a second when I first move it, the keyboard drops its first key press, and some USB devices disconnect at boot or after resume.
+
+**Cause.** `powertop --auto-tune` sets every tunable to its 'Good' value, including `power/control=auto` for every USB device. That enables USB autosuspend, so idle input devices are put to sleep and lose the first movement or key press when they wake. The setting lasts until reboot. The Arch wiki's unit lists `sleep.target` in `WantedBy=`, but with `Type=oneshot` and `RemainAfterExit=yes` the unit stays active after boot, so suspend does not run it again. Omarchy 4 ships `/etc/modprobe.d/omarchy-usb-autosuspend.conf` with `options usbcore autosuspend=-1`, but `usbcore` is built into the kernel, so that file has no effect and the kernel default delay of 2 seconds applies. This is separate from TLP's USB autosuspend, but on the same knob.
+
+> **Audit corrected this record.** The unit and the ExecStartPost line match the Arch wiki Powertop page word for word. The line is broken inside a systemd unit, though. systemd expands specifiers in Exec lines, so `-printf '%f\n'` becomes `-printf '/powertop\n'` (`%f` is the unit-name specifier, and a literal needs `%%f`). systemd also applies its own C-style unescaping to the nested single-quoted regex. The loop would then write to nonexistent paths and leave input devices on autosuspend, which is the problem it was meant to solve. This was found by reading the line against systemd's documented specifier rules, not by running it. The fix moves the loop into a script, which avoids both problems. The cause also claimed `WantedBy=sleep.target` reapplies auto-tune after every resume. With `Type=oneshot` and `RemainAfterExit=yes` the unit stays active after boot, so pulling it in again from sleep.target is a no-op. Omarchy-specific check: omarchy-settings 4.0.4-1 ships /etc/modprobe.d/omarchy-usb-autosuspend.conf with `options usbcore autosuspend=-1`, but usbcore is built into linux-omarchy 7.2.5-3 (`modinfo` says builtin) and /sys/module/usbcore/parameters/autosuspend reads 2. So Omarchy does not prevent the powertop effect, and the record still applies on Omarchy 4. Not exercised: powertop is not installed here. Second audit confirmed the corrected text: Read the Arch wiki Powertop page (raw wikitext): the unit with `WantedBy=multi-user.target sleep.target`, the one-line ExecStartPost with `-printf '%f\n'` and nested single quotes, and `--auto-tune-dump` are all there, so the earlier correction's reading of the source holds. The `%f` specifier and nested-quote problem is a sound reading of systemd unit syntax and the script replacement avoids both. The script loop was checked by hand: `/sys/bus/usb/drivers/usbhid/*:*` matches only interface entries such as `1-2:1.0`, and `${dev%%:*}` yields the device `1-2`. The `RemainAfterExit=yes` point is correct: starting an already active oneshot unit is a no-op. Omarchy-side claims confirmed on this workstation: /etc/modprobe.d/omarchy-usb-autosuspend.conf contains `options usbcore autosuspend=-1`, usbcore is listed in modules.builtin for 7.2.5-3-omarchy, /sys/module/usbcore/parameters/autosuspend reads 2, and power-profiles-daemon 0.30-1 is installed. powertop 2.16-1 is in extra. Not exercised: powertop is not installed here and no unit was run.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Option 1, keep auto-tune but exempt input devices.** Put the loop that turns autosuspend back off for every device bound to `usbhid` in a script. Do not paste the Arch wiki's one-line `ExecStartPost=/bin/sh -c '...'` into the unit: systemd expands `%f` in it as a unit specifier and unescapes the nested quotes, so the loop writes to the wrong paths.
+
+```bash
+sudo tee /usr/local/bin/usbhid-no-autosuspend <<'EOF'
+#!/bin/sh
+for d in /sys/bus/usb/drivers/usbhid/*:*; do
+  [ -e "$d" ] || continue
+  dev=$(basename "$d")
+  dev=${dev%%:*}
+  echo on > "/sys/bus/usb/devices/$dev/power/control"
+done
+EOF
+sudo chmod 755 /usr/local/bin/usbhid-no-autosuspend
+```
+
+```ini
+# /etc/systemd/system/powertop.service
+[Unit]
+Description=Powertop tunings
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/powertop --auto-tune
+ExecStartPost=/usr/local/bin/usbhid-no-autosuspend
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart powertop.service
+cat /sys/bus/usb/devices/*/power/control | sort | uniq -c
+```
+
+**Option 2, apply only the tunables you want.** Print what auto-tune would do, and keep only the useful lines as udev rules or sysctl settings:
+
+```bash
+sudo powertop --auto-tune-dump
+```
+
+**Option 3, stop using it:**
+
+```bash
+sudo systemctl disable --now powertop.service
+```
+
+Then reboot to undo the tunings it already applied.
+
+On Omarchy 4, power-profiles-daemon already manages CPU EPP and platform profile, so auto-tune mostly adds USB, SATA and PCI runtime PM on top of it.
+
+**Verify.** `cat /sys/bus/usb/devices/<mouse>/power/control` prints `on` after boot and after a suspend and resume. Find the device path with `lsusb -t` or `grep -l <idProduct> /sys/bus/usb/devices/*/idProduct`.
+
+Sources: <https://wiki.archlinux.org/title/Powertop>
+
+---
+
+## Get fan speeds and motherboard sensors to show in 'sensors' on a desktop
+
+`sensors-shows-no-fans-superio-module-not-loaded` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `lm-sensors`, `omarchy`
+
+**Symptom.** On my desktop, `sensors` shows only CPU temperature (`coretemp` or `k10temp`), NVMe and GPU. There are no fan RPM readings, so fancontrol or CoolerControl finds no fans to control. `pwmconfig` says `There are no pwm-capable sensor modules installed`.
+
+**Cause.** Motherboard fan and voltage sensors sit on a Super I/O chip, most often Nuvoton (`nct6775`, `nct6683`) or ITE (`it87`), whose driver is not loaded automatically. On some boards the chip ID is a variant the driver does not recognise without `force_id`. On some ASUS and Gigabyte boards the ACPI firmware claims the chip's I/O range, so the driver refuses to bind unless `acpi_enforce_resources=lax` is set. Since kernel 5.16 that is rarely needed for `nct6775`.
+
+> **Audit corrected this record.** Checked against the Lm_sensors wiki raw text, the kernel it87 documentation and this machine. Held: `sensors-detect --auto`, /etc/conf.d/lm_sensors and lm_sensors.service, the ASRock NCT6796D-S `force_id=0xd801` boards, the NCT6686D `force=1` boards, the 5.16 note on acpi_enforce_resources, the pwmconfig message (line 135 of /usr/bin/pwmconfig), and the Omarchy 4 limine-entry-tool.d drop-in plus `limine-mkinitcpio` rebuild (/usr/lib/limine/limine-common-functions loads /etc/limine-entry-tool.d/*.conf). Wrong or incomplete: the Gigabyte branch is stale. docs.kernel.org/hwmon/it87 now lists IT8628E and IT8689E as supported by the mainline driver, so only the IT8686E still needs `it87-dkms-git`. The it87 `modprobe force_id` was given with no persistence, and the wiki's Gigabyte section says the lax parameter is needed there, which the record contradicted without saying so. The nct6683 example omitted the modules-load.d line the wiki pairs with it. The mainline it87 `ignore_resource_conflict` option, which the wiki also lists, is a narrower alternative to the global lax parameter. DKMS on Omarchy 4 builds against linux-omarchy-headers, which omarchy-other.packages installs. Nothing was loaded or installed here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `acpi_enforce_resources=lax` and `it87 ignore_resource_conflict=1` let a native driver touch hardware the firmware also uses, which can conflict with the firmware's own access. Use them only after the driver reports an ACPI resource conflict. On laptops, read the lm_sensors wiki warning about `sensors-detect` before answering anything other than the defaults.
+
+**Fix.**
+
+**1. Detect the chip and generate the module list** (safe with the default answers, so `--auto` accepts them):
+
+```bash
+sudo sensors-detect --auto
+sudo systemctl enable --now lm_sensors.service
+sensors
+```
+
+**2. If it names a Nuvoton chip, load the driver now and at every boot:**
+
+```bash
+sudo modprobe nct6775
+echo nct6775 | sudo tee /etc/modules-load.d/nct6775.conf
+```
+
+Boards the wiki lists as needing more:
+
+```
+# /etc/modprobe.d/nct6775.conf   ASRock B650M Pro RS, B850M Pro RS, X870 Pro RS (NCT6796D-S)
+options nct6775 force_id=0xd801
+```
+
+```
+# /etc/modules-load.d/nct6683.conf   ASRock X870 Steel Legend, B650I Lightning (NCT6686D) with an AMD CPU
+nct6683
+```
+
+```
+# /etc/modprobe.d/nct6683.conf
+options nct6683 force=1
+```
+
+**3. Gigabyte boards with an ITE chip.** The mainline `it87` driver now supports the IT8628E and IT8689E, so try it first:
+
+```bash
+sudo modprobe it87
+sensors
+```
+
+The IT8686E is supported only by the out-of-tree driver. DKMS builds it against your kernel headers: Omarchy 4 installs `linux-omarchy-headers`, and on plain Arch install the headers for your kernel (for example `linux-headers`). Then:
+
+```bash
+yay -S it87-dkms-git
+sudo modprobe it87 force_id=0x8686
+echo it87 | sudo tee /etc/modules-load.d/it87.conf
+echo 'options it87 force_id=0x8686' | sudo tee /etc/modprobe.d/it87.conf
+```
+
+The wiki also lists `force_id=0x8689` for B560 and `0x8628` for Z690 and B550 boards.
+
+**4. Only if the driver refuses to bind** (`sudo dmesg | grep -i -E 'nct6775|nct6683|it87|resource conflict'` shows an ACPI resource conflict).
+
+For `it87`, first try the driver's own narrower option and reload it:
+
+```bash
+echo 'options it87 ignore_resource_conflict=1' | sudo tee -a /etc/modprobe.d/it87.conf
+sudo modprobe -r it87 && sudo modprobe it87
+```
+
+Otherwise add `acpi_enforce_resources=lax` to the kernel command line. The wiki says Gigabyte boards on the out-of-tree it87 driver usually need it.
+
+Omarchy 4 (Limine and UKI, the command line is built into the UKI):
+
+```bash
+printf '%s\n' 'KERNEL_CMDLINE[default]+=" acpi_enforce_resources=lax"' \
+  | sudo tee /etc/limine-entry-tool.d/sensors.conf
+sudo limine-mkinitcpio
+```
+
+Plain Arch: add it wherever your bootloader keeps the command line, for example `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` followed by `sudo grub-mkconfig -o /boot/grub/grub.cfg`. Reboot afterwards.
+
+**Verify.** `sensors` lists a `nct6798-isa-0290` (or similar) block with `fan1:` to `fanN:` RPM values, and `ls /sys/class/hwmon/*/pwm1` exists.
+
+Sources: <https://wiki.archlinux.org/title/Lm_sensors> · <https://wiki.archlinux.org/title/Fan_speed_control> · <https://docs.kernel.org/hwmon/it87.html>
+
+---
+
+## Let a USB keyboard or mouse wake the machine from suspend
+
+`usb-keyboard-mouse-cannot-wake-from-suspend` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** After suspend, pressing keys on my USB keyboard or moving the mouse does nothing. Only the power button wakes the PC. On Windows the keyboard woke it.
+
+**Cause.** A USB device can wake the system only if wakeup is enabled at every level of its path: the device's own `power/wakeup`, each hub between it and the controller, the root hub (`/sys/bus/usb/devices/usbN/power/wakeup`), and the host controller (its `/proc/acpi/wakeup` entry, such as `XHC`). The kernel enables wakeup by default on USB keyboards that use the boot protocol, but not on most mice, and a root hub can read `disabled`. An earlier fix for spurious wakeups that disabled the `XHC` controller or a root hub turns off wake for every device behind it. On desktops the firmware must also allow USB wake, and an ErP or EuP setting that cuts standby power stops it.
+
+> **Audit corrected this record.** The udev rule matches the Udev wiki's 'Waking from suspend with USB device' section and the lsusb/grep idProduct method is the wiki's. Two defects in the fix. `sudo udevadm trigger --subsystem-match=usb` sends `change` events by default (man udevadm on this machine: 'The default value is "change"'), and the rule matches only ACTION=="add", so the immediate apply does nothing until a replug or reboot. It needs `--action=add`. Second, the record checks only the device and the ACPI controller entry, but the hubs and root hub in between also carry power/wakeup, and on this workstation /sys/bus/usb/devices/usb1/power/wakeup reads `disabled`. A disabled root hub stops remote wake for every device on it, so the fix now walks the whole chain. The cause's 'many devices default to disabled' was imprecise: usbhid enables wake by default on boot-protocol keyboards, while most mice stay disabled. Omarchy 4 ships no USB wakeup configuration (searched /usr/share/omarchy, only the T2 Mac installer touches xhci). Not exercised: no rule written and no suspend performed here.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Enabling wake on a mouse means bumping the desk can wake the machine, and enabling wake on hubs lets any device behind them wake it too, which can bring back spurious wakeups. Do not toggle `/proc/acpi/wakeup` entries blindly: writing a name there toggles it, so a second write undoes the first.
+
+**Fix.**
+
+**1. Find the device and check every level of its path:**
+
+```bash
+grep -E '^(XHC|XHC0|XHC1|EHC)' /proc/acpi/wakeup
+lsusb                       # note the ID, e.g. 046d:c52b
+grep -l c52b /sys/bus/usb/devices/*/idProduct
+# use the directory the grep printed, e.g. 1-1.1.1.4
+d=$(readlink -f /sys/bus/usb/devices/1-1.1.1.4)
+while [[ $d != /sys/devices ]]; do
+  [[ -f $d/power/wakeup ]] && echo "$(cat "$d/power/wakeup")  $d"
+  d=$(dirname "$d")
+done
+```
+
+The loop prints the device, any hubs, the root hub (`usbN`) and the PCI controller. Every line must read `enabled` for the device to wake the machine.
+
+**2. Enable wake on the device persistently** with a udev rule, using your own vendor and product IDs:
+
+```
+# /etc/udev/rules.d/50-wake-on-device.rules
+ACTION=="add", SUBSYSTEM=="usb", DRIVERS=="usb", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c52b", ATTR{power/wakeup}="enabled"
+```
+
+If step 1 showed a hub or the root hub as `disabled`, add a second line to the same file that enables wake on USB hubs (device class `09`):
+
+```
+ACTION=="add", SUBSYSTEM=="usb", ATTR{bDeviceClass}=="09", ATTR{power/wakeup}="enabled"
+```
+
+Apply the rules now. The rules match `add`, and `udevadm trigger` sends `change` unless told otherwise:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=add --subsystem-match=usb
+```
+
+Then rerun the loop from step 1.
+
+**3. If the controller reads `*disabled`** in `/proc/acpi/wakeup` and you did not disable it on purpose, look for a rule or unit that did (`grep -r wakeup /etc/udev/rules.d /etc/systemd/system`). If you disabled it to stop instant wakeups, keep it off and accept power-button wake, or disable only the offending device instead (see `suspend-instant-wake-usb-controller`).
+
+**4. In the firmware setup** enable "USB wake" or "Wake from S3 by USB" and disable ErP or EuP.
+
+**Verify.** After a reboot, the loop from step 1 prints `enabled` on every line for the keyboard or mouse, and a key press wakes the machine from `systemctl suspend`.
+
+Sources: <https://wiki.archlinux.org/title/Udev> · <https://wiki.archlinux.org/title/Power_management/Wakeup_triggers>
+
+---
+
+## Stop the Omarchy screensaver pinning a CPU core and spinning up the fans
+
+`omarchy-screensaver-high-cpu-heat-fan-noise` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`
+
+**Symptom.** When the machine goes idle the Omarchy screensaver comes up and the fans ramp. `top` shows the screensaver's terminal (Alacritty, foot, Ghostty or Kitty, whichever is your default) using most of a CPU core, 60-70% in the original report, and `ttfx` at 6-10% for as long as it runs. Temperatures and fan speed drop as soon as I dismiss it or run `pkill -x ttfx`.
+
+**Cause.** `/usr/share/omarchy/bin/omarchy-screensaver` runs `ttfx` at a hardcoded `--frame-rate 120` in a loop, and `omarchy-launch-screensaver` opens one fullscreen terminal per monitor. Rendering text effects at 120 frames per second in a terminal costs real CPU on older or low-power CPUs. No config key, environment variable or flag changes the frame rate (open issue, 4.0.4-1).
+
+> **Audit corrected this record.** Cause matches issue #13279 (open) and the installed omarchy-screensaver, which is byte-identical to quattro: `ttfx ... --frame-rate 120` in a loop with no override. `omarchy toggle screensaver` resolves (longest-prefix route) to omarchy-toggle-screensaver, which flips ~/.local/state/omarchy/toggles/screensaver-off. omarchy-launch-screensaver exits 1 when that flag is set. In Service.qml the lock timer is independent of the screensaver launching, and the launch-grace timer does not cancel the cycle while the monitor is still idle, so the lock still fires at idle.lock. Two defects. First, the menu path: omarchy-menu.jsonc has it at trigger.toggle.screensaver, Trigger > Toggle > Screensaver, not 'Toggle, Screensaver'. Second, the symptom names `foot` as the screensaver terminal, which was only that reporter's default. omarchy-launch-screensaver uses the default terminal and supports Alacritty, Foot, Ghostty and Kitty.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Turn the screensaver off and keep the idle lock. Use the Super+Space menu (Trigger > Toggle > Screensaver), or:
+
+```bash
+omarchy toggle screensaver
+```
+
+This touches `~/.local/state/omarchy/toggles/screensaver-off`, which `omarchy-launch-screensaver` checks before starting. The idle lock still fires at `idle.lock` (300 seconds by default). Run the same command again to turn the screensaver back on.
+
+Do not edit `/usr/share/omarchy/bin/omarchy-screensaver`. It is package-owned and the next `omarchy update` overwrites it.
+
+If the fans are loud even without the screensaver, check the power profile first (see `omarchy-performance-profile-fans-max-on-ac`).
+
+**Verify.** `ls ~/.local/state/omarchy/toggles/screensaver-off` exists. After `idle.screensaver` seconds no `ttfx` process appears (`pgrep -x ttfx` prints nothing), and the session still locks at `idle.lock`.
+
+Sources: <https://github.com/omacom/omarchy/issues/13279> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-screensaver> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-screensaver> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-launch-screensaver> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/idle/Service.qml>
+
+---
+
+## Bring back the Suspend entry in the Omarchy system menu
+
+`omarchy-suspend-missing-from-system-menu` · severity: **low** · frequency: **occasional** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`
+
+**Symptom.** The Omarchy system menu (Super+Escape, or the power key) shows Screensaver, Lock, Logout, Reboot and Shutdown, and maybe Hibernate, but no Suspend. `systemctl suspend` from a terminal still works.
+
+**Cause.** On Omarchy 4 the Suspend entry is defined in `/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc` with `"when":"! omarchy-toggle-enabled suspend-off"`. It is hidden whenever the flag file `~/.local/state/omarchy/toggles/suspend-off` exists, and shown by default when it does not. `omarchy-toggle-suspend` flips that file, so a single run of it hides Suspend. The flag is also often carried over from Omarchy 3. Omarchy 3.2.3 removed Suspend from the menu on purpose (commit fc04525, "Suspend is not properly supported on a lot of computers", referenced when issue #3928 was closed). A January 2026 commit brought it back as an opt-in `suspend-on` toggle, and commit e140badb in February 2026 made it opt-out with migration `1771683296.sh`, which created `suspend-off` for every user who had not opted in. A home directory that went through that migration still hides Suspend. A user menu extension at `~/.config/omarchy/extensions/omarchy-menu.jsonc` is merged over the default and can also redefine the entry. Hibernate is a separate entry, shown only when `omarchy-hibernation-available` succeeds.
+
+> **Audit corrected this record.** The menu entry, its `when` guard and the flag path are right (read /usr/share/omarchy/default/omarchy/omarchy-menu.jsonc, omarchy-toggle-enabled and omarchy-toggle). Three defects. First, the fix runs `omarchy-toggle-suspend` unconditionally after the `ls` check, and that script flips the flag, so a reader whose flag is absent hides Suspend by following the fix. `omarchy-toggle suspend-off off` removes it idempotently. Second, the cause's history is wrong: issue #3928 was closed by DHH pointing at commit fc04525, which REMOVED Suspend on purpose ('Suspend is not properly supported on a lot of computers'), and it was not restored by a fix. It came back as an opt-in `suspend-on` toggle in January 2026 and became opt-out in commit e140badb, whose migration 1771683296.sh created `suspend-off` for every user who had not opted in. That migration is the likeliest source of a carried-over flag. Third, the symptom omitted Screensaver, which the menu always shows. Also confirmed that the menu plugin (shell/plugins/menu/Menu.qml) re-evaluates guards on every open and merges ~/.config/omarchy/extensions/omarchy-menu.jsonc over the default, so a user extension is a second way to lose the entry. Nothing was toggled on this machine.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Omarchy 4:** check for the flag, then clear it with the explicit `off` form:
+
+```bash
+ls ~/.local/state/omarchy/toggles/suspend-off 2>/dev/null && echo 'suspend hidden'
+omarchy-toggle suspend-off off
+```
+
+`omarchy-toggle suspend-off off` removes the flag and does nothing if it is already absent. Do not run `omarchy-toggle-suspend` blind: it flips the flag, so on a machine without the flag it hides Suspend. The menu re-evaluates its `when` guards every time it opens, so nothing needs restarting.
+
+If the flag is absent and Suspend is still missing, look for a user menu extension that redefines the entry:
+
+```bash
+grep -n 'system.suspend' ~/.config/omarchy/extensions/omarchy-menu.jsonc 2>/dev/null
+```
+
+Remove or fix that entry in the extension file.
+
+If Suspend appears but does nothing, the problem is suspend itself, not the menu. See `suspend-blocked-by-inhibitor-lock`.
+
+If **Hibernate** is the missing entry, see `hibernate-blocked-by-zram-only-swap`. It needs disk swap larger than `/sys/power/image_size` and `/etc/mkinitcpio.conf.d/omarchy_resume.conf`.
+
+**Verify.** `ls ~/.local/state/omarchy/toggles/suspend-off` reports no such file, and Super+Escape shows Suspend.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-suspend> · <https://github.com/omacom/omarchy/issues/3928> · <https://github.com/omacom/omarchy/issues/3897> · <https://github.com/omacom/omarchy/commit/fc04525f032656ceb81f10045ae702e00356e8c5> · <https://github.com/omacom/omarchy/commit/e140badbb2635f097a3ed8908b51b5869567973a>
+
+---
+
+## Enable ThinkPad fan control so thinkfan can manage the fan
+
+`thinkpad-fan-control-disabled-thinkfan` · severity: **low** · frequency: **occasional** · applies to: `arch`, `laptop`, `lenovo`, `omarchy`, `thinkpad`
+
+**Symptom.** On my ThinkPad, `echo level 2 | sudo tee /proc/acpi/ibm/fan` fails with `Invalid argument` or `Permission denied`, and thinkfan refuses to start with:
+```
+Kernel module thinkpad_acpi: Fan_control seems disabled.
+```
+The fan runs loud on BIOS auto control and I cannot change it.
+
+**Cause.** `thinkpad_acpi` exposes `/proc/acpi/ibm/fan` read-only unless the module is loaded with `fan_control=1`. Some newer models also need `experimental=1`. The AUR `thinkfan` package ships `/usr/lib/modprobe.d/thinkpad_acpi.conf` with `options thinkpad_acpi fan_control=1`, but that only applies the next time the module loads. The module is already loaded from boot.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A wrong thinkfan config can keep the fan too slow and let the machine overheat. Test with `thinkfan -n` under load before enabling the service. Level `disengaged` runs the fan unregulated.
+
+**Fix.**
+
+Install thinkfan from the AUR (`yay` ships with Omarchy):
+
+```bash
+yay -S thinkfan
+pacman -Ql thinkfan | grep modprobe     # /usr/lib/modprobe.d/thinkpad_acpi.conf
+```
+
+If you do not use the package, set the option yourself:
+
+```bash
+echo 'options thinkpad_acpi fan_control=1' | sudo tee /etc/modprobe.d/99-thinkfan.conf
+```
+
+Reload the module so the option takes effect now:
+
+```bash
+sudo modprobe -r thinkpad_acpi
+sudo modprobe thinkpad_acpi fan_control=1
+cat /proc/acpi/ibm/fan     # 'commands:' lines should now list 'level'
+```
+
+If `modprobe -r` says the module is in use, reboot instead. If the module is built into your initramfs, rebuild it so the option is included: on Omarchy 4 `sudo limine-mkinitcpio`, on plain Arch `sudo mkinitcpio -P`.
+
+Configure thresholds from the shipped example, test in the foreground, then enable the service:
+
+```bash
+sudo cp /usr/share/doc/thinkfan/examples/thinkfan.yaml /etc/thinkfan.conf
+sudoedit /etc/thinkfan.conf
+sudo thinkfan -n
+sudo systemctl enable --now thinkfan.service
+```
+
+**Verify.** `cat /proc/acpi/ibm/fan` shows `level:` changing as thinkfan acts, and `systemctl status thinkfan` is active with no `Fan_control seems disabled` message.
+
+Sources: <https://wiki.archlinux.org/title/Fan_speed_control> · <https://github.com/vmatare/thinkfan/blob/master/src/message.h> · <https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=thinkfan> · <https://aur.archlinux.org/cgit/aur.git/plain/thinkpad_acpi.conf?h=thinkfan>
+
+---
+
+## Make Power Saver stick when switching straight from Performance
+
+`ppd-power-saver-bounces-to-balanced-from-performance` · severity: **low** · frequency: **rare** · applies to: `arch`, `dell`, `intel`, `laptop`, `omarchy`, `power-profiles-daemon`
+
+**Symptom.** When I pick Power Saver while on Performance, the panel jumps to Balanced a moment later. `powerprofilesctl get` prints `balanced` but `~/.local/state/omarchy/powerprofiles/battery` says `power-saver`, and after unplugging the laptop runs Balanced instead of Power Saver. Going Balanced to Power Saver works fine. Seen on a Dell XPS 14 (Panther Lake).
+
+**Cause.** A power-profiles-daemon 0.30 behaviour, reproducible with plain `powerprofilesctl set performance` followed by `powerprofilesctl set power-saver`. The machine registers two platform-profile handlers whose choices do not overlap below balanced, so `/sys/firmware/acpi/platform_profile_choices` shows only `balanced performance`. With no `low-power` choice, the daemon writes `balanced` to the firmware for Power Saver. Coming from Performance that is a real firmware change, and the daemon appears to take the firmware's change notification as a new user choice of Balanced. `omarchy-powerprofiles-set` saves the profile requested, not the one the daemon ends on.
+
+> **Audit corrected this record.** Issue #14174 (open, 2026-10-03, Dell XPS 14 DA14260, ppd 0.30-1) supports the symptom, the two non-overlapping platform-profile handlers, `platform_profile_choices` showing `balanced performance`, the reproduction with plain powerprofilesctl, and the go-through-Balanced workaround. The installed omarchy-powerprofiles-set confirms it saves the requested profile, not the one the daemon ends on. The defect is the last block. omarchy-powerprofiles-set applies each profile as it saves it, so `ac balanced` then `battery power-saver` leaves a reader on AC running Power Saver until the next plug event. The corrected fix finishes with autodetect, which applies the right one. The step from Balanced to Power Saver is the case the reporter found sticks. Not exercised: this machine is not affected hardware. Second audit confirmed the corrected text: Issue #14174 (open, Dell XPS 14 DA14260, ppd 0.30-1) supports the symptom, both non-overlapping platform-profile handlers, `platform_profile_choices` = `balanced performance`, the plain-powerprofilesctl reproduction and the go-through-Balanced workaround. The cause keeps the reporter's 'seems' on the daemon mechanism. omarchy-powerprofiles-set (identical on quattro) saves the requested profile and applies it immediately. Traced the final block: on AC it ends on balanced, on battery on power-saver, and every Power Saver switch in it starts from Balanced, the case the reporter found sticks. An unplug then goes balanced to power-saver, which also sticks. /sys/class/platform-profile/*/{name,choices} is the kernel platform-profile class the issue's output comes from. Not exercised: this machine is not affected hardware.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check whether your machine has the non-overlapping handlers:
+
+```bash
+cat /sys/firmware/acpi/platform_profile_choices
+grep -H . /sys/class/platform-profile/*/name /sys/class/platform-profile/*/choices 2>/dev/null
+```
+
+Workaround: go through Balanced first. This sticks every time in the reporter's tests:
+
+```bash
+powerprofilesctl set balanced
+powerprofilesctl set power-saver
+powerprofilesctl get
+```
+
+In the Omarchy UI, pick Balanced before Power Saver. The automatic restore on unplug can still bounce if your AC profile is `performance`, so save `balanced` for AC. `omarchy-powerprofiles-set` applies each profile as it saves it, so finish with `autodetect` to land on the right one for the current power source:
+
+```bash
+omarchy-powerprofiles-set ac balanced
+omarchy-powerprofiles-set battery power-saver
+omarchy-powerprofiles-set autodetect
+powerprofilesctl get
+```
+
+**Verify.** Unplug the charger. Two seconds later `powerprofilesctl get` should still print `power-saver`.
+
+Sources: <https://github.com/omacom/omarchy/issues/14174> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-powerprofiles-set>
 
 ---
 

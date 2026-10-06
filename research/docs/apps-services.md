@@ -1,6 +1,6 @@
 # Apps, containers & services
 
-58 problems. Sorted by severity, then by how often users hit it.
+81 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix btrfs "No space left on device" while df still shows free space
 
@@ -223,6 +223,67 @@ Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.
 
 ---
 
+## Fix printing failing with "universal filter failed" after libcupsfilters 2.2
+
+`cups-pdftopdf-universal-filter-failed-libcupsfilters-2-2` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `cups`, `endeavouros`, `omarchy`, `printing`
+
+**Symptom.** Print from Chromium, Firefox or a PDF viewer and nothing comes out. The job disappears or sits in the queue, and even the CUPS test page fails. `/var/log/cups/error_log` shows:
+
+```
+cfFilterChain: pdftopdf (PID 6729) stopped with status 1
+universal filter failed.
+Job stopped due to filter errors; please consult the /var/log/cups/error_log file for details.
+```
+
+On a USB HP printer with hplip it can instead print the first page, then literal `%@PJL` text and blank pages. It happens with driverless IPP Everywhere queues and vendor drivers alike, and started after an update (on Omarchy, the 4.0.1 to 4.0.3 update).
+
+**Cause.** libcupsfilters 2.2.x has a pdftopdf regression: it exits with status 1 and no message on PDFs whose annotations or form fields lack an appearance stream (`/N`, `/BBox`), which browser-generated PDFs commonly contain (OpenPrinting/libcupsfilters#246). The fix, PR #255, was merged upstream on 2026-09-28. Arch's current build `2.2.1.r23.gdee3b387-1` was cut from commit dee3b387 (2026-09-25), which is three commits behind that fix, so it is still affected. The test-page failure is a separate upstream bug (#212, PR #249). In omacom/omarchy#11186 the reporter first blamed the cups-browsed removal migration and then disproved it: downgrading only libcupsfilters fixed it with everything else unchanged.
+
+> **Audit corrected this record.** Everything checked held. Arch extra has libcupsfilters 2.2.1.r23.gdee3b387-1 (updated 2026-09-28). Upstream commit dee3b387 is dated 2026-09-25, and PR #255 merged at 2026-09-28T07:40Z as d3043e3c, which is exactly three commits after dee3b387. #246 is closed. omacom/omarchy#11186 and #13023 comments report that downgrading only libcupsfilters to 2.1.1-4 fixed printing. The archive URL returns 200. I downloaded 2.1.1-4: it keeps soname libcupsfilters.so.2, depends on qpdf and poppler, and every library it needs (libqpdf.so.30, libpoppler-cpp.so.3) exists on this machine. Every cf* symbol imported by installed libppd 2.1.1-2 and cups-filters 2.0.1-2 is exported by 2.1.1-4. The Omarchy guard (/usr/bin/omarchy-update-pacman-guard) only aborts when both -S and -u are present, so pacman -U passes, and Omarchy's /etc/pacman.conf has no IgnorePkg line so the sed adds one after [options]. Correction is only to danger: a held libcupsfilters 2.1.1 links against qpdf and poppler sonames, and Arch will not rebuild an ignored package when those bump. Also note PR #249 (test page) is already in the r23 build. Not exercised: the downgrade itself. Second audit confirmed the corrected text: Re-checked the corrected text. Arch extra JSON shows libcupsfilters 2.2.1.r23.gdee3b387-1 (last_update 2026-09-28). GitHub compare dee3b387...d3043e3c is ahead_by 3, and PR #255 merged 2026-09-28T07:40Z as d3043e3c, so the r23 build lacks the fix. Note the prior audit note says #246 is closed. It is still OPEN, although PR #255 says it fixes it. The record text does not claim it is closed. omacom/omarchy #11186 (body and comments) and #13023 (comment) report that downgrading only libcupsfilters to 2.1.1-4 fixed printing, and one #11186 comment confirms a Ghostscript rewrite made the failing PDF printable. #11814 shows the same log lines on 4.0.3. Omarchy's own mirror (stable-mirror.omarchy.org) still serves 2.2.1-2, which is what this workstation has, and the removal condition still works there. The archive URL returns 200, /etc/pacman.conf has no IgnorePkg line, and /usr/share/omarchy/bin/omarchy-update-pacman-guard aborts only when both -S and -u are present, so pacman -U passes. Not exercised: the downgrade or a print job.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** This holds one library below the version its dependents were built against. The symbol check passes for cups-filters 2.0.1 and libppd 2.1.1, but while `IgnorePkg = libcupsfilters` is in place Arch will not rebuild it when qpdf or poppler bump their sonames. If printing breaks again with a missing `libqpdf.so` or `libpoppler-cpp.so` after an update, remove the `IgnorePkg` line and update. Do not leave the hold in place after a fixed build ships.
+
+**Fix.**
+
+Confirm the version and the log line:
+
+```bash
+pacman -Q libcupsfilters cups-filters
+sudo grep -E 'pdftopdf|universal filter' /var/log/cups/error_log | tail
+```
+
+**Workaround without touching packages:** save the page as PDF, rewrite it with Ghostscript, and print the result:
+
+```bash
+gs -q -o fixed.pdf -sDEVICE=pdfwrite original.pdf
+lpstat -p            # queue names
+lp -d <queue> fixed.pdf
+```
+
+**Hold libcupsfilters at 2.1.1-4 until a build containing PR #255 ships.** Use the cached package if you have it, otherwise the Arch archive:
+
+```bash
+ls /var/cache/pacman/pkg/libcupsfilters-2.1.1-4-x86_64.pkg.tar.zst
+sudo pacman -U https://archive.archlinux.org/packages/l/libcupsfilters/libcupsfilters-2.1.1-4-x86_64.pkg.tar.zst
+grep -n '^IgnorePkg' /etc/pacman.conf     # if a line exists, add libcupsfilters to it instead
+sudo sed -i '/^\[options\]/a IgnorePkg = libcupsfilters' /etc/pacman.conf
+sudo systemctl restart cups
+```
+
+`pacman -U` is not blocked by Omarchy's update guard, which only refuses `-S` combined with `-u`. `omarchy update` honours `IgnorePkg` and prints a warning that it skipped the package.
+
+Remove the `IgnorePkg` entry once `pacman -Si libcupsfilters` shows a version newer than `2.2.1.r23.gdee3b387-1`, then run `omarchy update` (Omarchy 4) or `sudo pacman -Syu` (plain Arch).
+
+**Verify.** `pacman -Q libcupsfilters` shows the held version, the same browser page prints, and `sudo grep 'universal filter failed' /var/log/cups/error_log` shows no new entries after the test.
+
+Sources: <https://github.com/omacom/omarchy/issues/11186> · <https://github.com/omacom/omarchy/issues/13023> · <https://github.com/omacom/omarchy/issues/11814> · <https://github.com/OpenPrinting/libcupsfilters/pull/255> · <https://github.com/OpenPrinting/libcupsfilters/issues/246> · <https://archive.archlinux.org/packages/l/libcupsfilters/> · <https://archlinux.org/packages/extra/x86_64/libcupsfilters/>
+
+---
+
 ## Reclaim a full root filesystem from journal logs and the pacman cache
 
 `disk-full-journal-and-pacman-cache` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `pacman`, `systemd`
@@ -375,6 +436,61 @@ coredumpctl list ghostty                              # no new entry after the r
 Ghostty's startup log line `info(gtk_ghostty_application): libxev manual backend=epoll` is what the setting produces, so its absence is the direct check.
 
 Sources: <https://github.com/omacom/omarchy/issues/6868> · <https://github.com/omacom/omarchy/pull/6963> · <https://github.com/mitchellh/libxev/issues/234> · <https://github.com/omacom/omarchy/pull/7649> · <https://github.com/omacom/omarchy/blob/v4.0.3/config/ghostty/config> · <https://github.com/mitchellh/libxev/pull/237> · <https://github.com/mitchellh/libxev/blob/main/src/watcher/stream.zig> · <https://github.com/mitchellh/libxev/blob/main/src/backend/epoll.zig> · <https://github.com/mitchellh/libxev/blob/main/src/queue.zig>
+
+---
+
+## Give libvirt NAT guests a DHCP lease and DNS when ufw is default-deny
+
+`libvirt-guests-no-dhcp-lease-ufw-input-drop` · severity: **high** · frequency: **common** · applies to: `arch`, `desktop`, `kvm`, `laptop`, `libvirt`, `omarchy`, `qemu`, `ufw`, `virt-manager`
+
+**Symptom.** A VM in virt-manager boots but has no network. Inside the guest `ip a` shows no IPv4 address on the virtio NIC and NetworkManager sits at "connecting (getting IP configuration)" until it gives up. On the host `sudo virsh net-list --all` says `default  active  yes  yes` and `ip a show virbr0` shows 192.168.122.1, yet `sudo virsh net-dhcp-leases default` is empty. Giving the guest a static address lets it ping 192.168.122.1, but names do not resolve and nothing beyond the host answers. The guest OS installer may have finished perfectly, because an offline ISO needs no network.
+
+**Cause.** Omarchy's installer (`install/config/firewall.sh`) runs `ufw default deny incoming`, and `/etc/default/ufw` ships `DEFAULT_INPUT_POLICY="DROP"` and `DEFAULT_FORWARD_POLICY="DROP"` (both confirmed on a 4.0.4-1 install). libvirt's default network runs `dnsmasq` on the host at 192.168.122.1, so a guest's DHCP request (UDP 67) and DNS queries (port 53) are traffic INTO the host and traverse the INPUT hook. libvirt's own firewall rules (nftables backend by default, see `/etc/libvirt/network.conf`) add NAT and forwarding accepts in libvirt's own table, but in nftables a packet must be accepted by every base chain on a hook, so ufw's INPUT chain still drops DHCP and DNS, and ufw's FORWARD chain still drops the guest's outbound traffic. Nothing in Omarchy 4.0.4 opens `virbr0`: there is no virt-manager installer in `/usr/share/omarchy/bin`, and the open upstream PR that would add one (omacom/omarchy#13588) carries exactly these ufw rules. Plain Arch with ufw enabled behaves the same way.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `sudo ufw route allow in on virbr0` with no `out on` lets guests reach every machine on your LAN. Use the per-uplink form or the private-range deny rules if the guests run untrusted software.
+
+**Fix.**
+
+Allow DHCP and DNS from the bridge only, so nothing opens on your real network interfaces:
+
+```bash
+sudo ufw allow in on virbr0 to any port 67 proto udp comment 'libvirt dhcp'
+sudo ufw allow in on virbr0 to any port 53 comment 'libvirt dns'
+```
+
+Then allow the guests' NATed traffic out. Find your uplink interface first:
+
+```bash
+ip route show default          # the word after 'dev' is the uplink, e.g. wlan0 or enp5s0
+sudo ufw route allow in on virbr0 out on wlan0 comment 'libvirt nat egress'
+```
+
+Add one `route allow` line per uplink if a laptop switches between Wi-Fi and Ethernet. If you would rather not name interfaces, the rule set proposed upstream in omacom/omarchy#13588 lets guests reach the internet but not your private LAN. The deny rules must be added before the allow, because ufw stops at the first match:
+
+```bash
+sudo ufw route deny in on virbr0 to 10.0.0.0/8
+sudo ufw route deny in on virbr0 to 172.16.0.0/12
+sudo ufw route deny in on virbr0 to 192.168.0.0/16
+sudo ufw route allow in on virbr0
+```
+
+Check that the host forwards IPv4. libvirt turns this on when it starts a NAT network, and ufw leaves it alone because `/etc/ufw/sysctl.conf` ships the line commented:
+
+```bash
+sysctl net.ipv4.ip_forward     # must print 1
+```
+
+If it prints 0, uncomment `net/ipv4/ip_forward=1` in `/etc/ufw/sysctl.conf` and run `sudo ufw reload`.
+
+Finally make the guest ask again, by rebooting it or with `sudo virsh reboot <domain>`.
+
+On plain Arch with no firewall at all none of this is needed. With firewalld, libvirt installs its own `libvirt` zone and this does not apply.
+
+**Verify.** `sudo ufw status verbose | grep virbr0` lists the rules. `sudo virsh net-dhcp-leases default` shows the guest's MAC with a 192.168.122.x address, and inside the guest `ping -c1 archlinux.org` resolves and answers.
+
+Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/omacom/omarchy/pull/13588>
 
 ---
 
@@ -926,6 +1042,237 @@ Sources: <https://wiki.archlinux.org/title/Docker> · <https://wiki.archlinux.or
 
 ---
 
+## Replace prebuilt kernel-module packages that only match the stock linux kernel
+
+`linux-omarchy-prebuilt-kernel-module-packages-missing` · severity: **high** · frequency: **occasional** · applies to: `arch`, `desktop`, `dkms`, `laptop`, `limine`, `linux-omarchy`, `nvidia`, `omarchy`, `virtualbox`
+
+**Symptom.** After `omarchy update` to 4.0.4 a kernel module I installed myself is gone. With Arch's prebuilt `nvidia-open`, Hyprland comes up on software rendering or a black screen, and `sudo modprobe nvidia` prints `modprobe: FATAL: Module nvidia not found in directory /lib/modules/7.2.5-3-omarchy`. With `acpi_call`, battery charge thresholds stop applying. Choosing the plain `linux` entry in the Limine boot menu makes everything work again. `uname -r` shows the broken boot ends in `-omarchy`.
+
+**Cause.** Omarchy 4.0.4's migration `1789325478.sh` installs `linux-omarchy` and `linux-omarchy-headers`, rewrites `BOOT_ORDER` in `/etc/default/limine` to `"linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"`, and deliberately keeps the old kernel installed as a recovery entry. Arch's prebuilt module packages are built for one kernel only. `nvidia-open` and `acpi_call` in `extra` both declare `Depends On: linux` and install their modules under the stock kernel's `/usr/lib/modules/<version>-arch*/` tree, so the Omarchy kernel never sees them. `linux-omarchy` itself provides only `KSMBD-MODULE NTSYNC-MODULE VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE`. Omarchy's own NVIDIA setup (`install/hardware/nvidia.sh`) installs `nvidia-open-dkms` or `nvidia-580xx-dkms`, so a stock Omarchy install is not affected. This catches packages the user added by hand. Two prebuilt packages are already gone from Arch: `virtualbox-host-modules-arch` (only `virtualbox-host-dkms` remains), and `broadcom-wl`, dropped on 2026-09-02 and replaced by `broadcom-wl-dkms`. A DKMS module builds only for kernels whose headers are installed, so the retained stock kernel also needs `linux-headers`.
+
+> **Audit corrected this record.** Cause holds. Local /usr/share/omarchy/migrations/1789325478.sh installs linux-omarchy and its headers, deletes and rewrites BOOT_ORDER in /etc/default/limine and keeps the old kernel. pacman -Si confirms linux-omarchy provides only KSMBD-MODULE NTSYNC-MODULE VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE, nvidia-open 610.57.04-14 and acpi_call 1.2.2-385 depend on linux, nvidia-open-dkms and acpi_call-dkms conflict with them, virtualbox-host-modules-arch and broadcom-wl are absent from Arch, and quattro install/hardware/nvidia.sh installs nvidia-open-dkms or nvidia-580xx-dkms. #12187 reports the exact nvidia-open failure on 4.0.4 and a successful swap to nvidia-open-dkms. #12074 (a PR) states the 2026-09-02 broadcom-wl drop. limine-update exists (limine-mkinitcpio-hook) and calls limine-mkinitcpio. The fix was dangerous as written: step 3 is one copy-paste block that installs all three DKMS packages unconditionally. On a stock Omarchy machine with an older NVIDIA GPU, nvidia-open-dkms conflicts with NVIDIA-MODULE and pacman offers to remove nvidia-580xx-dkms, which leaves a GPU the open driver cannot drive. On non-NVIDIA machines it installs a driver for absent hardware. Rewrote the fix so each swap is run only for a package step 1 actually listed. The awk finder was run here and printed nothing, as expected on a DKMS-only machine. No package was installed or removed.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Removing `nvidia-open` before `nvidia-open-dkms` has built leaves no NVIDIA driver at all on the next boot. Check `dkms status` before rebooting, and keep the stock `linux` kernel installed as a recovery entry.
+
+**Fix.**
+
+**1. Find the packages tied to the stock kernel:**
+
+```bash
+uname -r
+ls /usr/lib/modules/
+pacman -Qi | awk '/^Name/{n=$3} /^Depends On/ && / linux( |$)/{print n}'
+pacman -Q linux-omarchy-headers linux-headers
+```
+
+If the `awk` line prints nothing, this record does not apply to you. Stop here.
+
+**2. Make sure both kernels have headers**, so DKMS builds for each:
+
+```bash
+sudo pacman -S --needed linux-omarchy-headers linux-headers
+```
+
+**3. Swap only the packages step 1 printed for their DKMS variant.** Run one line per package you actually have. pacman asks to remove the conflicting package, so answer `y`.
+
+If step 1 printed `nvidia-open`:
+
+```bash
+sudo pacman -S nvidia-open-dkms
+```
+
+If step 1 printed `acpi_call`:
+
+```bash
+sudo pacman -S acpi_call-dkms
+```
+
+If you use VirtualBox as a host and `pacman -Q virtualbox-host-dkms` says it is not installed:
+
+```bash
+sudo pacman -S virtualbox-host-dkms
+```
+
+Do not install `nvidia-open-dkms` on a machine that has `nvidia-580xx-dkms` (older GPUs without GSP). It conflicts with it, and pacman would remove the driver your GPU needs.
+
+```bash
+dkms status
+```
+
+`dkms status` must say `installed` for every module on both the `*-omarchy` and the `*-arch*` kernel versions before you reboot. None of these commands carries `-u`, so Omarchy's pacman guard lets them through.
+
+If you need the old kernel back while you sort this out, pick `linux` in the Limine menu, or put it first in `BOOT_ORDER` in `/etc/default/limine` and run `sudo limine-update`.
+
+**Plain Arch:** you are affected the same way if you install any extra kernel (`linux-lts`, `linux-zen`) next to prebuilt module packages. Steps 1 to 3 apply with that kernel's headers package in place of `linux-omarchy-headers`.
+
+**Verify.** `dkms status` lists each module as installed for both kernels. After rebooting into the default entry, `uname -r` ends in `-omarchy` and `lsmod | grep -E 'nvidia|acpi_call|vboxdrv'` shows the module (and `nvidia-smi` works on NVIDIA).
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/migrations/1789325478.sh> · <https://github.com/omacom/omarchy/blob/quattro/install/hardware/nvidia.sh> · <https://github.com/omacom/omarchy/issues/12074> · <https://archlinux.org/packages/extra/x86_64/nvidia-open/> · <https://archlinux.org/packages/extra/x86_64/acpi_call/> · <https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support> · <https://wiki.archlinux.org/title/VirtualBox> · <https://github.com/omacom/omarchy/issues/12187> · <https://github.com/omacom/omarchy/blob/v4.0.4/migrations/1789325478.sh> · <https://wiki.archlinux.org/title/NVIDIA>
+
+---
+
+## Keep Docker data out of Omarchy's root snapshots so a rollback does not revert it
+
+`omarchy-docker-data-reverted-by-snapshot-restore` · severity: **high** · frequency: **occasional** · applies to: `btrfs`, `docker`, `limine`, `omarchy`, `snapper`
+
+**Symptom.** An update broke something, so I booted an older snapshot from the Limine menu and restored it. The system is fine, but my Docker databases lost days of rows, and containers and volumes I created after that snapshot are gone. Separately, the root filesystem keeps growing even after `docker system prune`.
+
+**Cause.** Omarchy's layout has four subvolumes, `@` for `/`, `@home`, `@log` and `@pkg`. Everything else under `/var` lives inside `@`, including `/var/lib/docker` (container metadata, named volumes, and on older installs the overlay2 image layers) and `/var/lib/containerd`, where Docker 29 and newer keep images and container layers on a new install because the containerd image store became the default. Snapper's `root` config snapshots `@` before every `omarchy update`, and the restore (`omarchy-snapshot restore`, which runs `limine-snapper-restore`) replaces `@` with the snapshot, so volumes, containers and images roll back with the system. The same snapshots pin old image layers, so pruning does not free space until they expire. Reported as omacom/omarchy#8953. The fix proposed upstream (PR #8994, open as of 2026-10-04) uses a top-level `@docker` subvolume mounted from fstab, and its author reports that a subvolume nested under `@` is left behind with the old `@` when a restore replaces it. That PR does not cover `/var/lib/containerd`.
+
+> **Audit corrected this record.** The cause and fix hold. Confirmed locally: fstab carries the four subvolumes with rw,relatime,compress=zstd:3,ssd,space_cache=v2, findmnt -no SOURCE / prints /dev/mapper/root[/@] so the sed strip works, default/snapper/root has NUMBER_LIMIT=5, omarchy-update calls omarchy-snapshot create, omarchy-snapshot restore runs limine-snapper-restore, and /etc/limine-snapper-sync.conf sets RESTORE_METHOD=replace, which builds a new @ from the snapshot, so nested subvolumes stay with the old @ as PR #8994 says. docker.service.d/no-block-boot.conf sets DefaultDependencies=no. The Arch wiki confirms the containerd image store in /var/lib/containerd since Docker 29. PR #8994 and #8953 are both open. One gap in the danger: a restore replaces @ with the snapshot's own /etc, so restoring a snapshot taken BEFORE this move brings back an fstab with no @docker or @containerd line, the drop-ins vanish, and Docker starts on the old pre-move copy inside @. The new subvolumes are not deleted, only unmounted. Only snapshots taken after the move protect the data. Danger rewritten to say so. Not exercised: the move or a restore.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** This edits /etc/fstab and moves the whole Docker data tree. A wrong fstab line can drop boot to an emergency shell, so run `sudo findmnt --verify` before rebooting and keep the backup the fix makes. Do not delete the `.old` directories until containers, images and volumes are confirmed present. The protection covers only snapshots taken after the move. A restore replaces `@`, including `/etc`, with the snapshot, so restoring a snapshot taken before the move brings back an fstab with no `@docker` or `@containerd` line and no `RequiresMountsFor` drop-ins, and Docker then starts on the old copy of its data that the snapshot holds inside `@`. The `@docker` and `@containerd` subvolumes survive that restore but are no longer mounted. Re-add the two fstab lines and drop-ins before starting Docker again.
+
+**Fix.**
+
+Move Docker's data onto top-level subvolumes. First see which image store is in use and read your `/` mount options (Omarchy's fstab uses tabs, so query it with findmnt rather than grep):
+
+```bash
+sudo docker info -f '{{ .DriverStatus }}'   # [[driver-type io.containerd.snapshotter.v1]] means images are in /var/lib/containerd
+sudo du -sh /var/lib/docker /var/lib/containerd 2>/dev/null
+findmnt --fstab -no SOURCE,OPTIONS /
+```
+
+Stop everything that writes there:
+
+```bash
+sudo systemctl stop docker.socket docker.service containerd.service
+```
+
+Create the subvolumes at the top level, next to `@home`:
+
+```bash
+uuid=$(findmnt -no UUID /)
+dev=$(findmnt -no SOURCE / | sed 's/\[.*\]//')
+sudo mkdir -p /mnt/btrfs-top
+sudo mount -o subvolid=5 "$dev" /mnt/btrfs-top
+sudo btrfs subvolume create /mnt/btrfs-top/@docker
+sudo btrfs subvolume create /mnt/btrfs-top/@containerd
+sudo umount /mnt/btrfs-top
+```
+
+Move the old directories aside and mount the new ones. The options below are the stock Omarchy ones. Use whatever your `/` line carries and change only `subvol=`:
+
+```bash
+sudo mv /var/lib/docker /var/lib/docker.old
+sudo mkdir /var/lib/docker
+sudo cp -a /etc/fstab /etc/fstab.$(date +%Y%m%d%H%M%S).back
+printf 'UUID=%s /var/lib/docker btrfs rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@docker 0 0\n' "$uuid" | sudo tee -a /etc/fstab
+
+if [ -d /var/lib/containerd ]; then
+  sudo mv /var/lib/containerd /var/lib/containerd.old
+fi
+sudo mkdir /var/lib/containerd
+printf 'UUID=%s /var/lib/containerd btrfs rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@containerd 0 0\n' "$uuid" | sudo tee -a /etc/fstab
+
+sudo findmnt --verify
+sudo systemctl daemon-reload
+sudo mount /var/lib/docker
+sudo mount /var/lib/containerd
+```
+
+Omarchy's `/etc/systemd/system/docker.service.d/no-block-boot.conf` sets `DefaultDependencies=no`, so tell both services to wait for the mounts:
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d /etc/systemd/system/containerd.service.d
+printf '[Unit]\nRequiresMountsFor=/var/lib/docker /var/lib/containerd\n' | sudo tee /etc/systemd/system/docker.service.d/50-data-subvolume.conf
+printf '[Unit]\nRequiresMountsFor=/var/lib/containerd\n' | sudo tee /etc/systemd/system/containerd.service.d/50-data-subvolume.conf
+sudo systemctl daemon-reload
+```
+
+Copy the data in and start Docker:
+
+```bash
+sudo cp -a --reflink=auto /var/lib/docker.old/. /var/lib/docker/
+[ -d /var/lib/containerd.old ] && sudo cp -a --reflink=auto /var/lib/containerd.old/. /var/lib/containerd/
+sudo systemctl start docker.socket docker.service
+sudo docker ps -a
+sudo docker images
+sudo docker volume ls
+```
+
+Only after the containers start, the images are listed and the data is there:
+
+```bash
+sudo rm -rf /var/lib/docker.old /var/lib/containerd.old
+```
+
+Snapshots taken before the move still hold the old copy, so the space comes back as Omarchy's `NUMBER_LIMIT=5` expires them. The same move works for `/var/lib/libvirt/images` if VM disks live there.
+
+**Plain Arch:** this applies only if `/` is btrfs and snapper snapshots it. The same steps work with your own subvolume names, and the `RequiresMountsFor` drop-ins are harmless where docker.service keeps its default dependencies.
+
+**Verify.** `findmnt /var/lib/docker` shows `subvol=/@docker`, `sudo btrfs subvolume show /var/lib/docker` reports a subvolume, and `sudo docker ps -a` lists the old containers. After the next `omarchy update`, the new snapshot does not contain `var/lib/docker` content.
+
+Sources: <https://github.com/omacom/omarchy/issues/8953> · <https://wiki.archlinux.org/title/Btrfs> · <https://github.com/omacom/omarchy/pull/8994> · <https://wiki.archlinux.org/title/Docker>
+
+---
+
+## Stop systemd-oomd killing a terminal and everything launched from it
+
+`omarchy-oomd-swap-kill-takes-whole-terminal-scope` · severity: **high** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `systemd`, `zram`
+
+**Symptom.** The terminal, the browser I opened from it, my editor and every agent running in it all vanish at the same moment. There is no crash dialog, or there is an `omarchy-crash-watch` notification saying `Process crashed: vivaldi-bin`. The machine was not freezing. The journal shows:
+
+```
+systemd-oomd[885]: Marked /user.slice/.../app-Hyprland-xdg\x2dterminal\x2dexec-0ae8dde6.scope for killing
+systemd[1075]: app-Hyprland-xdg\x2dterminal\x2dexec-0ae8dde6.scope: systemd-oomd killed 2104 process(es) in this unit.
+systemd[1075]: app-Hyprland-xdg\x2dterminal\x2dexec-0ae8dde6.scope: Failed with result 'oom-kill'.
+```
+
+**Cause.** omarchy-settings ships `/usr/lib/systemd/user/app.slice.d/10-oomd.conf` with `ManagedOOMMemoryPressure=kill` and `ManagedOOMSwap=kill`, and enables systemd-oomd. The swap kill uses the global `SwapUsedLimit`, which Omarchy leaves at the 90% default. Swap on Omarchy 4 is zram sized equal to RAM (`/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf`), so zram above 90% is ordinary operation, and once RAM is also above 90% oomd kills the descendant of app.slice with the most swap. Everything started from inside a terminal stays in that terminal's single `app-*.scope`, so the kill removes the terminal and every program ever launched from it. Chromium browsers move only their browser process into their own scope, so the GPU and renderer helpers die with the terminal and the orphaned browser aborts with SIGTRAP, which crash-watch then reports as a crash. Reported on 4.0.2-1 as omacom/omarchy#9799 and still shipped unchanged in omarchy-settings 4.0.4-1 and on the quattro branch.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** With the swap kill off, a slow leak that fills RAM and zram without raising memory pressure much can freeze the desktop until the pressure kill (50% for 20s on Omarchy) fires. Unsaved work in the killed scope is lost either way.
+
+**Fix.**
+
+Confirm it was oomd and which path fired:
+
+```bash
+journalctl -b -u systemd-oomd --no-pager | grep -E 'Marked|Considered|Swap Usage'
+journalctl --user -b --no-pager | grep -i 'oom-kill'
+oomctl dump | head -20
+systemctl --user show app.slice -p ManagedOOMSwap -p ManagedOOMMemoryPressure
+```
+
+**Omarchy 4: turn off the swap-based kill for app.slice and keep the memory-pressure kill.** A user drop-in sorts after Omarchy's `10-oomd.conf` and overrides only that key:
+
+```bash
+mkdir -p ~/.config/systemd/user/app.slice.d
+printf '[Slice]\nManagedOOMSwap=auto\n' > ~/.config/systemd/user/app.slice.d/50-no-swap-kill.conf
+systemctl --user daemon-reload
+```
+
+If you would rather keep the swap kill but stop it firing on a full zram device, raise the global limit instead (this affects every monitored cgroup):
+
+```bash
+printf '[OOM]\nSwapUsedLimit=98%%\n' | sudo tee /etc/systemd/oomd.conf.d/50-local.conf
+sudo systemctl restart systemd-oomd
+```
+
+Shrink the blast radius either way: start GUI apps from a terminal through uwsm so each gets its own scope instead of joining the terminal's:
+
+```bash
+uwsm-app -- vivaldi
+```
+
+**Plain Arch:** this only applies if you enabled systemd-oomd and set `ManagedOOMSwap=kill` on a slice yourself. The same drop-in reverses it.
+
+**Verify.** `systemctl --user show app.slice -p ManagedOOMSwap` prints `ManagedOOMSwap=auto`, and `oomctl dump` no longer lists app.slice under `Swap Monitored CGroups` while it still appears under `Memory Pressure Monitored CGroups`.
+
+Sources: <https://github.com/omacom/omarchy/issues/9799> · <https://github.com/omacom/omarchy/blob/quattro/default/systemd/user/app.slice.d/10-oomd.conf> · <https://man.archlinux.org/man/oomd.conf.5.en> · <https://man.archlinux.org/man/systemd.resource-control.5.en>
+
+---
+
 ## Fix a scheduled restic/borg backup that skips runs and then fails on a stale lock
 
 `scheduled-backup-skipped-and-repo-locked` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `systemd`
@@ -1194,6 +1541,154 @@ If the group still holds devices you cannot pass (a shared root port), move the 
 **Verify.** `cat /proc/cmdline` shows `intel_iommu=on` (Intel only), `ls /sys/kernel/iommu_groups/ | wc -l` is non-zero, `lspci -nnk` shows `Kernel driver in use: vfio-pci` for every non-bridge device in the target IOMMU group, and the VM starts with the GPU attached.
 
 Sources: <https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF> · <https://wiki.archlinux.org/title/Limine> · <https://github.com/qemu/qemu/blob/master/hw/vfio/container-legacy.c>
+
+---
+
+## Get Waydroid running when the linux-omarchy kernel has no binder driver
+
+`waydroid-no-binder-on-linux-omarchy-kernel` · severity: **high** · frequency: **occasional** · applies to: `android`, `desktop`, `kernel`, `laptop`, `limine`, `linux-omarchy`, `omarchy`, `waydroid`
+
+**Symptom.** After updating to Omarchy 4.0.4, Waydroid no longer starts. `waydroid status` stays at:
+
+```
+Session:	RUNNING
+Container:	STOPPED
+IP address:	UNKNOWN
+```
+
+The journal floods with `[gbinder] ERROR: Can't open /dev/anbox-binder: No such file or directory`, journald reports `Suppressed 219321 messages from waydroid-container.service`, and two CPU cores sit at 100%. On a fresh install `sudo waydroid init` fails with `ERROR: Binder node "binder" for waydroid not found` or `FATAL: Module binder_linux not found`. `grep binder /proc/filesystems` prints nothing.
+
+**Cause.** `linux-omarchy` 7.2.5-3, which Omarchy 4.0.4's migration `1789325478.sh` installs and makes the first Limine boot entry, is built with both binder drivers off: `# CONFIG_ANDROID_BINDER_IPC is not set` and `# CONFIG_ANDROID_BINDER_IPC_RUST is not set` (confirmed in `/usr/lib/modules/7.2.5-3-omarchy/build/.config`). With no binder there is no binderfs, so Waydroid has nothing to open, and an enabled `waydroid-container.service` retries in a tight loop. Stock Arch `linux` and `linux-lts` build the Rust binder driver in (`CONFIG_ANDROID_BINDER_IPC_RUST=y`, `CONFIG_ANDROID_BINDER_DEVICES=""`). Omarchy's kernel maintainer has published test kernels with binder enabled, and a report in omacom/omarchy#12454 says a 7.2.5-4 build has it, but as of 2026-10-04 the stable repository at `pkgs.omarchy.org/stable` still serves `linux-omarchy-7.2.5-3`.
+
+> **Audit corrected this record.** Cause confirmed on this machine: /proc/config.gz on 7.2.5-3-omarchy has both ANDROID_BINDER options unset, while /usr/lib/modules/7.2.3-arch1-3/build/.config has CONFIG_ANDROID_BINDER_IPC_RUST=y. The stable mirrors were read today: pkgs.omarchy.org/stable still lists linux-omarchy-7.2.5-3, and stable-mirror.omarchy.org core.db still lists linux-7.2.3.arch1-3 and linux-lts-6.18.49-3. #12149 supplies the symptom text and suppressed-message counts, #13695 the binder_linux not found message, #12454 the 7.2.5-4 report. /etc/default/limine is sourced last by limine-common-functions and the migration writes BOOT_ORDER there, limine-update calls limine-mkinitcpio. The fix omitted the one workaround that works today on linux-omarchy for CPUs without IBT: AUR binder_linux-dkms, which the Arch wiki documents. This workstation (i9-9900K, no ibt flag) runs it on 7.2.5-3-omarchy, dkms status shows binder installed for both kernels and /proc/filesystems lists binder. The #12454 reporter (Ryzen 5 5600) also runs Waydroid that way. That matters because the stock-kernel route the fix offers lands on the broken 7.2.3.arch1-3 build. Added it as a labelled branch with the #13032 freeze report as its caveat. Waydroid itself was not started here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Changing `BOOT_ORDER` changes which kernel boots by default. Both kernels stay installed, so the other one is always one menu entry away. `binder_linux-dkms` is an out-of-tree AUR module that taints the kernel, and one user on an Ivy Bridge CPU reported hard desktop freezes with it (omacom/omarchy#13032). On a CPU with IBT it oopses the kernel on every Waydroid start.
+
+**Fix.**
+
+**1. Stop the retry loop:**
+
+```bash
+waydroid session stop
+sudo systemctl disable --now waydroid-container.service
+```
+
+**2. Confirm it is the kernel, and check your CPU:**
+
+```bash
+uname -r
+zgrep ANDROID_BINDER /proc/config.gz
+grep binder /proc/filesystems
+pacman -Q linux linux-lts 2>/dev/null
+grep -ow ibt /proc/cpuinfo | head -1     # prints 'ibt' if the CPU has Indirect Branch Tracking
+```
+
+**3a. CPU without `ibt` (all AMD, and Intel before 11th gen): add the binder module to linux-omarchy.** This is the Arch wiki's DKMS route and it keeps the Omarchy kernel. `linux-omarchy-headers` is already installed by the 4.0.4 migration.
+
+```bash
+yay -S binder_linux-dkms
+dkms status                      # binder installed for 7.2.5-3-omarchy
+sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+echo binder_linux | sudo tee /etc/modules-load.d/binder_linux.conf
+echo 'options binder_linux devices=binder,hwbinder,vndbinder' | sudo tee /etc/modprobe.d/binder_linux.conf
+```
+
+Do not use this on a CPU that prints `ibt`. It oopses the kernel on every Waydroid start there. See `binder-linux-dkms-oops-missing-endbr-ibt`.
+
+**3b. Any CPU: boot a kernel that has binder built in.** The migration left the stock `linux` installed. Put it first in the boot order. `/etc/default/limine` overrides every drop-in, which is where the migration wrote its line:
+
+```bash
+sudoedit /etc/default/limine
+```
+
+```
+BOOT_ORDER="linux, linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"
+```
+
+```bash
+sudo limine-update
+```
+
+Or pick the `linux` entry in the Limine menu for each boot. **Check the version first:** Omarchy's stable mirror still carries `linux 7.2.3.arch1-3` and `linux-lts 6.18.49-3`, which are broken in a different way. See `waydroid-rust-binder-no-such-process-bad-bindgen-build` before rebooting.
+
+**4. Or wait for a fixed linux-omarchy.** After each `omarchy update`, check `pacman -Q linux-omarchy` and `zgrep ANDROID_BINDER /proc/config.gz` on that kernel. Once it has binder, remove `binder_linux-dkms` and the two conf files from step 3a.
+
+**5. Re-enable Waydroid** once `grep binder /proc/filesystems` prints `nodev binder`:
+
+```bash
+sudo systemctl enable --now waydroid-container.service
+waydroid session start
+```
+
+**Verify.** `grep binder /proc/filesystems` prints `nodev	binder`, and `waydroid status` shows `Container: RUNNING`. `journalctl -u waydroid-container -b` has no `Can't open /dev/anbox-binder` flood.
+
+Sources: <https://github.com/omacom/omarchy/issues/12149> · <https://github.com/omacom/omarchy/issues/13032> · <https://github.com/omacom/omarchy/issues/12454> · <https://github.com/omacom/omarchy/issues/13695> · <https://github.com/omacom/omarchy/blob/quattro/migrations/1789325478.sh> · <https://wiki.archlinux.org/title/Waydroid>
+
+---
+
+## Remove binder_linux-dkms when mounting binderfs oopses with "Missing ENDBR"
+
+`binder-linux-dkms-oops-missing-endbr-ibt` · severity: **high** · frequency: **rare** · applies to: `arch`, `aur`, `dkms`, `grub`, `intel`, `kernel`, `limine`, `linux-omarchy`, `omarchy`, `waydroid`
+
+**Symptom.** I installed AUR `binder_linux-dkms` to get Waydroid on a kernel without binder. It builds, `modprobe binder_linux` works and `binder` appears in `/proc/filesystems`, but `waydroid container start` dies. `mount` segfaults, and Waydroid fails with `FileNotFoundError: [Errno 2] No such file or directory: '/dev/binderfs/binder-control'`. `journalctl -k` shows:
+
+```
+kernel: Missing ENDBR: kallsyms_lookup_name+0x4/0xd0
+kernel: Oops: invalid opcode: 0000 [#1] SMP NOPTI
+ get_init_ipc_ns_ptr+0x34/0x80 [binder_linux]
+ binderfs_fill_super+0x1b4/0x5ea [binder_linux]
+```
+
+With `waydroid-container.service` enabled this oops happens on every boot.
+
+**Cause.** `binder_linux-dkms` (choff/anbox-modules) finds kernel symbols that are not exported by calling `kallsyms_lookup_name` through a function pointer. Kernels built with `CONFIG_X86_KERNEL_IBT=y`, which includes both `linux-omarchy` 7.2.5-3 and stock Arch `linux` (confirmed in their `.config`), enforce Indirect Branch Tracking on CPUs that support it. An indirect call must land on an `ENDBR` instruction, and `kallsyms_lookup_name` does not start with one, so the CPU traps the call and the kernel oopses in `binderfs_fill_super`. On a CPU without IBT the same module loads and mounts cleanly, which is why it works for some people.
+
+> **Audit corrected this record.** The oops text and mechanism come from a comment on omacom/omarchy#12149 (Core Ultra 9 285H, linux-omarchy 7.2.5-3, binder_linux-dkms 7.1-1), and the Arch forum thread 293566 shows the same Missing ENDBR kallsyms_lookup_name trace, the binder-control FileNotFoundError and the mount segfault, solved with ibt=off. The Arch wiki Waydroid page documents ibt=off for the DKMS module. CONFIG_X86_KERNEL_IBT=y confirmed in /proc/config.gz on 7.2.5-3-omarchy and in the 7.2.3-arch1-3 .config here. This workstation is the negative control: an i9-9900K with no ibt flag runs binder_linux-dkms on linux-omarchy with binder registered and no oops. The Omarchy cmdline branch is right: limine-common-functions loads /etc/limine-entry-tool.d/*.conf before /etc/default/limine, and /etc/default/limine here uses `+=`. One error: the symptom attributes the full desktop freezes in #13032 to this oops, but that reporter's i5-3475S (Ivy Bridge) has no IBT, so it is a different failure. Removed that sentence and the #13032 citation. Nothing was installed, no parameter added.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `ibt=off` disables Indirect Branch Tracking, a hardware defence against control-flow hijacking, for the entire kernel. Treat it as a stopgap. Leaving the DKMS module installed with Waydroid enabled oopses the kernel on every boot.
+
+**Fix.**
+
+**1. Confirm the cause:**
+
+```bash
+grep -ow ibt /proc/cpuinfo | head -1          # prints 'ibt' on affected CPUs
+journalctl -k -b | grep -E 'Missing ENDBR|binderfs_fill_super'
+```
+
+**2. Recommended: remove the module and use a kernel with built-in binder** (see `waydroid-no-binder-on-linux-omarchy-kernel` and `waydroid-rust-binder-no-such-process-bad-bindgen-build`):
+
+```bash
+sudo systemctl disable --now waydroid-container.service
+sudo pacman -Rns binder_linux-dkms
+sudo rm -f /etc/modules-load.d/binder_linux.conf /etc/modprobe.d/binder_linux.conf
+```
+
+If you added a `binder /dev/binderfs binder ...` line to `/etc/fstab` for the module, remove it as well.
+
+**3. Workaround, with a security cost:** the Arch wiki and forums document booting with `ibt=off`, which switches off a control-flow protection for the whole kernel.
+
+- **Omarchy 4:** the command line lives inside the UKI, so use a drop-in and rebuild. First check that `/etc/default/limine` appends with `KERNEL_CMDLINE[default]+=` rather than `=`, because it overrides drop-ins:
+
+```bash
+grep KERNEL_CMDLINE /etc/default/limine
+echo 'KERNEL_CMDLINE[default]+=" ibt=off"' | sudo tee /etc/limine-entry-tool.d/90-ibt-off.conf
+sudo limine-mkinitcpio
+```
+
+- **Plain Arch with GRUB:** add `ibt=off` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then run `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
+
+**Verify.** After removing the module, `journalctl -k -b` has no `Missing ENDBR` line and the boot is clean. With the workaround instead, `cat /proc/cmdline` contains `ibt=off` and `ls /dev/binderfs/binder-control` succeeds once Waydroid starts.
+
+Sources: <https://github.com/omacom/omarchy/issues/12149> · <https://wiki.archlinux.org/title/Waydroid> · <https://bbs.archlinux.org/viewtopic.php?id=293566> · <https://aur.archlinux.org/packages/binder_linux-dkms>
 
 ---
 
@@ -1782,6 +2277,61 @@ Sources: <https://wiki.archlinux.org/title/GNOME/Keyring> · <https://wiki.archl
 
 ---
 
+## Fix "swapon failed: Invalid argument" for a swap file on btrfs
+
+`btrfs-swapfile-swapon-invalid-argument` · severity: **medium** · frequency: **common** · applies to: `arch`, `btrfs`, `omarchy`, `swap`
+
+**Symptom.** After following a generic swap file guide (`fallocate` or `dd`, then `mkswap`):
+
+```
+swapon: /swapfile: swapon failed: Invalid argument
+```
+
+The kernel log says one of `swapfile must not be copy-on-write`, `swapfile must not be compressed`, `swapfile must not have holes` or `swapfile must be on one device`. Or the swap works but snapshots of `/` now fail with `cannot snapshot subvolume with active swapfile` (`Text file busy`), which on Omarchy breaks the pre-update snapshot.
+
+**Cause.** btrfs accepts a swap file only if it is NOCOW, uncompressed, fully preallocated with no holes, and on a single-device filesystem. A file created the ext4 way is copy-on-write, and on Omarchy root is mounted `compress=zstd:3`, so it fails activation. A swap file placed directly in `@` also blocks every snapshot of `@` while it is active.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Deleting the wrong fstab line can leave a mount missing at boot. Read the `grep -n` output before running the `sed`.
+
+**Fix.**
+
+Find out why first:
+
+```bash
+journalctl -k -b | grep -i swapfile
+sudo btrfs filesystem show /      # more than one device means no swap file at all
+```
+
+Remove the broken file and its fstab line (check the line before deleting it):
+
+```bash
+sudo swapoff /swapfile 2>/dev/null
+sudo rm -f /swapfile
+grep -n swapfile /etc/fstab
+sudo sed -i '\|^/swapfile |d' /etc/fstab
+```
+
+Create it the btrfs way, in its own subvolume so snapshots of `/` keep working. `mkswapfile` handles NOCOW and preallocation:
+
+```bash
+sudo btrfs subvolume create /swap
+sudo btrfs filesystem mkswapfile --size 8g --uuid clear /swap/swapfile
+sudo swapon /swap/swapfile
+echo '/swap/swapfile none swap defaults,pri=0 0 0' | sudo tee -a /etc/fstab
+```
+
+**Omarchy 4:** zram already provides swap, so a disk swap file is optional. Check whether one exists before creating it (`sudo btrfs subvolume show /swap`, `swapon --show`). `omarchy-hibernation-setup` builds exactly this `/swap/swapfile` at priority 0 below zram's 100, and also wires up resume, so use it if hibernation is the goal.
+
+On a multi-device btrfs volume use zram or a swap partition instead.
+
+**Verify.** `swapon --show` lists `/swap/swapfile`, `journalctl -k -b | grep -i swapfile` shows no warnings, and on Omarchy `omarchy-snapshot create` completes.
+
+Sources: <https://wiki.archlinux.org/title/Btrfs> · <https://bbs.archlinux.org/viewtopic.php?id=246960> · <https://raw.githubusercontent.com/torvalds/linux/master/fs/btrfs/inode.c> · <https://raw.githubusercontent.com/torvalds/linux/master/fs/btrfs/ioctl.c>
+
+---
+
 ## Fix CUPS "client-error-document-format-not-supported" / "Filter failed"
 
 `cups-document-format-not-supported` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `cups`, `endeavouros`, `manjaro`, `omarchy`, `printing`
@@ -1818,6 +2368,212 @@ The rest is correct as written: `LogLevel debug` in `/etc/cups/cupsd.conf` + `ta
 **Verify.** `lp -d MyPrinter /usr/share/cups/data/testprint` produces a page, and `lpstat -W completed -o` shows the job as completed rather than held.
 
 Sources: <https://wiki.archlinux.org/title/CUPS> · <https://wiki.archlinux.org/title/CUPS/Troubleshooting>
+
+---
+
+## Make distrobox work on Omarchy, where Docker is not usable without sudo
+
+`distrobox-permission-denied-docker-socket-omarchy` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `distrobox`, `docker`, `laptop`, `omarchy`, `podman`, `toolbox`
+
+**Symptom.** `distrobox create -n arch -i archlinux:latest` (or `distrobox enter`) fails straight away with:
+
+```
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+Docker itself works fine with `sudo docker ...`. `podman` is not installed, so the Toolbox advice I find does not apply either.
+
+**Cause.** Distrobox needs a container manager it can drive as your user. Its documentation requires either rootless Podman or Docker configured without sudo. Distrobox 1.8.2.5 (the Arch package) autodetects in the order `podman`, then `podman-launcher`, then `docker`. Omarchy 4 installs Docker but not Podman, and deliberately leaves your user out of the `docker` group (`install/config/docker.sh`) because that group is equivalent to passwordless root. Autodetect therefore picks `docker`, runs it as you, and the root-owned socket refuses the connection. `sudo distrobox` is discouraged upstream, and a rootful Docker distrobox means root inside the box is root on the host.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The `docker` group and `--root` both mean that anything running in the box, or as your user, can take over the host as root.
+
+**Fix.**
+
+**Recommended: give distrobox rootless Podman.** The Arch wiki's Distrobox page prefers Podman over Docker for exactly this reason.
+
+```bash
+sudo pacman -S podman
+cat /etc/subuid /etc/subgid        # expect a line for your user, e.g. you:100000:65536
+podman info --format '{{.Host.Security.Rootless}}'   # true
+```
+
+Omarchy's installer creates the account with `useradd`, which allocates the subordinate ID range. If your user has no line, see `podman-rootless-missing-subuid`.
+
+Autodetect now finds `podman` first. To make the choice explicit:
+
+```bash
+mkdir -p ~/.config/distrobox
+echo 'container_manager="podman"' >> ~/.config/distrobox/distrobox.conf
+distrobox create -n arch -i docker.io/library/archlinux:latest
+distrobox enter arch
+```
+
+Boxes created earlier under Docker do not show up in `distrobox list` once Podman is the manager. Recreate them, or reach them with `DBX_CONTAINER_MANAGER=docker distrobox enter --root <name>`.
+
+**Alternatives, both root-equivalent:**
+
+- `distrobox create --root ...` and `distrobox enter --root ...` run Docker through `sudo`. You will set a password inside the box on first entry.
+- `omarchy-setup-security-sudoless-docker` (Setup > Security > Sudoless Docker) adds you to the `docker` group after a warning and a reboot. Undo it with `omarchy-remove-security-sudoless-docker`.
+
+On plain Arch the same rule holds: install Podman, or add yourself to `docker` knowing it is root-equivalent.
+
+**Verify.** `distrobox list` shows the container with the Podman backend, `distrobox enter arch -- cat /etc/os-release` prints the guest distribution, and `id -u` inside the box matches your host UID.
+
+Sources: <https://wiki.archlinux.org/title/Distrobox> · <https://wiki.archlinux.org/title/Toolbox> · <https://distrobox.it/compatibility/> · <https://github.com/89luca89/distrobox/blob/main/docs/usage/distrobox-create.md> · <https://github.com/omacom/omarchy/blob/quattro/install/config/docker.sh> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-setup-security-sudoless-docker>
+
+---
+
+## Let a Docker container reach Ollama or another service on the host through ufw
+
+`docker-container-cannot-reach-host-service-ufw` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `docker`, `docker-compose`, `laptop`, `ollama`, `omarchy`, `ufw`
+
+**Symptom.** Open WebUI (or any container) cannot talk to Ollama running on the same machine. `curl http://localhost:11434/api/version` works on the host. From the container either `curl: (6) Could not resolve host: host.docker.internal`, or `curl: (7) Failed to connect to host.docker.internal port 11434: Connection refused`, or, most confusingly, a long hang ending in `curl: (28) Failed to connect to host.docker.internal port 11434 after 130000 ms: Couldn't connect to server`. A rule that worked yesterday stops working after `docker compose down && up`.
+
+**Cause.** Three separate layers, each with its own error.
+
+1. **No name.** On Linux `host.docker.internal` does not exist unless the container is given `extra_hosts: host.docker.internal:host-gateway`, which resolves to the default bridge gateway. Omarchy's `/etc/docker/daemon.json` sets `"bip": "172.17.0.1/16"`, so that is 172.17.0.1.
+2. **Connection refused.** Ollama binds 127.0.0.1:11434 by default, so nothing listens on 172.17.0.1.
+3. **Timeout.** Omarchy runs ufw with `default deny incoming`. A packet from a container to the host's own address goes through the INPUT hook, not FORWARD, so neither ufw-docker's `DOCKER-USER` rules nor Omarchy's shipped `allow-docker-dns` rules (UDP 53 to 172.17.0.1 only) cover it, and ufw drops it silently. That is why it times out instead of being refused.
+
+Compose makes the third layer move. Every project network gets a new `br-<id>` bridge and a subnet from Docker's default pools when it is created, so a ufw rule naming the interface or one subnet stops matching after the network is recreated.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `OLLAMA_HOST=0.0.0.0` exposes an unauthenticated API on every interface. It is safe only while ufw's default deny holds, so check `sudo ufw status` for any broad allow on 11434.
+
+**Fix.**
+
+**1. Make Ollama listen beyond loopback** (the Ollama FAQ's method for a systemd install):
+
+```bash
+sudo systemctl edit ollama.service
+```
+
+```ini
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+```
+
+```bash
+sudo systemctl restart ollama
+ss -ltn | grep 11434          # expect *:11434 or 0.0.0.0:11434
+```
+
+Binding `172.17.0.1:11434` instead also works, but only if `docker0` already exists when Ollama starts.
+
+**2. Pin the compose network and give the container the host name:**
+
+```yaml
+services:
+  webui:
+    image: ghcr.io/open-webui/open-webui:main
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    networks: [llm]
+
+networks:
+  llm:
+    name: llm
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-llm
+    ipam:
+      config:
+        - subnet: 172.28.7.0/24
+```
+
+**3. Open the port to that subnet only** (Omarchy 4, or any Arch with ufw):
+
+```bash
+sudo ufw allow from 172.28.7.0/24 to any port 11434 proto tcp comment 'ollama from compose llm'
+# containers started with plain docker run sit on docker0 instead:
+sudo ufw allow in on docker0 to any port 11434 proto tcp comment 'ollama from docker0'
+```
+
+Do not use `sudo ufw allow 11434`. That opens Ollama, which has no authentication, to your whole LAN.
+
+On plain Arch without ufw, steps 1 and 2 are enough. Omarchy leaves your user out of the `docker` group, so run the compose commands with `sudo` unless you opted in to sudoless Docker.
+
+**Verify.** ```bash
+sudo docker run --rm --network llm --add-host host.docker.internal:host-gateway \
+  curlimages/curl -s http://host.docker.internal:11434/api/version
+```
+prints a JSON version string immediately. `sudo ufw status | grep 11434` shows only the scoped rules.
+
+Sources: <https://docs.ollama.com/faq> · <https://github.com/ollama/ollama/blob/main/docs/faq.mdx> · <https://docs.docker.com/compose/how-tos/networking/> · <https://docs.docker.com/reference/compose-file/networks/> · <https://docs.docker.com/engine/network/drivers/bridge/> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/omacom/omarchy/blob/quattro/etc/docker/daemon.json>
+
+---
+
+## Fix Docker "could not find an available, non-overlapping IPv4 address pool"
+
+`docker-no-available-non-overlapping-address-pool` · severity: **medium** · frequency: **common** · applies to: `arch`, `docker`, `omarchy`
+
+**Symptom.** `docker compose up` fails before any container starts:
+
+```
+failed to create network actualbudget_default: Error response from daemon: could not find an available, non-overlapping IPv4 address pool among the defaults to assign to the network
+```
+
+`docker network ls` shows a long list of `<project>_default` networks from old compose projects.
+
+**Cause.** Every compose project creates its own bridge network, and Docker carves those from small default pools: 172.17.0.0/12 in /16 blocks and 192.168.0.0/16 in /20 blocks, which is only about 30 networks. Networks from projects you stopped testing are never removed, so the pools run dry.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `docker network prune` deletes every network with no container attached, including ones a stopped project expects to reuse. Restarting docker.service stops all running containers. Existing networks keep their old subnets until recreated.
+
+**Fix.**
+
+Free what is unused. On Omarchy 4 your user is not in the `docker` group unless you opted in through Setup > Security > Sudoless Docker, so use `sudo`:
+
+```bash
+sudo docker network ls
+sudo docker network prune          # removes networks no container uses
+# or, in a project you are finished with:
+sudo docker compose down
+```
+
+Then enlarge the pool so it stops recurring.
+
+**Omarchy 4:** `/etc/docker/daemon.json` is owned by omarchy-settings and its `dns` and `bip` keys are what make container DNS work, so add the key and keep the rest. Keeping the pool inside 172.16.0.0/12 means the shipped `allow-docker-dns` ufw rule already covers it, and 172.18.0.0/15 at size 24 gives 512 networks without touching the 172.17.0.0/16 that `bip` pins to docker0:
+
+```json
+{
+    "log-driver": "json-file",
+    "log-opts": { "max-size": "10m", "max-file": "5" },
+    "dns": ["172.17.0.1"],
+    "bip": "172.17.0.1/16",
+    "default-address-pools": [
+        { "base": "172.18.0.0/15", "size": 24 }
+    ]
+}
+```
+
+**Plain Arch:** the file usually does not exist. The Arch wiki's version shrinks both default pools to /24 blocks:
+
+```json
+{
+  "default-address-pools": [
+    { "base": "172.17.0.0/12", "size": 24 },
+    { "base": "192.168.0.0/16", "size": 24 }
+  ]
+}
+```
+
+Apply on either:
+
+```bash
+python3 -m json.tool /etc/docker/daemon.json
+sudo systemctl restart docker.service
+```
+
+**Verify.** `sudo docker network create pooltest && sudo docker network inspect pooltest --format '{{(index .IPAM.Config 0).Subnet}}'` prints a /24 from the new pool, then `sudo docker network rm pooltest`. `docker compose up` creates its network.
+
+Sources: <https://wiki.archlinux.org/title/Docker> · <https://forums.docker.com/t/error-could-not-find-an-available-non-overlapping-ipv4-address-pool-among-the-defaults-to-assign-to-the-network/139459> · <https://github.com/omacom/omarchy/blob/quattro/etc/docker/daemon.json> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/moby/moby/blob/master/daemon/libnetwork/ipamutils/utils.go>
 
 ---
 
@@ -2044,6 +2800,46 @@ coredumpctl list
 **Verify.** `ls /var/log/journal/` contains a machine-id directory with `.journal` files, `journalctl --disk-usage` reports usage under `/var/log/journal`, and after a reboot `journalctl --list-boots` lists at least two boots and `journalctl -b -1` shows real log lines.
 
 Sources: <https://man.archlinux.org/man/journald.conf.5.en> · <https://man.archlinux.org/man/journalctl.1.en> · <https://wiki.archlinux.org/title/Systemd/Journal> · <https://raw.githubusercontent.com/systemd/systemd/main/src/journal/journalctl-util.c> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-pacman-guard> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-update-requires-free-space>
+
+---
+
+## Fix USB drives, Docker or VPNs failing right after a kernel update
+
+`kernel-modules-missing-after-kernel-update-before-reboot` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `docker`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** Straight after an update, before rebooting, a USB stick shows up in `dmesg` but will not mount (`unknown filesystem type 'exfat'`), Docker or WireGuard refuses to start, and loading a module fails:
+
+```
+modprobe: FATAL: Module wireguard not found in directory /lib/modules/7.2.3-arch1-1
+```
+
+Everything that was already loaded keeps working.
+
+**Cause.** The running kernel stays in memory until reboot, but pacman removes its module tree `/usr/lib/modules/$(uname -r)` when it installs the new kernel package. Any module not already loaded can no longer be found.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Reboot into the new kernel, which is the fix for this boot.
+
+**Plain Arch:** prevent it next time with the hook that copies the running kernel's modules back after the upgrade, and the timer-like service that cleans them up later:
+
+```bash
+sudo pacman -S kernel-modules-hook
+sudo systemctl enable linux-modules-cleanup.service
+```
+
+**Omarchy 4:** this is already handled. `kernel-modules-hook` is in Omarchy's base package list and the installer enables `linux-modules-cleanup.service` (both confirmed on 4.0.4-1). If you still hit it, check both are present:
+
+```bash
+pacman -Q kernel-modules-hook
+systemctl is-enabled linux-modules-cleanup.service
+```
+
+**Verify.** After the next kernel update and before rebooting, `ls /usr/lib/modules/$(uname -r)` still exists and `sudo modprobe -n -v exfat` resolves the module.
+
+Sources: <https://wiki.archlinux.org/title/General_troubleshooting> · <https://github.com/omacom/omarchy/blob/quattro/install/config/enable-services.sh> · <https://bbs.archlinux.org/viewtopic.php?id=291554> · <https://github.com/saber-nyan/kernel-modules-hook> · <https://archlinux.org/packages/extra/any/kernel-modules-hook/>
 
 ---
 
@@ -2485,6 +3281,50 @@ Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.o
 
 ---
 
+## Give Waydroid an IP address when ufw blocks DHCP on waydroid0
+
+`waydroid-no-ip-address-ufw-waydroid0` · severity: **medium** · frequency: **common** · applies to: `android`, `arch`, `desktop`, `laptop`, `omarchy`, `ufw`, `waydroid`
+
+**Symptom.** Waydroid's container runs and Android boots, but there is no network. `waydroid status` shows `IP address: UNKNOWN`. Inside Android the Wi-Fi tile says connected without internet, the browser cannot load anything and the Play Store says "No connection".
+
+**Cause.** Waydroid creates a `waydroid0` bridge and runs `dnsmasq` on the host to hand Android its address (the `waydroid` package depends on `dnsmasq` and `nftables`). Android's DHCP request (UDP 67) and DNS queries (port 53) are traffic into the host, and Omarchy runs ufw with `default deny incoming` and `DEFAULT_FORWARD_POLICY="DROP"` in `/etc/default/ufw`. ufw drops DHCP and DNS in INPUT and Android's outbound traffic in FORWARD. A comment on omacom/omarchy#12454 (on a `linux-omarchy 7.2.5-4` build) notes this exact `IP address: UNKNOWN` result with ufw active. Any Arch install with ufw enabled behaves the same.
+
+> **Audit corrected this record.** The four ufw rules match the Arch wiki Waydroid page (raw) word for word. /etc/default/ufw here has DEFAULT_INPUT_POLICY="DROP" and DEFAULT_FORWARD_POLICY="DROP", quattro install/config/firewall.sh sets default deny incoming, and waydroid 1.6.3-1 depends on dnsmasq and nftables. docs.waydro.id networking page (markdown) does give `ufw allow 53`, `ufw allow 67`, `ufw default allow FORWARD`. One claim was false: that `default allow FORWARD` undoes ufw-docker's protection. /etc/ufw/after.rules here shows ufw-docker's DOCKER-USER chain ending in its own ufw-docker-logging-deny rules for NEW connections to private ranges, which do not depend on ufw's routed policy. The real cost is that every forwarded path (libvirt bridges, other container networks) is accepted, not only waydroid0. Rewrote that paragraph. The #12454 report is a side note in an AI-filed comment on a 7.2.5-4 build, so the cause now says so. ufw's parser accepts `forward` as a synonym of `routed`. No rule was added.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Allow DHCP and DNS from the Waydroid bridge only, and route its traffic. These are the Arch wiki's rules:
+
+```bash
+sudo ufw allow in on waydroid0 to any port 67 proto udp comment 'waydroid dhcp'
+sudo ufw allow in on waydroid0 to any port 53 comment 'waydroid dns'
+sudo ufw route allow in on waydroid0
+sudo ufw route allow out on waydroid0
+```
+
+The Waydroid project's own page suggests `sudo ufw allow 53`, `sudo ufw allow 67` and `sudo ufw default allow FORWARD`. Do not use those on Omarchy. The first two open DNS and DHCP on every interface, including Wi-Fi. The third makes ufw accept forwarded traffic between every pair of interfaces, so libvirt bridges and other container networks are opened too, not only Waydroid's.
+
+Check IPv4 forwarding, then restart Waydroid so Android asks again:
+
+```bash
+sysctl net.ipv4.ip_forward          # must print 1
+waydroid session stop
+sudo systemctl restart waydroid-container.service
+waydroid session start
+```
+
+If forwarding prints 0, uncomment `net/ipv4/ip_forward=1` in `/etc/ufw/sysctl.conf` and run `sudo ufw reload`.
+
+**Verify.** `waydroid status` shows an address on the `waydroid0` subnet instead of `UNKNOWN`, and a page loads in Android's browser. `sudo ufw status | grep waydroid0` lists the four rules.
+
+Sources: <https://wiki.archlinux.org/title/Waydroid> · <https://docs.waydro.id/debugging/networking-issues> · <https://github.com/omacom/omarchy/issues/12454> · <https://archlinux.org/packages/extra/x86_64/waydroid/> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh>
+
+---
+
 ## Fix omarchy-windows-vm launch starting the container and never opening an RDP window
 
 `windows-vm-launch-no-rdp-window-stale-log` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `docker`, `freerdp`, `laptop`, `omarchy`, `windows`
@@ -2600,6 +3440,73 @@ The sysctl tuning and the hibernation warning (`omarchy-hibernation-setup` gives
 **Verify.** `zramctl` shows `/dev/zram0` with your chosen size and `zstd` algorithm, `swapon --show` lists it, and `free -h` shows a non-zero Swap total. Under load the desktop stays responsive.
 
 Sources: <https://wiki.archlinux.org/title/Zram> · <https://wiki.archlinux.org/title/Swap>
+
+---
+
+## Find and move Docker images that live in /var/lib/containerd, not /var/lib/docker
+
+`docker-29-containerd-image-store-outside-data-root` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `btrfs`, `containerd`, `desktop`, `docker`, `laptop`, `omarchy`
+
+**Symptom.** I set `"data-root": "/mnt/data/docker"` in `/etc/docker/daemon.json` to keep Docker off my root partition, but every `docker pull` still eats space on `/`. `sudo du -sh /var/lib/docker` (or the new data-root) is small, while `df -h /` keeps shrinking. ncdu over `/var/lib/docker` cannot find where tens of gigabytes went. Images also seem to take more space than they did on older Docker.
+
+**Cause.** Docker Engine 29 made the containerd image store the default on fresh installations. Image layers and container snapshots then belong to the system containerd, under its own root, `/var/lib/containerd`. On Arch `docker.service` runs `dockerd -H fd:// --containerd=/run/containerd/containerd.sock`, so that is the separate `containerd.service` (confirmed on an Omarchy 4.0.4-1 install with docker 29.7.2 and containerd 2.3.5). Docker's `data-root` moves only `/var/lib/docker` (volumes, container metadata, logs), and Docker's own documentation says it does not affect `/var/lib/containerd`. The containerd store also keeps both the compressed and the extracted copy of every layer, so the same images take more space than they did under overlay2. Machines upgraded from Docker 28 or earlier keep the old overlay2 store in `/var/lib/docker` until it is switched.
+
+On Omarchy 4 both directories are plain directories inside the `@` root subvolume, so they also end up in every Snapper snapshot. See `snapper-snapshots-pin-docker-images-and-vm-disks`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Stopping docker and containerd stops every running container. Deleting `/var/lib/containerd` or `/var/lib/docker` before checking the copy loses all images, containers and volumes. Switching the image store setting (as opposed to moving its directory) hides the other store's images until you switch back.
+
+**Fix.**
+
+**1. See which store you have and where the space is:**
+
+```bash
+sudo docker info -f '{{ .DriverStatus }}'     # [[driver-type io.containerd.snapshotter.v1]] = containerd store
+sudo docker info -f '{{ .DockerRootDir }}'
+sudo du -sh /var/lib/docker /var/lib/containerd
+sudo docker system df
+```
+
+**2. Move the containerd root.** Arch ships no `/etc/containerd/config.toml`, so generate one, which gives the native config version for the installed containerd:
+
+```bash
+sudo systemctl stop docker.socket docker.service containerd.service
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
+sudo sed -i "s|^root = .*|root = '/mnt/data/containerd'|" /etc/containerd/config.toml
+grep -E '^(version|root)' /etc/containerd/config.toml
+sudo mkdir -p /mnt/data/containerd
+sudo cp -a /var/lib/containerd/. /mnt/data/containerd/
+sudo systemctl start containerd.service docker.socket docker.service
+sudo docker image ls          # your images must still be listed
+```
+
+Only once images and containers work from the new location, remove the old copy with `sudo rm -rf /var/lib/containerd`.
+
+**3. Move the rest with data-root, if you want volumes moved too.**
+
+- **Omarchy 4:** `/etc/docker/daemon.json` is owned by `omarchy-settings` and listed as a backup file, so your edit survives updates and a changed upstream version arrives as `daemon.json.pacnew`. Add the key and keep Omarchy's `dns` and `bip`, which the shipped container DNS setup depends on:
+
+```json
+{
+    "log-driver": "json-file",
+    "log-opts": { "max-size": "10m", "max-file": "5" },
+    "dns": ["172.17.0.1"],
+    "bip": "172.17.0.1/16",
+    "data-root": "/mnt/data/docker"
+}
+```
+
+- **Plain Arch:** create `/etc/docker/daemon.json` with just `{ "data-root": "/mnt/data/docker" }`.
+
+Then stop Docker, `sudo cp -a /var/lib/docker/. /mnt/data/docker/`, and start it again, as in step 2.
+
+If you would rather reclaim than move: `sudo docker image prune -a` and `sudo docker builder prune` act on whichever store is active.
+
+**Verify.** `sudo docker info -f '{{ .DockerRootDir }}'` shows the new data-root, `sudo du -sh /mnt/data/containerd` holds the image data, and `df -h /` no longer drops when you `sudo docker pull` a large image.
+
+Sources: <https://wiki.archlinux.org/title/Docker> · <https://docs.docker.com/engine/storage/containerd/> · <https://docs.docker.com/engine/daemon/> · <https://github.com/omacom/omarchy/blob/quattro/etc/docker/daemon.json>
 
 ---
 
@@ -2899,6 +3806,118 @@ Sources: <https://github.com/omacom/omarchy/issues/8725> · <https://archlinux.o
 
 ---
 
+## Move Omarchy's Docker bridge off 172.17.0.0/16 when the LAN uses it
+
+`omarchy-docker-bridge-collides-with-lan-172-17` · severity: **medium** · frequency: **occasional** · applies to: `docker`, `network`, `omarchy`, `systemd-resolved`, `ufw`
+
+**Symptom.** Hosts on my network that live in 172.17.x.x (the router admin page, a NAS, a VPN subnet) are unreachable from this laptop, while other machines reach them fine. `ip route get 172.17.5.10` (any LAN host in that range) answers `dev docker0`, and `ip route get 172.17.0.1` answers `local 172.17.0.1 dev lo`, because this machine owns that address. Setting the router as DNS with `omarchy dns Custom` and `172.17.0.1` silently falls back to FallbackDNS, or `journalctl -u systemd-resolved` shows `Configured DNS server loops back to us`.
+
+**Cause.** Omarchy pins Docker's default bridge to 172.17.0.1/16 in `/etc/docker/daemon.json` (`"bip": "172.17.0.1/16"`, `"dns": ["172.17.0.1"]`), binds a systemd-resolved stub listener there through `/etc/systemd/resolved.conf.d/20-docker-dns.conf` (`DNSStubListenerExtra=172.17.0.1`), and its installer adds ufw rules allowing 53/udp to 172.17.0.1. docker.service is enabled, so docker0 claims the whole 172.17.0.0/16 route from boot, and anything aimed at 172.17.0.1 is answered by the host's own resolved stub. Reported as omacom/omarchy#11757. That report says 4.0.3 had already moved `bip` to 172.30.0.1/16, but the quattro branch and omarchy-settings 4.0.4-1 both ship 172.17.0.1/16.
+
+> **Audit corrected this record.** The cause and fix hold. Confirmed locally on 4.0.4-1: daemon.json has bip 172.17.0.1/16 and dns 172.17.0.1, /etc/systemd/resolved.conf.d/20-docker-dns.conf has DNSStubListenerExtra=172.17.0.1 (both omarchy-settings backup files), /etc/ufw/user.rules carries the two allow-docker-dns rules, and a grep of /usr/share/omarchy finds no other 172.17 reference, so four places is right. omarchy-dns accepts Custom. #11757 is open and its body does say bip was 172.30.0.1/16 on the reporter's 4.0.3, which quattro and 4.0.4-1 contradict, as the record says. The symptom is wrong in one detail: because docker0 owns 172.17.0.1, `ip route get 172.17.0.1` on this machine prints `local 172.17.0.1 dev lo`, while another address such as 172.17.5.10 prints `dev docker0`. Not exercised: moving the bridge. Second audit confirmed the corrected text: Re-checked the corrected text on this workstation. daemon.json has bip 172.17.0.1/16 and dns 172.17.0.1, /etc/systemd/resolved.conf.d/20-docker-dns.conf has DNSStubListenerExtra=172.17.0.1, both are listed as omarchy-settings backup files, and quattro install/config/firewall.sh adds the two allow-docker-dns rules. docker.service is enabled. `ip route get 172.17.5.10` prints `dev docker0` and `ip route get 172.17.0.1` prints `local 172.17.0.1 dev lo`, exactly as the symptom now says. ufw's rule match in /usr/lib/python3.14/site-packages/ufw/common.py treats a rule that differs only in comment as a match, so the delete commands without the comment work. The ufw-docker after.rules use 172.16.0.0/12, which still contains 172.31.0.0/16. Issue #11757 is open and supports the cause, including the reporter's 172.30.0.1/16 bip that quattro and 4.0.4-1 contradict. Not exercised: moving the bridge.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Restarting docker.service stops every running container. Both edited files are pacman backup files of omarchy-settings, so your edits survive updates, but a future omarchy-settings change to them arrives as a `.pacnew` that must be merged by hand rather than copied over.
+
+**Fix.**
+
+See what the LAN and any VPN use, and pick a /16 that nothing uses. The example uses 172.31.0.1/16:
+
+```bash
+ip -4 route
+cat /etc/docker/daemon.json
+```
+
+**Omarchy 4:** the bridge address appears in four places and all four have to move together, or container DNS breaks.
+
+1. Edit `/etc/docker/daemon.json`, keeping the other keys. The pool line keeps compose networks off 172.17 as well:
+
+```json
+{
+    "log-driver": "json-file",
+    "log-opts": { "max-size": "10m", "max-file": "5" },
+    "dns": ["172.31.0.1"],
+    "bip": "172.31.0.1/16",
+    "default-address-pools": [
+        { "base": "172.18.0.0/15", "size": 24 }
+    ]
+}
+```
+
+2. Move the resolved stub listener:
+
+```bash
+sudo sed -i 's/^DNSStubListenerExtra=172.17.0.1$/DNSStubListenerExtra=172.31.0.1/' /etc/systemd/resolved.conf.d/20-docker-dns.conf
+```
+
+3. Move the firewall rules:
+
+```bash
+sudo ufw delete allow in proto udp from 172.16.0.0/12 to 172.17.0.1 port 53
+sudo ufw delete allow in proto udp from 192.168.0.0/16 to 172.17.0.1 port 53
+sudo ufw allow in proto udp from 172.16.0.0/12 to 172.31.0.1 port 53 comment 'allow-docker-dns'
+sudo ufw allow in proto udp from 192.168.0.0/16 to 172.31.0.1 port 53 comment 'allow-docker-dns'
+```
+
+4. Restart, Docker first so docker0 carries the new address:
+
+```bash
+python3 -m json.tool /etc/docker/daemon.json
+sudo systemctl restart docker.service
+sudo systemctl restart systemd-resolved
+```
+
+Recreate compose projects (`sudo docker compose down && sudo docker compose up -d`) so their networks move off the old range.
+
+**Plain Arch:** only `bip` matters, because nothing else is tied to it. Set `"bip": "172.31.0.1/16"` in `/etc/docker/daemon.json` and restart docker.service.
+
+**Verify.** `ip -4 addr show docker0` shows `172.31.0.1/16`, `ip route get <a LAN host in 172.17>` goes out the LAN interface, `sudo ss -ulpn | grep 172.31.0.1:53` shows systemd-resolved, and `sudo docker run --rm alpine nslookup archlinux.org` resolves.
+
+Sources: <https://github.com/omacom/omarchy/issues/11757> · <https://github.com/omacom/omarchy/blob/quattro/etc/docker/daemon.json> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://docs.docker.com/engine/network/drivers/bridge/>
+
+---
+
+## Get Omarchy's zram swap working when zram-generator was never installed
+
+`omarchy-zram-generator-not-installed-no-swap` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `omarchy`, `systemd`, `zram`
+
+**Symptom.** `swapon --show` prints nothing and `zramctl` is empty, so the machine has no swap at all and freezes or has apps killed under memory pressure. Yet `/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf` is there with `zram-size = ram`. Usually a machine where Omarchy was installed with the curl installer onto an existing Arch base, or upgraded from Omarchy 3.
+
+**Cause.** omarchy-settings ships the zram configuration but lists `zram-generator` only as an optional dependency (4.0.4-1: `Optional Deps: zram-generator`), and the `omarchy` package does not depend on it. Nothing in the install scripts installs it either: on the quattro branch it appears only in `install/omarchy-other.packages`, the offline package cache list, not in `omarchy-base.packages`. Without the generator nothing reads the config, so no zram device is created. Reported as omacom/omarchy#7522, still open.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check first:
+
+```bash
+pacman -Q zram-generator
+zramctl
+swapon --show
+```
+
+**Omarchy 4:** install the generator and let the shipped config take effect:
+
+```bash
+omarchy-pkg-add zram-generator
+sudo systemctl daemon-reload
+sudo systemctl start dev-zram0.swap
+```
+
+A reboot does the same. Do not create `/etc/systemd/zram-generator.conf` to "configure" it, the shipped drop-in already does.
+
+**Plain Arch:** installing the package alone creates nothing, because Arch ships no config. Install it and write `/etc/systemd/zram-generator.conf` yourself (see the zram record `zram-swap-oom-freezes`).
+
+**Verify.** `zramctl` shows `/dev/zram0` with algorithm `zstd` and a size about equal to RAM, and `swapon --show` lists `/dev/zram0` with priority 100.
+
+Sources: <https://github.com/omacom/omarchy/issues/7522> · <https://github.com/omacom/omarchy/blob/quattro/default/systemd/zram-generator.conf.d/90-omarchy.conf>
+
+---
+
 ## Fix a scanner (or USB printer) the tools can see but cannot open
 
 `scanner-not-detected-scanimage` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `cups`, `endeavouros`, `manjaro`, `omarchy`, `printing`, `sane`, `scanner`, `udev`, `usb`
@@ -2939,6 +3958,192 @@ Then `sudo udevadm control --reload-rules && sudo udevadm trigger` and re-plug. 
 **Verify.** `scanimage -L` as your normal user lists the device, `ls -l /dev/bus/usb/<bus>/<dev>` shows group `lp` mode `0664`, and `scanimage --format=png --output-file test.png --progress` produces a real image.
 
 Sources: <https://wiki.archlinux.org/title/SANE> · <https://wiki.archlinux.org/title/CUPS/Troubleshooting>
+
+---
+
+## Stop Snapper snapshots from pinning deleted Docker images and VM disks
+
+`snapper-snapshots-pin-docker-images-and-vm-disks` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `btrfs`, `containerd`, `desktop`, `docker`, `laptop`, `libvirt`, `omarchy`, `snapper`
+
+**Symptom.** `sudo docker system prune -a` reports `Total reclaimed space: 31.4GB` but `df -h /` does not move. Deleting a 60 GB VM disk in virt-manager frees nothing either. The root filesystem keeps creeping toward full even though I keep cleaning up containers.
+
+**Cause.** Omarchy 4 configures Snapper on the `@` subvolume (`/etc/snapper/configs/root`, `SUBVOLUME="/"`, `NUMBER_LIMIT="5"`) and `omarchy update` takes a snapshot before each update through `omarchy-snapshot create`. The default layout has only `@ @home @log @pkg`, so `/var/lib/containerd`, `/var/lib/docker` and `/var/lib/libvirt/images` are ordinary directories inside `@` (on a 4.0.4-1 install none of them is a subvolume, their inode numbers are not 256). Every snapshot therefore holds references to the image layers and VM disk extents that existed when it was taken. Deleting the files from the live system frees no blocks until every snapshot containing them has also been deleted, and Docker image churn makes that a lot of data. The Arch wiki Snapper page notes that a snapshot of `@` never includes other subvolumes, and suggests separate subvolumes for directories such as `/var/lib/docker`. A side effect worth knowing: restoring an Omarchy snapshot also rolls Docker's and libvirt's state back to that point.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A typo in a new fstab line can drop boot to an emergency shell. Run `sudo findmnt --verify` before rebooting. Deleting snapshots removes those rollback points for good. Deleting the `.old` directories before checking the copy loses images, containers and volumes. Stopping Docker stops every container.
+
+**Fix.**
+
+**1. Measure with btrfs, not df:**
+
+```bash
+sudo snapper -c root list
+sudo btrfs filesystem usage /
+```
+
+**2. Free space now** by deleting older snapshots you do not need (keep the newest):
+
+```bash
+sudo snapper -c root delete <number>
+sudo btrfs filesystem usage /
+```
+
+**3. Keep it from coming back** by putting the container stores in their own top-level subvolumes, mounted from fstab. A flat subvolume survives a rollback of `@`. A nested one would be left behind inside the old `@`.
+
+```bash
+sudo systemctl stop docker.socket docker.service containerd.service
+ROOTDEV=$(findmnt -no SOURCE / | sed 's/\[.*//')
+findmnt -no UUID /                       # note this UUID for fstab
+sudo mount -o subvolid=5 "$ROOTDEV" /mnt
+sudo btrfs subvolume create /mnt/@containerd
+sudo btrfs subvolume create /mnt/@docker
+sudo cp -a --reflink=auto /var/lib/containerd/. /mnt/@containerd/
+sudo cp -a --reflink=auto /var/lib/docker/. /mnt/@docker/
+sudo umount /mnt
+sudo mv /var/lib/containerd /var/lib/containerd.old
+sudo mv /var/lib/docker /var/lib/docker.old
+sudo mkdir /var/lib/containerd /var/lib/docker
+```
+
+Add two lines to `/etc/fstab`, copying the options from your existing `/` line and changing only the mount point and `subvol=`:
+
+```
+UUID=<uuid from findmnt>  /var/lib/containerd  btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@containerd  0 0
+UUID=<uuid from findmnt>  /var/lib/docker      btrfs  rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvol=/@docker      0 0
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo mount /var/lib/containerd && sudo mount /var/lib/docker
+stat -c '%a %U %n' /var/lib/containerd /var/lib/docker   # expect 700 and 710, owner root
+sudo systemctl start containerd.service docker.socket docker.service
+sudo docker image ls
+```
+
+When everything works, `sudo rm -rf /var/lib/containerd.old /var/lib/docker.old`. Their blocks are only released once the snapshots taken before the move rotate out. The same pattern works for `/var/lib/libvirt/images` with a `@libvirt-images` subvolume (shut the VMs off and stop `libvirtd` first).
+
+On plain Arch this applies only if you run Snapper (or another snapshot tool) on a root subvolume that contains these directories.
+
+**Verify.** `findmnt /var/lib/containerd /var/lib/docker` shows the new subvolumes. After the next `omarchy update` snapshot, `sudo docker image prune -a` followed by `sudo btrfs filesystem usage /` shows the freed space immediately.
+
+Sources: <https://wiki.archlinux.org/title/Snapper> · <https://wiki.archlinux.org/title/Docker> · <https://docs.docker.com/engine/storage/containerd/> · <https://github.com/omacom/omarchy/blob/quattro/install/config/snapper.sh>
+
+---
+
+## Fix systemd-timesyncd never synchronising ("Timed out waiting for reply")
+
+`timesyncd-timed-out-waiting-for-reply-ntp-blocked` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `laptop`, `omarchy`, `systemd`
+
+**Symptom.** `timedatectl status` keeps saying `System clock synchronized: no` with `NTP service: active`, and the clock drifts. The timesyncd log repeats:
+
+```
+Timed out waiting for reply from 146.164.48.5:123 (2.arch.pool.ntp.org).
+```
+
+**Cause.** Two causes are reported. The network drops outbound UDP 123 to public servers (office or school networks, some ISPs), so the pool servers never answer. Or a second time daemon (`ntpd`, `ntpdate` or `chronyd`) is enabled alongside timesyncd, and an Arch forum moderator diagnosed exactly that combination in a thread with this symptom. Only one time service should manage the clock. Omarchy's own firewall is not the cause: ufw's default deny applies to new incoming connections, and `/etc/ufw/before.rules` accepts replies to traffic the machine sent.
+
+> **Audit corrected this record.** Both cited forum threads were read. 270929 is solved as an IT policy blocking external NTP, which supports the first cause, and its log line with 146.164.48.5 (2.arch.pool.ntp.org) is the record's symptom. 274780 ends with a moderator saying ntpd and ntpdate were enabled alongside timesyncd and should be disabled, which supports the second cause as advice, but nothing in the thread shows a port conflict. timesyncd is an SNTP client that sends from an ephemeral port, so 'fight over the port' is an invented mechanism and is removed from the cause. The fix ran 'systemctl disable --now ntpd.service ntpdate.service chronyd.service' unconditionally, which names units that are usually not installed (on this 4.0.4-1 machine neither ntp nor chrony is installed) and makes systemctl report 'Unit file ... does not exist' and fail, so the corrected fix disables only the units the check showed as enabled. omarchy-update-time on 4.0.4-1 is exactly 'sudo systemctl restart systemd-timesyncd' and calls sudo itself, confirmed. Omarchy's ufw does not cause this: /etc/ufw/before.rules accepts RELATED,ESTABLISHED on input, so replies to outbound NTP pass, and that is added to the cause. The '<your-ntp-server>' placeholder was inside a copy-paste pipeline, so the corrected fix has the user edit the file instead. Not exercised: no service was changed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Look at what timesyncd is doing:
+
+```bash
+timedatectl status
+timedatectl timesync-status
+journalctl -u systemd-timesyncd -b --no-pager | tail -20
+systemctl is-enabled ntpd.service ntpdate.service chronyd.service 2>/dev/null
+```
+
+The last command prints a line only for units that are installed. If any of them prints `enabled`, keep one time service. To keep timesyncd, disable only the units that printed `enabled`. For example, if `ntpd.service` and `ntpdate.service` were enabled:
+
+```bash
+sudo systemctl disable --now ntpd.service ntpdate.service
+sudo timedatectl set-ntp true
+```
+
+Do not list a unit that is not installed, because `systemctl disable` then fails with `Unit file ... does not exist`.
+
+If the network blocks public NTP, ask whoever runs it which NTP server is allowed, then create a drop-in naming it:
+
+```bash
+sudo mkdir -p /etc/systemd/timesyncd.conf.d
+sudoedit /etc/systemd/timesyncd.conf.d/local.conf
+```
+
+Put this in the file, with the allowed server's name or address after `NTP=`:
+
+```ini
+[Time]
+NTP=ntp.your-network.example
+```
+
+Restart timesyncd. On Omarchy 4 `omarchy-update-time` does exactly this restart and calls sudo itself:
+
+```bash
+omarchy-update-time                              # Omarchy 4
+sudo systemctl restart systemd-timesyncd        # plain Arch
+```
+
+**Verify.** `timedatectl timesync-status` shows a server and a nonzero `Packet count`, and `timedatectl status` reports `System clock synchronized: yes`.
+
+Sources: <https://wiki.archlinux.org/title/Systemd-timesyncd> · <https://bbs.archlinux.org/viewtopic.php?id=270929> · <https://bbs.archlinux.org/viewtopic.php?id=274780> · <https://man.archlinux.org/man/timesyncd.conf.5.en>
+
+---
+
+## Fix Waydroid's "Can't open /dev/anbox-binder: No such process" on Arch kernels built with rust-bindgen 0.73.1
+
+`waydroid-rust-binder-no-such-process-bad-bindgen-build` · severity: **medium** · frequency: **occasional** · applies to: `android`, `arch`, `desktop`, `dkms`, `kernel`, `laptop`, `linux-lts`, `omarchy`, `waydroid`
+
+**Symptom.** Waydroid initialises the binder nodes but never gets further. These two lines repeat forever:
+
+```
+[gbinder] ERROR: Can't open /dev/anbox-binder: No such process
+Failed to add presence handler: None
+```
+
+`/dev/anbox-binder` exists as a symlink to `/dev/binderfs/anbox-binder`, so the node is there. Some machines also log a kernel oops in `rust_binder_open`. It started with `linux 7.2.3.arch1-3` (or `linux-zen 7.2.3`, or `linux-lts 6.18.49-3`), and booting an older kernel works. On Omarchy 4.0.4 this is what you hit after switching from `linux-omarchy` back to the stock kernel to get binder.
+
+**Cause.** Arch rebuilt its kernels against rust-bindgen 0.73.1 on 2026-09-06 (`upgpkg: 7.2.3.arch1-3: rust-bindgen 0.73.1 rebuild`, and the same for `linux-lts 6.18.49-3`). That bindgen release generates a wrong struct layout (rust-lang/rust-bindgen#3406), so the in-kernel Rust binder driver reads from the wrong offsets and open fails with ESRCH. Arch rebuilt against 0.73.2 on 2026-09-08 in `linux 7.2.4.arch1-2` and `linux-lts 6.18.50-2`, and Waydroid works again from those builds (waydroid/waydroid#2411). Plain Arch got the fix with the next normal upgrade. Omarchy 4 does not. Its packages come from `stable-mirror.omarchy.org`, a frozen snapshot that as of 2026-10-04 still serves `linux-7.2.3.arch1-3` and `linux-lts-6.18.49-3`, so `omarchy update` reports nothing to do.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A kernel from the archive is newer than the rest of the frozen Omarchy snapshot and has not been tested against it. pacman will report `local is newer` until the mirror catches up. Keep `linux-omarchy` installed as a fallback, and do not reboot until `dkms status` shows your modules built for the new kernel.
+
+**Fix.**
+
+**Plain Arch:**
+
+```bash
+sudo pacman -Syu
+pacman -Q linux        # 7.2.4.arch1-2 or newer
+```
+
+Then reboot.
+
+**Omarchy 4:** the clean fix is to wait for the stable mirror to move, then run `omarchy update` and check `pacman -Q linux`. To get Waydroid working now, install the rebuilt kernel from the Arch Linux Archive. Install the matching headers too, or DKMS modules (NVIDIA included) will not build for it:
+
+```bash
+sudo pacman -U \
+  https://archive.archlinux.org/packages/l/linux/linux-7.2.4.arch1-2-x86_64.pkg.tar.zst \
+  https://archive.archlinux.org/packages/l/linux-headers/linux-headers-7.2.4.arch1-2-x86_64.pkg.tar.zst
+dkms status            # every module installed for 7.2.4-arch1-2
+```
+
+`pacman -U` carries no `-S`/`-u` pair, so Omarchy's pacman guard allows it. The kernel package depends only on `coreutils`, `initramfs` and `kmod`. Make sure `linux` boots first (see `waydroid-no-binder-on-linux-omarchy-kernel` for the `BOOT_ORDER` line in `/etc/default/limine` and `sudo limine-update`), then reboot.
+
+`linux-lts` users can do the same with `linux-lts-6.18.50-2` and `linux-lts-headers-6.18.50-2` from `https://archive.archlinux.org/packages/l/`.
+
+A separate Rust binder fault remains open upstream: large transactions fail with `rust_binder: Failure in copy_transaction_data: ENOSPC` (waydroid/waydroid#2422). It shows up under load rather than at startup, and no fix in a released Arch kernel was confirmed while writing this.
+
+**Verify.** `uname -r` shows `7.2.4-arch1-2` or newer. `waydroid session start` reaches `Android with user 0 is ready`, and `journalctl -b | grep -c 'No such process'` stays at 0.
+
+Sources: <https://github.com/waydroid/waydroid/issues/2411> · <https://github.com/rust-lang/rust-bindgen/issues/3406> · <https://github.com/omacom/omarchy/issues/12149> · <https://gitlab.archlinux.org/archlinux/packaging/packages/linux/-/commits/main> · <https://gitlab.archlinux.org/archlinux/packaging/packages/linux-lts/-/commits/main> · <https://github.com/waydroid/waydroid/issues/2422>
 
 ---
 
@@ -3045,6 +4250,56 @@ hyprctl clients | grep -B6 'title: Save File'    # size within the monitor's log
 The context has to be taken before the match, not after. `hyprctl clients` prints `size:` five lines above `title:`, so `-A6` shows `initialClass`, `pid` and the rest and never shows the size. On the reporter's display the rule gave 875x600 at `(203, 130)`, and the patched GTK gave 908x707 with no rule.
 
 Sources: <https://github.com/omacom/omarchy/issues/9046> · <https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/10311> · <https://gitlab.gnome.org/GNOME/gtk/-/commit/b3034371> · <https://archlinux.org/packages/extra/x86_64/gtk3/>
+
+---
+
+## Fix VirtualBox "can't operate in VMX root mode" when KVM is loaded
+
+`virtualbox-vmx-root-mode-kvm-loaded` · severity: **medium** · frequency: **rare** · applies to: `amd`, `arch`, `intel`, `kvm`, `omarchy`, `virtualbox`
+
+**Symptom.** Every VirtualBox VM refuses to start after a kernel update:
+
+```
+VirtualBox can't operate in VMX root mode. Please disable the KVM kernel extension, recompile your kernel and reboot (VERR_VMX_IN_VMX_ROOT_MODE).
+```
+
+On AMD the same thing reads `VirtualBox can't enable the AMD-V extension. Please disable the KVM kernel extension, recompile your kernel and reboot (VERR_SVM_IN_USE).` libvirt VMs work fine.
+
+**Cause.** Since Linux 6.12, KVM enables hardware virtualization as soon as `kvm_intel` or `kvm_amd` loads (`kvm.enable_virt_at_load` defaults to on), so VirtualBox finds VT-x or AMD-V already taken. On kernel 6.16 and newer VirtualBox acquires virtualization through KVM's API instead: for Intel VT-x from 7.2.2 (released 2025-09-10), and for AMD-V from 7.2.6 (released 2026-01-20), after the fix tracked in VirtualBox issue #81. Current Arch (virtualbox 7.2.20, kernel 7.x) therefore no longer hits this. Seeing it now means a kernel older than 6.16, or VirtualBox older than 7.2.2 on Intel or older than 7.2.6 on AMD (a pinned package, an AUR binary build or Oracle's installer).
+
+> **Audit corrected this record.** The kernel-parameters.txt entry for kvm.enable_virt_at_load matches the record. Arch virtualbox is 7.2.20. The 7.2 changelog has 7.2.2 (released September 10 2025) with "Use KVM APIs on kernel 6.16.0 and newer for acquiring/releasing VT-x", which covers Intel only. VirtualBox issue #81, about VERR_SVM_IN_USE on AMD, has a maintainer comment from 2025-12-12 saying the AMD fix was backported to 7.2.x for the next maintenance release, which was 7.2.6 on 2026-01-20. A user then confirmed AMD working on 7.2.6 with kernel 6.17 and the dmesg line `vboxdrv: Enabled hardware-virtualization using KVM`. So the version floor for AMD is 7.2.6, not 7.2.2. The cause and fix are corrected for that. limine-mkinitcpio exists and omarchy-windows-vm exists, so the rest stands. Second audit confirmed the corrected text: The earlier correction holds and is restated so it survives: the AMD-V floor is VirtualBox 7.2.6, not 7.2.2. Re-checked VirtualBox issue #81 in full: maintainer ramshven on 2025-09-17 says the 7.2.2 fix covers Intel only and that the KVM API needed is exported only from kernel 6.16.0, on 2025-12-12 says the AMD fix was backported to 7.2.x for the next maintenance release, and a user on 2026-02-06 shows 7.2.6 r172322 on kernel 6.17 logging 'vboxdrv: Enabled hardware-virtualization using KVM'. The 7.2 changelog dates 7.2.2 to September 10 2025 and 7.2.6 to January 20 2026, with the 7.2.2 entry 'Use KVM APIs on kernel 6.16.0 and newer for acquiring/releasing VT-x'. Arch's virtualbox package is 7.2.20-1 (archlinux.org JSON). On this workstation /sys/module/kvm/parameters/enable_virt_at_load exists and reads Y, limine-mkinitcpio exists, omarchy_hooks.conf includes modconf so a modprobe.d option is carried into the UKI, and omarchy-windows-vm mounts /dev/kvm, so the warning against blacklisting kvm stands. Not exercised: VirtualBox is not installed here.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check what you are running:
+
+```bash
+VBoxManage --version
+uname -r
+journalctl -k -b | grep vboxdrv     # 'Enabled hardware-virtualization using KVM' means the new path works
+```
+
+The real fix is to update so you have kernel 6.16 or newer and VirtualBox 7.2.2 or newer on Intel, 7.2.6 or newer on AMD. Omarchy 4: `omarchy update`. Plain Arch: `sudo pacman -Syu`. Then reboot.
+
+If you must stay on an old VirtualBox, stop KVM grabbing virtualization at load. KVM still works, it enables virtualization only while a KVM VM is running, so you just cannot run both at once:
+
+```bash
+echo 'options kvm enable_virt_at_load=0' | sudo tee /etc/modprobe.d/kvm-virtualbox.conf
+sudo limine-mkinitcpio     # Omarchy 4: rebuild the UKI in case kvm is in the initramfs
+sudo mkinitcpio -P         # plain Arch instead
+```
+
+Reboot. For the current boot only: `sudo modprobe -r kvm_intel` (or `kvm_amd`), which fails while a KVM VM is running.
+
+Do not blacklist `kvm` as old guides say. Omarchy's Windows VM (`omarchy-windows-vm`), libvirt and the Android emulator all need it.
+
+**Verify.** `cat /sys/module/kvm/parameters/enable_virt_at_load` prints `N` if you used the option, and a VirtualBox VM starts. On an updated system, `journalctl -k -b | grep vboxdrv` shows `Enabled hardware-virtualization using KVM`.
+
+Sources: <https://forums.virtualbox.org/viewtopic.php?t=112828> · <https://www.virtualbox.org/wiki/Changelog> · <https://github.com/VirtualBox/virtualbox/issues/81> · <https://raw.githubusercontent.com/torvalds/linux/master/Documentation/admin-guide/kernel-parameters.txt> · <https://wiki.archlinux.org/title/VirtualBox> · <https://archlinux.org/packages/extra/x86_64/virtualbox/> · <https://www.virtualbox.org/wiki/Changelog-7.2>
 
 ---
 
@@ -3317,6 +4572,52 @@ Installing `xdg-desktop-portal-gnome` just to get the Background portal is not w
 **Verify.** Log out and back in: the app is running (`flatpak ps` lists it), or `systemctl --user status nextcloud.service` is active. `ls ~/.config/autostart/` shows your entry.
 
 Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.hypr.land/Useful-Utilities/Systemd-start/> · <https://raw.githubusercontent.com/basecamp/omarchy/master/default/wayland-sessions/omarchy.desktop> · <https://wiki.archlinux.org/title/Flatpak>
+
+---
+
+## Fix flatpak "No remote refs found similar to 'flathub'"
+
+`flatpak-no-remote-refs-found-similar-to-flathub` · severity: **low** · frequency: **common** · applies to: `arch`, `flatpak`, `omarchy`
+
+**Symptom.** Installing anything from Flathub fails straight away:
+
+```
+error: No remote refs found similar to 'flathub'
+```
+
+It often happens with `flatpak install --user ...`, or inside a tool that installs runtimes per user (flatpak-builder from Flathub), even though `flatpak install flathub ...` worked another time.
+
+**Cause.** flatpak looks the name up among the remotes of the installation it is using. Arch's flatpak package ships `/usr/share/flatpak/remotes.d/flathub.flatpakrepo`, so the system installation has Flathub out of the box, but the per-user installation (`--user`) starts with no remotes at all. The message is misleading because flatpak cannot tell whether `flathub` was meant as a remote or as an app or runtime name. On Omarchy flatpak is not installed by default, so it only appears once you add it.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+See which installation has which remotes:
+
+```bash
+flatpak remotes --show-details
+flatpak remotes --user
+flatpak remotes --system
+```
+
+Add Flathub to the per-user installation:
+
+```bash
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+```
+
+Or to the system installation if it is missing there:
+
+```bash
+sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+```
+
+Or simply drop `--user` and install system-wide. On Omarchy 4, install flatpak itself first with `omarchy-pkg-add flatpak`, then log out and back in so its apps reach the launcher.
+
+**Verify.** `flatpak remotes --user` (or `--system`) lists `flathub`, and `flatpak search spotify` returns results.
+
+Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://discourse.flathub.org/t/flatpak-run-error-no-remote-refs-found-similar-to-flathub/6204> · <https://itsfoss.com/no-remote-ref-found-flatpak/> · <https://archlinux.org/packages/extra/x86_64/flatpak/files/>
 
 ---
 
@@ -3724,6 +5025,70 @@ Sources: <https://wiki.archlinux.org/title/Libvirt> · <https://wiki.archlinux.o
 
 ---
 
+## Make Han characters use Japanese or Chinese glyph forms instead of Korean
+
+`cjk-han-characters-render-korean-variant` · severity: **low** · frequency: **occasional** · applies to: `arch`, `fontconfig`, `fonts`, `omarchy`
+
+**Symptom.** Kanji or hanzi such as 全, 骨 and 円 look subtly wrong: they are drawn in the Korean style in the terminal, the bar, the Chromium address bar and untagged web pages. `fc-match 'sans-serif:charset=5168'` prints `Noto Sans CJK KR`.
+
+**Cause.** Arch's fontconfig `65-nonlatin.conf` lists `Noto Serif CJK KR`, `Noto Sans CJK KR` and `Noto Sans Mono CJK KR` in its generic-family fallback lists (commented there as Hangul fonts) and no JP, SC, TC or HK face. With `noto-fonts-cjk` installed (Omarchy installs it), the KR face is therefore the first one fontconfig offers for Han text. Omarchy's `/etc/fonts/conf.d/50-omarchy.conf` maps `sans-serif`, `serif` and `monospace` to Liberation Sans, Liberation Serif and JetBrainsMono Nerd Font, none of which has Han glyphs, so every Han character falls through to that list. Checked on Omarchy 4.0.4-1 under `LANG=en_US.UTF-8`: `fc-match 'sans-serif:charset=5168'` prints `Noto Sans CJK KR`, and so does `fc-match 'sans-serif:lang=ja:charset=5168'`, so even text tagged Japanese gets Korean forms. Reported as omacom/omarchy#9580, open as of 2026-10-05.
+
+> **Audit corrected this record.** Reproduced on this 4.0.4-1 workstation (fontconfig 2.18.3, noto-fonts-cjk 20240730): fc-match 'sans-serif:charset=5168' gives Noto Sans CJK KR, 'monospace:charset=5168' gives Noto Sans Mono CJK KR, and even 'sans-serif:lang=ja:charset=5168' gives KR. /usr/share/fontconfig/conf.avail/65-nonlatin.conf names only KR CJK faces, commented as Hangul. omacom/omarchy#9580 is open and describes the same thing. The record's cause claims a user <alias><prefer> for the generic families has no effect because of 50-omarchy.conf's strong assign. That is false: with XDG_CONFIG_HOME pointed at a scratch fontconfig/fonts.conf (which 50-user.conf loads exactly as it loads ~/.config/fontconfig/fonts.conf) holding prefer aliases for sans-serif, serif and monospace, fc-match returned Noto Sans CJK JP, Noto Serif CJK JP and Noto Sans Mono CJK JP for Han, 'JetBrainsMono Nerd Font:charset=5168' also became Noto Sans Mono CJK JP, and plain sans-serif and monospace still resolved to Liberation Sans and JetBrainsMono Nerd Font. The record's append_last rule also works in the same test, but it gives terminals the proportional Noto Sans CJK JP instead of the Mono face and covers serif with a sans face, so the corrected fix uses the aliases and keeps the append rule as the alternative. Not tested: rendering inside Chromium, only fc-match.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Add aliases to `~/.config/fontconfig/fonts.conf` that offer the Japanese CJK faces first for each generic family. If the file already exists, add only the three `<alias>` blocks inside its `<fontconfig>` element:
+
+```bash
+mkdir -p ~/.config/fontconfig
+```
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Prefer the Japanese forms of Han characters over the Korean default -->
+  <alias>
+    <family>sans-serif</family>
+    <prefer><family>Noto Sans CJK JP</family></prefer>
+  </alias>
+  <alias>
+    <family>serif</family>
+    <prefer><family>Noto Serif CJK JP</family></prefer>
+  </alias>
+  <alias>
+    <family>monospace</family>
+    <prefer><family>Noto Sans Mono CJK JP</family></prefer>
+  </alias>
+</fontconfig>
+```
+
+This works on Omarchy 4 despite `50-omarchy.conf`: Liberation Sans, Liberation Serif and JetBrainsMono Nerd Font still come first, so Latin text is unchanged, and the aliases only decide which CJK face supplies the characters those fonts lack. Restart the apps (terminal, browser) to pick it up.
+
+For Simplified Chinese, Traditional Chinese or Hong Kong forms use `SC`, `TC` or `HK` in all three names instead of `JP`, for example `Noto Sans CJK SC`, `Noto Serif CJK SC` and `Noto Sans Mono CJK SC`.
+
+These aliases also override Han text explicitly tagged Korean, and Hangul is then drawn from the JP face, which includes it.
+
+Alternative: a single rule that appends one face to every pattern also works, but it gives the terminal the proportional face rather than the Mono one:
+
+```xml
+<match target="pattern">
+  <edit name="family" mode="append_last" binding="strong">
+    <string>Noto Sans CJK JP</string>
+  </edit>
+</match>
+```
+
+**Verify.** `fc-match 'sans-serif:charset=5168'` prints `Noto Sans CJK JP`, `fc-match 'monospace:charset=5168'` and `fc-match 'JetBrainsMono Nerd Font:charset=5168'` print `Noto Sans Mono CJK JP`, and `fc-match 'serif:charset=5168'` prints `Noto Serif CJK JP`, while `fc-match sans-serif` still prints Liberation Sans and `fc-match monospace` still prints JetBrainsMono Nerd Font.
+
+Sources: <https://github.com/omacom/omarchy/issues/9580> · <https://wiki.archlinux.org/title/Font_configuration/Examples> · <https://wiki.archlinux.org/title/Fonts>
+
+---
+
 ## Make Files (Nautilus) 'Set as Wallpaper' change the Omarchy background
 
 `nautilus-set-as-wallpaper-does-nothing` · severity: **low** · frequency: **occasional** · applies to: `arch`, `hyprland`, `nautilus`, `omarchy`, `omarchy-shell`, `wayland`, `xdg-desktop-portal`
@@ -3959,6 +5324,52 @@ ls ~/.local/state/omarchy/current/theme/colors.toml
 Change the Omarchy theme (Super+Ctrl+Shift+Space) and Zed's theme changes with it.
 
 Sources: <https://github.com/omacom/omarchy/issues/7325> · <https://github.com/aps6/omazed/commit/302cd396> · <https://aur.archlinux.org/packages/omazed> · <https://github.com/aps6/omazed/commit/302cd396be88cf508a05d97edcdc7d48eafdc299> · <https://github.com/aps6/omazed/blob/v2.0.1/omazed> · <https://github.com/aps6/omazed/blob/v2.1.0/omazed> · <https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/omazed/PKGBUILD> · <https://github.com/omacom/omarchy-pkgs/commits/master/pkgbuilds/omazed/PKGBUILD> · <https://pkgs.omarchy.org/stable/x86_64/omarchy.db>
+
+---
+
+## Fix Podman "cgroupv2 manager is set to systemd but there is no systemd user session"
+
+`podman-cgroupv2-manager-no-systemd-user-session` · severity: **low** · frequency: **occasional** · applies to: `arch`, `omarchy`, `podman`, `systemd`
+
+**Symptom.** Every rootless podman command prints:
+
+```
+The cgroupv2 manager is set to systemd but there is no systemd user session available. For using systemd, you may need to login using an user session. Alternatively, you can enable lingering with: `loginctl enable-linger 10003` (possibly as root). Falling back to --cgroup-manager=cgroupfs
+```
+
+I got into the account with `su - user` or `sudo -u user`. `--cpus` and `--memory` limits do nothing, and containers stop when I log out.
+
+**Cause.** Rootless podman talks to the user's systemd instance over `$XDG_RUNTIME_DIR` and the user D-Bus to place containers in cgroups. Switching from root with `su -l` or `sudo -u` does not create a logind session, so `XDG_RUNTIME_DIR` is unset and no user manager is reachable, and podman falls back to cgroupfs, which has no delegated controllers for resource limits.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Get a real login session for that user instead of `su`/`sudo`:
+
+```bash
+sudo machinectl shell user@      # machinectl ships in Arch's systemd package
+# or
+ssh user@localhost
+```
+
+For a service account whose containers must keep running with nobody logged in, enable lingering so its user manager starts at boot:
+
+```bash
+sudo loginctl enable-linger user
+```
+
+If you must keep using `su`, lingering first, then point the shell at the runtime directory:
+
+```bash
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+```
+
+Silencing it with `cgroup_manager = "cgroupfs"` under `[engine]` in `~/.config/containers/containers.conf` removes the warning but keeps the limitation.
+
+**Verify.** `echo $XDG_RUNTIME_DIR` prints `/run/user/<uid>`, `systemctl --user status` answers, `podman info --format '{{.Host.CgroupManager}}'` prints `systemd`, and the warning is gone.
+
+Sources: <https://github.com/containers/podman/issues/17202> · <https://rootlesscontaine.rs/getting-started/common/login/> · <https://wiki.archlinux.org/title/Podman> · <https://man.archlinux.org/man/pam_systemd.8.en>
 
 ---
 

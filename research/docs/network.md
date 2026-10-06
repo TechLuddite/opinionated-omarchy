@@ -1,6 +1,6 @@
 # Networking
 
-47 problems. Sorted by severity, then by how often users hit it.
+70 problems. Sorted by severity, then by how often users hit it.
 
 ## Restore Wi-Fi after an upgrade leaves NetworkManager pointing at a removed iwd backend
 
@@ -618,6 +618,61 @@ The SDDM ordering drop-in and `bluetoothctl trust AA:BB:CC:DD:EE:FF` steps are c
 **Verify.** Reboot to the greeter and type on the Bluetooth keyboard. From a TTY (`Ctrl+Alt+F2`) before logging in, `bluetoothctl show | grep Powered` prints `Powered: yes` and `bluetoothctl info AA:BB:CC:DD:EE:FF` shows `Connected: yes`.
 
 Sources: <https://github.com/basecamp/omarchy/issues/8261>
+
+---
+
+## Stop iwd, systemd-networkd and NetworkManager from fighting over the same interface
+
+`conflicting-network-managers-iwd-networkd-nm` · severity: **high** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `iwd`, `manjaro`, `networkmanager`, `omarchy`, `systemd-networkd`
+
+**Symptom.** Wi-Fi connects, drops, reconnects, and keeps cycling for minutes before it settles. Or the interface gets two addresses, or `nmcli` says the device is `unmanaged` or `unavailable` while something else is clearly configuring it. The journal can show `iwd.service: Main process exited, code=dumped, status=11/SEGV` with a climbing restart counter, or both `systemd-networkd` and `NetworkManager` handing out leases on the same link. This is common right after an archinstall install that enabled several network services.
+
+**Cause.** Each interface must be managed by exactly one network manager or DHCP client. archinstall and copy-pasted guides often leave several enabled at once: `iwd.service`, `wpa_supplicant.service`, `systemd-networkd`, `dhcpcd` and `NetworkManager`. They race for association and DHCP on the same device. When NetworkManager uses iwd as its Wi-Fi backend, `iwd.service` must still not be enabled on its own, because NetworkManager starts iwd itself. Omarchy 4 ships NetworkManager with wpa_supplicant and enables nothing else. On this workstation `systemd-networkd` is disabled, `iwd` is not installed and `wpa_supplicant.service` is disabled (NetworkManager D-Bus-activates it). So the conflict appears on Omarchy only when a user adds a second manager.
+
+> **Audit corrected this record.** The cause and the one-manager rule hold: the Arch wiki NetworkManager page says each interface should be managed by one DHCP client or network manager and, under the iwd backend, 'Do not enable iwd.service'. BBS #273965 shows the exact iwd SEGV restart loop on an archinstall system with NetworkManager, iwd and systemd-networkd all enabled. On this 4.0.4-1 workstation (networkmanager 1.58.1-1) iwd is not installed, systemd-networkd is disabled and wpa_supplicant.service is disabled but active through D-Bus activation, as the cause says. The fix is wrong in one important place. I tested `systemctl --root=<scratch> disable iwd.service dhcpcd.service wpa_supplicant.service` with systemd 261: each missing unit prints 'Failed to disable unit: Unit iwd.service does not exist' and the command exits 1. Reading systemctl-enable.c (v258), the D-Bus path returns on that error before the `--now` stop, so on any machine missing one of the listed units (every Omarchy install lacks dhcpcd) nothing is stopped and the conflicting daemon keeps running until reboot. The record calls that message harmless. A masked unit is ignored with exit 0, which I also tested, so systemd-networkd-wait-online.service (masked on Omarchy) is fine. Second, `disable --now wpa_supplicant.service` stops the supplicant that NetworkManager itself is using (its unit carries BusName=fi.w1.wpa_supplicant1 and the D-Bus service file names it as SystemdService), which drops Wi-Fi for no gain. The conflicting supplicant is a per-interface wpa_supplicant@ instance. The fix now disables only units that are actually loaded, one at a time, and targets wpa_supplicant@ instances. The verify step also ignored NetworkManager-dispatcher.service, which is enabled on stock Omarchy. Nothing was disabled or stopped on this machine.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Disabling the service that currently holds your connection drops the network immediately. Over SSH you lose the session and may not get it back. Do it at the console, and enable NetworkManager in the same step.
+
+**Fix.**
+
+See what is enabled and running:
+
+```bash
+systemctl list-unit-files --state=enabled | grep -E 'NetworkManager|iwd|wpa_supplicant|systemd-networkd|dhcpcd|connman|netctl'
+systemctl --type=service --state=running | grep -E 'NetworkManager|iwd|wpa_supplicant|networkd|dhcpcd|connman'
+```
+
+Keep NetworkManager and disable the rest. Do this from a local console, because the network drops. Disable each unit on its own and skip the ones that are not installed. `systemctl disable --now a b c` fails as a whole when any one of the listed units does not exist, and then it stops nothing:
+
+```bash
+for unit in iwd.service dhcpcd.service connman.service \
+            systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service; do
+  if [[ $(systemctl show -P LoadState "$unit") == loaded ]]; then
+    sudo systemctl disable --now "$unit"
+  fi
+done
+
+# per-interface supplicants started outside NetworkManager, e.g. wpa_supplicant@wlan0
+for unit in $(systemctl list-units --all --plain --no-legend 'wpa_supplicant@*' 'wpa_supplicant-nl80211@*' | awk '{print $1}'); do
+  sudo systemctl disable --now "$unit"
+done
+
+sudo systemctl enable --now NetworkManager.service
+```
+
+Leave `wpa_supplicant.service` alone. NetworkManager starts it through D-Bus and uses it for Wi-Fi, so stopping it drops the connection you are keeping. It is disabled on a stock Omarchy 4 install and still shows as running, which is correct.
+
+If you deliberately run NetworkManager with the iwd backend (`wifi.backend=iwd` in `/etc/NetworkManager/conf.d/`), keep the `iwd` package installed but leave `iwd.service` disabled, because NetworkManager starts iwd itself. On Omarchy 4, do not set the iwd backend: iwd is not installed (see `nm-wifi-backend-iwd-orphaned-after-quattro`).
+
+The reverse choice (iwd plus systemd-networkd, no NetworkManager) is also valid on plain Arch. The rule is one manager per interface, not which one.
+
+**Verify.** `systemctl list-unit-files --state=enabled | grep -E 'iwd|dhcpcd|connman|systemd-networkd|wpa_supplicant@'` prints nothing, and `NetworkManager.service` is enabled (`NetworkManager-dispatcher.service` is its helper and stays enabled). `nmcli device` shows the interfaces as `connected` and not `unmanaged`. `journalctl -b -u iwd` is empty after a reboot, and the connection stays up.
+
+Sources: <https://wiki.archlinux.org/title/Iwd> · <https://wiki.archlinux.org/title/NetworkManager> · <https://wiki.archlinux.org/title/Network_configuration> · <https://bbs.archlinux.org/viewtopic.php?id=273965> · <https://github.com/systemd/systemd/blob/v258/src/systemctl/systemctl-enable.c>
 
 ---
 
@@ -1246,6 +1301,75 @@ Sources: <https://github.com/basecamp/omarchy/issues/7593> · <https://github.co
 
 ---
 
+## Restore Broadcom Wi-Fi after an update swapped broadcom-wl for a DKMS build with no headers
+
+`broadcom-wl-dkms-no-headers-wifi-gone-after-update` · severity: **high** · frequency: **occasional** · applies to: `arch`, `broadcom`, `desktop`, `dkms`, `laptop`, `omarchy`
+
+**Symptom.** After `omarchy update` (4.0.2 to 4.0.3) and a reboot, Wi-Fi is gone on a Broadcom BCM4331, BCM4360 or BCM4313 laptop or desktop. `nmcli device` lists no Wi-Fi device and `lsmod | grep wl` is empty. `/var/log/pacman.log` from the update shows:
+
+```
+removed broadcom-wl (6.30.223.271-722)
+installed broadcom-wl-dkms (6.30.223.271-49)
+70-dkms-install.hook: ==> ERROR: Missing 7.2.3-arch1-3 kernel headers for module broadcom-wl/6.30.223.271.
+```
+
+**Cause.** Arch retired the prebuilt `broadcom-wl` and gave `broadcom-wl-dkms` a `replaces=broadcom-wl`, so an upgrade swaps one for the other. DKMS can only build the module if headers matching each installed kernel are present. Machines without them got no `wl` module, and because `omarchy update` runs pacman with `--noconfirm`, the error scrolled past. On 4.0.4, migration `1789325478` installs `linux-omarchy` with its headers and `1789444024` adds headers for `linux-omarchy` or `linux-t2`. A stock `linux` kernel kept alongside still has no `linux-headers`, and `fix-bcm43xx.sh` now installs only `broadcom-wl-dkms`.
+
+> **Audit corrected this record.** Re-read issue #10975 and both comments: they support the symptom, the pacman.log lines, the --noconfirm scroll-past, the snapshot plus `pacman -U` recovery and the stock-linux gap in migration 1789444024. Arch's package JSON shows broadcom-wl-dkms 6.30.223.271-50 with replaces=['broadcom-wl'] and depends on dkms, and the broadcom-wl JSON now 404s. On this 4.0.4-1 workstation, migrations 1789325478.sh (linux-omarchy plus headers, old kernel kept) and 1789444024.sh (headers for linux-omarchy or linux-t2 only), install/hardware/fix-bcm43xx.sh (broadcom-wl-dkms only) and the --noconfirm in omarchy-update-system-pkgs all match the cause. linux-omarchy-headers 7.2.5-3 is in the omarchy repo. The dkms 3.4.3-2 hook triggers on usr/src/*/dkms.conf and usr/lib/modules/*/build/include/, so installing headers and reinstalling broadcom-wl-dkms each fire 70-dkms-install.hook, as the fix says. The fix uses `pacman -S` without -y after a full update, so it is not a partial upgrade and the ALPM guard does not block it. No field needed changing. Status kept as corrected so the previous audit's correction of the `dkms autoinstall` step stays recorded. Not exercised.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Installing `linux-headers` from a sync database newer than the installed `linux` gives headers for a kernel you are not running, which is a partial upgrade in effect. Finish `omarchy update` (or `pacman -Syu` on plain Arch) first, so kernel and headers come from the same database.
+
+**Fix.**
+
+Get any network first (ethernet, or USB tethering from a phone).
+
+Omarchy 4: update through the supported path so the headers match the installed kernels:
+
+```bash
+omarchy update
+```
+
+Plain Arch:
+
+```bash
+sudo pacman -Syu
+```
+
+Check which kernels are installed and what DKMS built:
+
+```bash
+uname -r
+pacman -Q | grep -E '^linux(-omarchy|-t2)?(-headers)? '
+dkms status
+```
+
+Install the headers for every installed kernel that lacks them. Installing headers triggers `70-dkms-install.hook`, which builds the module for that kernel:
+
+```bash
+sudo pacman -S --needed linux-omarchy-headers   # Omarchy kernel
+sudo pacman -S --needed linux-headers           # only if the stock linux package is installed
+```
+
+If `dkms status` still does not show `broadcom-wl` installed for every kernel, reinstall the package. That re-runs the hook for all kernels that have headers. `dkms autoinstall` alone builds only for the running kernel:
+
+```bash
+sudo pacman -S broadcom-wl-dkms
+dkms status
+sudo modprobe wl
+```
+
+If the machine has no network at all, boot the previous Limine snapshot. One reporter recovered by downloading `linux` and `linux-headers` into the pacman cache from the snapshot and installing them with `pacman -U` after booting the upgraded system.
+
+**Verify.** `dkms status` shows `broadcom-wl/6.30.223.271, <kernel>, x86_64: installed` for the running kernel. `lsmod | grep -w wl` lists the module. `nmcli device` shows a `wifi` device.
+
+Sources: <https://github.com/omacom/omarchy/issues/10975> · <https://archlinux.org/packages/extra/x86_64/broadcom-wl-dkms/>
+
+---
+
 ## Get an IPv4 lease when the router ignores NetworkManager's DHCP client-id
 
 `dhcp-no-offer-until-client-id-none` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
@@ -1291,6 +1415,53 @@ sudo systemctl reload NetworkManager
 **Verify.** `ip -4 addr show` shows an address and `ip -4 route` shows a default route via the router. The setting persists across reconnects (`nmcli -f ipv4.dhcp-client-id connection show "<name>"`).
 
 Sources: <https://github.com/basecamp/omarchy/issues/7744> · <https://man.archlinux.org/man/NetworkManager.conf.5>
+
+---
+
+## Use an encrypted-only resolver such as Mullvad with omarchy dns Custom
+
+`omarchy-dns-custom-dot-only-resolver-breaks-dns` · severity: **high** · frequency: **occasional** · applies to: `dns`, `networkmanager`, `omarchy`, `systemd-resolved`
+
+**Symptom.** After `omarchy dns Custom` with a privacy resolver such as Mullvad (`194.242.2.4 2a07:e340::4`), the internet seems to be down. No site loads, but Wi-Fi is connected and `ping 1.1.1.1` works. `resolvectl query archlinux.org` times out. The Quad9 fallback in `/etc/systemd/resolved.conf` never takes over.
+
+**Cause.** The `Custom` branch of `omarchy-dns` writes a bare `DNS=` line into `/etc/systemd/resolved.conf`, with no `#hostname` and no `DNSOverTLS=`. resolved's default is `DNSOverTLS=no`, so queries go out as plain DNS on port 53, which the issue reports Mullvad does not answer. The `Cloudflare` and `Google` presets write `IP#hostname` with `DNSOverTLS=opportunistic`, but Custom does not. Custom also writes the same addresses into `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` under `[global-dns-domain-*]`, and into every saved Wi-Fi and Ethernet profile with `ignore-auto-dns yes`, so DHCP or a VPN cannot override them. `FallbackDNS=` is used only when no DNS server is configured at all, so an unresponsive configured server never falls back. Confirmed on 4.0.4-1 in `/usr/share/omarchy/bin/omarchy-dns`. Open PR #6513 adds the missing `DNSOverTLS=opportunistic` line.
+
+> **Audit corrected this record.** Read /usr/share/omarchy/bin/omarchy-dns on 4.0.4-1, which is byte-identical to the quattro tip. The Custom branch writes a bare DNS= line and the FallbackDNS line with no DNSOverTLS=. It also writes the NetworkManager global-dns file and sets every Wi-Fi and Ethernet profile to ignore-auto-dns, as the cause says. Issue #8921 and its triage comment support the cause, the FallbackDNS behaviour and the workaround, which is the fix here. PR #6513 is still OPEN. The verify step is wrong in two places. First, `resolvectl status` on this workstation (Cloudflare preset, DNSOverTLS=opportunistic) prints `DNSOverTLS=opportunistic` in the Global Protocols line, not `+DNSOverTLS`, which resolvectl prints only for `yes`. Second, the verify said a remaining timeout means NetworkManager's per-link servers lack a TLS name. On this machine, with the same NetworkManager global-dns file the Custom branch writes, every link shows `Current Scopes: none` and no per-link DNS servers, so the resolved.conf global servers are the only ones queried. That claim, and the previous audit note's worry about per-link copies, did not hold here, so the verify now points at the likely real cause, a blocked port 853. The danger is extended because with a DoT-only resolver `opportunistic` fails the same way as `yes` when 853 is blocked. The cause and fix are kept. Only the Cloudflare preset was observed live. Custom was not run.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** With a resolver that answers only DNS-over-TLS, such as Mullvad, DNS fails on any network that blocks port 853. This happens with `DNSOverTLS=opportunistic` as well as `yes`, because opportunistic falls back to plain DNS, which that resolver does not answer. `DNSOverTLS=yes` also breaks DNS on captive-portal networks until you switch back (see `captive-portal-never-loads-forced-dns`). `omarchy dns DHCP` undoes everything without needing working DNS.
+
+**Fix.**
+
+Run `omarchy dns Custom` with the addresses as usual, then add the TLS server name and turn on DNS-over-TLS in `/etc/systemd/resolved.conf`:
+
+```bash
+sudo tee /etc/systemd/resolved.conf >/dev/null <<'EOF'
+[Resolve]
+DNS=194.242.2.4#base.dns.mullvad.net 2a07:e340::4#base.dns.mullvad.net
+FallbackDNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net
+DNSOverTLS=opportunistic
+EOF
+sudo systemctl reload systemd-resolved.service
+```
+
+Use `DNSOverTLS=yes` instead to refuse plain DNS entirely, which also validates the server name.
+
+Running `omarchy dns` again (any provider) rewrites `/etc/systemd/resolved.conf` and removes this edit. To undo everything, run `omarchy dns DHCP`.
+
+A resolver that answers plain DNS (your router, a Pi-hole) needs none of this.
+
+**Verify.** ```bash
+resolvectl status | grep -E 'DNSOverTLS|DNS Servers|Current DNS|Current Scopes'
+resolvectl query archlinux.org
+```
+
+The Global section should show `DNSOverTLS=opportunistic` (or `+DNSOverTLS` if you chose `DNSOverTLS=yes`) and the `#base.dns.mullvad.net` servers, and the query should return an address. With the NetworkManager global-dns file that `omarchy dns` writes, the links show `Current Scopes: none` and no per-link servers, so the global servers in `/etc/systemd/resolved.conf` are the only ones in use. If the query still times out, the network is probably blocking port 853. Run `omarchy dns DHCP` to recover.
+
+Sources: <https://github.com/omacom/omarchy/issues/8921> · <https://wiki.archlinux.org/title/Systemd-resolved> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-dns> · <https://man.archlinux.org/man/resolved.conf.5> · <https://github.com/omacom/omarchy/pull/6513>
 
 ---
 
@@ -1729,6 +1900,116 @@ Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://github.co
 
 ---
 
+## Import an OpenVPN, OpenConnect or other VPN profile into NetworkManager
+
+`nm-vpn-import-failed-to-find-plugin` · severity: **medium** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `manjaro`, `networkmanager`, `omarchy`, `openvpn`, `vpn`
+
+**Symptom.** The company or provider sent a `.ovpn` file, and there is nowhere in Omarchy's network panel to add it. From the terminal, `nmcli connection import type openvpn file client.ovpn` fails with `Error: failed to find VPN plugin for openvpn.` (or the same for `openconnect`, `vpnc`, `l2tp`). In GUI connection editors the import says `The file could not be read or does not contain recognized VPN connection information`.
+
+**Cause.** NetworkManager supports only WireGuard natively. Every other VPN type is a separately packaged plugin (`networkmanager-openvpn`, `networkmanager-openconnect`, `networkmanager-vpnc`, `networkmanager-strongswan`, `networkmanager-l2tp` and others), and nmcli cannot parse or create a profile for a plugin that is not installed. Omarchy 4 ships NetworkManager without any VPN plugin and without `nm-connection-editor`. Its network panel does not list or toggle VPN profiles yet (open feature request #8528), so the panel gives no hint that a plugin is missing.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Install the plugin for your VPN type:
+
+```bash
+sudo pacman -S --needed networkmanager-openvpn        # .ovpn files
+sudo pacman -S --needed networkmanager-openconnect    # Cisco AnyConnect, GlobalProtect, Fortinet via OpenConnect
+sudo pacman -S --needed networkmanager-vpnc           # Cisco IPsec .pcf
+```
+
+Import and connect from the terminal:
+
+```bash
+nmcli connection import type openvpn file ~/Downloads/client.ovpn
+nmcli connection show                       # note the new profile's name
+nmcli connection modify client vpn.user-name 'you@example.com'
+nmcli --ask connection up client           # prompts for the password in the terminal
+nmcli connection down client
+```
+
+WireGuard needs no plugin:
+
+```bash
+nmcli connection import type wireguard file ~/Downloads/wg0.conf
+```
+
+On Omarchy, bind `nmcli connection up client` and `nmcli connection down client` to keys, or install `nm-connection-editor` for a GUI editor. The bar panel will not show VPN state until #8528 lands.
+
+**Verify.** `nmcli connection show` lists the profile with TYPE `vpn` (or `wireguard`). `nmcli connection up <name>` reports `Connection successfully activated`. `ip addr` shows a `tun0` (OpenVPN) or the WireGuard interface.
+
+Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://wiki.archlinux.org/title/OpenVPN> · <https://bbs.archlinux.org/viewtopic.php?id=253111> · <https://github.com/omacom/omarchy/issues/8528> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/nmcli/connections.c> · <https://github.com/omacom/omarchy/blob/quattro/install/omarchy-base.packages>
+
+---
+
+## Reach a dev server, Samba share or other service on an Omarchy machine from the LAN
+
+`omarchy-ufw-blocks-incoming-lan-services` · severity: **medium** · frequency: **very-common** · applies to: `desktop`, `laptop`, `omarchy`, `ufw`
+
+**Symptom.** A service running on the Omarchy machine works on `localhost` but times out from every other device. Examples: `npm run dev -- --host` or `python -m http.server` opened from a phone, a Samba share for a Windows PC, Syncthing, a game server, Sunshine. There is no `connection refused`, just a hang. The same project worked on another distro. `ss -tlnp` shows the service listening on `0.0.0.0` or `*`.
+
+**Cause.** Omarchy's installer runs `ufw default deny incoming` and enables ufw at boot. The only inbound rules it adds are LocalSend's port 53317 and udp/53 for Docker containers to the host. Any other inbound connection is dropped silently, which produces a timeout and not a refusal. `omarchy-setup-security-sshd` opens port 22 for SSH with `ufw limit 22/tcp`, but nothing opens ports for other services. Docker-published ports go through a separate `DOCKER-USER` chain managed by ufw-docker, so these INPUT rules do not govern them (see `docker-published-ports-bypass-ufw`).
+
+> **Audit corrected this record.** Re-read install/config/firewall.sh on 4.0.4-1: default deny incoming, LocalSend 53317 tcp and udp, two udp/53 Docker DNS rules, ufw-docker install, and ufw enabled at boot, as the cause says. /etc/ufw/applications.d/ufw-fileserver defines CIFS as 137,138/udp|139,445/tcp. omarchy-setup-security-sshd installs openssh, runs `systemctl enable --now sshd.service`, adds `ufw limit 22/tcp`, requires an authorized key, and writes /etc/ssh/sshd_config.d/10-omarchy-hardening.conf with PasswordAuthentication no, which the fix describes correctly. One gap remains: the 'keep password logins' alternative only adds a ufw rule. On a stock install openssh is present only as a dependency of gcr and nothing enables sshd.service, so that rule alone opens a port with no server behind it. The fix now enables sshd in that branch. Everything else is kept. Status stays corrected, so the previous audit's sshd findings remain on record. Not exercised. No firewall change was made on this machine.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A rule written as `sudo ufw allow 3000` with no `from` opens the port to every network you join, including public Wi-Fi, and over IPv6 as well. Scope rules to the LAN subnet. The subnet differs between networks, so a rule for 192.168.1.0/24 does nothing at a network that uses 10.0.0.0/24.
+
+**Fix.**
+
+Check the firewall and confirm the service listens on all addresses, not only 127.0.0.1:
+
+```bash
+sudo ufw status verbose
+ss -tlnp | grep 3000
+```
+
+Find your LAN subnet and allow the port from the LAN only:
+
+```bash
+ip -4 route | grep -v default          # e.g. 192.168.1.0/24 dev wlp2s0
+sudo ufw allow from 192.168.1.0/24 to any port 3000 proto tcp comment 'dev server'
+```
+
+A Samba server, using ufw's bundled CIFS profile (137,138/udp and 139,445/tcp):
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any app CIFS
+```
+
+SSH on Omarchy 4: the helper installs openssh, enables `sshd`, adds `ufw limit 22/tcp`, asks for a public key (from GitHub or pasted, or pass `--key=`), and then turns password logins off in `/etc/ssh/sshd_config.d/10-omarchy-hardening.conf`:
+
+```bash
+omarchy-setup-security-sshd
+```
+
+If you want password logins kept, start sshd and open the port yourself instead. A stock install has the openssh package but does not enable its server:
+
+```bash
+sudo systemctl enable --now sshd.service
+sudo ufw limit from 192.168.1.0/24 to any port 22 proto tcp comment 'sshd lan'
+```
+
+Remove a rule when you are done:
+
+```bash
+sudo ufw status numbered
+sudo ufw delete <number>
+```
+
+Plain Arch has no firewall enabled by default, so this applies only where ufw or firewalld was turned on.
+
+**Verify.** From another device on the LAN, `curl -v http://<omarchy-ip>:3000/` (or opening the share) connects. `sudo ufw status numbered` lists the rule scoped to your subnet.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-setup-security-sshd> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://wiki.archlinux.org/title/Samba>
+
+---
+
 ## Recover a Bluetooth adapter that vanishes from the USB bus when turned off
 
 `bluetooth-adapter-disappears-after-rfkill-block` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `laptop`, `omarchy`, `wayland`
@@ -1863,6 +2144,109 @@ systemctl --user disable --now bt-agent.service
 **Verify.** `systemctl --user status bt-agent.service` shows `active (running)` with no restart counter, and `journalctl --user -u bt-agent -n 20` no longer shows 203/EXEC.
 
 Sources: <https://github.com/basecamp/omarchy/issues/6992>
+
+---
+
+## Open a hotel or airport Wi-Fi login page that never pops up
+
+`captive-portal-login-page-never-opens` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `laptop`, `networkmanager`, `omarchy`, `wayland`
+
+**Symptom.** You join hotel, train, airport or cafe Wi-Fi. The bar shows Wi-Fi connected, but nothing loads and no login page ever appears, unlike on a phone, macOS or GNOME. `nmcli networking connectivity check` prints `portal` or `limited`. On builds whose network panel has an "Open Captive Portal" button under a "SIGN-IN REQUIRED" heading (the `quattro` branch, not 4.0.4), clicking it can open a plain text page from `ping.archlinux.org` instead of the portal's login form.
+
+**Cause.** Omarchy 4.0.4, the current release, ships no captive portal handler at all. NetworkManager does detect the portal: Arch's `networkmanager` package configures `/usr/lib/NetworkManager/conf.d/20-connectivity.conf` with `uri=http://ping.archlinux.org/nm-check.txt`, and when that probe is intercepted NetworkManager sets its connectivity state to `portal`. Nothing in the Omarchy shell or in a dispatcher script reacts to that state by opening a browser, so you are expected to know to browse to a plain HTTP site yourself (upstream issue #9610).
+
+The `quattro` branch adds an "Open Captive Portal" button to the network panel (its tooltip reads "Sign in to this network"), but `shell/plugins/panels/network/Model.js` hardcodes `captivePortalUrl = "http://ping.archlinux.org/nm-check.txt"`. Issue #11961 reports that many portals only intercept the probe URLs that phones and desktop OSes use, so the button can load Arch's check file instead of the login page.
+
+A second, independent cause stops the portal from loading even when you do open a browser: `omarchy dns Cloudflare` (the default) pins DNS so the portal's own DNS hijack never sees your queries. That one is covered by the record `captive-portal-never-loads-forced-dns`.
+
+> **Audit corrected this record.** Confirmed on this workstation (4.0.4-1, upstream latest v4.0.4) that nothing under /usr/share/omarchy mentions captive, portal or nm-check, so 4.0.4 has no handler, and /usr/lib/NetworkManager/conf.d/20-connectivity.conf sets uri=http://ping.archlinux.org/nm-check.txt. On quattro, shell/plugins/panels/network/Model.js line 41 hardcodes captivePortalUrl to that URL and Panel.qml opens it through omarchy-launch-browser. The record names the wrong control: the panel button is labelled "Open Captive Portal" (Panel.qml line 1368), under a "SIGN-IN REQUIRED" heading, and "Sign in to this network" is only a tooltip text (line 1082). Issue #11961 uses the tooltip wording, so symptom and cause are corrected to the real label. NetworkManager's polkit policy gives org.freedesktop.NetworkManager.reload auth_admin_keep with no wheel rule, so the unprivileged `nmcli general reload conf` would stop for authentication, and the fix now runs it with sudo. The nmcli monitor string "Connectivity is now '%s'" was confirmed in src/nmcli/general.c and is wrapped in _(), so LC_ALL=C is right. The Arch wiki gives exactly the nmcheck.gnome.org example and the /etc override of the same file name. Issue #9610 supports the neverssl.com workaround, the IPv6 blackhole note and the user service shape. Not exercised: no portal was available to test the watcher.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Switching to `omarchy dns DHCP` sends DNS in plaintext to whatever resolver the portal network hands out, which on a hostile network can log or rewrite lookups. Switch back with `omarchy dns Cloudflare` once you are through.
+
+**Fix.**
+
+Immediate workaround. Open a plain HTTP page, which a portal must intercept to redirect you:
+
+```bash
+xdg-open http://neverssl.com/
+```
+
+If that still loads nothing, check DNS first, because a pinned resolver blocks the redirect:
+
+```bash
+omarchy dns                 # prints the current provider
+omarchy dns DHCP            # use the network's DNS while on this portal
+```
+
+Switch back later with `omarchy dns Cloudflare`. Some portals intercept IPv4 only and blackhole IPv6, which hangs the browser instead of redirecting. If so, turn IPv6 off for that one profile:
+
+```bash
+nmcli connection modify "<SSID>" ipv6.method disabled
+nmcli connection up "<SSID>"
+```
+
+Optional, so NetworkManager detects more portals correctly. Point its check at a URL portals commonly recognise. This is the example the Arch wiki gives:
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/20-connectivity.conf >/dev/null <<'EOF'
+[connectivity]
+uri=http://nmcheck.gnome.org/check_network_status.txt
+EOF
+sudo nmcli general reload conf
+```
+
+The file name matches the packaged one under `/usr/lib/NetworkManager/conf.d/`, so the copy in `/etc` replaces it. Note that the panel button on `quattro` ignores this setting and keeps opening its hardcoded URL.
+
+Optional, to open the login page automatically. A user service that watches NetworkManager and opens a browser when connectivity becomes `portal`. It runs in the graphical session so `xdg-open` has a display:
+
+```bash
+mkdir -p ~/.local/bin ~/.config/systemd/user
+cat > ~/.local/bin/captive-portal-watch <<'EOF'
+#!/bin/bash
+# Open a login page whenever NetworkManager reports a captive portal.
+while true; do
+  LC_ALL=C nmcli monitor | while read -r line; do
+    case "$line" in
+      *"Connectivity is now 'portal'"*) xdg-open http://neverssl.com/ >/dev/null 2>&1 ;;
+    esac
+  done
+  sleep 2
+done
+EOF
+chmod +x ~/.local/bin/captive-portal-watch
+
+cat > ~/.config/systemd/user/captive-portal-watch.service <<'EOF'
+[Unit]
+Description=Open captive portal login pages
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/captive-portal-watch
+Restart=always
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now captive-portal-watch.service
+```
+
+`LC_ALL=C` matters because nmcli translates the message under a non-English locale. The service only fires when NetworkManager's own check reports `portal`. Portals that silently drop traffic instead of redirecting report `limited` and still need the manual `neverssl.com` step.
+
+**Verify.** ```bash
+nmcli networking connectivity check     # portal before login, full after
+systemctl --user status captive-portal-watch.service
+resolvectl dns                          # on a portal, the Wi-Fi link should list the network's DNS server
+```
+
+After signing in, `curl -sI http://neverssl.com/` returns `200` from neverssl itself rather than a redirect.
+
+Sources: <https://github.com/omacom/omarchy/issues/9610> · <https://github.com/omacom/omarchy/issues/11961> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Model.js> · <https://wiki.archlinux.org/title/NetworkManager> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/nmcli/general.c> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml>
 
 ---
 
@@ -2070,6 +2454,202 @@ Sources: <https://wiki.archlinux.org/title/Network_configuration> · <https://wi
 
 ---
 
+## Mount an NFS share that fails with a missing mount helper
+
+`nfs-mount-needs-nfs-utils-helper` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `manjaro`, `nfs`, `omarchy`
+
+**Symptom.** `sudo mount -t nfs nas:/export/media /mnt/nas` or an `nfs` line in `/etc/fstab` fails with:
+
+```
+mount: /mnt/nas: bad option; for several filesystems (e.g. nfs, cifs) you might need a /sbin/mount.<type> helper program.
+```
+
+or, on older util-linux, `wrong fs type, bad option, bad superblock on nas:/export/media, missing codepage or helper program, or other error`. Confusingly, Nautilus can open `nfs://nas/export/media` on the same machine without complaint.
+
+**Cause.** Kernel NFS mounts need the userspace helpers `mount.nfs` and `mount.nfs4`, which come from `nfs-utils`. Omarchy 4 does not install `nfs-utils`. It installs `gvfs-nfs` and `libnfs`, which let the file manager talk NFS entirely in userspace, so browsing works while `mount` and fstab cannot. Plain Arch has no NFS client at all until `nfs-utils` is installed.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** An fstab NFS entry without `noauto,x-systemd.automount` or `nofail` can stall boot for minutes when the server is unreachable.
+
+**Fix.**
+
+Install the client tools:
+
+```bash
+sudo pacman -S --needed nfs-utils
+```
+
+List the server's exports and mount:
+
+```bash
+showmount -e nas.local
+sudo mkdir -p /mnt/nas
+sudo mount -t nfs nas.local:/export/media /mnt/nas
+```
+
+For a persistent mount that cannot hang boot when the server is away, use an automount in `/etc/fstab`:
+
+```
+nas.local:/export/media  /mnt/nas  nfs  _netdev,noauto,x-systemd.automount,x-systemd.mount-timeout=10,timeo=14  0 0
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart remote-fs.target
+```
+
+If the share then hangs boot or shutdown, see `nfs-mount-hangs-boot-and-shutdown`.
+
+**Verify.** `ls /usr/bin/mount.nfs` exists. `findmnt -t nfs,nfs4` lists the share. `ls /mnt/nas` shows the server's files.
+
+Sources: <https://wiki.archlinux.org/title/NFS> · <https://bbs.archlinux.org/viewtopic.php?id=81005> · <https://github.com/omacom/omarchy/blob/quattro/install/omarchy-base.packages>
+
+---
+
+## Let hotspot and shared-ethernet clients get an address through Omarchy's default-deny ufw
+
+`nm-hotspot-clients-no-ip-ufw-blocks-dhcp` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `networkmanager`, `omarchy`, `ufw`
+
+**Symptom.** The hotspot is up and phones see the SSID and accept the password, but they sit on "Obtaining IP address" forever and then drop. Or a laptop plugged into a shared ethernet port gets no lease. If a client is given a static address in 10.42.0.0/24, it can ping the host but reaches nothing beyond it.
+
+**Cause.** NetworkManager's shared mode runs dnsmasq on the shared interface (10.42.0.1/24 by default) and adds its own NAT rules. Omarchy enables ufw with `default deny incoming`, and `/etc/default/ufw` keeps `DEFAULT_FORWARD_POLICY="DROP"`. Client DHCP requests (udp/67) and DNS queries (53) to 10.42.0.1 hit the host's INPUT chain and are dropped. Forwarded client traffic hits ufw's FORWARD drop. An accept in NetworkManager's own nftables table does not override a drop in ufw's chains on the same hook, so the clients never get a lease. libvirt's virbr0 fails the same way on Omarchy. An open upstream PR (#7435) adds interface-scoped ufw rules for this reason.
+
+> **Audit corrected this record.** Cause holds. quattro `install/config/firewall.sh` sets `ufw default deny incoming` and enables ufw, `/etc/default/ufw` on this 4.0.4-1 machine has `DEFAULT_FORWARD_POLICY="DROP"`, and nftables semantics make a drop in ufw's base chain terminal regardless of an accept in NetworkManager's own table. The cited BBS thread shows a CachyOS user fixing exactly this by disabling ufw. Open PR #7435 adds interface-scoped rules for DHCP udp/67, DNS on 53 and a route rule, but it scopes DNS and forwarding to the shared subnet with `from <subnet>`, which the record did not. The record's danger also overstated the exposure: NetworkManager's dnsmasq runs only while the shared connection is up, so on another network nothing answers on 53 or 67 unless some other service listens there. Fix rewritten to scope DNS and forwarding to 10.42.0.0/24 as the PR does, which narrows the danger to the DHCP rule. Not exercised: no ufw rule was added on this workstation.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The DHCP rule accepts udp/67 on that interface on every network it joins, not only while sharing. NetworkManager's dnsmasq runs only while the shared connection is up, so nothing answers on another network, but any service you later run on port 67 would be reachable there. The DNS and forwarding rules are limited to 10.42.0.0/24. Delete the rules when you stop sharing: `sudo ufw status numbered`, then `sudo ufw delete <n>`.
+
+**Fix.**
+
+Find the interface clients connect to (the hotspot's Wi-Fi interface, or the shared ethernet port) and your uplink interface:
+
+```bash
+nmcli device          # e.g. wlp2s0 = hotspot, enp3s0 = uplink
+```
+
+NetworkManager's shared mode uses 10.42.0.0/24 unless the profile sets another address. Check with:
+
+```bash
+nmcli -g ipv4.addresses connection show Hotspot    # empty means the 10.42.0.1/24 default
+```
+
+Open DHCP on the shared interface, and DNS and forwarding only for the shared subnet:
+
+```bash
+sudo ufw allow in on wlp2s0 to any port 67 proto udp comment 'hotspot dhcp'
+sudo ufw allow in on wlp2s0 from 10.42.0.0/24 to any port 53 comment 'hotspot dns'
+sudo ufw route allow in on wlp2s0 out on enp3s0 from 10.42.0.0/24 comment 'hotspot egress'
+sudo ufw status verbose
+```
+
+The DHCP rule cannot be limited by source, because a client asking for a lease has no address yet.
+
+Reconnect the client (forget and rejoin on the phone).
+
+For a shared ethernet port the roles swap. The client side is the ethernet interface, and the uplink is usually the Wi-Fi interface.
+
+Do not "fix" this with `sudo ufw disable`. That removes the firewall on every interface, including the uplink.
+
+Plain Arch: this applies only if ufw (or another default-deny firewall) is enabled. Stock Arch has no firewall, so dnsmasq being missing is the more likely cause there.
+
+**Verify.** The client gets a 10.42.0.x address and can browse. On the host, `journalctl -u NetworkManager -b | grep -i dnsmasq` shows `DHCPACK` lines for the client. `sudo ufw status verbose` lists the three rules.
+
+Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://github.com/omacom/omarchy/pull/7435> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh> · <https://bbs.archlinux.org/viewtopic.php?id=293307> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/core/nm-firewall-utils.c> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/core/dnsmasq/nm-dnsmasq-manager.c>
+
+---
+
+## Start a NetworkManager hotspot or shared ethernet that fails because dnsmasq is missing
+
+`nm-hotspot-fails-dnsmasq-not-installed` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `intel`, `laptop`, `manjaro`, `networkmanager`, `omarchy`
+
+**Symptom.** Trying to share the laptop's connection fails straight away. `nmcli device wifi hotspot ssid MyHotspot password 'longpassword'` or a wired profile with `ipv4.method shared` never activates, and nmcli reports `Error: Connection activation failed: IP configuration could not be reserved (no available address, timeout, etc.)`. The NetworkManager journal (`journalctl -u NetworkManager -b`) shows `could not start dnsmasq: Could not find "dnsmasq" binary`. Older NetworkManager releases worded it `failed to start dnsmasq: Could not find dnsmasq binary`. The same nmcli error with no such journal line, on a machine where dnsmasq is installed, usually means `dnsmasq.service` is running and holding the ports NetworkManager's own instance needs. On an Intel card, a hotspot with `band a` may also refuse to start even after dnsmasq is installed.
+
+**Cause.** Any NetworkManager connection with `ipv4.method shared` (a Wi-Fi hotspot or a shared wired port) runs its own private dnsmasq instance as the DHCP and DNS server for clients. dnsmasq is only an optional dependency of the `networkmanager` package ("dnsmasq: connection sharing"), and Omarchy 4's base package list does not include it, so a stock install has no binary to start. An open upstream PR (#7435) proposes a migration that installs dnsmasq for exactly this reason. A second, separate cause applies only to 5 GHz: most Intel cards since 2019 run Location-Aware Regulatory firmware that will not start an AP on 5 GHz, so a `band a` hotspot fails on Intel whatever the software does.
+
+> **Audit corrected this record.** Cause and fix hold. Confirmed: `pacman -Si networkmanager` lists `dnsmasq: connection sharing` as optional, `install/omarchy-base.packages` on quattro has no dnsmasq (this workstation has it only because it was installed explicitly), PR #7435 is open and adds a migration running `omarchy-pkg-add dnsmasq`, `iw` is present on Omarchy through `wireless-regdb`, and the Arch wiki Software_access_point page states the Intel LAR 5 GHz AP limitation. NetworkManager's nm-dnsmasq-manager.c confirms it launches its own dnsmasq with `--conf-file=/dev/null`, so the verify step is right. The symptom was wrong in two places. The journal string in current NetworkManager is `could not start dnsmasq: Could not find "dnsmasq" binary` (nm-device.c plus the helper string `Could not find "%s" binary` in /usr/bin/NetworkManager 1.58.1), the unquoted form is the old wording from the NixOS issue. `Shared connection service failed to start` is not raised by current nm-device.c for this path, which fails the IPv4 shared state and surfaces as `IP configuration could not be reserved`. The cited BBS thread 293307 shows that same nmcli error also comes from a running dnsmasq.service, so the symptom now tells the two apart by the journal line. Not exercised: no hotspot was started on this workstation.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Starting a hotspot on the Wi-Fi interface drops your current Wi-Fi connection. If that is your only uplink, you go offline until you run `nmcli connection down Hotspot`.
+
+**Fix.**
+
+Install dnsmasq. Do not enable `dnsmasq.service`, because NetworkManager starts its own instance, and a system dnsmasq bound to port 53 conflicts with it:
+
+```bash
+sudo pacman -S --needed dnsmasq
+systemctl is-enabled dnsmasq.service   # should print disabled
+```
+
+If `pacman -S` 404s on Omarchy, the sync database is stale. Run `omarchy update` first, not `pacman -Sy`.
+
+Check that the card can be an access point, then start the hotspot on 2.4 GHz:
+
+```bash
+iw list | grep -A10 'Supported interface modes' | grep -w AP
+nmcli device                      # find the Wi-Fi interface name, e.g. wlan0 or wlp2s0
+nmcli device wifi hotspot ifname wlp2s0 con-name Hotspot ssid MyHotspot band bg password 'at-least-8-chars'
+```
+
+A single radio usually cannot hold a client connection and an AP at once, so the hotspot replaces your Wi-Fi uplink. Share a wired or USB-tethered uplink, not the Wi-Fi you are connected to.
+
+On an Intel card, keep `band bg`. A `band a` AP is blocked by the card's LAR firmware, and there is no supported switch to turn that off.
+
+If clients then join but sit at "Obtaining IP address", that is the firewall. See `nm-hotspot-clients-no-ip-ufw-blocks-dhcp`.
+
+**Verify.** `pacman -Q dnsmasq` prints a version. `nmcli connection up Hotspot` succeeds. `nmcli -f GENERAL.STATE device show <iface>` reads `100 (connected)`. `pgrep -a dnsmasq` shows a dnsmasq started by NetworkManager with `--conf-file=/dev/null`.
+
+Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://wiki.archlinux.org/title/Software_access_point> · <https://github.com/NixOS/nixpkgs/issues/7593> · <https://github.com/omacom/omarchy/pull/7435> · <https://bbs.archlinux.org/viewtopic.php?id=293307> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/core/dnsmasq/nm-dnsmasq-manager.c> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/core/devices/nm-device.c> · <https://github.com/omacom/omarchy/blob/quattro/install/omarchy-base.packages>
+
+---
+
+## Reconnect to a saved Wi-Fi network after its password changed when the Omarchy panel never asks
+
+`omarchy-network-panel-no-prompt-stale-wifi-password` · severity: **medium** · frequency: **common** · applies to: `hyprland`, `laptop`, `networkmanager`, `omarchy`
+
+**Symptom.** The router password changed, or a phone hotspot got a new password. Clicking the saved network in Omarchy's network panel shows `Passphrase required`, but no password box ever opens, so there is no way to type the new one. On 4.0.2 the whole bar can crash and restart. The shell journal shows `file:///usr/share/omarchy/shell/plugins/panels/network/Panel.qml[1637:-1]: ReferenceError: root is not defined` once per attempt. NetworkManager logs `psk mismatch reported by supplicant, asking for new key`, then `no secrets: No agents were available for this request.` and `need-auth -> failed (reason 'no-secrets')`.
+
+**Cause.** In the panel's Wi-Fi row delegate, `onConnectionFailed` calls `root.failNetworkAction(...)`, which refreshes and rebuilds the network list. That destroys the delegate whose handler is still running, so the next line's `root` lookup throws `ReferenceError` and `openPasswordPrompt()` is never reached. Nothing else on Omarchy registers a NetworkManager secret agent for Wi-Fi, so the request fails with no prompt. Reported on 4.0.0, and confirmed by a commenter still reproducing on 4.0.4-1 with NetworkManager 1.58.1-1. On this workstation's 4.0.4-1, `Panel.qml:1635-1637` still has the pattern.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Give NetworkManager the new password from a terminal. Either update the saved profile in place:
+
+```bash
+nmcli connection modify 'HomeWifi' wifi-sec.psk 'new-password'
+nmcli connection up 'HomeWifi'
+```
+
+or let nmcli prompt for it:
+
+```bash
+nmcli --ask connection up 'HomeWifi'
+```
+
+or forget the network so the panel treats it as new and prompts normally:
+
+```bash
+nmcli connection delete 'HomeWifi'
+```
+
+Then click it in the panel and enter the new password.
+
+The upstream fix is to capture `root`, `row.net.ssid` and `row.requiresCredentials` into locals before `failNetworkAction()` runs. Until a release carries it, the terminal path above is the reliable one.
+
+**Verify.** `nmcli -f GENERAL.STATE device show <iface>` reads `100 (connected)`. `journalctl -b -t omarchy-shell | grep 'root is not defined'` shows no new lines from your last attempt.
+
+Sources: <https://github.com/omacom/omarchy/issues/7264> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml> · <https://wiki.archlinux.org/title/NetworkManager>
+
+---
+
 ## Fix SSH and HTTPS that hang mid-transfer on a VPN, PPPoE line or hotspot
 
 `pmtu-blackhole-large-transfers-hang` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -2176,6 +2756,80 @@ On Omarchy, make that persistent through ufw rather than a raw `iptables` call a
 **Verify.** `ip link show <iface>` reports the new MTU. `ping -M do -s $((MTU-28)) -c 3 1.1.1.1` succeeds while one byte larger fails. `sysctl net.ipv4.tcp_mtu_probing` reports `1` if you took that route. Then reproduce the original failure: `ssh <host> 'yes | head -100000'` runs to completion, and a `git clone` of a real repository finishes.
 
 Sources: <https://wiki.archlinux.org/title/WireGuard> · <https://wiki.archlinux.org/title/Network_configuration> · <https://networkmanager.dev/docs/api/latest/settings-802-3-ethernet.html> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html> · <https://www.kernel.org/doc/Documentation/networking/ip-sysctl.rst> · <https://github.com/omacom/omarchy/blob/quattro/etc/sysctl.d/99-omarchy-sysctl.conf> · <https://man.archlinux.org/man/ufw-framework.8> · <https://man.archlinux.org/man/nm-settings-nmcli.5>
+
+---
+
+## Recover saved Wi-Fi networks lost in the Omarchy 3 to Quattro upgrade
+
+`quattro-upgrade-drops-saved-wifi-networks` · severity: **medium** · frequency: **common** · applies to: `iwd`, `laptop`, `networkmanager`, `omarchy`
+
+**Symptom.** After upgrading from Omarchy 3.8.x to 4.0 (Quattro) and rebooting, Wi-Fi itself works, but every saved network is gone. Home, office and cafe networks all ask for their passwords again, and `nmcli connection show` lists no Wi-Fi profiles. There is no error or warning anywhere.
+
+**Cause.** Quattro replaced iwd with NetworkManager plus wpa_supplicant, and `omarchy-upgrade-to-quattro` removes the `iwd` and `impala` packages without converting iwd's saved profiles. The profiles are still on disk in `/var/lib/iwd/`, one file per network named `<SSID>.psk` or `<SSID>.open`, with non-filename-safe SSIDs hex-encoded behind a leading `=`. That directory is mode 700 root-only, so a user has no visible sign it survived. The issue reporter found no import logic anywhere in `/usr/share/omarchy` on 4.0.1-1, and 4.0.4-1 still has none: the only migrations that mention iwd handle service and backend cleanup. A PR that implemented an import (#6321) was closed unmerged. A newer one (#12078) adds a migration that imports open and WPA-Personal networks, and was still open and unmerged on 2026-10-04.
+
+> **Audit corrected this record.** Re-read issue #8996 (open) in full: it supports every claim in the symptom and cause, including /var/lib/iwd mode 700, iwd and impala in the removal list, the `=`-hex filename encoding, and PR #6321 closed unmerged. The quattro `omarchy-upgrade-to-quattro` still lists `impala` and `iwd` for removal (lines 885 to 886). PR #12078 is still OPEN and unmerged on 2026-10-05, and `grep -rl 'PreSharedKey\|/var/lib/iwd' /usr/share/omarchy` returns nothing on this 4.0.4-1 workstation, so the cause is still current. Upstream latest release is v4.0.4. The import loop matches the issue's own verified workaround. Two small gaps are fixed, and the rest of the fix is kept verbatim: `cp -r /var/lib/iwd ~/iwd-backup` nests the copy as ~/iwd-backup/iwd if that directory already exists, so the loop then finds nothing (now `cp -rT`), and iwd uses the same `.psk` file for WPA3-only (SAE) networks, which a `wpa-psk` profile cannot join, so a one-line switch to `sae` is added. Status kept as corrected so the previous audit's findings stay attached. The loop was not exercised, since this workstation has no /var/lib/iwd.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `~/iwd-backup` is a plaintext copy of every saved Wi-Fi passphrase in your home directory. Delete it as soon as the import finishes. Do not delete `/var/lib/iwd` until you have confirmed every network reconnects.
+
+**Fix.**
+
+Check that the old store survived:
+
+```bash
+sudo ls /var/lib/iwd/
+```
+
+For a few networks, read the passphrase and reconnect by hand:
+
+```bash
+sudo grep -E '^(Passphrase|PreSharedKey)=' '/var/lib/iwd/HomeWifi.psk'
+nmcli device wifi connect 'HomeWifi' password 'the-passphrase'
+```
+
+For many networks, copy the store somewhere readable and import open and WPA-PSK networks in bulk (enterprise `.8021x` profiles must be re-added by hand):
+
+```bash
+sudo cp -rT /var/lib/iwd ~/iwd-backup && sudo chown -R "$USER" ~/iwd-backup
+
+dir=~/iwd-backup
+shopt -s nullglob
+for f in "$dir"/*.psk "$dir"/*.open; do
+  base=$(basename "$f"); ext=${base##*.}; name=${base%.*}
+  if [[ $name == =* ]]; then
+    ssid=$(python3 -c 'import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]))' "${name#=}")
+  else
+    ssid=$name
+  fi
+  if [[ $ext == open ]]; then
+    nmcli connection add type wifi con-name "$ssid" ssid "$ssid" autoconnect yes >/dev/null && echo "imported (open): $ssid"
+    continue
+  fi
+  key=$(sed -n 's/^Passphrase=//p' "$f" | head -1)
+  [[ -z $key ]] && key=$(sed -n 's/^PreSharedKey=//p' "$f" | head -1)
+  [[ -z $key ]] && { echo "skip (no key): $ssid"; continue; }
+  nmcli connection add type wifi con-name "$ssid" ssid "$ssid" \
+    wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$key" autoconnect yes >/dev/null && echo "imported: $ssid"
+done
+
+rm -rf ~/iwd-backup
+```
+
+iwd keeps WPA3-only (SAE) networks in the same `.psk` files. If one of the imported networks is WPA3-only and will not connect, switch its profile to SAE:
+
+```bash
+nmcli connection modify 'HomeWifi' wifi-sec.key-mgmt sae
+nmcli connection up 'HomeWifi'
+```
+
+Keep `/var/lib/iwd` until everything reconnects. If you had profiles or scripts naming `wlan0`, note that removing iwd also removes its `80-iwd.link` rule. The interface now gets a predictable name such as `wlp3s0` (see `interface-renamed-orphans-networkmanager-profile`).
+
+**Verify.** `nmcli -f NAME,TYPE connection show | grep wifi` lists the recovered networks. Walking into range of one of them connects automatically.
+
+Sources: <https://github.com/omacom/omarchy/issues/8996> · <https://github.com/omacom/omarchy/pull/12078> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-upgrade-to-quattro> · <https://wiki.archlinux.org/title/NetworkManager> · <https://github.com/omacom/omarchy/pull/6321>
 
 ---
 
@@ -2350,6 +3004,56 @@ Sources: <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://w
 
 ---
 
+## Switch a Realtek USB Wi-Fi dongle out of CD-ROM mode
+
+`usb-wifi-dongle-stuck-in-cdrom-mode` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `manjaro`, `omarchy`, `realtek`, `usb`
+
+**Symptom.** A new USB Wi-Fi adapter (the cited case is a Ugreen AX900) does nothing when plugged in. No new interface appears in `ip link` or `nmcli device`, and no drive appears in the file manager either. `lsusb` shows it as:
+
+```
+ID 0bda:1a2b Realtek Semiconductor Corp. RTL8188GU 802.11n WLAN Adapter (Driver CDROM Mode)
+```
+
+and `sudo dmesg` shows `idVendor=0bda, idProduct=1a2b` followed by `usb-storage ... device ignored`. The RTL8188GU name is misleading: many different Realtek adapters use this same ID in their CD-ROM mode.
+
+**Cause.** These dongles enumerate first as a virtual CD-ROM carrying Windows drivers, under the shared ID `0bda:1a2b`. They only reappear as a network device with their real USB ID (for example `0bda:b851` for the RTL8851BU in the Ugreen AX900) after a mode-switch command. The kernel deliberately ignores this ID in usb-storage so that the switch can happen, which is why no drive shows up. The switch itself comes from `usb_modeswitch`, whose udev rule `40-usb_modeswitch.rules` matches `0bda:1a2b` and ejects it. Omarchy 4 does not install `usb_modeswitch`, and a minimal Arch install does not either.
+
+> **Audit corrected this record.** The fix holds. I extracted the current usb_modeswitch package (2.6.2.20251207): `/usr/lib/udev/rules.d/40-usb_modeswitch.rules` matches 0bda:1a2b and `/usr/share/usb_modeswitch/0bda:1a2b` uses StandardEject, which `-K` performs, so the manual command is right. usb_modeswitch is not in quattro `install/omarchy-base.packages` and not installed here. BBS 312196 (Ugreen AX900, 0bda:1a2b switching to 0bda:b851, RTL8851BU, solved by usb_modeswitch plus a different USB port) supports the fix. The symptom was wrong. The kernel's `drivers/usb/storage/unusual_devs.h` carries `US_FL_IGNORE_DEVICE` for 0bda:1a2b "otherwise usb_modeswitch may fail to switch", and the thread's dmesg shows `usb-storage ... device ignored` with nothing in Dolphin, so no Driver CD drive appears in the file manager. The brand and chip list (TP-Link, Edimax, RTL8811CU) is in none of the sources, and the thread's own answer is that the lsusb name is misleading because many Realtek adapters share the ID. Symptom and cause rewritten. linux-hardware.org did not load from here, so it was left in place unverified.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Install the mode switcher, which ships the udev rule that switches the stick on insertion:
+
+```bash
+sudo pacman -S --needed usb_modeswitch
+```
+
+Unplug and re-plug the dongle, then check its ID has changed:
+
+```bash
+lsusb | grep -i 0bda
+ip link
+nmcli device
+```
+
+To switch it by hand without re-plugging:
+
+```bash
+sudo usb_modeswitch -KW -v 0bda -p 1a2b
+```
+
+If the stick switches but then freezes or drops, try another USB port before chasing drivers. In the cited thread, the port was the remaining cause.
+
+**Verify.** `lsusb` no longer shows `0bda:1a2b` but the adapter's Wi-Fi ID. `nmcli device` lists a new `wifi` device. `nmcli device wifi list ifname <new iface>` shows networks.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=312196> · <https://linux-hardware.org/?id=usb:0bda-1a2b> · <https://wiki.archlinux.org/title/Mobile_broadband_modem> · <https://github.com/torvalds/linux/blob/master/drivers/usb/storage/unusual_devs.h> · <https://archlinux.org/packages/extra/x86_64/usb_modeswitch/> · <https://github.com/omacom/omarchy/blob/quattro/install/omarchy-base.packages>
+
+---
+
 ## Fix Wi-Fi collapsing whenever a Bluetooth device is connected
 
 `wifi-throughput-collapses-with-bluetooth-audio` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -2498,6 +3202,46 @@ iw dev wlo1 link | grep -i freq   # any Arch: expect 5xxx or 6xxx MHz
 A large download should hold its speed with the headset in use. If you pinned a band, reboot once and check it reassociated on that band by itself rather than falling back.
 
 Sources: <https://bbs.archlinux.org/viewtopic.php?id=287090> · <https://bbs.archlinux.org/viewtopic.php?id=302036> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/iwl-drv.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/dvm/main.c> · <https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html> · <https://github.com/omacom/omarchy/blob/v4.0.3/bin/omarchy-network-band> · <https://github.com/omacom/omarchy/blob/v4.0.3/config/wireplumber/wireplumber.conf.d/bluetooth-a2dp-autoconnect.conf> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/mvm/mac80211.c> · <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/wireless/intel/iwlwifi/mld/coex.c> · <https://raw.githubusercontent.com/PipeWire/pipewire/master/spa/plugins/bluez5/defs.h> · <https://man.archlinux.org/man/nm-settings-nmcli.5>
+
+---
+
+## Pin the Wi-Fi band when NetworkManager thrashes onto 6 GHz or sticks to 2.4 GHz
+
+`wifi-wrong-band-6ghz-thrash-or-stuck-2ghz` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `intel`, `laptop`, `manjaro`, `mediatek`, `networkmanager`, `omarchy`, `wpa-supplicant`
+
+**Symptom.** Two complaints with one fix. (1) Since moving to Omarchy 4 (NetworkManager and wpa_supplicant), Wi-Fi feels laggy and calls stutter, yet speed tests look fine. Gateway ping jumps from 2 ms to 40 to 135 ms. The journal loops through `Trying to associate with ... freq=6135 MHz`, `deauthenticating ... by local choice (Reason: 3=DEAUTH_LEAVING)`, `CTRL-EVENT-DISCONNECTED ... locally_generated=1`, and then falls back to 5 GHz. On Intel AX210 it can also log `iwlwifi: Unhandled alg: 0x707`. (2) On a fresh install the laptop joins the 2.4 GHz radio of a dual-band router (17 Mbit/s, 500 ms ping) even though the same SSID is on 5 GHz.
+
+**Cause.** With one SSID broadcast on 2.4, 5 and 6 GHz, wpa_supplicant's BSS selection picks whichever radio looks best at scan time. A strong but marginal 6 GHz signal, or a 6 GHz radio that needs SAE or FT-SAE the client handles badly, makes it roam there, fail to hold the association and fall back, over and over. On some cards it can also settle on 2.4 GHz. iwd, which Omarchy 3 used, did not show this on the same hardware, which is why it appears as a Quattro regression. It is upstream supplicant behaviour, reported on MediaTek mt7921e and Intel AX210.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A band pin is stored in the profile and follows it everywhere. On a network that has no 5 GHz radio, a pinned profile will not connect until you run `omarchy network band auto`.
+
+**Fix.**
+
+Omarchy 4 has a helper that pins the band on the active profile, and it reverts on its own if the band cannot connect:
+
+```bash
+omarchy network band            # shows current band, available bands, selected pin
+omarchy network band 5          # pin to 5 GHz (same as: omarchy-network-band 5)
+omarchy network band auto       # remove the pin
+```
+
+Plain Arch, or to do it by hand:
+
+```bash
+nmcli -f NAME,DEVICE connection show --active
+nmcli connection modify 'MyWifi' 802-11-wireless.band a
+nmcli connection up 'MyWifi'
+# undo:
+nmcli connection modify 'MyWifi' 802-11-wireless.band ''
+```
+
+`band a` keeps the connection on 5 GHz and away from both 2.4 and 6 GHz. Pinning the band is better than pinning a BSSID with `802-11-wireless.bssid`, which disables background scanning and roaming between access points.
+
+**Verify.** `iw dev <iface> link` shows `freq:` between 4900 and 5925. `journalctl -b -u wpa_supplicant` has no new `freq=6` association attempts. `ping -c 50 <gateway>` shows low, steady times.
+
+Sources: <https://github.com/omacom/omarchy/issues/7311> · <https://github.com/omacom/omarchy/issues/11812> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-network-band> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/raw/main/src/core/supplicant/nm-supplicant-config.c>
 
 ---
 
@@ -2850,6 +3594,125 @@ Sources: <https://github.com/omacom/omarchy/issues/5464> · <https://docs.docker
 
 ---
 
+## Join a hidden Wi-Fi network the Omarchy panel cannot add
+
+`hidden-wifi-network-no-join-option-panel` · severity: **medium** · frequency: **occasional** · applies to: `laptop`, `networkmanager`, `omarchy`
+
+**Symptom.** The office or home network does not broadcast its SSID. The Omarchy 4 network panel has no "join hidden network" or "other network" entry, so there is no way to type an SSID. At best a row labelled `Hidden` appears, and clicking it cannot work because there is no name to connect to.
+
+**Cause.** The Omarchy 4 network panel lists only networks found by scanning and has no form for entering an SSID by hand. `Panel.qml` on 4.0.4-1 and on `quattro` contains no such entry. The Omarchy 3 request (#3945) was closed, and the Quattro panel request (#8366) was closed by its author in favour of PR #7828, which adds a "Join hidden network" option and was still open and unmerged on 2026-10-05. Closing #8366 did not fix anything. NetworkManager itself supports hidden networks fine. A hidden SSID needs the client to send directed probe requests carrying the name, which `nmcli` does when the profile is marked hidden.
+
+> **Audit corrected this record.** Confirmed the installed Panel.qml (4.0.4-1) and the quattro Panel.qml have no hidden-network join entry, and the installed list labels an empty SSID row "Hidden" (row.net.ssid || "Hidden"). PR #7828 "Add Join hidden network to the Wi-Fi panel" is open and unmerged against quattro, last updated 2026-09-27. The cause mislabels #8366 as an Omarchy 3 era request: it reports the missing option in the new Quickshell panel (Quattro) and was closed by its author after pointing at the open PR #7828, not because anything was fixed, and a commenter asked for it to be reopened. #3945 is the Omarchy 3.2.3 request. Cause corrected to say so. The fix holds: the Arch wiki gives `nmcli device wifi connect SSID password ... hidden yes`, and nmcli's devices.c scans the hidden SSID first when `hidden yes` is passed so it learns the AP's security before `--ask` prompts. The offline `nmcli connection add ... 802-11-wireless.hidden yes wifi-sec.key-mgmt wpa-psk` followed by `nmcli --ask connection up` is valid. Cross-referenced slug wpa2-enterprise-8021x-connect-from-cli exists. Not exercised: no hidden network was joined.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Create the connection with `nmcli`, which marks the profile `802-11-wireless.hidden yes`:
+
+```bash
+nmcli --ask device wifi connect "<SSID>" hidden yes
+```
+
+`--ask` prompts for the password instead of putting it on the command line. Once the profile exists it autoconnects like any other and the panel shows it as connected.
+
+To create it without being in range, for example before arriving at the office:
+
+```bash
+nmcli connection add type wifi con-name "<SSID>" ssid "<SSID>" \
+  802-11-wireless.hidden yes wifi-sec.key-mgmt wpa-psk
+nmcli --ask connection up "<SSID>"
+```
+
+Use `wifi-sec.key-mgmt sae` for a WPA3-only network. For an enterprise network see `wpa2-enterprise-8021x-connect-from-cli`, and add `802-11-wireless.hidden yes` to that profile.
+
+**Verify.** ```bash
+nmcli -g 802-11-wireless.hidden connection show "<SSID>"     # yes
+nmcli -f GENERAL.STATE,GENERAL.CONNECTION device show "$(nmcli -t -f DEVICE,TYPE device | awk -F: '$2=="wifi"{print $1; exit}')"
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/8366> · <https://github.com/omacom/omarchy/issues/3945> · <https://github.com/omacom/omarchy/pull/7828> · <https://wiki.archlinux.org/title/NetworkManager> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/nmcli/devices.c>
+
+---
+
+## Work around a network whose IPv6 is advertised but broken
+
+`ipv6-broken-upstream-slow-or-reset-downloads` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `ipv6`, `laptop`, `networkmanager`, `omarchy`
+
+**Symptom.** Some sites take 20 seconds or more to start loading while others are instant. Large downloads fail part way with `Connection reset by peer`, including `omarchy update`:
+
+```
+error: failed retrieving file '...pkg.tar.zst' from pkgs.omarchy.org : Recv failure: Connection reset by peer
+```
+
+`curl -4` against the same URL works every time, `curl -6` stalls or resets. The laptop has a global IPv6 address and an IPv6 default route.
+
+**Cause.** Applications try IPv6 first whenever the machine has a global IPv6 address and an IPv6 default route, which a router advertisement provides. Two different faults then look the same from the laptop.
+
+1. The IPv6 path on your side is broken or lossy: a misconfigured ISP tunnel, a CPE that drops large or fragmented packets, or a captive portal that blackholes IPv6 instead of redirecting it. Happy Eyeballs in browsers and libcurl hides a path that fails on connect, but a connection that opens and then stalls mid-transfer is not retried, so large downloads fail while small pages load.
+2. Your IPv6 works, but one server's IPv6 side does not. Issue #12049 is this case: large downloads from `pkgs.omarchy.org` (behind Cloudflare) reset intermittently over IPv6 only, while other IPv6 sites worked and the same download over IPv4, or over IPv6 twenty minutes later, completed. The reporter suspected the CDN edge, and no cause was confirmed.
+
+In both cases the workaround is to send that traffic over IPv4. This is distinct from the resolver problem in `ipv6-dns-timeout-stub-not-on-localhost6`: DNS answers fine here, and it is the IPv6 traffic itself that fails.
+
+> **Audit corrected this record.** The cited issue #12049 does not support the cause. Its reporter had native IPv6 that worked generally (archlinux.org over IPv6 returned 200, small IPv6 responses were fine), and the resets were intermittent, only on large files from pkgs.omarchy.org behind Cloudflare with cf-cache-status DYNAMIC, and the same curl -6 succeeded 20 minutes later. The reporter suspected the server edge, not a broken local path. The record presents it as evidence of a broken ISP or CPE path. Cause corrected to cover both a broken path on your side and a fault on the server's IPv6 side, with a diagnostic that tells them apart. A connection reset is an active RST, which a blackholing path does not produce, so the corrected cause no longer attributes resets to a blackhole. The workaround in option 3 is the one #12049 used verbatim, and the pacman Server line `https://pkgs.omarchy.org/stable/$arch` was confirmed in /etc/pacman.conf here. The gai.conf line is the Arch wiki's 'Prefer IPv4 over IPv6' line and is present commented in /etc/gai.conf (glibc). Quoting added because Omarchy package file names contain colons. The danger named CGNAT, which is IPv4 and is not broken by turning IPv6 off, so it is corrected to IPv6-only, 464XLAT and DS-Lite networks. #9610 supports the portal IPv6 blackhole remark. Not exercised: no broken IPv6 network was available.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Disabling IPv6 on a connection makes an IPv6-only network, or one that provides IPv4 only through 464XLAT or DS-Lite (some mobile carriers and ISPs), lose connectivity entirely. Use it per profile, never globally, and undo it with `nmcli connection modify "<profile>" ipv6.method auto`.
+
+**Fix.**
+
+Confirm it is IPv6, then tell the two causes apart. If `curl -6` fails against a large file on one host but works against other IPv6 sites, the fault is on that server's side and only a per-download workaround makes sense. If every IPv6 test stalls, the path on your side is broken:
+
+```bash
+ip -6 route show default
+curl -6 -sS -o /dev/null -w '%{http_code} %{time_total}s\n' https://archlinux.org/
+curl -4 -sS -o /dev/null -w '%{http_code} %{time_total}s\n' https://archlinux.org/
+ping -6 -c 4 2606:4700:4700::1111
+```
+
+Prefer, in order of how much they change:
+
+1. Prefer IPv4 for this machine without turning IPv6 off. Add the Arch wiki's line to `/etc/gai.conf` (it is already there, commented out), which reorders getaddrinfo results so programs that use them, such as curl and pacman, try IPv4 first:
+
+```bash
+echo 'precedence ::ffff:0:0/96  100' | sudo tee -a /etc/gai.conf
+```
+
+2. Disable IPv6 only on the one network that is broken (the local path case):
+
+```bash
+nmcli -t -f NAME,DEVICE connection show --active
+nmcli connection modify "<profile>" ipv6.method disabled
+nmcli connection up "<profile>"
+```
+
+3. To finish a single stuck package download now, fetch it over IPv4 into the pacman cache, then rerun the update, which verifies the cached file. Quote the name, because Omarchy package file names can contain a colon:
+
+```bash
+sudo rm -f "/var/cache/pacman/pkg/<file>.part"
+sudo curl -4 -o "/var/cache/pacman/pkg/<file>" "https://pkgs.omarchy.org/stable/x86_64/<file>"
+omarchy update
+```
+
+Avoid the kernel parameter `ipv6.disable=1`. It removes IPv6 everywhere, breaks networks where IPv6 works, and on Omarchy 4 it would have to go in `/etc/limine-entry-tool.d/*.conf` and needs a UKI rebuild.
+
+**Verify.** ```bash
+nmcli -g ipv6.method connection show "<profile>"     # disabled, if you used option 2
+ip -6 addr show scope global                          # empty on that link after option 2
+getent ahosts archlinux.org | head -3                 # IPv4 first, after option 1
+```
+
+Re-run the download that failed. It should complete.
+
+Sources: <https://wiki.archlinux.org/title/IPv6> · <https://github.com/omacom/omarchy/issues/12049> · <https://github.com/omacom/omarchy/issues/9610>
+
+---
+
 ## Fix DNS timeouts against [::1]:53 on dual-stack networks
 
 `ipv6-dns-timeout-stub-not-on-localhost6` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `omarchy`
@@ -2898,6 +3761,71 @@ That only reorders getaddrinfo results. IPv6 connectivity stays up. Reserve `nmc
 **Verify.** `cat /etc/resolv.conf` shows `nameserver 127.0.0.53`. `resolvectl query proxy.golang.org` returns A and AAAA records immediately, and `ss -lunp | grep ':53'` shows resolved bound on 127.0.0.53.
 
 Sources: <https://github.com/basecamp/omarchy/issues/1478> · <https://man.archlinux.org/man/systemd-resolved.service.8>
+
+---
+
+## Make a USB or built-in LTE modem show up in NetworkManager
+
+`lte-modem-not-detected-modemmanager-missing` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `laptop`, `manjaro`, `networkmanager`, `omarchy`, `wwan`
+
+**Symptom.** A laptop with a built-in WWAN card (Quectel, Fibocom, Sierra) or a USB LTE stick has a SIM in it, but there is no mobile broadband option anywhere. `nmcli device` shows no `gsm` device, or shows `cdc-wdm0` / `wwan0` as `unmanaged`. `mmcli -L` prints `bash: mmcli: command not found`, or `No modems were found`.
+
+**Cause.** NetworkManager does not drive cellular modems itself. It delegates to ModemManager, which is an optional dependency (`modemmanager: cellular network support`). Omarchy 4 does not install `modemmanager` or `usb_modeswitch`. Many USB sticks first enumerate as a virtual CD-ROM and need `usb_modeswitch` to flip into modem mode. Plain Arch has the same gap unless the user installed both.
+
+> **Audit corrected this record.** Cause holds. networkmanager lists `modemmanager: cellular network support` as optional, quattro `install/omarchy-base.packages` has neither modemmanager nor usb_modeswitch and neither is installed here, and the Arch wiki NetworkManager page says to install both, enable ModemManager.service and possibly restart NetworkManager. mobile-broadband-provider-info is already a dependency of networkmanager, so it is harmless under --needed. Two parts of the fix were wrong or vague. `mmcli -i 0` assumes the SIM index is 0, while the Mobile broadband modem wiki says to read it from `primary sim path` in `mmcli -m`. The FCC-unlock line named no command. The wiki and the modemmanager 1.24.2 file list show scripts under `/usr/share/ModemManager/fcc-unlock.available.d/` that must be symlinked into `/etc/ModemManager/fcc-unlock.d`. Fix rewritten with both. Not exercised: no modem here.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Restarting NetworkManager drops every active connection for a few seconds.
+
+**Fix.**
+
+Install ModemManager, the mode switcher and the APN database, then enable the daemon:
+
+```bash
+sudo pacman -S --needed modemmanager usb_modeswitch mobile-broadband-provider-info
+sudo systemctl enable --now ModemManager.service
+sudo systemctl restart NetworkManager.service    # so it picks up ModemManager
+```
+
+Re-plug a USB modem, then check that ModemManager sees it:
+
+```bash
+mmcli -L
+mmcli -m 0          # state, signal, and "primary sim path: /org/freedesktop/ModemManager1/SIM/<n>"
+```
+
+If the SIM has a PIN, use the SIM number from that path, not the modem number:
+
+```bash
+mmcli -i <n> --pin=1234
+```
+
+Create and bring up a NetworkManager profile with your carrier's APN:
+
+```bash
+nmcli connection add type gsm ifname '*' con-name mobile apn internet.example
+nmcli connection up mobile
+```
+
+If `mmcli -L` still lists nothing, check `journalctl -u ModemManager -b` for `not supported by any plugin`.
+
+Many laptop M.2 modems (Lenovo, Dell, HP) are FCC-locked and stay offline until an unlock script runs. ModemManager ships the scripts but does not use them until you link the one for your card. Find the card's vendor and product ID, then link the matching script:
+
+```bash
+lspci -nn | grep -iE 'wwan|modem|wireless'     # ID in brackets at the end, e.g. [1eac:1001]
+ls /usr/share/ModemManager/fcc-unlock.available.d/
+sudo ln -sft /etc/ModemManager/fcc-unlock.d /usr/share/ModemManager/fcc-unlock.available.d/1eac:1001
+sudo systemctl restart ModemManager.service
+```
+
+Replace `1eac:1001` (a Quectel EM120) with your card's ID. If there is no script for it, ModemManager has no unlock procedure for that card.
+
+**Verify.** `mmcli -L` lists `/org/freedesktop/ModemManager1/Modem/0`. `nmcli device` shows a `gsm` device as `connected` after `nmcli connection up mobile`. `ip addr` shows an address on `wwan0`.
+
+Sources: <https://wiki.archlinux.org/title/Mobile_broadband_modem> · <https://wiki.archlinux.org/title/NetworkManager> · <https://github.com/omacom/omarchy/blob/quattro/install/omarchy-base.packages> · <https://archlinux.org/packages/extra/x86_64/modemmanager/>
 
 ---
 
@@ -3208,6 +4136,103 @@ Sources: <https://wiki.archlinux.org/title/Systemd-resolved> · <https://wiki.ar
 
 ---
 
+## Connect to an OpenVPN server whose certificate OpenSSL 3 rejects as too weak
+
+`openvpn-ca-md-too-weak-openssl3` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `manjaro`, `networkmanager`, `omarchy`, `openvpn`, `vpn`
+
+**Symptom.** A work or university OpenVPN profile that used to connect now fails every time. The NetworkManager journal shows:
+
+```
+nm-openvpn[14359]: OpenSSL: error:0A00018E:SSL routines::ca md too weak
+nm-openvpn[14359]: Cannot load certificate file /home/user/.local/share/networkmanagement/certificates/my_issued_cert.crt
+nm-openvpn[14359]: Exiting due to fatal error
+```
+
+or `VERIFY ERROR: depth=0, error=CA signature digest algorithm too weak` followed by `OpenSSL: error:0A000086:SSL routines::certificate verify failed`.
+
+**Cause.** The server's CA or client certificate is signed with a legacy digest (MD5 or SHA-1). OpenSSL 3's default security level rejects that, and Arch ships OpenSSL 3 and current OpenVPN. The certificate itself is the defect. The client is behaving correctly.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `@SECLEVEL=0` accepts weak keys and digests for this tunnel, which makes it easier to impersonate the VPN server. Enabling the OpenSSL legacy provider in `/etc/ssl/openssl.cnf` lowers this for every program on the machine. Treat both as temporary.
+
+**Fix.**
+
+The real fix is on the server: ask the VPN administrator to reissue the CA and certificates with SHA-256 or better.
+
+Until then, lower the security level for this one connection only:
+
+```bash
+nmcli connection show                       # find the VPN profile name
+sudo nmcli connection modify 'vpn.example.com' +vpn.data tls-cipher=DEFAULT:@SECLEVEL=0
+nmcli connection up 'vpn.example.com'
+```
+
+That writes `tls-cipher=DEFAULT:@SECLEVEL=0` into the `[vpn]` section of `/etc/NetworkManager/system-connections/vpn.example.com.nmconnection`. If the old profile also used `cipher=AES-128-CBC`, one CachyOS user also needed `data-ciphers=AES-128-CBC` in the same section.
+
+If the certificate also uses an algorithm that only OpenSSL's legacy provider implements, the Arch wiki describes enabling `legacy = legacy_sect` in `/etc/ssl/openssl.cnf`. Do that only if the error persists, because it applies system-wide.
+
+**Verify.** `nmcli connection up <name>` succeeds. `journalctl -u NetworkManager -b | grep nm-openvpn` no longer shows `ca md too weak`. A `tun0` interface exists.
+
+Sources: <https://wiki.archlinux.org/title/NetworkManager> · <https://bbs.archlinux.org/viewtopic.php?id=281136> · <https://discuss.cachyos.org/t/openvpn-ca-md-too-weak/15105>
+
+---
+
+## Reach your own LAN again when Tailscale advertises it as a subnet route
+
+`tailscale-accept-routes-breaks-home-lan` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `laptop`, `networkmanager`, `omarchy`, `tailscale`
+
+**Symptom.** At home, with Tailscale up, SSH or any other connection from another machine on the LAN into the laptop hangs, even though both sit on the same Wi-Fi. Connections from the laptop to the printer, NAS or router admin page by their 192.168.x.x addresses are slow or flaky, or fail outright if the subnet router is offline or has SNAT disabled. Everything works again the moment you run `tailscale down`. It only happens on a network that some node on your tailnet (a Raspberry Pi, a NAS, the router) advertises as a subnet route.
+
+**Cause.** Omarchy's `omarchy-install-service-tailscale` runs `sudo tailscale up --accept-routes`. With accepted routes, tailscaled on Linux puts every advertised subnet into its own routing table 52 and adds policy rules that consult table 52 before the `main` table (priorities 5210 to 5270 by default, from `wgengine/router/osrouter/router_linux.go`). If the subnet advertised is the one you are physically on, traffic to your neighbours goes into the tunnel to the subnet router instead of straight out of Wi-Fi. Outbound connections still work while the subnet router is up and has SNAT on, which is the default, because the router relays them, only slower. Replies to connections that arrive from the LAN take the same tunnel path with your LAN address as the source, and the Tailscale client drops packets with an unexpected source address, so inbound connections hang. With SNAT disabled on a Linux subnet router, outbound connections fail too. Tailscale does not skip a route because a directly attached interface already covers it. That request is upstream issue tailscale/tailscale#1227, open since 2021.
+
+> **Audit corrected this record.** Confirmed /usr/share/omarchy/bin/omarchy-install-service-tailscale on 4.0.4-1 (identical to quattro) runs `sudo tailscale up --accept-routes` and then `sudo tailscale set --operator="$USER"`. router_linux.go confirms table 52 and rules at 10/30/50/70 added to ipPolicyPrefBase 5200, so 5210 to 5270, and Tailscale's 'LAN traffic prioritization with overlapping subnet routes' page names the same priorities and recommends exactly this kind of rule (`ip rule add to <lan> priority 2500 lookup main`). tailscale/tailscale#1227 is open since 2021-01-29. The symptom overstates the outbound case. Tailscale's 'Can't connect to LAN' page says the routing prefers the subnet router and the client drops packets whose source is the device's LAN address, and that outbound fails only when a Linux subnet router has SNAT disabled. Routes in table 52 use the tailscale0 address as source, so with the default SNAT outbound connections still succeed, relayed through the subnet router. Inbound connections from the LAN are the ones that reliably hang. Symptom and cause corrected to that. The fix and the NetworkManager routing-rules syntax hold. Not exercised: no tailnet with a subnet router was available.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The routing rule trusts whatever network the home profile is connected to. If an untrusted network ever uses the same SSID and prefix, traffic to that prefix stays local instead of going through the tunnel.
+
+**Fix.**
+
+Confirm the diagnosis:
+
+```bash
+ip route get 192.168.1.20               # replace with a LAN host. 'dev tailscale0' is the problem
+ip route show table 52 | grep 192.168
+ip rule | grep -E '52[0-9]{2}'
+```
+
+Simplest fix, if you do not need any advertised subnet from this machine:
+
+```bash
+tailscale set --accept-routes=false
+```
+
+`sudo` is not needed once the installer's `tailscale set --operator="$USER"` has applied.
+
+To keep accepting other subnets but use the local path for the network you are on, add a policy rule to the home Wi-Fi or Ethernet profile that sends that one subnet to the `main` table before Tailscale's rules are consulted. NetworkManager installs it only while that profile is active, so it does nothing on other networks:
+
+```bash
+nmcli connection modify "<home profile>" +ipv4.routing-rules "priority 5000 to 192.168.1.0/24 table 254"
+nmcli connection up "<home profile>"
+```
+
+Use your real LAN prefix (`ip -4 addr show` gives it). Table 254 is `main`. Priority 5000 sorts before Tailscale's 52xx rules.
+
+**Verify.** ```bash
+ip rule | grep 'lookup main' | grep 192.168
+ip route get 192.168.1.20               # dev wlo1 or your Ethernet, not tailscale0
+tailscale status
+```
+
+The printer or NAS should answer, and other subnets advertised on the tailnet still route through `tailscale0`.
+
+Sources: <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-install-service-tailscale> · <https://github.com/tailscale/tailscale/issues/1227> · <https://github.com/tailscale/tailscale/blob/main/wgengine/router/osrouter/router_linux.go> · <https://tailscale.com/docs/reference/troubleshooting/connectivity/connect-lan-failure> · <https://tailscale.com/docs/features/subnet-routers> · <https://tailscale.com/docs/reference/troubleshooting/network-configuration/lan-traffic-overlapping-subnets>
+
+---
+
 ## Restore access to Docker containers over the tailnet after a Tailscale update
 
 `tailscale-docker-containers-unreachable-stateful-filtering` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -3408,6 +4433,160 @@ Sources: <https://man.archlinux.org/man/NetworkManager.conf.5> · <https://githu
 
 ---
 
+## Finish an `omarchy dns` change that aborts on a bridge or bond port profile
+
+`omarchy-dns-aborts-on-bridge-port-profile` · severity: **medium** · frequency: **rare** · applies to: `desktop`, `libvirt`, `networkmanager`, `omarchy`, `systemd-resolved`
+
+**Symptom.** Changing the DNS provider from the menu seems to work, but some networks keep the old DNS. Run from a terminal it fails:
+
+```
+$ omarchy dns DHCP
+Error: invalid or not allowed setting 'ipv4': port connections cannot have IP configuration.
+```
+
+and exits with status 2. Afterwards `omarchy dns` can name a provider that does not match what `resolvectl dns` shows on some links, so captive portals and VPN DNS keep failing. It happens on machines with a NetworkManager bridge or bond, for example a `br0` for libvirt.
+
+**Cause.** `omarchy-dns` loops over every saved profile and selects candidates by connection type only (`802-11-wireless` or `802-3-ethernet`). A bridge or bond member is an `802-3-ethernet` profile with `connection.controller` set, and NetworkManager refuses any IP setting on a port profile. The script runs under `set -euo pipefail`, so the first refusal kills the whole run part way through.
+
+In the `DHCP` branch the global file `/etc/NetworkManager/conf.d/20-omarchy-dns.conf` is removed first, then the per-profile loop dies. Profiles after the port keep their pinned servers, `/etc/systemd/resolved.conf` keeps its previous `DNS=` line, and the final reload that reapplies active connections never runs. In the Cloudflare and Google branches the drop-in is written first, then the same abort leaves later profiles and `resolved.conf` on the old provider.
+
+`omarchy dns` with no argument reads only the drop-in and the `DNS=` line in `resolved.conf`, never the per-profile settings, so it can report a provider that some links are not using (the issue reporter saw `DHCP` while three of four profiles still forced Cloudflare). Confirmed in `bin/omarchy-dns` on 4.0.4-1 and on `quattro`, upstream issue #11448, still open.
+
+> **Audit corrected this record.** Read /usr/bin/omarchy-dns on 4.0.4-1 and the quattro copy, which are byte-identical. Issue #11448 (open) states the exact error, exit 2, and the type-only filter, and the script confirms set -euo pipefail and the 802-11-wireless/802-3-ethernet filter. Two defects in the record. First, the claim that `omarchy dns` reports DHCP after an aborted DHCP run does not follow from the script: the DHCP branch deletes the NetworkManager drop-in and then dies before rewriting /etc/systemd/resolved.conf, so current_dns_provider falls back to resolved.conf, which still holds the Cloudflare DNS= line, and reports Cloudflare. The issue reporter did see DHCP, so the corrected text says the indicator ignores per-profile pins and can disagree with resolvectl in either direction. Second, the manual fix modifies profiles but never reapplies them to active devices, which the script itself does with `nmcli device reapply` because `reload dns-full` only republishes the already-applied settings. Without that, the connected network keeps its pinned servers until reconnected. The reload also needs root (polkit gives NetworkManager.reload auth_admin_keep). The fix is rewritten with reapply and sudo, and gives the Cloudflare branch verbatim from the script rather than telling the reader to copy it. Not exercised: no bridge profile was created on this workstation.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Do by hand what the script would have done, skipping port profiles. For `DHCP`:
+
+```bash
+sudo rm -f /etc/NetworkManager/conf.d/20-omarchy-dns.conf
+
+while IFS=: read -r uuid type; do
+  case "$type" in 802-11-wireless|802-3-ethernet) ;; *) continue ;; esac
+  [[ -z $(nmcli -g connection.controller connection show "$uuid") ]] || continue
+  sudo nmcli connection modify "$uuid" \
+    ipv4.ignore-auto-dns no ipv4.dns "" \
+    ipv6.ignore-auto-dns no ipv6.dns ""
+done < <(nmcli -t -f UUID,TYPE connection show)
+
+sudo tee /etc/systemd/resolved.conf >/dev/null <<'EOF'
+[Resolve]
+DNSOverTLS=no
+EOF
+```
+
+For Cloudflare instead, write the drop-in and pin the profiles, then use the script's own `resolved.conf` block:
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/20-omarchy-dns.conf >/dev/null <<'EOF'
+# Managed by omarchy-dns. Remove this file or run omarchy dns DHCP to use DHCP DNS again.
+[global-dns]
+
+[global-dns-domain-*]
+servers=1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001
+EOF
+
+while IFS=: read -r uuid type; do
+  case "$type" in 802-11-wireless|802-3-ethernet) ;; *) continue ;; esac
+  [[ -z $(nmcli -g connection.controller connection show "$uuid") ]] || continue
+  sudo nmcli connection modify "$uuid" \
+    ipv4.ignore-auto-dns yes ipv4.dns "1.1.1.1 1.0.0.1" \
+    ipv6.ignore-auto-dns yes ipv6.dns "2606:4700:4700::1111 2606:4700:4700::1001"
+done < <(nmcli -t -f UUID,TYPE connection show)
+
+sudo tee /etc/systemd/resolved.conf >/dev/null <<'EOF'
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com
+FallbackDNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net
+DNSOverTLS=opportunistic
+EOF
+```
+
+For Google, take the matching block from `/usr/bin/omarchy-dns`.
+
+Then, in either case, reload and push the changed profiles onto the connected devices. A modified profile does not reach an active connection until it is reapplied:
+
+```bash
+sudo nmcli general reload conf
+nmcli -t -f DEVICE,TYPE,STATE device status | while IFS=: read -r dev type state; do
+  if [[ $state == connected && ( $type == wifi || $type == ethernet ) ]]; then
+    sudo nmcli device reapply "$dev" || true
+  fi
+done
+sudo systemctl restart systemd-resolved
+sudo nmcli general reload dns-full
+```
+
+The bridge itself (`type bridge`) is not in the script's loop at all, so its DNS is whatever its own profile says. Check it separately with `nmcli -g ipv4.dns,ipv4.ignore-auto-dns connection show <bridge>`. Until #11448 is fixed, every provider change from the menu on this machine aborts the same way and needs these steps again.
+
+**Verify.** ```bash
+resolvectl dns                               # every link should show the servers you expect
+nmcli -t -f NAME,TYPE connection show | while IFS=: read -r n t; do
+  printf '%s: %s\n' "$n" "$(nmcli -g ipv4.dns connection show "$n")"
+done
+```
+
+Sources: <https://github.com/omacom/omarchy/issues/11448> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-dns>
+
+---
+
+## Stop sending your hostname to every network you join
+
+`dhcp-sends-hostname-no-ipv6-privacy` · severity: **low** · frequency: **very-common** · applies to: `arch`, `ipv6`, `laptop`, `networkmanager`, `omarchy`
+
+**Symptom.** Your laptop shows up by the name you gave it at install (often your own name) in the client list of every router, hotel and cafe network you join, and its IPv6 address is the same stable address on every visit with no temporary addresses. `ip -6 addr show scope global` lists no `temporary` addresses.
+
+**Cause.** Omarchy's installer asks for a hostname, and NetworkManager sends it to every network: in DHCP option 12 on IPv4 and in the FQDN option on DHCPv6, because `ipv4.dhcp-send-hostname` and `ipv6.dhcp-send-hostname` are left at their defaults. Omarchy ships only `omarchy-wifi-powersave.conf` and `20-omarchy-dns.conf` in `/etc/NetworkManager/conf.d`, neither of which changes this. NetworkManager falls back to `/proc/sys/net/ipv6/conf/default/use_tempaddr` for IPv6 privacy extensions when `ipv6.ip6-privacy` is unset, and that reads `0` on Omarchy 4.0.4-1, so no temporary addresses are generated. NetworkManager does use stable-privacy interface identifiers by default, so the address is not derived from the MAC, but it stays the same for each network. Upstream issue #13054.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Turning off hostname sending breaks resolving this machine by name on networks whose router builds local DNS from DHCP hostnames, such as many home routers and Pi-hole. Re-enable it per profile there.
+
+**Fix.**
+
+Add a NetworkManager drop-in. This is the Arch wiki's configuration for both settings:
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/30-privacy.conf >/dev/null <<'EOF'
+[connection]
+ipv4.dhcp-send-hostname=0
+ipv6.dhcp-send-hostname=0
+ipv6.ip6-privacy=2
+EOF
+nmcli general reload conf
+```
+
+The values apply when a connection activates, so reconnect:
+
+```bash
+nmcli connection up "<profile>"
+```
+
+A profile that sets either property itself overrides the drop-in. Check with `nmcli -g ipv4.dhcp-send-hostname,ipv6.ip6-privacy connection show "<profile>"`.
+
+Optionally also present a per-network MAC by adding `wifi.cloned-mac-address=stable` under `[connection]`. `stable` keeps one address per network, so DHCP reservations and captive portal registrations still work after the first visit. This is the opposite trade to `mac-randomization-breaks-hotspot-and-portal-networks`, which pins the permanent MAC to fix MAC-registered networks. Choose one, because a later drop-in wins.
+
+Keep sending the hostname on a home network where you rely on the router's local DNS for names:
+
+```bash
+nmcli connection modify "<home profile>" ipv4.dhcp-send-hostname yes
+```
+
+**Verify.** ```bash
+NetworkManager --print-config | grep -E 'dhcp-send-hostname|ip6-privacy'
+ip -6 addr show scope global | grep -c temporary      # 1 or more on an IPv6 network
+```
+
+The router's client list should show the device without your hostname after the lease renews.
+
+Sources: <https://github.com/omacom/omarchy/issues/13054> · <https://wiki.archlinux.org/title/NetworkManager> · <https://wiki.archlinux.org/title/IPv6>
+
+---
+
 ## Stop re-pairing Bluetooth devices every time you switch between Linux and Windows
 
 `bluetooth-pairing-lost-every-windows-dualboot` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -3522,6 +4701,47 @@ Sources: <https://wiki.archlinux.org/title/Bluetooth> · <https://wiki.archlinux
 
 ---
 
+## Tell whether the network panel's Timeout or Ethernet reading is real
+
+`network-panel-false-timeout-or-ethernet-on-vpn` · severity: **low** · frequency: **common** · applies to: `ipv6`, `laptop`, `networkmanager`, `omarchy`, `vpn`
+
+**Symptom.** The Omarchy network panel reports `Ping: Timeout` and `Packet loss: 100%` while pages load fine, typically on eduroam, a corporate or hotel network, or behind CGNAT. Or on an IPv6-only Wi-Fi the panel says Timeout while IPv6 browsing works. Or with Mullvad, WireGuard, Cloudflare WARP or another VPN up, the panel header says `Ethernet` (sometimes `Ethernet (10gbit)`) and shows the tunnel IP although you are on Wi-Fi. The bar icon still shows Wi-Fi.
+
+**Cause.** All three come from how `/usr/bin/omarchy-network-status`, which feeds the panel header and details, measures the link. The probe logic is the same on 4.0.4-1 and on `quattro`.
+
+It measures internet reachability with one ICMP echo to the hardcoded `1.1.1.1` (`ping -n -c 1 -W 1`). Networks whose egress policy allows only TCP and UDP ports drop ICMP, so every sample is empty and the panel counts each as lost (issue #9068).
+
+The probe and the route lookup are IPv4 only, so on an IPv6-only or 464XLAT network where IPv4 to 1.1.1.1 does not work the panel reads Timeout while IPv6 traffic flows (issue #11215).
+
+It picks the active interface with `ip route get 1.1.1.1` and calls anything without `/sys/class/net/<iface>/wireless` Ethernet. A VPN that holds the default route, directly or by policy routing, returns its tunnel device, which has no `wireless` directory, so the script reports Ethernet with the tunnel's address, and a tunnel that reports a bogus link speed shows as `10gbit` (issue #7438, PR #8866 open on 2026-10-05). The bar icon and the Wi-Fi list come from NetworkManager directly and stay correct.
+
+In all three cases the connection is fine and only the panel's reading is wrong.
+
+> **Audit corrected this record.** Read /usr/bin/omarchy-network-status on 4.0.4-1: internet_probe=1.1.1.1, `ping -n -c 1 -W 1`, interface from `ip route get`, anything without /sys/class/net/<iface>/wireless reported as ethernet, IPv4-only route and address lookups. Issues #9068, #11215 and #7438 are open and say what the record says, and PR #8866 is open. Two claims fail. The quattro copy is not unchanged: it drops the omarchy-cmd-present nmcli guard, though the probe logic is the same. More important, the record says the Wi-Fi network list is empty behind a VPN, and tells the reader to manage Wi-Fi from the terminal for that reason. Issue #7438 does not say this, and Panel.qml binds the list to wifiStationAvailable, which comes from the NetworkManager service's Wi-Fi device (line 607), not from the status script. The issue also says the bar icon stays correct. Symptom, cause and fix corrected to drop that claim. Ran `curl https://1.1.1.1/` here and got 301, which matches the verify step. Not exercised: no VPN or IPv6-only network.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check the real state instead of the panel:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code} %{time_connect}s\n' https://1.1.1.1/     # TCP works where ping is filtered
+curl -6 -sS -o /dev/null -w '%{http_code}\n' https://archlinux.org/            # IPv6 path
+nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status                          # the physical link behind a VPN
+omarchy-network-status --verbose                                                # what the panel is being told
+```
+
+If either `curl` returns an HTTP code, the network is working and the panel is wrong. No setting changes the probe on 4.0.4: the target is hardcoded, and `/usr/bin/omarchy-network-status` is owned by the `omarchy` package, so an edit there is overwritten on the next update. The fixes are upstream in PR #8866 for the VPN case and pending for the other two.
+
+**Verify.** `curl https://1.1.1.1/` returns `301` (or, on an IPv6-only network, `curl -6 https://archlinux.org/` returns `200`) and `nmcli device status` shows the Wi-Fi device `connected`, which together show the panel reading is the only fault.
+
+Sources: <https://github.com/omacom/omarchy/issues/9068> · <https://github.com/omacom/omarchy/issues/11215> · <https://github.com/omacom/omarchy/issues/7438> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-network-status> · <https://github.com/omacom/omarchy/pull/8866> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml>
+
+---
+
 ## Fix KDE Connect never finding the phone while everything else on the network is discoverable
 
 `kde-connect-ports-blocked-by-ufw` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `kde-connect`, `laptop`, `manjaro`, `omarchy`
@@ -3595,5 +4815,91 @@ the fault is not the firewall: check that both devices are on the same subnet an
 not on a guest network that isolates clients.
 
 Sources: <https://userbase.kde.org/KDEConnect> · <https://wiki.archlinux.org/title/KDE_Connect> · <https://wiki.archlinux.org/title/Uncomplicated_Firewall> · <https://git.launchpad.net/ufw/plain/conf/after.rules> · <https://github.com/omacom/omarchy/blob/quattro/install/config/firewall.sh>
+
+---
+
+## Get an AirPods-style device to appear in the Omarchy Bluetooth panel
+
+`omarchy-bluetooth-panel-hides-device-cached-without-name` · severity: **low** · frequency: **occasional** · applies to: `bluetooth`, `bluez`, `hyprland`, `omarchy`
+
+**Symptom.** AirPods (Max, Pro) in pairing mode never show under Available in the bar's Bluetooth panel while it scans. After pairing them with `bluetoothctl` they connect and play audio, but the panel still does not list them under Connected. `bluetoothctl devices` showed the device earlier with its address as its name, for example `Device 08:FF:44:4F:EE:C5 08-FF-44-4F-EE-C5`. They appear only after restarting the shell.
+
+**Cause.** The panel's `deviceLists()` in `shell/plugins/panels/bluetooth/Model.js` skips any device whose name fails `hasHumanName()`, which rejects address-like names. BlueZ first records nameless BLE devices (Apple devices advertise this way) under an address placeholder. When BlueZ later learns the real `Name` and `Alias`, the panel apparently does not re-evaluate the device, so it stays filtered out until the shell restarts. Reported on 4.0.4-1, and the filter is present in this workstation's 4.0.4-1 `Model.js` lines 36-38 and 110. The reporter marks the exact cause as likely, not confirmed.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Pair from the terminal, then restart the shell so the panel re-reads the device list:
+
+```bash
+bluetoothctl
+# inside bluetoothctl:
+scan on
+# wait for the real name to appear, e.g. [NEW] Device 08:FF:44:4F:EE:C5 Rade's AirPods Max
+pair 08:FF:44:4F:EE:C5
+trust 08:FF:44:4F:EE:C5
+connect 08:FF:44:4F:EE:C5
+scan off
+quit
+```
+
+```bash
+omarchy restart shell
+```
+
+Run `omarchy restart shell` from your own desktop session only. If the lock screen has crashed, it re-locks the session.
+
+**Verify.** `bluetoothctl info <MAC>` shows `Paired: yes`, `Connected: yes` and the real `Name:`. The device is listed under Connected in the bar's Bluetooth panel.
+
+Sources: <https://github.com/omacom/omarchy/issues/13254>
+
+---
+
+## Wake-on-LAN does not survive a reboot until the NetworkManager profile requests it
+
+`wake-on-lan-reset-by-networkmanager` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `ethernet`, `manjaro`, `networkmanager`, `omarchy`
+
+**Symptom.** Wake-on-LAN is enabled in the BIOS and `ethtool -s enp3s0 wol g` was run, yet the machine never wakes from a magic packet. The link lights on the switch go dark at shutdown. `sudo ethtool enp3s0 | grep Wake-on` shows `Supports Wake-on: pumbg` but `Wake-on: d` after a reboot.
+
+**Cause.** The NIC's wake setting is not persistent. Many drivers start with `Wake-on: d`, and a one-off `ethtool -s <iface> wol g` is lost at the next boot. NetworkManager only arms Wake-on-LAN when the connection profile asks for it. The profile default for `802-3-ethernet.wake-on-lan` is `default`, which defers to a global `ethernet.wake-on-lan` in NetworkManager.conf, and with none set NetworkManager leaves the driver's `d` in place. Setting the profile to `magic` makes NetworkManager program magic-packet wake each time it activates the link. Omarchy 4 manages ethernet with NetworkManager and does not install `ethtool`.
+
+> **Audit corrected this record.** The first pass rewrote title and cause, and both now hold. NetworkManager's `wake_on_lan_enable()` in nm-device-ethernet.c falls back from the profile's `default` to the global `ethernet.wake-on-lan`, and with that unset it uses `NM_SETTING_WIRED_WAKE_ON_LAN_IGNORE`, so it leaves the driver's setting alone. The local nm-settings-nmcli(5) on NetworkManager 1.58.1 documents `default` as "use global settings". The fix matches the Arch wiki Wake-on-LAN NetworkManager section and its 'still powered off on shutdown' auto-negotiate note. ethtool 7.1 is in extra and not installed here, `wol` 0.7.1 is in extra and `wakeonlan` is in neither core nor extra. One defect: the verify step ran `wol <MAC>` bare, and the Arch wiki says `wol` defaults to port 40000 and needs `-p 9`. Verify corrected. Not exercised: no NIC was changed.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Wake-on-LAN keeps the NIC powered after shutdown. On laptops this drains the battery while the machine is off. Some motherboards also wake at random with BIOS WoL enabled.
+
+**Fix.**
+
+Find the wired profile and turn on magic-packet wake in it:
+
+```bash
+nmcli connection show
+nmcli connection show 'Wired connection 1' | grep 802-3-ethernet.wake-on-lan
+sudo nmcli connection modify 'Wired connection 1' 802-3-ethernet.wake-on-lan magic
+nmcli connection up 'Wired connection 1'
+```
+
+If the adapter still powers off at shutdown, the Arch wiki suggests also forcing auto-negotiation:
+
+```bash
+sudo nmcli connection modify 'Wired connection 1' 802-3-ethernet.auto-negotiate yes
+```
+
+Check the result with ethtool:
+
+```bash
+sudo pacman -S --needed ethtool
+sudo ethtool enp3s0 | grep Wake-on      # want: Wake-on: g
+```
+
+The BIOS or UEFI option (often "Wake on LAN", "Power on by PCI-E", or "Deep Sleep: off") must also be enabled.
+
+**Verify.** After a reboot, `sudo ethtool <iface> | grep Wake-on` reads `Wake-on: g`. Shut down, then from another machine on the same network run `wol -p 9 <MAC>` (`wol` from extra, which defaults to port 40000) or `wakeonlan <MAC>` (AUR), and the machine powers on.
+
+Sources: <https://wiki.archlinux.org/title/Wake-on-LAN> · <https://bbs.archlinux.org/viewtopic.php?id=203206> · <https://wiki.archlinux.org/title/NetworkManager> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/core/devices/nm-device-ethernet.c> · <https://archlinux.org/packages/extra/x86_64/wol/> · <https://archlinux.org/packages/extra/x86_64/ethtool/>
 
 ---

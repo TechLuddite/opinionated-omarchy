@@ -1,6 +1,6 @@
 # pacman & AUR
 
-35 problems. Sorted by severity, then by how often users hit it.
+59 problems. Sorted by severity, then by how often users hit it.
 
 ## DKMS module fails to build during a kernel upgrade, leaving a kernel with no working module
 
@@ -1394,6 +1394,166 @@ Sources: <https://github.com/basecamp/omarchy/issues/3877> · <https://github.co
 
 ---
 
+## Remove the dead [community] repository after 'failed retrieving file community.db'
+
+`community-repo-removed-community-db-404` · severity: **high** · frequency: **occasional** · applies to: `arch`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Every sync stops on the community database, on every mirror in the list:
+
+```
+:: Synchronizing package databases...
+ core downloading...
+ extra downloading...
+ community downloading...
+error: failed retrieving file 'community.db' from arch.mirror.constant.com : The requested URL returned error: 404
+error: failed retrieving file 'community.db' from us.mirrors.cicku.me : The requested URL returned error: 404
+error: failed to synchronize all databases (failed to retrieve some files)
+```
+
+Nothing was changed on the machine. It just stopped updating one day, usually on a box that had not been updated for a long time or a distro that stopped shipping config updates.
+
+**Cause.** Arch merged [community] into [extra] in 2023 and kept the old repository online but empty. On 2025-03-01 Arch deleted [community], [community-testing], [testing], [testing-debug], [staging] and [staging-debug] from the mirrors. A pacman.conf that still lists any of them now asks every mirror for a file that no longer exists, and pacman aborts the whole sync. The replacement pacman.conf without those sections shipped as /etc/pacman.conf.pacnew with pacman 6.0.2-7, so systems that never merged that .pacnew are the ones that break.
+
+> **Audit corrected this record.** Cause, date and repository list confirmed against the Arch news post of 2025-02-17, which names the six repositories, the 2025-03-01 removal and the .pacnew shipped with pacman>=6.0.2-7. The forum thread carries the exact symptom. Omarchy's pacman-stable.conf was read locally and on the quattro branch: it lists only [core], [extra], [multilib] and [omarchy]. The defect is the Omarchy branch: it says 'delete the section as above', which leads the reader to the plain-Arch `sudo pacman -Syu` that the ALPM guard refuses, and it refers to 'the second command' when the block has one. Read on 4.0.4-1: omarchy-refresh-pacman saves .bak copies, copies the channel's pacman.conf and mirrorlist, runs the pre-refresh-pacman hook, then runs `pacman -Syyuu --noconfirm`, which can downgrade packages as well as upgrade them. The fix now gives a separate Omarchy procedure and states what the refresh actually does. Nothing was run. Second audit confirmed the corrected text: Arch news of 2025-02-17 (retrieved) names the six repositories, the 2025-03-01 removal and the .pacnew shipped with pacman>=6.0.2-7, matching the cause. Forum thread 303841 carries the exact 404 output and the fix of removing [community]. On this machine /etc/pacman.conf and /usr/share/omarchy/default/pacman/pacman-stable.conf list only [core], [extra], [multilib] and [omarchy]. Read /usr/share/omarchy/bin/omarchy-refresh-pacman on 4.0.4-1: it writes /etc/pacman.conf.bak and /etc/pacman.d/mirrorlist.bak, copies the channel files, runs the pre-refresh-pacman hook, then `sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syyuu --noconfirm`, exactly as the fix and danger say. The ALPM guard (/usr/share/libalpm/hooks/00-omarchy-update-guard.hook, /usr/bin/omarchy-update-pacman-guard) refuses -S with -u, so the Omarchy branch correctly routes through `omarchy update`. Minor: the pacdiff example uses DIFFPROG='nvim -d', which a plain Arch reader may not have installed. Nothing was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `omarchy refresh pacman` replaces /etc/pacman.conf and /etc/pacman.d/mirrorlist wholesale, dropping any third-party repositories you added (backups are written to /etc/pacman.conf.bak and /etc/pacman.d/mirrorlist.bak).
+
+**Fix.**
+
+Find the dead sections:
+
+```bash
+grep -n -A2 -E '^\[(community|community-testing|testing|testing-debug|staging|staging-debug)\]' /etc/pacman.conf
+ls -l /etc/pacman.conf.pacnew 2>/dev/null
+```
+
+**Plain Arch, EndeavourOS, Manjaro.** Back up, then delete each matched section header together with its `Include =` line:
+
+```bash
+sudo cp /etc/pacman.conf /etc/pacman.conf.bak
+sudoedit /etc/pacman.conf
+```
+
+Remove blocks like these entirely:
+
+```ini
+[community]
+Include = /etc/pacman.d/mirrorlist
+```
+
+If a `.pacnew` exists, merge it instead of hand-editing, since it carries the other changes you also missed:
+
+```bash
+sudo pacman -S --needed pacman-contrib
+sudo DIFFPROG='nvim -d' pacdiff
+```
+
+Then do a full upgrade, never a bare `-Sy`:
+
+```bash
+sudo pacman -Syu
+```
+
+**Omarchy 4.** The pacman.conf Omarchy installs (`/usr/share/omarchy/default/pacman/pacman-stable.conf`) lists only `[core]`, `[extra]`, `[multilib]` and `[omarchy]`, so this only happens if an old pacman.conf was restored over it. Either delete the dead sections with the same backup and `sudoedit` steps above and then update through Omarchy (direct `sudo pacman -Syu` is refused by Omarchy's ALPM guard):
+
+```bash
+omarchy update
+```
+
+or put Omarchy's own file back. This saves `/etc/pacman.conf.bak` and `/etc/pacman.d/mirrorlist.bak`, overwrites both files with the stable channel's copies (dropping every third-party repository you added), then runs `pacman -Syyuu --noconfirm`, which can downgrade packages to the channel's versions as well as upgrade them:
+
+```bash
+omarchy refresh pacman
+```
+
+**Verify.** `pacman-conf --repo-list` no longer prints `community`, and the next full upgrade synchronizes every database without a 404.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=303841> · <https://archlinux.org/news/cleaning-up-old-repositories/>
+
+---
+
+## Fix 'missing required signature' on repositories that do not sign their databases
+
+`database-signature-required-repo-publishes-none` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** After hardening pacman's `SigLevel`, or after adding a third-party repository with a `SigLevel` line copied from somewhere, syncing fails:
+
+```
+error: failed retrieving file 'omarchy.db.sig' from pkgs.omarchy.org : The requested URL returned error: 404
+error: failed to synchronize all databases (...)
+```
+
+or, when a database is already on disk without its signature:
+
+```
+error: omarchy: missing required signature
+error: failed to synchronize all databases (invalid or corrupted database (PGP signature))
+```
+
+and later `error: database 'core' is not valid (invalid or corrupted database (PGP signature))`. Every repo can fail at once, including core and extra, and refreshing keyrings changes nothing.
+
+**Cause.** `SigLevel = Required` means signatures are required on packages and on databases (pacman.conf(5)). Arch's official repositories sign packages but not databases, which is why the stock line is `SigLevel = Required DatabaseOptional` and why the Arch wiki says that if `Required` is set, `DatabaseOptional` should also be set. When the database level is required, libalpm downloads `<repo>.db.sig` as a mandatory file, so a 404 fails the sync. A database already on disk without its signature fails `_alpm_check_pgp_helper` with `missing required signature`, reported as `invalid or corrupted database (PGP signature)`.
+
+Checked on 2026-10-05 with HEAD requests: `core.db.sig` on an Arch mirror and on Omarchy's `stable-mirror.omarchy.org`, and `omarchy.db.sig` on `pkgs.omarchy.org`, all return 404, while CachyOS's `cachyos.db.sig` returns 200. On Omarchy 4 the [omarchy], [core], [extra] and [multilib] sections carry no `SigLevel` of their own (`pacman-conf -r omarchy SigLevel` prints nothing), so they all inherit the global line, and changing the global line to plain `Required` breaks all four. A `SigLevel` line in a repo section starts from the global value and then overrides it option by option, so a copied `SigLevel = Required` under one repo makes that repo's database required and breaks only that repo.
+
+> **Audit corrected this record.** Mechanism confirmed in libalpm be_sync.c: `download_signature = siglevel & ALPM_SIG_DATABASE` and `signature_optional = siglevel & ALPM_SIG_DATABASE_OPTIONAL`. With database Required, a 404 on `.db.sig` is therefore a hard download error, and signing.c prints `%s: missing required signature` when the siglist is empty and not optional. HEAD requests on 2026-10-05: omarchy.db.sig on pkgs.omarchy.org, core.db.sig on stable-mirror.omarchy.org and on geo.mirror.pkgbuild.com all return 404, and cachyos.db.sig returns 200. On this machine, /etc/pacman.conf line 15 is `SigLevel = Required DatabaseOptional`, and `pacman-conf -r <repo> SigLevel` prints nothing for core, extra, multilib and omarchy. The three templates in /usr/share/omarchy/default/pacman carry the same line, and omarchy-refresh-pacman, which omarchy-channel-set calls, copies them over /etc/pacman.conf. Two errors. pacman.conf(5) says a repo SigLevel starts from the [options] value and later options supplement it, so `SigLevel = PackageRequired` under a repo leaves the database level at whatever the global line says. Under a hardened global `Required`, it fixes nothing. The fix now uses an explicit `Required DatabaseOptional` per repo. The danger says `Optional` and `TrustAll` turn off package signature checking, but pacman.conf(5) says Optional still checks signatures when present and TrustAll still requires the key in the keyring. Cause and danger rewritten. The pre-refresh-pacman hook (~/.config/omarchy/hooks/pre-refresh-pacman.d) is mentioned as the supported way to keep a custom pacman.conf. Not exercised: no sync was run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Fix this by relaxing only the database level. Do not reach for `SigLevel = Never` on a repo, which turns off signature checking for its packages too. `Optional` still checks a signature that is present but accepts unsigned packages, and `TrustAll` accepts signatures from keys in the keyring that are not fully trusted. Both weaken package verification more than this problem needs. Do not follow a bare `pacman -Sy` after editing pacman.conf, because it is a partial upgrade.
+
+**Fix.**
+
+See what each repository is actually asked for:
+
+```bash
+pacman-conf SigLevel                       # the global level
+for r in $(pacman-conf --repo-list); do echo "[$r] $(pacman-conf -r "$r" SigLevel | tr '\n' ' ')"; done
+```
+
+A repo listed with `DatabaseRequired`, or with nothing when the global level shows `DatabaseRequired`, is the one to fix. Restore the stock global line in `/etc/pacman.conf`:
+
+```ini
+[options]
+SigLevel = Required DatabaseOptional
+```
+
+For a third-party repository that signs packages but not its database, spell out both levels in its section. A repo line starts from the global value, so naming only the package level would leave a hardened global database level in force:
+
+```ini
+[somerepo]
+SigLevel = Required DatabaseOptional
+Include = /etc/pacman.d/somerepo-mirrorlist
+```
+
+Then sync and upgrade together.
+
+Omarchy 4:
+
+```bash
+omarchy update
+```
+
+Plain Arch:
+
+```bash
+sudo pacman -Syu
+```
+
+Omarchy 4 note: `omarchy refresh pacman` and `omarchy channel set` copy `/usr/share/omarchy/default/pacman/pacman-<channel>.conf` over `/etc/pacman.conf` (keeping the old file as `/etc/pacman.conf.bak`), and those templates ship `SigLevel = Required DatabaseOptional`. So a channel switch also undoes a hand-hardened SigLevel, along with any custom repositories. To re-apply your own changes automatically, put a script in `~/.config/omarchy/hooks/pre-refresh-pacman.d/`, which runs after the copy and before the upgrade.
+
+**Verify.** `pacman-conf SigLevel` shows `DatabaseOptional`. `omarchy update` (or `sudo pacman -Syu`) syncs every database with no `missing required signature` and no `.db.sig` 404.
+
+Sources: <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://man.archlinux.org/man/pacman.conf.5> · <https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/signing.c> · <https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/be_sync.c>
+
+---
+
 ## Roll the whole system back to how it was on a given date
 
 `restore-whole-system-to-earlier-date-ala` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `laptop`, `omarchy`, `systemd-boot`
@@ -1464,6 +1624,176 @@ omarchy update
 **Verify.** `pacman -Qi linux | grep Version` (and other key packages) show versions from the target date. The system boots and the regression is gone.
 
 Sources: <https://wiki.archlinux.org/title/Arch_Linux_Archive> · <https://wiki.archlinux.org/title/Downgrading_packages> · <https://raw.githubusercontent.com/basecamp/omarchy/master/bin/omarchy-snapshot> · <https://archive.archlinux.org/> · <https://archive.archlinux.org/repos/2026/09/05/> · <https://archive.archlinux.org/repos/2026/07/01/core/os/x86_64/core.db> · <https://pkgs.omarchy.org/stable/x86_64/omarchy.db> · <https://pkgs.omarchy.org/stable/x86_64/omarchy-4.0.1-1-any.pkg.tar.zst> · <https://stable-mirror.omarchy.org/lastsync> · <https://github.com/basecamp/omarchy/blob/quattro/manual/47-system-snapshots.md> · <https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-snapshot> · <https://github.com/basecamp/omarchy/blob/quattro/install/config/snapper.sh> · <https://github.com/basecamp/omarchy/blob/quattro/default/snapper/root>
+
+---
+
+## Replace sync databases that pacman reports as 'Unrecognized archive format'
+
+`sync-db-unrecognized-archive-format-html` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** pacman refuses to read its own repository databases:
+
+```
+error: could not open file /var/lib/pacman/sync/core.db: Unrecognized archive format
+error: could not open file /var/lib/pacman/sync/extra.db: Unrecognized archive format
+```
+
+Deleting `/var/lib/pacman/sync/*` and syncing again can bring the same error straight back. Opening one of the `.db` files shows it is a web page.
+
+**Cause.** The `.db` files are not archives. The mirror, a redirect, a proxy or a captive portal answered the database request with an HTML page (a parking page, a login page, a moved-permanently target), and pacman saved that page as `core.db`. When the database signature is checked first the same fault shows as `GPGME error: No data`, which is a separate record. Here the unsigned database (Arch sets `SigLevel = Required DatabaseOptional`) is opened directly and the archive library rejects it. Re-syncing against the same bad server fetches the same HTML again.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Run a full upgrade after re-syncing. Re-syncing the databases and then installing a single package with `pacman -S` is a partial upgrade.
+
+**Fix.**
+
+Confirm the files are HTML, not compressed data:
+
+```bash
+file /var/lib/pacman/sync/*.db
+```
+
+A healthy database reads as `gzip compressed data` or `Zstandard compressed data`. `HTML document` confirms this fault. Find the server pacman is using and see what it actually returns:
+
+```bash
+pacman-conf -r core | grep Server
+curl -IL 'https://<mirror>/core/os/x86_64/core.db'
+```
+
+A `301` to an unrelated site, a login page or a `text/html` content type means that server is the problem. Log in to any captive portal, or comment that `Server` line out of `/etc/pacman.d/mirrorlist` (plain Arch) so pacman uses the next one.
+
+Then delete the bad files and do a full sync and upgrade:
+
+```bash
+sudo rm -f /var/lib/pacman/sync/*.db /var/lib/pacman/sync/*.db.sig
+```
+
+**Omarchy 4:**
+
+```bash
+omarchy update
+```
+
+**Plain Arch:**
+
+```bash
+sudo pacman -Syu
+```
+
+On Omarchy 4 the mirrorlist has a single server, `https://stable-mirror.omarchy.org/$repo/os/$arch`, so there is no second mirror to fall back to. If that server is what returns HTML, wait for it to recover rather than editing the mirrorlist, because `omarchy refresh pacman` puts it back.
+
+**Verify.** `file /var/lib/pacman/sync/*.db` reports compressed data for every repository, and `pacman -Ss linux` returns results without the error.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=268183> · <https://wiki.archlinux.org/title/Pacman>
+
+---
+
+## Fix 'GPGME error: General error' caused by an empty DISPLAY variable
+
+`gpgme-general-error-blank-display` · severity: **high** · frequency: **rare** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Every package fails signature verification in one terminal but works in another:
+
+```
+error: GPGME error: General error
+:: File /var/cache/pacman/pkg/archlinux-keyring-20241015-1-any.pkg.tar.zst is corrupted (invalid or corrupted package (PGP signature)).
+Do you want to delete it? [Y/n]
+```
+
+`pacman --debug` shows `gpg error: Invalid crypto engine`. Refreshing the keyring, `pacman-key --init` and `--populate` change nothing, and the same command works from a fresh login or a different terminal.
+
+**Cause.** pacman verifies signatures through GPGME, which starts gpg with the caller's environment. When `DISPLAY` is set but empty (`DISPLAY=`), gpg's setup fails and GPGME reports a general error, which pacman presents as a corrupted signature. An unset DISPLAY or any non-empty value works. The empty value usually comes from a shell profile, a terminal multiplexer, or a script that exports DISPLAY from a variable that can be blank. The Arch wiki documents this, and the forum thread reproduced it with `DISPLAY= pacman -S archlinux-keyring`.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check for an empty-but-set DISPLAY in the shell that runs pacman:
+
+```bash
+[[ -v DISPLAY && -z $DISPLAY ]] && echo 'DISPLAY is set but empty'
+```
+
+Run pacman without it:
+
+```bash
+unset DISPLAY
+omarchy update                                  # Omarchy 4
+sudo env -u DISPLAY pacman -Syu                  # plain Arch
+```
+
+Then find what sets it to empty and fix that, so it does not come back:
+
+```bash
+grep -n 'DISPLAY' ~/.bashrc ~/.bash_profile ~/.profile ~/.zshrc ~/.config/uwsm/env* 2>/dev/null
+```
+
+Answer `n` to `Do you want to delete it?` while diagnosing. The cached file is fine, and keeping it saves a re-download.
+
+**Verify.** `env | grep '^DISPLAY='` shows no empty assignment in the shell you update from, and an upgrade passes the `checking package integrity` step.
+
+Sources: <https://wiki.archlinux.org/title/Pacman> · <https://bbs.archlinux.org/viewtopic.php?pid=2204786> · <https://raw.githubusercontent.com/sudo-project/sudo/main/plugins/sudoers/env.c>
+
+---
+
+## Unwedge an update blocked by thousands of '/usr/lib/modules/<kver>/... exists in filesystem'
+
+`kernel-modules-hook-unowned-tree-exists-in-filesystem` · severity: **high** · frequency: **rare** · applies to: `arch`, `desktop`, `kernel-modules-hook`, `laptop`, `limine`, `omarchy`
+
+**Symptom.** `omarchy update` (or `pacman -Syu`) aborts before installing anything, with thousands of conflict lines, all inside one kernel version's module directory:
+
+```
+error: failed to commit transaction (conflicting files)
+linux: /usr/lib/modules/7.1.9-arch1-2/kernel/... exists in filesystem
+linux: /usr/lib/modules/7.1.9-arch1-2/modules.order exists in filesystem
+...
+Errors occurred, no packages were upgraded.
+```
+
+Omarchy prints only `Something went wrong during the update!`. Every later update fails the same way until something changes.
+
+**Cause.** Omarchy installs `kernel-modules-hook`. Its pre and post transaction hooks save the running kernel's module tree before a kernel package changes and copy it back afterwards, so a running system keeps working modules. When the kernel package is downgraded while that kernel is running (a channel switch or a release migration can do this), the hook restores the running version's whole tree, which now belongs to no package. If the repositories later offer that same kernel version again and you have not rebooted, pacman's file conflict check sees every file of the package already on disk, unowned, and refuses. The check runs before any PreTransaction hook, so the hook never gets the chance to move the tree. The hook's `linux-modules-cleanup.service`, which runs at boot, deliberately skips the running kernel's tree. Omarchy's conflict handler (`omarchy-update-system-pkgs-when-conflicted` on 4.0.4) only clears unowned paths reported against the `omarchy` packages, so it does not clear this one. Upstream issue #9142 and its fix PR #9285 were still open on 2026-10-04.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `--overwrite` replaces files without asking. Use it only after confirming every conflict is under `/usr/lib/modules/$(uname -r)/` and that path is unowned. A wider glob can overwrite files that belong to another package. Running pacman directly with OMARCHY_ALLOW_DIRECT_PACMAN=1 skips Omarchy's snapshot, keyring and migration steps, which is why `omarchy update` is run immediately afterwards.
+
+**Fix.**
+
+Confirm it is this case: every conflict is under the running kernel's directory and that directory is unowned.
+
+```bash
+uname -r
+pacman -Qo /usr/lib/modules/$(uname -r)
+grep 'exists in filesystem' /tmp/omarchy-update.log | grep -vc "/usr/lib/modules/$(uname -r)/"
+```
+
+`No package owns` from the second command and `0` from the third mean it matches. (`/tmp/omarchy-update.log` is Omarchy's transcript. On plain Arch, read the pacman output.)
+
+**Option 1, preferred: reboot first.** You boot the kernel that is actually installed, `linux-modules-cleanup.service` moves the now non-running unowned tree into `/usr/lib/modules/.old/` (a tmpfiles rule purges it after 4 weeks), and the update goes through:
+
+```bash
+systemctl reboot
+# after logging back in
+omarchy update          # Omarchy 4
+sudo pacman -Syu        # plain Arch
+```
+
+**Option 2, no reboot.** Let pacman take ownership of that one tree in a full upgrade. Scope the overwrite to the running kernel's directory only:
+
+```bash
+# Omarchy 4: one guarded bypass, then let omarchy update run its remaining steps
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu --overwrite "/usr/lib/modules/$(uname -r)/*"
+omarchy update
+
+# plain Arch with kernel-modules-hook
+sudo pacman -Syu --overwrite "/usr/lib/modules/$(uname -r)/*"
+```
+
+**Verify.** `pacman -Qo /usr/lib/modules/$(uname -r)` names the kernel package, and `omarchy update` (or `pacman -Syu`) completes with no conflicting files.
+
+Sources: <https://github.com/omacom/omarchy/issues/9142> · <https://github.com/omacom/omarchy/pull/9285> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-system-pkgs-when-conflicted>
 
 ---
 
@@ -2035,6 +2365,73 @@ Sources: <https://wiki.archlinux.org/title/Arch_User_Repository> · <https://aur
 
 ---
 
+## Handle the sudo password prompt that appears during the AUR step of omarchy update
+
+`aur-sudo-password-prompt-mid-omarchy-update` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** `omarchy update` asked for the password once at the start, ran for a while, and then stopped again at the AUR step:
+
+```
+Update AUR packages
+...
+[sudo] password for <user>:
+```
+
+If nobody is at the keyboard (including `omarchy update -y`), the prompt sits there until sudo gives up, and the AUR package is never installed. With plain `yay -Syu`-style long builds outside Omarchy the same thing happens: yay builds for twenty minutes, then asks for the password at the install step.
+
+**Cause.** sudo caches a successful authentication for `timestamp_timeout` minutes, and the default is 5 (sudoers(5)). A long AUR build easily outlasts that, so the `sudo pacman -U` yay runs after building finds no valid timestamp and prompts. sudo's own `passwd_timeout` is also 5 minutes by default, after which the prompt fails and yay reports `error making` or an install failure.
+
+Omarchy 4.0.4 (the current release as of 2026-10-04): `omarchy-update` runs plain `sudo` in each helper with no keepalive, and the AUR step is `yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs` with no `--sudoloop`. Any yay setting you saved yourself is honoured.
+
+Omarchy `quattro` after PR #13323 (merged 2026-09-26, not yet in a release): the update asks once and keeps that timestamp alive with a background `sudo -n /usr/bin/true` every minute, but it deliberately revokes it before AUR, because PKGBUILDs are third-party code. AUR then runs last with `yay --sudo <no-update wrapper> --sudoloop=false`, and the wrapper is `sudo -N`, which never writes a timestamp. So on that code every sudo call yay makes prompts, by design, and a saved `sudoloop` is overridden.
+
+> **Audit corrected this record.** The mechanism holds. Read /usr/share/omarchy/bin/omarchy-update and omarchy-update-aur-pkgs on 4.0.4-1: the AUR step is exactly `yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs` with no sudoloop. omarchy-sudo-keepalive exists, but only omarchy-pkg-install and omarchy-pkg-aur-install source it, not the update. PR #13323 was read in full: it merged 2026-09-26 and adds a one-time `sudo /usr/bin/true` with a `sudo -n /usr/bin/true` keepalive every 60 s. On quattro, bin/omarchy-update revokes before AUR, and bin/omarchy-update-aur-pkgs passes `--sudo <wrapper> --sudoloop=false`. The wrapper default/omarchy/sudo-no-update/sudo execs `/usr/bin/sudo -N`. The latest release is still v4.0.4 (2026-09-15), so 'not yet in a release' holds. yay's cmd_builder.go confirms the sudoloop is `sudo -v` every 241 s. Omarchy ships only `passwd_tries=10` and does not change timestamp_timeout. Two defects in the fix. The post-#13323 advice says 'let the update skip nothing and then run the AUR step yourself', which is garbled. And the sudoers recipe uses a `<user>` placeholder where `$USER` works. I also added the interaction with `verifypw=any` from the sibling record: a passwordless `sudo -v` writes no timestamp, so with that setting the sudoloop keeps nothing alive. Not exercised: no update or build was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A longer timestamp_timeout means any process running as you can use sudo without a password for that long, which is exactly the exposure Omarchy's #13323 change avoids for AUR builds. A sudoers drop-in with a syntax error can lock you out of sudo: always run `sudo visudo -c` before closing the root shell you edited it from.
+
+**Fix.**
+
+Check what happened in the last run:
+
+```bash
+grep -nE 'Update AUR packages|password for|timed out|error making' /tmp/omarchy-update.log
+yay -Qua          # AUR updates still pending
+```
+
+Omarchy 4.0.4 and plain Arch: make yay keep the timestamp alive during builds. `--save` writes it to `~/.config/yay/config.json`, so `omarchy update` picks it up too:
+
+```bash
+yay --sudoloop --save
+```
+
+The sudoloop runs `sudo -v` once at the start (you type the password then) and repeats it in the background every four minutes until yay exits. If your `sudo -v` prompts even with passwordless sudo, see the record on `verifypw`. If you set `verifypw=any` from that record, `sudo -v` succeeds without authenticating and writes no timestamp, so the sudoloop then keeps nothing alive for a user who is not fully passwordless.
+
+To finish the skipped AUR updates now, run the same command the updater uses, with the loop:
+
+```bash
+yay -Sua --sudoloop --cleanafter --ignore gcc14,gcc14-libs
+```
+
+Omarchy after PR #13323 reaches a release: the extra prompts during the AUR step are the intended security boundary, and the updater passes `--sudoloop=false`, which overrides a saved sudoloop. Run `omarchy update` while you are at the keyboard. If the AUR step was skipped or failed unattended, run the command above yourself afterwards.
+
+Do not raise `timestamp_timeout` globally to paper over this. If you must, scope it to your user with a validated drop-in:
+
+```bash
+echo "Defaults:$USER timestamp_timeout=30" | sudo tee /etc/sudoers.d/90-timestamp >/dev/null
+sudo chmod 0440 /etc/sudoers.d/90-timestamp
+sudo visudo -c
+```
+
+**Verify.** `yay -Qua` prints nothing after the next update. The new log has an `Update AUR packages` section with no `password for` line after the first prompt (4.0.4 with sudoloop saved). `jq .sudoloop ~/.config/yay/config.json` prints `true`.
+
+Sources: <https://github.com/omacom/omarchy/pull/13323> · <https://github.com/omacom/omarchy/issues/13319> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-aur-pkgs> · <https://github.com/Jguer/yay/blob/next/doc/yay.8> · <https://github.com/Jguer/yay/blob/next/pkg/settings/exe/cmd_builder.go> · <https://man.archlinux.org/man/sudoers.5> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update> · <https://github.com/omacom/omarchy/blob/quattro/default/omarchy/sudo-no-update/sudo>
+
+---
+
 ## Fix an AUR build failing its sha256sums validity check
 
 `aur-validity-check-failed-checksums` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
@@ -2338,6 +2735,55 @@ Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.or
 
 ---
 
+## Stop AUR builds failing on debugedit or producing -debug packages
+
+`makepkg-debug-option-debugedit-and-debug-packages` · severity: **medium** · frequency: **common** · applies to: `arch`, `aur`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `paru`, `yay`
+
+**Symptom.** An AUR update that worked last month now fails in the packaging step:
+
+```
+==> ERROR: Cannot find the debugedit binary required for including source files in debug packages.
+ -> error making: davinci-resolve-exit status 15
+```
+
+Or the build succeeds but every AUR package now comes with a `foo-debug` twin, builds take noticeably longer, and `pacman -Qtdq` lists a pile of `-debug` packages as orphans.
+
+**Cause.** The `makepkg.conf` shipped by pacman enables `debug` (and `lto`) in `OPTIONS`. With `debug` on, makepkg compiles with debug flags and splits the symbols into an extra `<pkgname>-debug` package, and it needs the `debugedit` binary to do that. A system whose build tools came from the old base-devel group rather than the current base-devel meta package may not have debugedit, so the build stops. Where debugedit is present, the build succeeds and produces the extra package. Omarchy 4 ships this stock configuration: `/etc/makepkg.conf` has `OPTIONS=(strip docs !libtool !staticlibs emptydirs zipman purge debug lto)`, and base-devel (which pulls in debugedit) is installed, so on Omarchy you get the `-debug` packages and slower builds rather than the error.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Debug packages are only useful if you intend to debug that program. Turn the option off for your own builds in the per-user config, which makepkg reads after `/etc/makepkg.conf` and `/etc/makepkg.conf.d/*.conf`, so package updates never overwrite it:
+
+```bash
+mkdir -p ~/.config/pacman
+echo 'OPTIONS+=(!debug)' >> ~/.config/pacman/makepkg.conf
+```
+
+The last occurrence of an option in the array wins, so appending `!debug` overrides the `debug` earlier in the system file. Add `!lto` the same way if long link times are the complaint.
+
+Then rerun the AUR update (`omarchy update` on Omarchy 4, `yay -Sua` elsewhere).
+
+If you do want debug packages, install the missing tool instead:
+
+```bash
+sudo pacman -S --needed base-devel
+```
+
+Remove `-debug` packages that were already installed (check the list before confirming):
+
+```bash
+pacman -Qq | grep -- '-debug$'
+sudo pacman -Rns $(pacman -Qq | grep -- '-debug$')
+```
+
+**Verify.** `bash -c 'source /etc/makepkg.conf; source ~/.config/pacman/makepkg.conf; echo ${OPTIONS[@]}'` ends in `!debug`, and the next AUR build produces no `-debug` package in its output.
+
+Sources: <https://forum.endeavouros.com/t/aur-update-failure-cannot-find-the-debugedit-binary/53062> · <https://wiki.archlinux.org/title/Makepkg> · <https://man.archlinux.org/man/makepkg.conf.5>
+
+---
+
 ## Stop omarchy-update wiping custom repositories from pacman.conf
 
 `omarchy-update-overwrites-pacman-conf` · severity: **medium** · frequency: **common** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
@@ -2441,6 +2887,417 @@ Sources: <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://w
 
 ---
 
+## Handle 'removing X breaks dependency Y required by Z'
+
+`removing-package-breaks-dependency` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Uninstalling something is refused:
+
+```
+$ sudo pacman -Rs krunner5
+checking dependencies...
+error: failed to prepare transaction (could not satisfy dependencies)
+:: removing krunner5 breaks dependency 'krunner' required by akonadi-search
+:: removing krunner5 breaks dependency 'krunner5' required by milou
+```
+
+On Omarchy 4 it can name Omarchy itself, for example `:: removing snapper breaks dependency 'snapper' required by omarchy`. It also turns up mid-upgrade, when a package dropped from the repositories has to go before the upgrade can continue.
+
+**Cause.** pacman will not remove a package that another installed package declares as a dependency, because the dependent would break. `-s` only removes dependencies nobody else needs. It never removes the packages that depend on your target. On Omarchy 4 the `omarchy` package itself depends on its core components (`hyprland`, `quickshell`, `uwsm`, `sddm`, `limine`, `limine-mkinitcpio-hook`, `limine-snapper-sync`, `snapper`, `pipewire`, `wireplumber` and more, see `pacman -Qi omarchy`), so removing one of those means removing Omarchy. In the upgrade case, an old package left behind by a repository split still satisfies something, and its replacement is not yet installed.
+
+> **Audit corrected this record.** Thread 295233 has the exact krunner5 output, loqs's `pacman -Syu krunner` and Lone_Wolf's TTY `pacman -Rdd krunner5` then `pacman -Syu`. Thread 254564 shows the 'breaks dependency ... required by' refusal. Confirmed locally on 4.0.4-1: `pacman -Qi omarchy` depends on hyprland, quickshell, uwsm, sddm, limine, limine-mkinitcpio-hook, limine-snapper-sync, snapper, pipewire, wireplumber and pacman-contrib (so pactree is present). omarchy-menu.jsonc has a 'Remove' menu, and omarchy-remove-* commands exist in /usr/share/omarchy/bin. The ALPM guard refuses -S plus -u unless OMARCHY_ALLOW_DIRECT_PACMAN=1, so the Omarchy branches are right. The defect is in the danger field. It covers -Rdd but not `pacman -Rsc`, which the fix offers before the Omarchy branch. Cascade removal of any core component (snapper, limine, hyprland and so on) removes the `omarchy` package itself, and with it /usr/share/omarchy and everything that requires it. Here that includes flea-bin, which `pacman -Qi omarchy` lists under Required By. The danger is corrected to cover it. Nothing was removed.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `pacman -Rsc` removes every package that depends on the target, recursively. On Omarchy 4, if the target is one of Omarchy's core components (`pacman -Qi omarchy` lists them), that includes the `omarchy` package itself, which takes `/usr/share/omarchy` and every Omarchy command with it. Always run `pacman -Rsc --print <package>` first and stop if `omarchy` or `omarchy-settings` is in the list. `pacman -Rdd` removes a package while other installed packages still depend on it. Until the upgrade that follows completes, those dependents can fail to start. Run both commands back to back from a TTY. On Omarchy 4, never follow `-Rdd` with a bare `sudo pacman -Syu`: the update guard refuses it and leaves the system with the package removed and nothing upgraded.
+
+**Fix.**
+
+See who needs the package:
+
+```bash
+pacman -Qi <package> | grep 'Required By'
+pactree -r <package>            # full reverse tree, from pacman-contrib
+```
+
+**You want the dependents gone too.** Preview, then remove the package and everything that depends on it. Read the list before confirming:
+
+```bash
+pacman -Rsc --print <package>
+sudo pacman -Rsc <package>
+```
+
+**The dependent is `omarchy` (Omarchy 4).** Stop. That component is part of the system. Use Omarchy's own remover for optional software (`Super + Space` > Remove, or the `omarchy-remove-*` commands) and leave the core packages installed.
+
+**Mid-upgrade, an obsolete package blocks it.** Install the replacement in the same full upgrade so the old one can be replaced:
+
+```bash
+sudo pacman -Syu krunner                                       # plain Arch
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu krunner      # Omarchy 4, then run: omarchy update
+```
+
+Only as a last resort, from a TTY rather than the desktop, remove the single obsolete package ignoring dependencies and upgrade immediately. Plain Arch:
+
+```bash
+sudo pacman -Rdd krunner5
+sudo pacman -Syu
+```
+
+Omarchy 4, where a direct `pacman -Syu` is refused by the update guard:
+
+```bash
+sudo pacman -Rdd krunner5
+omarchy update
+```
+
+**Verify.** `pacman -Dk` reports no missing dependencies after the change.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=295233> · <https://bbs.archlinux.org/viewtopic.php?id=254564> · <https://wiki.archlinux.org/title/Pacman>
+
+---
+
+## Get a large AUR build past 'Killed signal terminated program cc1plus'
+
+`aur-build-killed-out-of-memory` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `aur`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `paru`, `yay`
+
+**Symptom.** Building a big C++ project from the AUR (a browser, an Electron app, a game engine, a CAD tool) runs for a long time, the desktop crawls, then:
+
+```
+c++: fatal error: Killed signal terminated program cc1plus
+compilation terminated.
+==> ERROR: A failure occurred in build().
+    Aborting...
+ -> error making: <package>
+```
+
+and `journalctl -k` shows `Out of memory: Killed process ... (cc1plus)`.
+
+On Omarchy 4 the terminal window running the build can instead close outright, taking `yay` or `omarchy update` with it, and `journalctl -k` shows nothing. In that case systemd-oomd killed the terminal, and the kill is logged by `systemd-oomd`.
+
+**Cause.** Memory ran out. Large C++ translation units can each need gigabytes of RAM, and the build runs many in parallel. Setting `MAKEFLAGS=-j1` only limits builds driven by make. CMake with Ninja, Meson, Rust's cargo and Mozilla's mach pick their own job count, usually one per CPU thread, and ignore MAKEFLAGS. Link-time optimisation, which makepkg enables by default (`lto` in `OPTIONS` in `/etc/makepkg.conf`), raises peak memory further at the link step.
+
+What kills the build differs. On plain Arch it is usually the kernel's OOM killer taking a compiler process. Omarchy 4 also runs systemd-oomd. `omarchy-settings` ships `/etc/systemd/oomd.conf.d/10-omarchy.conf` (act when memory pressure stays above 50% for 20 seconds) and `/usr/lib/systemd/user/app.slice.d/10-oomd.conf`, which makes everything in the user's `app.slice` a kill candidate. A terminal started from the desktop lives in `app.slice`, so oomd can kill the whole terminal and every build process inside it before the kernel OOM killer ever acts. Omarchy 4 also swaps to zram sized to RAM (`/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf`). That helps, but it cannot cover a build that needs several times the physical memory.
+
+> **Audit corrected this record.** The kernel OOM part is right for plain Arch. The forum thread (231534) shows MAKEFLAGS=-j1 ignored by mach, with -bin and swap as the answers. /etc/makepkg.conf has `lto` in OPTIONS and makepkg sources the user file after it. The record misses the Omarchy 4 mechanism its own cited sources describe. Confirmed locally: omarchy-settings 4.0.4-1 owns /etc/systemd/oomd.conf.d/10-omarchy.conf (50% pressure for 20s) and /usr/lib/systemd/user/app.slice.d/10-oomd.conf (ManagedOOMMemoryPressure=kill, ManagedOOMSwap=kill), and systemd-oomd is enabled and active. A terminal launched by uwsm-app runs in app.slice, so on Omarchy the more likely outcome is that oomd kills the terminal's whole scope, taking yay or omarchy update with it. That leaves nothing in `journalctl -k`, so the record's symptom and verify step miss it. zram is confirmed (zram-size = ram, zstd, from 90-omarchy.conf owned by omarchy-settings). The fix also said nothing about CMake, which honours CMAKE_BUILD_PARALLEL_LEVEL for `cmake --build` (CMake docs, and PR #12778 uses it). Its 'add disk swap' was vague, and on a btrfs root a swapfile must sit in its own subvolume. Cause, symptom, fix and verify are corrected. Not reproduced.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+First check whether a prebuilt package exists. It removes the build entirely:
+
+```bash
+yay -Ss <name>-bin
+```
+
+If you must build, cap parallelism and LTO in your per-user makepkg config. makepkg reads it after `/etc/makepkg.conf`, and `omarchy update` builds AUR packages through the same makepkg, so it applies there too:
+
+```bash
+mkdir -p ~/.config/pacman
+cat >> ~/.config/pacman/makepkg.conf <<'EOF'
+MAKEFLAGS="-j2"
+OPTIONS+=(!lto)
+EOF
+```
+
+For build systems that ignore MAKEFLAGS, set their own variable in the shell you build from:
+
+```bash
+export CARGO_BUILD_JOBS=2             # Rust / cargo
+export CMAKE_BUILD_PARALLEL_LEVEL=2   # CMake, when the PKGBUILD builds with cmake --build
+yay -S <package>
+```
+
+Ninja and Meson have no environment variable for job count. For a PKGBUILD that calls `ninja` or `meson compile` directly, edit `build()` to pass `-j2` (`yay -S --editmenu <package>`).
+
+If a build still runs out of memory, add disk swap for the duration of the build.
+
+**Omarchy 4 (btrfs root).** Put the swapfile in its own subvolume, as Omarchy's hibernation setup does with `/swap`, because btrfs cannot snapshot a subvolume that holds an active swapfile and snapper snapshots `@`:
+
+```bash
+sudo btrfs subvolume create /swap-build
+sudo btrfs filesystem mkswapfile --size 16g /swap-build/swapfile
+sudo swapon /swap-build/swapfile
+# build, then remove it
+sudo swapoff /swap-build/swapfile
+sudo btrfs subvolume delete /swap-build
+```
+
+**Plain Arch (ext4 root):**
+
+```bash
+sudo mkswap -U clear --size 16G --file /swapfile
+sudo swapon /swapfile
+# build, then remove it
+sudo swapoff /swapfile
+sudo rm /swapfile
+```
+
+Otherwise build on a bigger machine.
+
+**Verify.** No new kill during the rebuild: `journalctl -k -b | grep -i 'out of memory'` prints nothing new, and on Omarchy 4 `journalctl -u systemd-oomd -b | grep -i killed` prints nothing new. `pacman -Q <package>` shows the new version.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=231534> · <https://wiki.archlinux.org/title/Makepkg> · <https://github.com/omacom/omarchy/blob/quattro/etc/systemd/oomd.conf.d/10-omarchy.conf> · <https://github.com/omacom/omarchy/blob/quattro/default/systemd/user/app.slice.d/10-oomd.conf> · <https://man.archlinux.org/man/systemd-oomd.service.8> · <https://github.com/omacom/omarchy/pull/12778> · <https://cmake.org/cmake/help/latest/envvar/CMAKE_BUILD_PARALLEL_LEVEL.html>
+
+---
+
+## Stop large AUR builds failing with 'No space left on device' on a tmpfs /tmp
+
+`aur-build-no-space-left-tmpfs-tmp` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** A big AUR package (a browser, an Electron app, a Rust or Go project, a toolchain) fails partway through compiling or packaging with one of these:
+
+```
+... Disk quota exceeded
+==> ERROR: A failure occurred in build().
+    Aborting...
+ -> error making: <pkgname>
+```
+
+```
+... No space left on device
+==> ERROR: A failure occurred in build().
+    Aborting...
+ -> error making: <pkgname>
+```
+
+Small packages build fine. `df -h /` shows plenty of free disk, but `df -h /tmp` climbs while the build runs and frees itself the moment the build dies. On systemd 258 and later, Omarchy 4 included, the usual message is `Disk quota exceeded` with /tmp only about 80% full, because the per-user quota on /tmp runs out before the tmpfs does.
+
+**Cause.** `/tmp` is a tmpfs on Arch and Omarchy 4, mounted by systemd's `tmp.mount` with `size=50%`, so its ceiling is half of RAM (16G on a 32 GB machine, checked on Omarchy 4.0.4-1 with `df -h /tmp` and `systemctl cat tmp.mount`). It is not a disk. Since systemd v258, /tmp is also mounted with `usrquota` (present on Omarchy 4.0.4-1, systemd 261), and the Arch wiki says each user gets 80% of the tmpfs size. A build running as your user therefore fails with `Disk quota exceeded` when its files reach about 40% of RAM, before the tmpfs itself is full.
+
+An AUR build only lands there when something points it there:
+
+1. `BUILDDIR=/tmp/makepkg` in `/etc/makepkg.conf`, a drop-in under `/etc/makepkg.conf.d/`, or a user `makepkg.conf`. The Arch wiki suggests exactly this for speed and warns to avoid it for large packages. makepkg then puts `src/` and `pkg/` under `$BUILDDIR`, whichever helper called it.
+2. An AUR helper whose build directory was moved to `/tmp` (`yay --builddir`, `AURDEST`, paru's `CloneDir`).
+3. Build tools that write their own scratch files under `$TMPDIR` (default `/tmp`) even when the source tree is on disk.
+
+yay's own default is `$XDG_CACHE_HOME/yay`, falling back to `~/.cache/yay`, which is on disk. A stock Omarchy 4 `/etc/makepkg.conf` ships `#BUILDDIR=/tmp/makepkg` commented out, so a stock machine only hits this through case 3 or a setting the user added.
+
+> **Audit corrected this record.** What held, checked on this machine: /tmp is tmpfs from systemd's tmp.mount with `size=50%%` (16G on 31 GiB RAM), /etc/makepkg.conf line 79 is `#BUILDDIR=/tmp/makepkg`, and /etc/makepkg.conf.d holds only fortran.conf and rust.conf. makepkg(8) lists BUILDDIR as an environment override. makepkg.conf(5) gives the user config order ($XDG_CONFIG_HOME/pacman/makepkg.conf after the system file). yay.8 documents --builddir and AURDEST, and yay's dirs.go defaults to $XDG_CACHE_HOME/yay. The Makepkg wiki has the BUILDDIR=/tmp/makepkg tip and its warning about large packages, and the Tmpfs wiki has the remount commands. What the record misses: systemd 261 on this machine mounts /tmp with `usrquota` (findmnt shows it, and tmp.mount carries `x-systemd.graceful-option=usrquota`). The Tmpfs wiki says that since systemd v258 each user gets a quota of 80% of the tmpfs size, and that remounting larger does not raise it. So on Omarchy 4 the build usually fails with `Disk quota exceeded` at about 80% full, not at 100% with `No space left on device`. The record's resize recipe also does not help unless the quota is raised too. Symptom, cause, fix and danger are rewritten to cover the quota. Not exercised: I did not read my user's actual quota value, because quota-tools is not installed, and I ran no build.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not `mount -o remount` a smaller size onto a /tmp that is in use, and do not `mount -a` after editing fstab with files in /tmp: running programs lose their lock and socket files there. Growing the tmpfs or raising the /tmp quota lets a build consume RAM and swap, which on a small machine trades this error for an out-of-memory kill. Set any `setquota` limit below the tmpfs size you mounted.
+
+**Fix.**
+
+Find which of the three it is:
+
+```bash
+findmnt /tmp                     # FSTYPE tmpfs, and whether usrquota is set
+df -h /tmp /home
+grep -nE '^\s*BUILDDIR' /etc/makepkg.conf /etc/makepkg.conf.d/*.conf \
+  ~/.config/pacman/makepkg.conf ~/.makepkg.conf 2>/dev/null
+grep -n builddir ~/.config/yay/config.json 2>/dev/null
+echo "AURDEST=$AURDEST TMPDIR=$TMPDIR"
+```
+
+If a `BUILDDIR` under `/tmp` turns up, the simplest fix is to comment it out where you set it. To keep it for small packages but build one large package on disk, override it for that run only:
+
+```bash
+mkdir -p ~/.cache/makepkg-build
+BUILDDIR=$HOME/.cache/makepkg-build yay -S <pkgname>
+```
+
+To move it permanently for your user without touching `/etc`, set it in the user config, which makepkg reads after the system file:
+
+```bash
+mkdir -p ~/.config/pacman ~/.cache/makepkg-build
+echo 'BUILDDIR="$HOME/.cache/makepkg-build"' >> ~/.config/pacman/makepkg.conf
+```
+
+If it is the build tool's scratch space (case 3), point `TMPDIR` at disk for that build:
+
+```bash
+mkdir -p ~/.cache/tmp-build
+TMPDIR=$HOME/.cache/tmp-build yay -S <pkgname>
+rm -rf ~/.cache/tmp-build
+```
+
+Moving the build to disk avoids both the tmpfs size and the per-user quota, and is the fix to prefer.
+
+Growing the tmpfs instead is a temporary change until the next reboot. It uses RAM and swap, so only do it on a machine with memory to spare. On systemd 258 and later (Omarchy 4), a remount does not raise the per-user quota, so a larger /tmp alone does not stop `Disk quota exceeded`. The Arch wiki Tmpfs page raises the quota with `setquota` from `quota-tools`. Keep the limit below the new tmpfs size:
+
+```bash
+findmnt -no OPTIONS /tmp | tr , '\n' | grep quota    # usrquota: a per-user limit applies
+sudo mount -o remount,size=80% /tmp
+sudo pacman -S quota-tools
+sudo setquota -u "$USER" 20G 20G 0 0 /tmp
+```
+
+Omarchy 4: `omarchy update` runs `yay -Sua` with your user's environment and makepkg configuration, so a persistent fix belongs in `~/.config/pacman/makepkg.conf`. An exported `TMPDIR` in one terminal does not reach a later update. Retry the failed package with `yay -S <pkgname>` after the change.
+
+**Verify.** Re-run the build and watch `df -h /tmp` in a second terminal: it should stay flat. The package installs and `pacman -Q <pkgname>` shows the new version.
+
+Sources: <https://wiki.archlinux.org/title/Makepkg> · <https://wiki.archlinux.org/title/Tmpfs> · <https://man.archlinux.org/man/makepkg.conf.5> · <https://github.com/Jguer/yay/blob/next/doc/yay.8>
+
+---
+
+## Fix Go AUR rebuilds failing on 'rm: cannot remove ... Permission denied'
+
+`aur-go-module-cache-permission-denied` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `aur`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `paru`, `yay`
+
+**Symptom.** Updating a Go program from the AUR fails before it even compiles, with thousands of lines like:
+
+```
+==> Removing existing $srcdir/ directory...
+rm: cannot remove '/home/user/.cache/yay/hyprmoncfg/src/go-mod/github.com/!make!now!just/heredoc@v1.0.0/LICENSE': Permission denied
+==> ERROR: An unknown error has occurred. Exiting...
+ -> error making: hyprmoncfg-signal: user defined signal 1
+ -> Failed to install the following packages. Manual intervention is required:
+```
+
+On Omarchy's edge channel, whose AUR step exits non-zero when yay fails, `omarchy update` then ends with `Something went wrong during the update!` even though the system packages and migrations already finished. On stable 4.0.4 the same yay error is printed in the middle of the run and the update carries on to its remaining steps.
+
+**Cause.** Go makes every directory and file in its module cache read-only on purpose. A PKGBUILD that points the cache inside the build tree (for example `GOMODCACHE="${srcdir}/go-mod"`) without passing `-modcacherw` to `go build` leaves a read-only tree behind in the AUR helper's build directory. The first build works. The next build fails because makepkg starts by deleting the old `$srcdir`, and `rm` running as the user cannot delete the contents of read-only directories. `yay --cleanafter`, which Omarchy's AUR update step passes, does not remove it either. How the failure surfaces in `omarchy update` depends on the version. On the `quattro` branch (the edge channel) `omarchy-update-aur-pkgs` runs `yay ... || exit 1`, so one broken AUR package marks the whole update as failed. The stable 4.0.4 script has no `|| exit 1` and ends on an `echo`, so the step returns success and the update continues.
+
+> **Audit corrected this record.** Issue #13334 (open) has the exact output, the GOMODCACHE cause and the chmod plus rm workaround. Manjaro pamac issue 1114 shows the same read-only Go cache failure with go-yq. The fix is correct. The Omarchy claim is version-dependent and wrong for the current stable release. The reporter ran edge (4.0.0.r2304), and the quattro branch's omarchy-update-aur-pkgs ends the yay call with `|| exit 1`. The installed 4.0.4-1 script on this machine (upstream latest is v4.0.4) has no `|| exit 1` and no `set -e`, and its last command is `echo`. On stable 4.0.4 a yay failure is therefore printed and the update carries on to its later steps without the 'Something went wrong' message. Symptom and cause are corrected to say which channel ends the update. Not reproduced. Second audit confirmed the corrected text: Second pass on the record as corrected on 2026-10-04, whose channel distinction still holds. Issue #13334 (open) has the exact output, the GOMODCACHE=${srcdir}/go-mod cause, the -modcacherw remedy and the chmod plus rm workaround, on edge 4.0.0.r2304. Confirmed locally: the 4.0.4-1 omarchy-update-aur-pkgs has no `|| exit 1` and ends with `echo`, and omarchy-update runs under `set -e` with an ERR trap that prints 'Something went wrong during the update!', so on stable a yay failure does not trip it. The quattro copy fetched today ends the yay call with `|| exit 1`, so on edge it does. Manjaro pamac issue 1114 shows the same read-only Go module cache failure with go-yq. yay's build directory ~/.cache/yay/<pkg> holding makepkg's src/ matches the reporter's path. The rm -rf is scoped to a user cache directory. Not reproduced.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Make the old tree writable and delete it, then rerun the update. Replace `hyprmoncfg` with the failing package's directory:
+
+```bash
+chmod -R u+w ~/.cache/yay/hyprmoncfg/src
+rm -rf ~/.cache/yay/hyprmoncfg/src
+```
+
+paru keeps its build trees in `~/.cache/paru/clone/<package>/` instead. A build run by hand with makepkg keeps it in the PKGBUILD's own `src/`.
+
+**Omarchy 4:** `omarchy update`. **Elsewhere:** `yay -Sua`.
+
+The real fix belongs in the PKGBUILD: build with `go build -modcacherw ...` or set `export GOFLAGS="-modcacherw"` in `build()`. Leave a comment on the package's AUR page so the maintainer adds it. It recurs on every update until then.
+
+**Verify.** `ls ~/.cache/yay/<package>/src` no longer exists before the build, and the AUR update completes with the package at its new version in `pacman -Q <package>`.
+
+Sources: <https://github.com/omacom/omarchy/issues/13334> · <https://gitlab.manjaro.org/applications/pamac/-/issues/1114> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-aur-pkgs>
+
+---
+
+## Fix 'could not register database (database already registered)'
+
+`could-not-register-database-already-registered` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `garuda`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Every pacman or AUR helper command starts with an error, and some refuse to run:
+
+```
+error: could not register 'multilib' database (database already registered)
+```
+
+The repository name varies: `multilib`, `chaotic-aur`, `sublime-text`, or any third-party repo. It often starts right after following a guide that said to add a repository.
+
+**Cause.** The same repository section appears twice in `/etc/pacman.conf`, or once in pacman.conf and again in a file it pulls in with `Include =`. Since pacman 4.2 a duplicate section name is rejected rather than silently merged. A common way to get here is adding `[multilib]` from the Arch wiki to a pacman.conf that already enables it (Omarchy 4's pacman.conf already has `[multilib]` enabled), or running a repository setup script twice.
+
+> **Audit corrected this record.** Thread 191802: Trilby says the error only occurs when a repository is listed twice and Allan says pacman 4.2 got stricter about it, which supports the cause. Omarchy 4's /etc/pacman.conf enables [multilib] (confirmed locally), and omarchy-refresh-pacman replaces the whole file (read on 4.0.4-1). The diagnosis step is still incomplete. pacman.conf allows globs in `Include =`, and the record's `xargs -r grep` passes the glob through literally, so a duplicate brought in by `Include = /etc/pacman.d/*.conf` is never shown, with the error hidden by `2>/dev/null`. Tested here on a copy of pacman.conf with a glob Include carrying a second [multilib]: the record's command printed nothing. A shell loop with an unquoted variable expands the glob and found it. `pacman-conf --config <copy> --repo-list` does not refuse duplicates. It printed multilib twice, so `pacman-conf --repo-list | sort | uniq -d` names the duplicate directly and is now the first step. Nothing was edited on the live file.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Name the duplicated repository. `pacman-conf` reads pacman.conf and every file it includes, globs too, and lists a duplicate twice instead of refusing it:
+
+```bash
+pacman-conf --repo-list | sort | uniq -d
+```
+
+Find where each copy is defined, in pacman.conf and in every included file (the loop expands glob `Include =` lines, which `xargs` would not):
+
+```bash
+grep -n '^\[' /etc/pacman.conf
+for inc in $(sed -n 's/^[[:space:]]*Include[[:space:]]*=[[:space:]]*//p' /etc/pacman.conf | sort -u); do grep -Hn '^\[' $inc; done 2>/dev/null
+```
+
+Back up the file, then delete one complete copy of that section (its `[name]` line and the `Include =` or `Server =` and `SigLevel =` lines under it). Keep the one in the position you want, because order sets repository priority. If the second copy sits inside an included file, remove it there, or remove the `Include =` line that pulls it in:
+
+```bash
+sudo cp /etc/pacman.conf /etc/pacman.conf.bak
+sudoedit /etc/pacman.conf
+```
+
+Then confirm that the first command prints nothing, and upgrade:
+
+```bash
+pacman-conf --repo-list | sort | uniq -d
+```
+
+**Omarchy 4:** `omarchy update`. **Plain Arch:** `sudo pacman -Syu`.
+
+On Omarchy 4, `omarchy refresh pacman` also clears duplicates because it replaces the whole file, but it drops every third-party repository too.
+
+**Verify.** `pacman-conf --repo-list` lists each repository exactly once and pacman commands run without the error.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=191802> · <https://man.archlinux.org/man/pacman.conf.5>
+
+---
+
+## Stop pacman aborting downloads with 'Operation too slow'
+
+`download-operation-too-slow-timeout` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Downloads die after a few seconds even though the connection is fine, often on a large package:
+
+```
+error: failed retrieving file 'foo-1.2-1-x86_64.pkg.tar.zst' from mirror.example.org : Operation too slow. Less than 1 bytes/sec transferred the last 10 seconds
+warning: failed to retrieve some files
+error: failed to commit transaction (failed to retrieve some files)
+```
+
+Sometimes followed by `HTTP server doesn't seem to support byte ranges. Cannot resume.` as it moves to the next mirror.
+
+**Cause.** pacman's built-in downloader applies a low-speed limit: a transfer that moves less than 1 byte per second for 10 seconds is aborted. A server or proxy that is slow to start sending (a cold cache, a security gateway scanning the file, a congested mirror, a VM NAT) trips it while the real throughput would have been fine. With several mirrors pacman retries the next one. On Omarchy 4 the mirrorlist holds exactly one server, so one stalled transfer fails the whole download step.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Delete any partial file for the failing package first, then retry:
+
+```bash
+sudo find /var/cache/pacman/pkg -name '*.part' -delete
+```
+
+**Plain Arch, one transaction:**
+
+```bash
+sudo pacman -Syu --disable-download-timeout
+```
+
+**Permanently, any distro.** Add the option under `[options]` in `/etc/pacman.conf`:
+
+```ini
+[options]
+DisableDownloadTimeout
+```
+
+**Omarchy 4.** `omarchy update` does not pass extra flags to pacman, so use the config option above and then run `omarchy update`. `omarchy refresh pacman` and `omarchy channel set` overwrite `/etc/pacman.conf`, so re-apply it from the hook Omarchy runs right after that copy:
+
+```bash
+mkdir -p ~/.config/omarchy/hooks/pre-refresh-pacman.d
+cat > ~/.config/omarchy/hooks/pre-refresh-pacman.d/50-download-timeout <<'EOF'
+grep -q '^DisableDownloadTimeout' /etc/pacman.conf || sudo sed -i '/^\[options\]/a DisableDownloadTimeout' /etc/pacman.conf
+EOF
+```
+
+If transfers are genuinely slow rather than slow to start, rank mirrors (plain Arch) instead of only lifting the timeout.
+
+**Verify.** `pacman-conf DisableDownloadTimeout` prints the option name when it is set, and the next upgrade downloads the package that previously aborted.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=173909> · <https://man.archlinux.org/man/pacman.conf.5>
+
+---
+
 ## Stop mise shims breaking AUR builds that need Python, Node or Go
 
 `mise-shims-break-aur-builds` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `desktop`, `laptop`, `omarchy`
@@ -2483,6 +3340,77 @@ Sources: <https://github.com/basecamp/omarchy/issues/3528> · <https://wiki.arch
 
 ---
 
+## Fix a package that exists in both [omarchy] and the AUR updating from the wrong source
+
+`omarchy-repo-shadows-aur-package` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `laptop`, `omarchy`
+
+**Symptom.** One of these, for a package such as `visual-studio-code-bin`, `cursor-bin` or `localsend-bin`:
+
+- You installed it from the AUR to get a newer version, and now every update prints
+```
+warning: visual-studio-code-bin: local (1.140.0-1) is newer than omarchy (1.138.0-1)
+```
+and the package never moves again, even when the AUR has a newer release. `yay -Qua` does not list it.
+- `yay -S visual-studio-code-bin`, or Install > AUR in the Omarchy menu on older releases, downloaded the [omarchy] build instead of the AUR one (issue #4577).
+- A package you built from the AUR was silently replaced by the [omarchy] build at the next `omarchy update`.
+
+**Cause.** pacman does not record which repository or AUR build a package came from. It matches by name. If a sync repository carries a package with the same name, the installed copy is treated as that repo's package: `pacman -Syu` upgrades it from the repo when the repo version is higher, and only warns `local (...) is newer than omarchy (...)` when it is lower (libalpm `check_literal`, which downgrades only with `-uu`).
+
+yay decides what is an AUR package the same way: any installed package whose name is found in a sync database is a repo package, and only the rest are foreign (yay `getPackageNamesBySource`). So `yay -Sua`, which is what `omarchy update` runs for AUR, skips it forever. A bare name in `yay -S` also resolves to the repo first.
+
+The [omarchy] repository carries many AUR names (`pacman -Slq omarchy | grep -E -- '-(bin|git)$'`). An Omarchy maintainer says in issue #4577 that it is rebuilt from the AUR every 6 hours, so it is usually close behind the AUR rather than far behind on purpose. On 2026-10-05 the live stable repo had `visual-studio-code-bin 1.140.0-1`, the same as the AUR, and `cursor-bin 3.23.12-1` against the AUR's `3.23.23-1`. Any window where the AUR is ahead, or a local sync database that has not been refreshed, is enough for a hand-built AUR copy to be stranded or replaced.
+
+> **Audit corrected this record.** The mechanism holds. libalpm sync.c check_literal upgrades when the repo version is higher and downgrades only with enable_downgrade. yay's getPackageNamesBySource in high_level.go treats any installed name found in a sync DB as a repo package. AUR builds show `Validated By : None` on this machine, the awk|comm listing runs cleanly, and the ALPM guard (omarchy-update-pacman-guard) blocks only -S together with -u, so `pacman -S omarchy/<pkg>` is allowed. Issue #4577 supports the menu symptom and the edge-channel suggestion. The cause's numbers are wrong. They came from this workstation's stale sync DB, dated 2026-09-18, not from the live repo. Fetching https://pkgs.omarchy.org/stable/x86_64/omarchy.db on 2026-10-05 gave 254 packages, with visual-studio-code-bin 1.140.0-1 (equal to the AUR) and cursor-bin 3.23.12-1 (AUR 3.23.23-1). The claim that the repo 'lags the AUR on purpose' is unsupported: in #4577 an Omarchy maintainer says it is rebuilt from the AUR every 6 hours and treated the lag as a bug. Cause rewritten, and frequency lowered to occasional because the repo tracks the AUR closely. The fix gains a note that the edge channel swaps in omarchy-dev and omarchy-settings-dev (omarchy-channel-set).
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Option 1 can downgrade the package. For editors and browsers that is usually harmless, but an application that migrated its profile or settings format in the newer version may not read it after a downgrade. Close the application first and back up its config directory if it matters.
+
+**Fix.**
+
+List every installed package that was built locally (from the AUR) but has the same name as a repo package. `Validated By: None` marks a package installed from a local file:
+
+```bash
+LC_ALL=C pacman -Qi \
+  | awk -F' *: ' '/^Name/{n=$2} /^Validated By/{if($2=="None") print n}' \
+  | sort | comm -12 - <(pacman -Slq | sort -u)
+```
+
+For each one, compare the three versions:
+
+```bash
+pkg=visual-studio-code-bin
+pacman -Q "$pkg"
+pacman -Si "omarchy/$pkg" | grep -E '^(Repository|Version)'
+yay -Si "aur/$pkg" | grep -E '^(Repository|Version)'
+```
+
+Option 1, recommended: go back to the [omarchy] build so `omarchy update` maintains it. An explicit `-S` of a repo package is allowed by the update guard and will downgrade if the repo is behind, printing `warning: downgrading package ...`:
+
+```bash
+sudo pacman -S "omarchy/$pkg"
+```
+
+If you need newer versions from Omarchy itself, the Update > Channel menu offers the edge channel (issue #4577). Switching channel rewrites `/etc/pacman.conf` and the mirrorlist, and edge also replaces `omarchy` and `omarchy-settings` with `omarchy-dev` and `omarchy-settings-dev`, so treat it as a change of release track and not a per-package setting.
+
+Option 2: keep the AUR build and update it by hand, because no automatic path will:
+
+```bash
+yay -S "aur/$pkg"
+```
+
+The `aur/` prefix forces the AUR. Expect `omarchy update` to swap it back to the [omarchy] build whenever the repo version passes yours.
+
+Plain Arch with another unofficial repo (chaotic-aur, CachyOS) has the same shadowing. The listing above finds it there too.
+
+**Verify.** `pacman -Qi <pkg> | grep 'Validated By'` shows a signature or checksum (repo build) for Option 1. The awk listing above prints nothing, or only the packages you chose to keep on Option 2. The `is newer than omarchy` warning no longer appears in `/tmp/omarchy-update.log`.
+
+Sources: <https://github.com/omacom/omarchy/issues/4577> · <https://github.com/Jguer/yay/blob/next/pkg/db/ialpm/high_level.go> · <https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/sync.c> · <https://aur.archlinux.org/packages/visual-studio-code-bin> · <https://pkgs.omarchy.org/stable/x86_64/omarchy.db> · <https://aur.archlinux.org/rpc/v5/info?arg[]=visual-studio-code-bin&arg[]=cursor-bin&arg[]=localsend-bin>
+
+---
+
 ## Fix a local or file:// repository after the pacman 7.0.0 upgrade
 
 `pacman7-local-repo-alpm-download-user` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
@@ -2513,6 +3441,140 @@ If you must, you can disable the feature by commenting `DownloadUser` out in `/e
 **Verify.** `sudo pacman -Sy` syncs the local repo database and `sudo pacman -S <pkg-from-local-repo>` installs it. `namei -l /path/to/local/repo/repo.db` shows the alpm group can traverse every component.
 
 Sources: <https://archlinux.org/news/manual-intervention-for-pacman-700-and-local-repositories-required/> · <https://archlinux.org/news/> · <https://wiki.archlinux.org/title/Pacman>
+
+---
+
+## Fix 'signature is invalid' on a signed repo database caused by a mirror mid-sync
+
+`signed-repo-database-signature-invalid-mirror-mismatch` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** A third-party repository that signs its databases (CachyOS is one) suddenly fails to sync, with a key that worked yesterday:
+
+```
+error: cachyos: signature from "CachyOS <admin@cachyos.org>" is invalid
+error: failed to synchronize all databases (invalid or corrupted database (PGP signature))
+```
+
+The keyring is current, `pacman-key --list-keys` shows the key locally signed, and nothing changed on your side. Sometimes it clears by itself an hour later.
+
+**Cause.** pacman verifies `<repo>.db` against `<repo>.db.sig` whenever the signature is present. That is true at the stock `SigLevel = Required DatabaseOptional` as well as at `DatabaseRequired`, because pacman.conf(5) treats an invalid signature as fatal even when the level is Optional. If the mirror is mid-sync, or a CDN cached one file longer than the other, you get a new database with the old signature (or the reverse), and GnuPG reports a bad signature, which libalpm prints as `signature from "..." is invalid` (`ALPM_SIGSTATUS_INVALID`). The key is fine. pacman marks the database invalid, and the next sync force-downloads it again: libalpm's `be_sync.c` does this explicitly "to fix potential mismatched database/signature". So a retry against a mirror that has finished syncing clears it.
+
+This is a different fault from a missing, untrusted or expired key (`is unknown trust`, `key ... is unknown`, `is expired`), and from a captive portal returning HTML (`GPGME error: No data`). Those have their own records and their own fixes.
+
+> **Audit corrected this record.** The libalpm claims were checked against source. be_sync.c line 181 has the comment 'force update of invalid databases to fix potential mismatched database/signature' and sets dbforce. sync_db_validate runs at registration (_alpm_db_register_sync), so a database that failed validation in a previous run is re-downloaded on the next sync. signing.c maps GPG_ERR_BAD_SIGNATURE (and the default case) to ALPM_SIGSTATUS_INVALID, which prints `%s: signature from "%s" is invalid`. pacman-key's verify_sig pairs `<file>.sig` with `<file>` and runs gpg --verify, so `BAD signature` and `Good signature` come from gpg as the record says. cachyos.db.sig returns 200, so CachyOS does sign its databases. One cause sentence is wrong for the common case. The record says this happens 'with a database signature required', but the stock global level on Arch and Omarchy 4 (/etc/pacman.conf line 15 here) is `Required DatabaseOptional`. pacman.conf(5) says Optional still checks a signature that is present and treats an invalid one as fatal. So a mismatched pair fails on a stock configuration as well. Cause rewritten to say that. Fix, verify and danger hold. Not exercised: no CachyOS repository is configured here, and no sync was run.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not delete /var/lib/pacman/sync with a wildcard that could reach /var/lib/pacman/local, the installed-package database. Do not set the repo to `SigLevel = Never` or `DatabaseNever` to get past it: a mismatch is temporary, and disabling verification is permanent until you remember to undo it.
+
+**Fix.**
+
+Tell a mismatch from a key problem before touching the keyring:
+
+```bash
+ls -l /var/lib/pacman/sync/cachyos.db /var/lib/pacman/sync/cachyos.db.sig
+sudo pacman-key --verify /var/lib/pacman/sync/cachyos.db.sig
+```
+
+`BAD signature from ...` with the key known means the two files do not match: this record. `No public key` or `Can't check signature` means a key problem: use the third-party keyring record instead.
+
+Retry the sync. pacman re-downloads an invalid database on its own.
+
+Omarchy 4:
+
+```bash
+omarchy update
+```
+
+Plain Arch:
+
+```bash
+sudo pacman -Syu
+```
+
+If the same mirror keeps serving a mismatched pair, see which server it is and move a different one to the top of the mirrorlist that the repo's `Include` line names:
+
+```bash
+pacman-conf -r cachyos Server | head -3
+grep -n Include <(sed -n '/^\[cachyos\]/,/^\[/p' /etc/pacman.conf)
+sudoedit /etc/pacman.d/<that-mirrorlist>
+```
+
+Then retry as above.
+
+**Verify.** `sudo pacman-key --verify /var/lib/pacman/sync/<repo>.db.sig` reports `Good signature`, and the update syncs every database without a PGP error.
+
+Sources: <https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/be_sync.c> · <https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/signing.c> · <https://man.archlinux.org/man/pacman-key.8> · <https://wiki.archlinux.org/title/Pacman/Package_signing> · <https://man.archlinux.org/man/pacman.conf.5> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/scripts/pacman-key.sh.in>
+
+---
+
+## Fix omarchy update and yay --sudoloop prompting for a password despite NOPASSWD sudo
+
+`sudo-v-prompts-despite-nopasswd-verifypw` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** You enabled passwordless sudo (with `omarchy sudo passwordless`, or your own `NOPASSWD: ALL` drop-in), and `sudo pacman -S foo` indeed runs without a password. But `omarchy update` still stops at:
+
+```
+[sudo] password for <user>:
+```
+
+and an unattended `omarchy update -y` hangs there for five minutes, then aborts after the pre-update snapshot was already taken. `yay --sudoloop` prompts at start for the same reason. Some setups end with `sudo: a password is required` instead.
+
+**Cause.** Those prompts come from `sudo -v`, not from running a command. `sudo -v` is governed by the sudoers option `verifypw`, whose default is `all`: every sudoers entry matching the user on this host must carry `NOPASSWD`, or `-v` asks for a password. A stock install still has the password-requiring `%wheel` rule (or a per-user `ALL=(ALL) ALL` file) alongside the new `NOPASSWD` drop-in, so commands run passwordless while validation does not.
+
+On Omarchy 4.0.4 the call is in `omarchy-update-stay-awake` (line 95, `sudo -v`), which `omarchy update` reaches because it runs under `script`, so `[[ -t 0 ]]` is true even unattended (issue #9066, open). yay's sudoloop is also `sudo -v` in a loop. PR #13323 on `quattro` (not yet released) switches the update's own authorization to `sudo /usr/bin/true` for this reason.
+
+> **Audit corrected this record.** Cause confirmed. omarchy-update-stay-awake line 95 is `sudo -v` under `[[ -t 0 ]]` on 4.0.4-1. Issue #9066 is open and shows the same cause, with `verifypw=any` as its verified workaround. #10352 was closed as a duplicate and offers editing the existing rule. PR #13323 switched to `sudo /usr/bin/true` for this reason. sudoers(5) gives verifypw all/any/always/never with default all, and omarchy-sudo-passwordless writes `${USER} ALL=(ALL) NOPASSWD: ALL` to /etc/sudoers.d/99-omarchy-nopasswd-$USER. The danger is wrong. In sudo's plugins/sudoers/check.c, when authentication is disabled (NOPASSWD, or verifypw never/any satisfied), check_user jumps to success with no timestamp cookie, and timestamp_update returns early on a NULL cookie. So a passwordless `sudo -v` writes no timestamp and hands out no password-free sudo. The record also misses a real side effect. omarchy-settings 4.0.4-1 ships `%wheel ALL=(root) NOPASSWD:` rules (omarchy-dns, omarchy-theme-set-browser-policy, timedatectl set-timezone), which I read from the cached package. With `verifypw=any`, every wheel user's `sudo -v` therefore succeeds without a password even when they have no general NOPASSWD grant. The `omarchy sudo passwordless` grant expires and tmpfiles removes it at boot, but the verifypw drop-in stays. After expiry, `sudo -v` stops priming the timestamp and yay's sudoloop keeps nothing alive. The fix now says this and offers `Defaults:<user> !authenticate` for a permanent passwordless user. Not exercised: no sudoers file was changed, and /etc/sudoers is not readable unprivileged.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A sudoers file with a syntax error or wrong mode disables sudo for everyone: keep a root shell open and run `sudo visudo -c` before closing it. `Defaults:<user> !authenticate` makes every sudo command passwordless for that user, so use it only where that is already the intent. `verifypw=any` or `never` does not create a sudo timestamp, but it makes `sudo -v` report success without checking anything, so scripts that use `sudo -v` as a gate or a keepalive (yay's sudoloop) stop doing their job.
+
+**Fix.**
+
+Confirm it is validation and not commands:
+
+```bash
+sudo -n true && echo 'commands: passwordless'
+sudo -n -v   && echo 'validate: passwordless' || echo 'validate: needs a password'
+sudo -l | sed -n '/may run/,$p'      # the matching entries, NOPASSWD or not
+```
+
+If your passwordless sudo is permanent (your own `NOPASSWD: ALL` drop-in), the cleanest fix is to put `NOPASSWD:` into the rule file that already matches you instead of keeping a second file, as issue #10352 suggests:
+
+```bash
+sudo grep -rn "$USER\|%wheel" /etc/sudoers /etc/sudoers.d/
+```
+
+Then edit the matching line with `sudo visudo -f <file>`. Omarchy's own `%wheel ... NOPASSWD: /usr/bin/omarchy-dns ...` style rules can stay, because they already carry NOPASSWD.
+
+An equivalent for a user who is meant to be passwordless everywhere is to turn authentication off for that user, which also covers `sudo -v`:
+
+```bash
+echo "Defaults:$USER !authenticate" | sudo tee /etc/sudoers.d/90-noauth >/dev/null
+sudo chmod 0440 /etc/sudoers.d/90-noauth
+sudo visudo -c
+```
+
+The narrower workaround from issue #9066 lets validation succeed when at least one of your entries is `NOPASSWD`:
+
+```bash
+echo "Defaults:$USER verifypw=any" | sudo tee /etc/sudoers.d/90-verifypw >/dev/null
+sudo chmod 0440 /etc/sudoers.d/90-verifypw
+sudo visudo -c
+```
+
+Know its side effect on Omarchy 4 before using it. omarchy-settings ships several `%wheel` rules with `NOPASSWD`, so with `verifypw=any` your `sudo -v` never prompts, even after a temporary `omarchy sudo passwordless` grant has expired. A `sudo -v` that skips authentication writes no timestamp, so after that point `sudo -v` no longer primes the cache and `yay --sudoloop` keeps nothing alive. Remove `/etc/sudoers.d/90-verifypw` when you stop using passwordless sudo.
+
+Re-run `omarchy update` afterwards. Omarchy after PR #13323 reaches a release authorizes with `sudo /usr/bin/true` instead of `sudo -v`, so none of this is needed there.
+
+**Verify.** `sudo -k; sudo -n -v && echo ok` prints `ok`. `omarchy update -y` runs through the stay-awake step without a prompt.
+
+Sources: <https://github.com/omacom/omarchy/issues/9066> · <https://github.com/omacom/omarchy/issues/10352> · <https://github.com/omacom/omarchy/pull/13323> · <https://man.archlinux.org/man/sudoers.5> · <https://github.com/Jguer/yay/blob/next/pkg/settings/exe/cmd_builder.go> · <https://wiki.archlinux.org/title/Sudo> · <https://raw.githubusercontent.com/sudo-project/sudo/main/plugins/sudoers/check.c> · <https://raw.githubusercontent.com/sudo-project/sudo/main/plugins/sudoers/timestamp.c>
 
 ---
 
@@ -2598,5 +3660,500 @@ sudo btrfs device stats /
 **Verify.** A second `sudo pacman -Qk $(pacman -Qsq) | grep -v ' 0 missing files'` prints nothing, and `sudo paccheck --sha256sum --quiet` prints nothing. `sudo btrfs scrub status /` reports 0 uncorrectable errors.
 
 Sources: <https://wiki.archlinux.org/title/Pacman> · <https://wiki.archlinux.org/title/Pacman/Tips_and_tricks> · <https://man.archlinux.org/man/paccheck.1> · <https://wiki.archlinux.org/title/System_maintenance> · <https://archlinux.org/packages/extra/x86_64/pacutils/> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/src/pacman/check.c> · <https://gitlab.archlinux.org/pacman/pacman/-/raw/master/lib/libalpm/hook.c>
+
+---
+
+## Fix 'landlock is not supported by the kernel' from pacman's download sandbox
+
+`pacman-landlock-not-supported-sandbox` · severity: **medium** · frequency: **rare** · applies to: `apparmor`, `arch`, `cachyos`, `desktop`, `endeavouros`, `grub`, `laptop`, `limine`, `manjaro`, `omarchy`, `systemd-boot`
+
+**Symptom.** After pacman 7 arrived, syncing or downloading prints:
+
+```
+error: restricting filesystem access failed because Landlock is not supported by the kernel!
+```
+
+(pacman 7.0 spelled it `landlock` in lower case, pacman 7.1 capitalises it.) The kernel is a stock one built with `CONFIG_SECURITY_LANDLOCK=y`, so the message looks wrong. It typically starts after setting up AppArmor or another security module, on a custom or ARM board kernel, or inside a container.
+
+**Cause.** pacman 7 downloads as the unprivileged `alpm` user inside a sandbox that uses Landlock to restrict which paths it may write. Landlock has to be enabled at boot. A kernel compiled with Landlock support still leaves it off if the `lsm=` kernel parameter lists security modules and omits `landlock`, which older AppArmor guides did, or if the kernel's built-in `CONFIG_LSM` list omits it. Containers and some board kernels lack it entirely. The current Arch wiki AppArmor line is `lsm=landlock,lockdown,yama,integrity,apparmor,bpf`. Omarchy 4 does not set `lsm=` and its kernel enables Landlock by default (`/sys/kernel/security/lsm` reads `lockdown,capability,landlock,yama,bpf` on 4.0.4), so on Omarchy this only follows a user-added `lsm=`.
+
+> **Audit corrected this record.** The mechanism and fix hold. Confirmed locally on 4.0.4-1: /sys/kernel/security/lsm reads exactly `lockdown,capability,landlock,yama,bpf`, /proc/cmdline has no lsm=, the running linux-omarchy kernel has CONFIG_SECURITY_LANDLOCK=y and CONFIG_LSM="landlock,lockdown,yama,integrity,bpf", and /etc/limine-entry-tool.d/omarchy-defaults.conf and omarchy-uki.conf are owned by omarchy-settings 4.0.4-1 and set no lsm=. /usr/lib/limine/limine-common-functions loads /etc/limine-entry-tool.d/*.conf and then /etc/default/limine last, so the grep over both paths is the right check. limine-mkinitcpio exists. `man pacman.conf` for pacman 7.1.0 documents DisableSandboxFilesystem for Landlock failures. The Arch wiki AppArmor page gives `lsm=landlock,lockdown,yama,integrity,apparmor,bpf`. The CachyOS thread shows the error with CONFIG_SECURITY_LANDLOCK=y and landlock missing from lsm=. The EndeavourOS thread was not re-read. One wording defect: the symptom quotes pacman 7.0's lowercase string. The installed libalpm (pacman 7.1.0) prints 'because Landlock is not supported by the kernel!', so a reader grepping case-sensitively for the quoted text misses it. The symptom is corrected. Nothing touching the boot configuration was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** A malformed kernel command line can stop the machine booting. On Omarchy 4 a broken UKI can be bypassed from the Limine menu's Snapshots entries. Disabling the sandbox removes a protection for the download process, so prefer fixing `lsm=`.
+
+**Fix.**
+
+Check what is active and whether you set `lsm=`:
+
+```bash
+cat /sys/kernel/security/lsm
+tr ' ' '\n' < /proc/cmdline | grep '^lsm='
+```
+
+If `landlock` is missing from the first, add it to the front of your `lsm=` value.
+
+**Omarchy 4 (Limine UKI).** The command line lives in the UKI and comes from `/etc/limine-entry-tool.d/*.conf`. Find the file that sets `lsm=` (do not edit the `omarchy-*.conf` files, which `omarchy-settings` owns) and change it, or create your own drop-in:
+
+```bash
+grep -rn 'lsm=' /etc/limine-entry-tool.d/ /etc/default/limine 2>/dev/null
+echo 'KERNEL_CMDLINE[default]+=" lsm=landlock,lockdown,yama,integrity,apparmor,bpf"' | sudo tee /etc/limine-entry-tool.d/90-lsm.conf
+sudo limine-mkinitcpio
+```
+
+Remove the old `lsm=` wherever grep found it, so only one remains.
+
+**Plain Arch with GRUB.** Edit `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub` the same way, then `sudo grub-mkconfig -o /boot/grub/grub.cfg`. **systemd-boot.** Edit the `options` line in `/boot/loader/entries/*.conf`.
+
+Reboot and re-check `/sys/kernel/security/lsm`.
+
+**Kernel that cannot do Landlock (container, board kernel).** Disable only the filesystem part of the sandbox in `/etc/pacman.conf` (pacman 7.1):
+
+```ini
+[options]
+DisableSandboxFilesystem
+```
+
+**Verify.** `cat /sys/kernel/security/lsm` includes `landlock`, and `omarchy update` (Omarchy) or `sudo pacman -Syu` (Arch) syncs with no landlock error.
+
+Sources: <https://discuss.cachyos.org/t/pacman-7-0-0-r7-g1f38429-2-landlock-error-despite-config-security-landlock-y/17707> · <https://forum.endeavouros.com/t/odroid-n2-and-pinebook-pro-have-a-problem-with-pacman-7-0/60760> · <https://wiki.archlinux.org/title/AppArmor>
+
+---
+
+## Install Python packages despite 'error: externally-managed-environment'
+
+`pip-externally-managed-environment` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `python`
+
+**Symptom.** `pip install` stopped working, with or without `--user` or sudo:
+
+```
+$ pip install requests
+error: externally-managed-environment
+
+× This environment is externally managed
+╰─> To install Python packages system-wide, try 'pacman -S
+    python-xyz', where xyz is the package you are trying to
+    install.
+```
+
+**Cause.** Arch's python package ships the marker file `/usr/lib/python3.14/EXTERNALLY-MANAGED` (the version in the path follows the installed python), as defined by PEP 668. pip refuses to install into an interpreter carrying it, including into `~/.local`, because modules installed there land on the system Python's import path and can break pacman-installed Python tools. This is upstream pip behaviour that Arch enabled, not a fault on your system.
+
+> **Audit corrected this record.** The cause holds. Confirmed locally: /usr/lib/python3.14/EXTERNALLY-MANAGED is owned by python 3.14.7-1, and its text matches the symptom and names `python -m venv` and python-pipx. Forum thread 286788 shows the same error, and the Arch wiki Python page describes the PEP 668 marking and lists pipx and uv. python-pipx (1.15.0) and uv (0.12.23) are both in extra per archlinux.org. `omarchy install dev-env python` exists, runs `mise use --global python@latest` and installs uv from astral.sh. One claim is fabricated precision: 'uv ... (Omarchy 4 has it installed)'. uv is in no *.packages file in /usr/share/omarchy/install or in the quattro tree. On this workstation /var/log/pacman.log shows it arriving after the Omarchy install, in a manual `pacman -S ... protontricks gamemode ... uv`. A stock Omarchy 4 has no `uv`, so `uv tool install` fails with command not found. The fix is corrected to install it first.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `pip install --break-system-packages` (or deleting EXTERNALLY-MANAGED) can overwrite modules that pacman-installed tools depend on and break them, and pacman will later report file conflicts in /usr/lib/python3.x.
+
+**Fix.**
+
+Pick by what you are installing.
+
+**A library or tool Arch packages.** Install it with pacman:
+
+```bash
+pacman -Ss '^python-requests$'
+sudo pacman -S python-requests
+```
+
+**A command-line application from PyPI.** Install it in its own environment. `uv` and `pipx` are both in the Arch repositories. Neither is installed by default on Omarchy 4, so install one first:
+
+```bash
+sudo pacman -S uv && uv tool install httpie
+# or
+sudo pacman -S python-pipx && pipx install httpie
+```
+
+**Dependencies for a project.** Use a virtual environment:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+**Omarchy 4.** `omarchy install dev-env python` installs a separate Python with mise, plus `uv` from astral.sh into your home directory, intended for development work. Use that for projects and keep `/usr/bin/python` for system tools.
+
+Avoid `--break-system-packages`.
+
+**Verify.** The tool runs from its environment (`uv tool list` or `pipx list` shows it, or `.venv/bin/python -c 'import requests'` succeeds), and `pacman -Qkk python` reports no altered files.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=286788> · <https://wiki.archlinux.org/title/Python> · <https://archlinux.org/packages/extra/x86_64/uv/> · <https://archlinux.org/packages/extra/any/python-pipx/>
+
+---
+
+## Fix 'error: target not found' for a package that exists
+
+`target-not-found-wrong-repo-or-aur` · severity: **low** · frequency: **very-common** · applies to: `arch`, `aur`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `multilib`, `omarchy`, `yay`
+
+**Symptom.** A package you can see on archlinux.org, the AUR website or in a guide will not install:
+
+```
+$ sudo pacman -S steam
+error: target not found: steam
+```
+
+Re-running with `sudo pacman -Syy` changes nothing. Common with `steam`, `lib32-*` packages, AUR packages like `visual-studio-code-bin`, and packages that were renamed.
+
+**Cause.** pacman only searches the repositories enabled in `/etc/pacman.conf`, using the database copies it last downloaded. Four different causes produce the same message. (1) The package is in the AUR, which pacman does not read at all. (2) It is in `[multilib]`, which plain Arch ships disabled. (3) The local databases are stale, so they lack a package or version that was added after the last sync. (4) The name changed, was merged into another package, or does not exist for your architecture (Omarchy's install menu offers some x86_64-only packages on aarch64, upstream issue #8645).
+
+> **Audit corrected this record.** The four causes are sound, and Omarchy enabling [multilib] is confirmed locally. Two defects. First, the record's AUR example is visual-studio-code-bin, but on Omarchy 4 that package is in the [omarchy] pacman repository (`pacman -Si visual-studio-code-bin` reports Repository: omarchy, 1.138.0-1). So pacman installs it on Omarchy and the example sends the reader to the AUR for nothing. Second, cited issue #6191 does not show 'target not found'. It is an Omarchy 3.8.2 download 404 from stale metadata, closed after the reporter ran a bare `sudo pacman -Sy`, which is the partial-upgrade step this corpus forbids. The aarch64 claim actually comes from issue #8645 (open), which the cause names but the record did not cite. Fix and sources are corrected. Second audit confirmed the corrected text: Second pass on the record as corrected on 2026-10-04. Its two findings still hold: visual-studio-code-bin is in the [omarchy] repository (`pacman -Si` reports Repository: omarchy, 1.138.0-1), and the aarch64 claim comes from issue #8645, still open and titled 'Install menu offers x86_64-only packages on aarch64: every entry fails with `target not found`'. Confirmed locally: `pacman-conf --repo-list` prints core, extra, multilib, omarchy, so the claim that Omarchy enables multilib holds, and `pacman -Si steam` reports multilib. Forum thread 258910 is exactly the steam / `pacman -Syy` / enable multilib case. Every sync in the fix is a full upgrade, with omarchy update on Omarchy, and `pacman -Fy` syncs only the file database, so it is not a partial upgrade. No install was run.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Fixing it with `sudo pacman -Sy <package>` is a partial upgrade and can break shared libraries. Always sync and upgrade together.
+
+**Fix.**
+
+Work out which cause applies:
+
+```bash
+pacman -Ss '^steam$'            # in an enabled repo?
+yay -Ss steam                   # in the AUR?
+pacman-conf --repo-list         # which repos are enabled
+pacman -F libfoo.so             # which package ships a file (after: sudo pacman -Fy)
+```
+
+**In the AUR.** Install with the helper instead of pacman. Omarchy 4 ships yay:
+
+```bash
+yay -S <package>
+```
+
+On Omarchy 4, check `pacman -Si <package>` first. The `[omarchy]` repository carries some packages that are AUR-only on plain Arch, `visual-studio-code-bin` among them, and those install with `sudo pacman -S`.
+
+**In multilib, plain Arch.** Uncomment both lines in `/etc/pacman.conf`:
+
+```ini
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+```
+
+then `sudo pacman -Syu` followed by `sudo pacman -S steam`. Omarchy 4 already enables `[multilib]`, so skip this there.
+
+**Stale databases.** Sync and upgrade together, then install. Never `pacman -Sy <pkg>` or a bare `pacman -Sy` on its own:
+
+```bash
+omarchy update                  # Omarchy 4
+sudo pacman -Syu                # plain Arch
+sudo pacman -S <package>
+```
+
+**Renamed, merged or wrong architecture.** Look the package up on archlinux.org or the AUR page, which states replacements, or search by description with `pacman -Ss <keyword>`. On aarch64, packages built only for x86_64 do not exist at all, and Omarchy's install menu still offers some of them (issue #8645).
+
+**Verify.** `pacman -Si <package>` (repo) or `yay -Si <package>` (AUR) prints the package details, and the install proceeds.
+
+Sources: <https://wiki.archlinux.org/title/Pacman> · <https://bbs.archlinux.org/viewtopic.php?id=258910> · <https://github.com/omacom/omarchy/issues/8645>
+
+---
+
+## Fix 'warning: directory permissions differ' during an upgrade
+
+`directory-permissions-differ-warning` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** An upgrade prints a warning and carries on:
+
+```
+(1/4) upgrading openssl
+warning: directory permissions differ on /etc/ssl/private/
+filesystem: 755  package: 700
+```
+
+Another reported case is `/var/lib/AccountsService/users/` after an accountsservice upgrade. It repeats every time that package is upgraded. Users ask whether to fix it or ignore it.
+
+**Cause.** pacman never changes the mode of a directory that already exists, so when a package changes the permissions it ships for a directory (or an admin or a program changed them on disk), pacman only reports the difference. The openssl case is a deliberate packaging change: Arch's openssl package restricted `/etc/ssl/private` to 0700 in June 2026, and existing systems keep their old 0755 directory until it is changed by hand. A wider mode on a private-key directory lets other local users list what it holds.
+
+> **Audit corrected this record.** The openssl case holds. The EndeavourOS thread of 2026-06-09 shows the warning on openssl 3.6.2-2 to 3.6.3-1 and links the packaging commit. The Arch GitLab API shows commit b8cf05c2 'restrict /etc/ssl/private to 0700; closes #1' dated 2026-04-20, released in June 2026, so the cause's month is right for the shipped package. On this machine /etc/ssl/private is 700. libalpm.so.16 contains the two-line `directory permissions differ on %s` / `filesystem: %o  package: %o` message as quoted. pacman.log shows /boot 700 against 755 and /var/log/swtpm/libvirt/qemu 730 against 755. `pacman -Qkk` prints `(Permissions mismatch)`, and /boot is vfat mounted with dmask=0077. Thread 245014 supports /var/lib/AccountsService/users/. The one defect is in the symptom: it names /root/ as a common case, which neither source mentions. /root is 750 here and owned by filesystem 2025.10.12-1 with no mismatch, so that example is unsupported and is removed. Nothing was chmodded.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Tightening a directory that a service relies on reading as another user can stop that service. Use the mode the package itself declares, not a guess.
+
+**Fix.**
+
+Set the directory named in the warning to the mode the package ships, which is the `package:` value:
+
+```bash
+sudo chmod 700 /etc/ssl/private
+stat -c '%a %n' /etc/ssl/private
+```
+
+To see every permission mismatch pacman knows about, list them for review:
+
+```bash
+sudo pacman -Qkk 2>&1 | grep -i 'permissions mismatch'
+```
+
+Do not chmod everything that command prints. Change a path only when the package made it stricter and the warning appeared during an upgrade, as with `/etc/ssl/private`. Leave these alone:
+
+- Mount points, whose mode comes from the mount options. On Omarchy 4, `/boot` is a vfat ESP mounted with `dmask=0077`, so it always reads 700 against the package's 755, and chmod cannot change it.
+- Directories a service manages and resets itself, such as `/var/log/swtpm/libvirt/qemu` (libvirt) or `/var/cache/pacman/pkg`.
+- Anything you widened or tightened on purpose. That warning then repeats on every upgrade of that package, which is harmless.
+
+**Verify.** `stat -c '%a %n' /etc/ssl/private` prints `700 /etc/ssl/private`, and the next upgrade of that package prints no warning.
+
+Sources: <https://forum.endeavouros.com/t/warning-directory-permissions-differ-on-etc-ssl-private/80073> · <https://bbs.archlinux.org/viewtopic.php?id=245014> · <https://gitlab.archlinux.org/archlinux/packaging/packages/openssl/-/commit/b8cf05c2a9c5200c624c720ab80444bfd533005d>
+
+---
+
+## Make yay (and omarchy update) actually update -git AUR packages
+
+`yay-git-packages-never-update-devel` · severity: **low** · frequency: **common** · applies to: `arch`, `aur`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`, `yay`
+
+**Symptom.** An AUR package ending in `-git` (built from the latest upstream commit) never updates. `yay -Syu` and `omarchy update` both say there is nothing to do for it, while upstream has had dozens of commits and the installed version string is months old.
+
+**Cause.** A `-git` package's version in the AUR only changes when the maintainer edits the PKGBUILD, which is rare, because the real version comes from upstream at build time. yay only checks upstream for new commits when development checking is enabled with `--devel`, and it compares against a commit hash it recorded when it installed the package. Without `--devel`, or for packages installed by makepkg or another helper (so yay has no recorded hash), yay never rebuilds them. On Omarchy 4 the AUR step of `omarchy update` (`/usr/share/omarchy/bin/omarchy-update-aur-pkgs`) runs `yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs` when foreign packages are installed. It does not pass `--devel`, so `-git` packages are not rebuilt unless devel checking is saved in yay's config.
+
+> **Audit corrected this record.** The yay README confirms `yay -Y --gendb`, `yay -Syu --devel` and `yay -Y --devel --save`. The local `yay --help` for 13.0.1 lists --devel, --save, --gendb and --rebuild. The mechanism and fix are correct. The cause misquotes Omarchy's AUR step. On 4.0.4-1, /usr/share/omarchy/bin/omarchy-update-aur-pkgs runs `yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs`, only when `pacman -Qem` finds foreign packages and the AUR is reachable. The cause is corrected to the exact command. The conclusion stands, because no --devel is passed and a saved devel setting in ~/.config/yay/config.json still applies to that call. Second audit confirmed the corrected text: Second pass on the record as corrected on 2026-10-04, whose finding (the cause now quotes the real AUR step) still holds. Confirmed on this machine: /usr/share/omarchy/bin/omarchy-update-aur-pkgs on 4.0.4-1 runs `yay -Sua --noconfirm --cleanafter --ignore gcc14,gcc14-libs` only when `pacman -Qem` finds foreign packages and the AUR is reachable, with no --devel. The quattro branch adds a --sudo wrapper and `|| exit 1` but still passes no --devel, so the cause holds on edge too. The yay README (Jguer/yay) documents `yay -Y --gendb`, `yay -Syu --devel` and `yay -Y --devel --save`, and its FAQ says packages not installed through yay are missing from the hash cache until --gendb. Local `man yay` (yay 13.0.1-1) documents --devel as a git ls-remote check against the hash recorded at install time, lists -Qu among the operations extended to the AUR (so `yay -Qua` is valid), and gives `yay --devel --save` as setting devel to true in the config. --rebuild and --cleanafter exist in `yay --help`. Nothing was executed against the AUR.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Record the current commit of every installed development package once, so yay has something to compare with:
+
+```bash
+yay -Y --gendb
+```
+
+Then turn development checking on permanently. This writes `~/.config/yay/config.json`, so every later `yay`, `yay -Syu` and the `yay -Sua` inside `omarchy update` checks `-git` packages:
+
+```bash
+yay -Y --devel --save
+```
+
+Or check once without saving the setting:
+
+```bash
+yay -Sua --devel
+```
+
+Force one package to rebuild now regardless:
+
+```bash
+yay -S --rebuild <package>-git
+```
+
+Development checking runs `git ls-remote` against every `-git` package's upstream on each update, which adds time proportional to how many you have.
+
+**Verify.** `grep '"devel"' ~/.config/yay/config.json` shows `true`, and `yay -Qua` lists a `-git` package after its upstream gets a new commit.
+
+Sources: <https://github.com/Jguer/yay> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-aur-pkgs>
+
+---
+
+## Get past an AUR build that fails in its check() test suite
+
+`aur-build-fails-in-check-function` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `omarchy`
+
+**Symptom.** Compilation finishes, then the build stops while running the package's tests:
+
+```
+==> Starting check()...
+...
+FAILED: 2 of 431 tests
+==> ERROR: A failure occurred in check().
+    Aborting...
+ -> error making: <pkgname>
+```
+
+The package itself would probably work. During `omarchy update` the AUR step fails on that one package and it stays at the old version.
+
+**Cause.** makepkg runs a PKGBUILD's `check()` function after `build()` whenever the `check` option is enabled in `BUILDENV`, and it is enabled by default (`BUILDENV=(!distcc color !ccache check !sign)` in `/etc/makepkg.conf` on Omarchy 4.0.4-1). Test suites in AUR packages often fail for reasons unrelated to the built binary: tests that need network access, a display, a specific locale or timezone, more file descriptors, or tests that broke against a newer library before the maintainer updated the PKGBUILD. A non-zero exit from `check()` aborts the build.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Skipping tests means installing a build whose own test suite failed. If the failures are in core functionality rather than network or environment tests, the package may really be broken, so read the output before reaching for --nocheck, and prefer the per-package flag over disabling check globally.
+
+**Fix.**
+
+Read the failing tests first. If they are network, sandbox or flaky timing failures, skip the test stage for this one build. `--nocheck` tells makepkg not to run `check()` or handle `checkdepends`, and yay passes it through with `--mflags`:
+
+```bash
+yay -S <pkgname> --mflags --nocheck
+```
+
+With makepkg directly:
+
+```bash
+makepkg -si --nocheck
+```
+
+Report the failure on the package's AUR page comments with the test output, so the maintainer can fix or disable the test.
+
+To skip tests for all your AUR builds instead, disable the option in your user config, copying your system `BUILDENV` and changing only `check`:
+
+```bash
+mkdir -p ~/.config/pacman
+grep -E '^BUILDENV=' /etc/makepkg.conf
+echo 'BUILDENV=(!distcc color !ccache !check !sign)' >> ~/.config/pacman/makepkg.conf
+```
+
+Omarchy 4: `omarchy update` runs `yay -Sua` with no extra flags, so a package that fails `check()` fails there every time until you either build it once with `--nocheck` as above or set `!check` in the user config.
+
+**Verify.** `pacman -Q <pkgname>` shows the new version and the next `omarchy update` (or `yay -Sua`) no longer reports `error making: <pkgname>`.
+
+Sources: <https://man.archlinux.org/man/makepkg.8> · <https://man.archlinux.org/man/makepkg.conf.5> · <https://github.com/Jguer/yay/blob/next/doc/yay.8> · <https://raw.githubusercontent.com/Jguer/yay/next/pkg/settings/parser/parser.go>
+
+---
+
+## Clear the 'will NOT be used by the installed perl interpreter' warning
+
+`detect-old-perl-modules-warning` · severity: **low** · frequency: **occasional** · applies to: `arch`, `aur`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** After an upgrade that touched perl, the transaction ends with:
+
+```
+(5/9) Checking for old perl modules...
+WARNING: '/usr/lib/perl5/5.40' contains data from at least 3 packages which will NOT be used by the installed perl interpreter.
+ -> Run the following command to get a list of affected packages: pacman -Qqo '/usr/lib/perl5/5.40'
+```
+
+Sometimes also `WARNING: 12 file(s) in /usr/lib/perl5/5.40 are not tracked by pacman and need to be rebuilt.` Perl scripts or tools that use those modules start failing with `Can't locate Foo/Bar.pm in @INC`.
+
+**Cause.** Arch installs perl modules into a directory named for the perl major version, such as `/usr/lib/perl5/5.42/`, and the interpreter only reads its own version's directory. The `detect-old-perl-modules.hook`, shipped by the perl package, warns about every other version directory under `/usr/lib/perl5` that still holds files. That happens two ways. Usually the directory is OLDER than the running perl: repository packages were rebuilt by Arch, and what remains is AUR or other foreign perl packages built against the old perl, or files installed by `cpan`. Sometimes the directory is NEWER than the running perl: perl itself is held back (`IgnorePkg`, `--ignore perl`, or a package that requires an older perl) while every module package moved on, so the warning names the new directory and lists ordinary repository packages.
+
+> **Audit corrected this record.** The hook and messages are confirmed on this machine: /usr/share/libalpm/hooks/detect-old-perl-modules.hook is owned by perl 5.42.2-2, and /usr/share/libalpm/scripts/detect-old-perl-modules.sh prints both quoted WARNING lines and the unowned-files find command used in the fix. `yay --help` lists --rebuild. The defect is the held-back case, which is the case the record's only source (thread 270501) actually documents. The script warns about every /usr/lib/perl5 directory that is not the running perl's version. When perl is held back, that is the NEWER directory: in the thread perl stayed at 5.32 and the warning named 5.34 with 42 repository packages. The record's cause describes only an old directory, and its fix tells the reader to look for `perl` in `pacman -Qqo` output, which perl never appears in for that case, using a hard-coded 5.40 that will not match most readers. The thread also shows the next obstacle, an AUR package requiring `perl<5.33` that blocks the perl upgrade. The full update command was missing for Omarchy, where `pacman -Syu` is refused by the ALPM guard. Nothing was rebuilt or removed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Compare the directory the WARNING names with the running perl:
+
+```bash
+perl -e 'print "$^V\n"'
+ls /usr/lib/perl5/
+```
+
+Set `dir` to the directory the WARNING names. The example below uses 5.40:
+
+```bash
+dir=/usr/lib/perl5/5.40
+pacman -Qqo "$dir"
+```
+
+**The named directory is NEWER than the running perl.** perl is held back. Check for it in `IgnorePkg`:
+
+```bash
+pacman-conf IgnorePkg
+```
+
+Remove `perl` from `IgnorePkg` with `sudoedit /etc/pacman.conf`, then do a full upgrade:
+
+```bash
+# Omarchy 4
+omarchy update
+# Plain Arch
+sudo pacman -Syu
+```
+
+If the upgrade stops with `installing perl (...) breaks dependency 'perl<5.xx' required by <package>`, that package (usually from the AUR) pins the old perl. Rebuild it against the new perl or remove it, then run the upgrade again.
+
+**The named directory is OLDER than the running perl.** Rebuild each listed foreign package against the new perl:
+
+```bash
+pacman -Qqm | grep -xFf <(pacman -Qqo "$dir")
+yay -S --rebuild <package> <package>
+```
+
+A repository package in `pacman -Qqo "$dir"` that is not in that foreign list means the system is not fully updated: run the full upgrade above. Remove any listed package you no longer use with `sudo pacman -Rns <package>`.
+
+For files no package owns (installed with `cpan`), list them and reinstall those modules with cpan, or delete them:
+
+```bash
+LC_ALL=C find "$dir" -type f -exec pacman -Qqo {} + |& sed -n 's/^error: No package owns \(.*\)$/\1/p'
+```
+
+**Verify.** `pacman -Qqo "$dir"` lists no packages for the directory the warning named, `perl -e 'print "$^V\n"'` matches the newest directory in `ls /usr/lib/perl5/`, and the hook prints no WARNING on the next transaction.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=270501>
+
+---
+
+## Silence 'ldconfig: ... is not a symbolic link' after every upgrade
+
+`ldconfig-is-not-a-symbolic-link` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `laptop`, `manjaro`, `omarchy`
+
+**Symptom.** Every pacman transaction that installs anything prints, just before `Running post-transaction hooks...`:
+
+```
+ldconfig: /usr/lib/libicudata.so.75 is not a symbolic link
+ldconfig: /usr/lib/libicuuc.so.75 is not a symbolic link
+ldconfig: /usr/lib/libxml2.so.2 is not a symbolic link
+```
+
+The upgrade itself completes. Running `sudo ldconfig` by hand prints the same lines.
+
+**Cause.** ldconfig expects a library's soname (`libfoo.so.N`) to be a symlink to the real versioned file. When a regular file sits at that name instead, ldconfig warns. The usual origin is a library copied into `/usr/lib` by hand, or by a vendor installer, to fix some earlier breakage. That file is owned by no package, so pacman never updates or removes it, and the warning repeats forever. Less often the file is owned by a package that ships it that way, which is a packaging quirk and harmless.
+
+> **Audit corrected this record.** Thread 305501 supports the diagnosis: `pacman -Qo` showed all three files unowned, left by a manual `pacman -U` of an old libxml2, and deleting them silenced ldconfig. Two defects remain in the current text. First, it states that libxml2.so.2 belongs to no current Arch package. That is false: [extra] ships libxml2-legacy 2.13.9-2, whose file list (archlinux.org, retrieved) contains /usr/lib/libxml2.so.2, and the AUR has icu75 for libicudata.so.75. The earlier audit inferred this from a local `pacman -Qo`, which only proves the file is unowned on that one machine. A program still linked to libxml2.so.2 is exactly why such a stray copy gets made, so the reader needs to know the packaged replacement exists. Second, the delete step is a copy-paste `sudo rm` of the three example paths, and the in-use check greps only libxml2.so.2, despite the sentence telling the reader not to act on the example names. The corrected fix builds the list from ldconfig's own output, skips anything pacman owns, and moves rather than deletes, so a mistake is reversible. The parsing sed and the `pacman -Qo` exit codes were tested here (libxml2.so.2 unowned rc=1, libxml2.so.16 owned rc=0). ldconfig and the move were not run, since they need root.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Moves files out of /usr/lib. The loop skips anything `pacman -Qo` reports as owned, and moves rather than deletes, so a library a program still needs can be put back from /root/stray-libs or replaced by its packaged equivalent (libxml2-legacy for libxml2.so.2). Run it only after a full system update.
+
+**Fix.**
+
+Find out who owns each file ldconfig complains about. Use `pacman -Qo` (the local database), not `pacman -F`, which searches the files database and can be stale:
+
+```bash
+sudo ldconfig 2>&1 | sed -n 's/^ldconfig: \(.*\) is not a symbolic link$/\1/p' | xargs -r pacman -Qo
+```
+
+Each path prints either `is owned by <package>` or `error: No package owns <path>`.
+
+**Unowned files.** These are stray copies, usually left by copying a library in by hand or by installing an old package file with `pacman -U`. Update the system fully first:
+
+```bash
+# Omarchy 4
+omarchy update
+# Plain Arch
+sudo pacman -Syu
+```
+
+Then move every unowned file ldconfig names out of the library path. Owned files are skipped. Moving instead of deleting keeps a copy you can put back:
+
+```bash
+sudo mkdir -p /root/stray-libs
+for f in $(sudo ldconfig 2>&1 | sed -n 's/^ldconfig: \(.*\) is not a symbolic link$/\1/p'); do
+  pacman -Qo "$f" >/dev/null 2>&1 || sudo mv -v "$f" /root/stray-libs/
+done
+sudo ldconfig
+```
+
+A silent `sudo ldconfig` confirms the fix. If a program then fails with `error while loading shared libraries: libxml2.so.2: cannot open shared object file`, it still needs the old soname. Install the packaged copy rather than restoring the stray one:
+
+```bash
+sudo pacman -S libxml2-legacy
+```
+
+`libxml2-legacy` is in [extra] and ships `/usr/lib/libxml2.so.2`. For an old ICU soname such as `libicudata.so.75`, the AUR package `icu75` is the packaged equivalent. Once nothing breaks, delete the backup with `sudo rm -r /root/stray-libs`.
+
+**Owned by a package.** Check whether its files still match the package, and reinstall it after a full update if they do not:
+
+```bash
+pacman -Qkk <package>
+sudo pacman -S <package>
+```
+
+If it still warns after a reinstall, the package ships a regular file at the soname. That is harmless and can be reported to the packager.
+
+**Verify.** `sudo ldconfig` prints nothing.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=305501> · <https://archlinux.org/packages/extra/x86_64/libxml2-legacy/files/> · <https://aur.archlinux.org/packages/icu75>
 
 ---

@@ -1,6 +1,6 @@
 # Wayland app compatibility
 
-37 problems. Sorted by severity, then by how often users hit it.
+58 problems. Sorted by severity, then by how often users hit it.
 
 ## Fix screen share showing a black rectangle or no picker at all
 
@@ -706,6 +706,57 @@ java -Dsun.awt.disablegrab=true -jar app.jar
 **Verify.** The application window renders its actual UI instead of a gray rectangle, and menus stay open when clicked.
 
 Sources: <https://wiki.archlinux.org/title/Java>
+
+---
+
+## Stop a global SDL_VIDEODRIVER=wayland preventing games from launching
+
+`sdl-videodriver-wayland-env-breaks-games` · severity: **high** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** Some Steam games (Deadlock, The Finals, ARC Raiders, Squad, Crusader Kings 3, Horizon Chase Turbo) never open, or show `Failed to initialize dependencies`. A Lutris game prints `Could not initialize SDL video subsystem (wayland not available)`. Trying `SDL_VIDEODRIVER=xcb` gives `Couldn't initialize SDL: xcb not available`.
+
+**Cause.** `SDL_VIDEODRIVER=wayland` forces every SDL application onto the Wayland video driver. Games that bundle an older SDL without Wayland support, and Proton games that need SDL's `windows` driver, then fail to create a window. Current SDL3 and `sdl2-compat` already pick Wayland on their own when the compositor supports it, so the variable gains nothing. Omarchy 3 set it in `default/hypr/envs.conf` (`wayland` up to v3.3, `wayland,x11` in v3.4 to v3.6, which still broke Proton games) and removed it in v3.7.0, which is why the reports are from Omarchy users. Omarchy 4 does not set it (`/usr/share/omarchy/default/hypr/envs.lua` on 4.0.4-1 has no SDL line), but the Hyprland wiki still lists it as a suggested variable, so it is easy to copy into your own config. `xcb` is a Qt name, not an SDL one. SDL's X11 driver is `x11`.
+
+> **Audit corrected this record.** Omarchy 4 claim confirmed: /usr/share/omarchy/default/hypr/envs.lua on 4.0.4-1 has no SDL line. The hyprland-wiki environment-variables source still suggests `hl.env("SDL_VIDEODRIVER", "wayland")`. The Arch Wayland page says SDL3 and sdl2-compat pick Wayland by default when the compositor supports fifo-v1, and that SDL3's own name is `SDL_VIDEO_DRIVER` with `SDL_VIDEODRIVER` as a lower-precedence fallback. Issues #1047 and #2564 support the game list, the error strings and the `env -u` and `SDL_VIDEODRIVER=x11` workarounds. The Omarchy 3 branch is wrong. Reading default/hypr/envs.conf at each tag: v3.1.4 to v3.3.0 set `SDL_VIDEODRIVER,wayland`, v3.4.0 and v3.6.0 set `wayland,x11` (which commenters in both issues say still broke Proton games), and v3.7.0 has no SDL line (commit 1b2dfa1b "Remove SDL_VIDEODRIVER"). The record's Omarchy 3 advice to set `env = SDL_VIDEODRIVER,` contradicts its own Omarchy 4 advice and the #2564 reporter, who found an empty value did not work consistently. Rewrote that branch, widened the grep to SDL3's name and environment.d, and lowered frequency to occasional because no current Omarchy release sets the variable. Not exercised: no game launched.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Find out whether it is set and where. SDL3 also reads `SDL_VIDEO_DRIVER`, so check both names:
+
+```bash
+printenv SDL_VIDEODRIVER SDL_VIDEO_DRIVER
+grep -rn 'SDL_VIDEO_\?DRIVER' ~/.config/hypr ~/.config/uwsm ~/.config/environment.d /etc/environment 2>/dev/null
+```
+
+**Omarchy 4 / Hyprland 0.55+.** Delete the `hl.env("SDL_VIDEODRIVER", "wayland")` line you added, then log out and back in. Remove the line entirely rather than setting an empty value.
+
+**Omarchy 3.** Releases before v3.7.0 set it in Omarchy's own defaults. Update with `omarchy update`, which brings a release without the line, and remove any `env = SDL_VIDEODRIVER,...` line from your own `~/.config/hypr/*.conf`. Avoid `env = SDL_VIDEODRIVER,` with an empty value: the #2564 reporter found it did not reliably unset the variable.
+
+**Per game, without touching the session.** Steam > game > Properties > Launch Options:
+
+```
+env -u SDL_VIDEODRIVER %command%
+```
+
+or force X11 for a native game:
+
+```
+SDL_VIDEODRIVER=x11 %command%
+```
+
+**All of Steam at once:**
+
+```bash
+env -u SDL_VIDEODRIVER steam
+```
+
+**Verify.** `printenv SDL_VIDEODRIVER` prints nothing in a new terminal after logging back in, and the game reaches its menu.
+
+Sources: <https://github.com/omacom/omarchy/issues/1047> · <https://github.com/omacom/omarchy/issues/2564> · <https://wiki.archlinux.org/title/Wayland> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/environment-variables.md>
 
 ---
 
@@ -1446,6 +1497,43 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 ---
 
+## Stop a new Chrome tab ignoring scroll and the spacebar until you refocus
+
+`chrome-new-tab-loses-scroll-and-keyboard-native-wayland` · severity: **medium** · frequency: **common** · applies to: `chromium`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** Right after I open a new tab in Chrome or Chromium (running natively on Wayland), mouse wheel scrolling and the spacebar do nothing in the page. Clicking another window and back into Chrome fixes it instantly. Happens on Omarchy with the default Wayland flags.
+
+**Cause.** Chrome briefly creates a transient floating toplevel with an empty class and empty title. Hyprland gives a new window focus, so that invisible surface takes keyboard and pointer focus and the visible tab gets no input until focus is forced back. Omarchy already has a `no_focus` rule for exactly that signature in `/usr/share/omarchy/default/hypr/windows.lua`, but it is scoped to `xwayland = true`. Chromium on Omarchy runs natively on Wayland because Omarchy's `chromium-flags.conf` passes `--ozone-platform=wayland`, and Google Chrome does too when it is started with that flag or picks Wayland itself, so the rule never matches. Reported as omacom/omarchy#11419, open. The reporter's workaround was written in hyprlang syntax, which Omarchy 4's Lua config does not read.
+
+> **Audit corrected this record.** Re-checked the earlier correction on 4.0.4-1 and it holds: /usr/share/omarchy/default/hypr/windows.lua lines 9 to 19 carry the `class = "^$", title = "^$", xwayland = true, float = true, fullscreen = false, pin = false` no_focus rule, and /usr/share/omarchy/config/chromium-flags.conf passes `--ozone-platform=wayland`. omacom/omarchy#11419 is still open and its workaround is hyprlang. The hyprland-wiki window-rules source (content/configuring/core/rules/window-rules.md) documents `hl.window_rule({ match = {...} })` with match fields class, title, float, fullscreen, pin and xwayland and the `no_focus` effect, so the Lua rule is valid. ~/.config/hypr/hyprland.lua exists on Omarchy 4 and says to add personal configuration at the bottom. Arch ships hyprland 0.56.2. The only defect is a source: https://wiki.hypr.land/Configuring/Window-Rules/ returns 404, while https://wiki.hypr.land/Configuring/Basics/Window-Rules/ returns 200 and is the URL Omarchy's own windows.lua cites. Fields left unchanged to preserve the earlier corrected status. Not exercised: I did not add the rule or reload Hyprland on this workstation.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** The rule stops every floating native Wayland window with an empty class and title from taking focus. If some other app relies on such a window for input, it will need a click to focus. Remove the rule if that happens.
+
+**Fix.**
+
+Add an equivalent rule for native Wayland windows at the bottom of `~/.config/hypr/hyprland.lua` (Hyprland 0.55+, which is what Omarchy 4 and current Arch ship):
+
+```lua
+hl.window_rule({
+  match = { class = "^$", title = "^$", float = true, fullscreen = false, pin = false, xwayland = false },
+  no_focus = true,
+})
+```
+
+Then reload from a keybind or run `hyprctl reload` yourself, and restart the browser.
+
+To see the surface yourself, run `hyprctl clients` right after opening a tab and look for a floating client with `class:` and `title:` both empty and `xwayland: 0`.
+
+**Verify.** Open a new tab with Ctrl+T, load a long page and scroll immediately with the wheel and the spacebar without clicking. It scrolls.
+
+Sources: <https://github.com/omacom/omarchy/issues/11419> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/window-rules.md> · <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
+
+---
+
 ## Fix Chromium freezing when you paste from an XWayland app
 
 `chromium-hangs-pasting-from-xwayland-app` · severity: **medium** · frequency: **common** · applies to: `arch`, `electron`, `hyprland`, `omarchy`, `wayland`, `xwayland`
@@ -1716,6 +1804,56 @@ Sources: <https://wiki.archlinux.org/title/Firefox> · <https://wiki.archlinux.o
 
 ---
 
+## Keep a game running while it sits on another workspace
+
+`game-pauses-when-on-another-workspace` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** When I switch away from a game to another workspace, it stops: audio drops out, the game stops progressing, online games lag or disconnect from the server. It only keeps going while something visibly animates on screen or I move the mouse. Switching back resumes it.
+
+**Cause.** Hyprland stops sending frame callbacks to windows that are not visible. A game with VSync or FIFO presentation then blocks waiting for a frame that never comes. The `render_unfocused` window rule makes Hyprland keep rendering a hidden window at `misc.render_unfocused_fps` (default 15). With variable frame rate (`debug.vfr`, default on), Hyprland may still not render at all while the visible screen is static, and in hyprwm/Hyprland discussion #12339 a user found `render_unfocused` alone did not help and only turning VFR off did. No maintainer fix there yet.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `debug.vfr = false` makes Hyprland render every frame even when nothing changes, which raises idle power use noticeably on a laptop. Keep it only if the window rule alone is not enough.
+
+**Fix.**
+
+Find the game's class (Proton games are usually `steam_app_<id>`):
+
+```bash
+hyprctl clients | grep -E 'class|title'
+```
+
+Add to the bottom of `~/.config/hypr/hyprland.lua` (Hyprland 0.55+, Omarchy 4 and current Arch):
+
+```lua
+hl.window_rule({ match = { class = "^steam_app_.*" }, render_unfocused = true })
+
+hl.config({
+  misc = {
+    render_unfocused_fps = 60,
+  },
+})
+```
+
+If the game still stalls while the visible workspace is idle, disable VFR as well:
+
+```lua
+hl.config({
+  debug = {
+    vfr = false,
+  },
+})
+```
+
+The Arch wiki also lists `MESA_VK_WSI_PRESENT_MODE=immediate` as a per-game launch option (`MESA_VK_WSI_PRESENT_MODE=immediate %command%`) on Mesa drivers, at the cost of VSync and VRR.
+
+**Verify.** Start the game, switch workspaces for a minute while not touching the mouse, and switch back: game time has advanced and audio kept playing.
+
+Sources: <https://github.com/hyprwm/Hyprland/discussions/12339> · <https://wiki.archlinux.org/title/Wayland> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/config-options.md> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/window-rules.md>
+
+---
+
 ## Fix an X11 app never receiving the file you picked in the GTK dialog
 
 `gtk-file-chooser-does-nothing-xwayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
@@ -1772,6 +1910,66 @@ Sources: <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://wiki.
 
 ---
 
+## Fix GParted and other root GUI apps failing with cannot open display
+
+`gui-app-as-root-cannot-open-display-wayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** GParted will not start, from the menu or from the terminal with `sudo gparted`:
+
+```
+Authorization required, but no authorization protocol specified
+(gpartedbin:4425): Gtk-WARNING **: ...: cannot open display: :1
+```
+
+Other apps run with sudo show `No protocol specified` / `Unable to init server: Could not connect: Connection refused` / `cannot open display: :0`.
+
+**Cause.** Wayland does not let a process running as another user draw on your session, and XWayland by default only accepts clients from the user who started it, so the old Xorg workarounds (`XAUTHORITY`, `pam_xauth`) do not apply. Arch's `gparted` 1.8.1 is built with `--enable-xhost-root`. When you start `gparted` as your normal user, its launcher runs `xhost +SI:localuser:root`, elevates `gparted` through pkexec, and runs `xhost -SI:localuser:root` after it exits, but only if the `xhost` command exists. `xorg-xhost` is only an optional dependency ("authorization from wayland") and Omarchy does not install it, so the grant is silently skipped and GParted fails. Starting it with `sudo gparted` fails even with `xhost` installed, because the launcher is then already root and skips the grant entirely.
+
+> **Audit corrected this record.** Arch's gparted PKGBUILD is 1.8.1, configures `--enable-xhost-root` and lists `xorg-xhost: authorization from wayland` as an optional dependency. xorg-xhost is not in /usr/share/omarchy/install/omarchy-base.packages or omarchy-other.packages and is not installed here. The defect is in who runs the grant. In the gparted.in launcher at tag GPARTED_1_8_1, the xhost grant sits inside `if test "x`id -u`" != "x0"`, the branch that elevates through pkexec. Started with `sudo gparted`, the launcher already runs as root, skips that branch, never runs xhost, and still fails with the same error after xorg-xhost is installed. The record's symptom names `sudo gparted` and its fix implies xhost alone cures it, so the fix must say to start `gparted` as your own user. Omarchy 4 has a polkit agent in omarchy-shell (shell.qml keeps lock, idle and polkit services loaded) and polkit 127 is installed, so pkexec can prompt. Issue #3810 (Omarchy 3.2.2) confirms xorg-xhost fixes it and that GParted is not Omarchy default software. The Arch wiki page supports the xhost si:localuser:root, sudo -E and pkexec env forms. Not exercised: GParted is not installed here and I did not install it.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Running a whole GUI application as root runs a large amount of unaudited code with full privileges and can change the ownership of files in your home directory. Revoke any manual `xhost` grant as soon as the app closes, and prefer `sudoedit` or a polkit-aware tool where one exists.
+
+**Fix.**
+
+**GParted.** Install `xhost`, then start GParted as your own user, from the app launcher or as plain `gparted` in a terminal. Do not use `sudo gparted`: the launcher only grants root access to the display when it does the elevation itself. It asks for your password through polkit, grants root access for the life of the window and revokes it afterwards:
+
+```bash
+sudo pacman -S --needed xorg-xhost
+gparted
+```
+
+**Editing a system file.** Do not run a GUI editor as root. Use `sudoedit`, which edits an unprivileged copy:
+
+```bash
+sudoedit /etc/fstab
+```
+
+**Another XWayland app that must run as root.** Grant root for the session, run it, then revoke. Run `xhost` as your user, not with sudo:
+
+```bash
+xhost si:localuser:root
+sudo some-x11-app
+xhost -si:localuser:root
+```
+
+**A native Wayland app.** Preserve `WAYLAND_DISPLAY` and the runtime dir:
+
+```bash
+sudo -E some-wayland-app
+# or
+pkexec env WAYLAND_DISPLAY="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" XDG_RUNTIME_DIR=/run/user/0 some-wayland-app
+```
+
+**Verify.** Run `gparted` as your user (no sudo), authenticate at the polkit prompt, and GParted opens and lists your disks. After closing it, `xhost` no longer lists `SI:localuser:root`.
+
+Sources: <https://wiki.archlinux.org/title/Privilege_elevation_for_graphical_applications> · <https://github.com/omacom/omarchy/issues/3810> · <https://gitlab.gnome.org/GNOME/gparted/-/raw/master/gparted.in> · <https://gitlab.archlinux.org/archlinux/packaging/packages/gparted/-/raw/main/PKGBUILD> · <https://gitlab.gnome.org/GNOME/gparted/-/raw/GPARTED_1_8_1/gparted.in>
+
+---
+
 ## Bring oversized Java apps like Ghidra and Burp Suite back to normal size
 
 `java-swing-apps-oversized` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
@@ -1822,6 +2020,42 @@ For JetBrains IDEs, add to Help > Edit Custom VM Options:
 **Verify.** Relaunch the Java app. The toolbar icons and menu font are the same physical size as in your other apps, and the window fits on screen.
 
 Sources: <https://wiki.archlinux.org/title/HiDPI> · <https://github.com/basecamp/omarchy/issues/2824> · <https://github.com/basecamp/omarchy/issues/7021>
+
+---
+
+## Get KeePassXC Auto-Type working, or replace it, on Hyprland
+
+`keepassxc-auto-type-disabled-or-types-nothing-wayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** KeePassXC's Auto-Type is greyed out or the global Auto-Type shortcut does nothing. On Omarchy, Auto-Type seems to run but nothing gets typed into Chromium, Firefox or the terminal, while it does type into an X11 app or a game.
+
+**Cause.** Arch's `keepassxc` is 2.7.12, built on Qt5. KeePassXC 2.7's own documentation says Auto-Type is disabled when it runs on a Wayland compositor and only works with `QT_QPA_PLATFORM=xcb` or `-platform xcb`. Under xcb it types through X11, which only reaches XWayland windows, never native Wayland ones. The newer portal-based Auto-Type in KeePassXC's development branch needs the RemoteDesktop and GlobalShortcuts portals, and `xdg-desktop-portal-hyprland` 1.4.1 implements no RemoteDesktop portal (`/usr/share/xdg-desktop-portal/portals/hyprland.portal` lists Screenshot, ScreenCast, GlobalShortcuts and InputCapture only). On Omarchy, `qt5-wayland` is not installed and `QT_QPA_PLATFORM` is `wayland;xcb`, so KeePassXC already falls back to xcb: Auto-Type is offered but can only reach XWayland windows, and Omarchy runs browsers and terminals natively on Wayland.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Check which platform KeePassXC is on:
+
+```bash
+hyprctl clients | grep -B2 -A12 -i keepassxc | grep -E 'class|xwayland'
+# xwayland: 1  means it is on xcb
+```
+
+**For browsers**, use KeePassXC's browser integration instead of Auto-Type: Tools > Settings > Browser Integration, enable it for your browser, then install the KeePassXC-Browser extension.
+
+**For X11 targets (games, Wine, Java apps)**, force xcb so Auto-Type is enabled. On plain Arch this matters if `qt5-wayland` is installed. A user copy of the desktop entry survives package updates:
+
+```bash
+cp /usr/share/applications/org.keepassxc.KeePassXC.desktop ~/.local/share/applications/
+sed -i 's|^Exec=keepassxc|Exec=keepassxc -platform xcb|' ~/.local/share/applications/org.keepassxc.KeePassXC.desktop
+```
+
+**For native Wayland apps**, there is no working Auto-Type on Hyprland today. Copy fields instead: in KeePassXC, Ctrl+B copies the username and Ctrl+C copies the password. KeePassXC's docs name `xdg-desktop-portal-pyrtal` as an unofficial stopgap for compositors without a RemoteDesktop portal, untested here.
+
+**Verify.** With `-platform xcb`, focus an XWayland window (one showing `xwayland: 1` in `hyprctl clients`) and trigger Auto-Type: the sequence is typed. In a browser, the KeePassXC-Browser icon fills the login form.
+
+Sources: <https://github.com/keepassxreboot/keepassxc/blob/2.7.12/docs/topics/AutoType.adoc> · <https://github.com/keepassxreboot/keepassxc/blob/develop/docs/topics/AutoType.adoc> · <https://wiki.archlinux.org/title/KeePass> · <https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/252> · <https://keepassxc.org/docs/>
 
 ---
 
@@ -1876,6 +2110,123 @@ obs-cmd recording status
 **Verify.** Focus another window, press the hotkey, and OBS's recording indicator changes state.
 
 Sources: <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal>
+
+---
+
+## Fix Qt apps that refuse to start or silently fall back to XWayland
+
+`qt-app-no-qt-platform-plugin-wayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** A Qt program (TeamViewer, DaVinci Resolve, Shotcut, an AppImage) will not start:
+
+```
+qt.qpa.plugin: Could not find the Qt platform plugin "wayland" in ""
+Available platform plugins are: xcb.
+This application failed to start because no Qt platform plugin could be initialized.
+```
+
+Or, on Omarchy, the app starts but looks tiny or blurry next to everything else and `hyprctl clients` shows `xwayland: 1` for it.
+
+**Cause.** Qt picks its windowing plugin from `QT_QPA_PLATFORM`. With the value `wayland` alone, any Qt build without the Wayland plugin has nothing to fall back to and exits. Proprietary apps and AppImages bundle their own Qt, often without that plugin, so system packages cannot fix them. System Qt5 apps need `qt5-wayland` for native Wayland (Qt6's plugin is in `qt6-wayland`). Omarchy 4 sets `QT_QPA_PLATFORM` to `wayland;xcb` in `/usr/share/omarchy/default/hypr/envs.lua`, so the hard failure does not happen on stock Omarchy, but `qt5-wayland` is not installed, so every system Qt5 app silently runs on XWayland, where `force_zero_scaling` leaves it unscaled.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Plain Arch, if you exported `QT_QPA_PLATFORM=wayland`:** give it a fallback wherever you set it.
+
+```lua
+-- Hyprland 0.55+ (~/.config/hypr/hyprland.lua)
+hl.env("QT_QPA_PLATFORM", "wayland;xcb")
+```
+
+```conf
+# Hyprland 0.54 and older (hyprland.conf)
+env = QT_QPA_PLATFORM,wayland;xcb
+```
+
+**One app with a bundled Qt:** run it on XWayland explicitly.
+
+```bash
+QT_QPA_PLATFORM=xcb /path/to/app
+```
+
+To make that stick, copy its `.desktop` file into `~/.local/share/applications/` and prefix the `Exec=` command with `env QT_QPA_PLATFORM=xcb `.
+
+**System Qt5 apps (Omarchy and Arch):** install the plugin so they run natively.
+
+```bash
+sudo pacman -S --needed qt5-wayland
+```
+
+Restart the app afterwards. Bundled-Qt apps do not benefit from this.
+
+**Verify.** The app starts. `hyprctl clients | grep -B2 -A12 -i <app>` shows `xwayland: 0` for system Qt5 apps after installing `qt5-wayland`, or `xwayland: 1` where you forced xcb on purpose.
+
+Sources: <https://bbs.archlinux.org/viewtopic.php?id=284214> · <https://wiki.archlinux.org/title/Wayland> · <https://wiki.archlinux.org/title/HiDPI> · <https://archlinux.org/packages/extra/x86_64/qt5-wayland/> · <https://wiki.hypr.land/Configuring/Environment-variables/>
+
+---
+
+## Control a Hyprland desktop remotely when RustDesk cannot inject input
+
+`remote-control-apps-cannot-control-hyprland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** Incoming RustDesk sessions to my Hyprland machine fail, or show the screen but my clicks and keys do nothing. RustDesk logs: `No such interface "org.freedesktop.portal.RemoteDesktop" on object at path /org/freedesktop/portal/desktop`. Outgoing connections from this machine work.
+
+**Cause.** On Wayland, remote-control apps request input injection through the `org.freedesktop.portal.RemoteDesktop` portal. `xdg-desktop-portal-hyprland` does not implement it: its portal file (`/usr/share/xdg-desktop-portal/portals/hyprland.portal` on 1.4.1) lists only Screenshot, ScreenCast, GlobalShortcuts and InputCapture. hyprwm/xdg-desktop-portal-hyprland#252, the request for it, is open. Any remote-control app that relies on that portal for incoming control is affected the same way. The sources here cover RustDesk only.
+
+> **Audit corrected this record.** Confirmed locally that /usr/share/xdg-desktop-portal/portals/hyprland.portal on xdg-desktop-portal-hyprland 1.4.1-2 lists only Screenshot, ScreenCast, GlobalShortcuts and InputCapture, and hyprwm/xdg-desktop-portal-hyprland#252 is open. The bbs thread 299925 carries the quoted RustDesk error and is solved by pointing at #252. The hyprland-wiki virtual-gpu page lists Wayvnc. The wayvnc README confirms the default loopback listener, the SSH tunnel recommendation and the auth config keys. wayvnc 0.10.1-1 is in extra. `o.launch_on_start` in /usr/share/omarchy/default/hypr/helpers.lua wraps hl.on("hyprland.start") and hl.exec_cmd through uwsm-app, confirmed. Two defects. The AnyDesk claims (title, symptom, and 'AnyDesk's Linux client still expects X11') are supported by none of the four sources, so they are removed as fabricated precision. And /usr/share/omarchy/bin/omarchy-setup-security-sshd does not merely 'can authorize a key': it exits unless a key is authorized and then writes /etc/ssh/sshd_config.d/10-omarchy-hardening.conf disabling password and keyboard-interactive login, which a reader expecting password ssh needs to know. It also uses `ufw limit 22/tcp`. Not exercised: wayvnc was not run and no remote session was attempted.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Do not run `wayvnc 0.0.0.0` on an untrusted network without `enable_auth=true` and TLS or RSA-AES keys in `~/.config/wayvnc/config`. Anyone who reaches the port gets full control of your session. The loopback-plus-SSH setup above avoids that.
+
+**Fix.**
+
+Use `wayvnc`, a VNC server for wlroots-style compositors that creates its own virtual input devices and needs no portal. The Hyprland wiki lists it as supported.
+
+```bash
+sudo pacman -S --needed wayvnc
+```
+
+Start it **inside** the Hyprland session (a terminal on that desktop) so it inherits `WAYLAND_DISPLAY`, listening on loopback only:
+
+```bash
+wayvnc 127.0.0.1 5900
+```
+
+The viewer reaches it through an SSH tunnel, so the Hyprland machine needs an SSH server reachable from the other machine.
+
+**Omarchy 4.** The firewall denies all incoming connections by default. Omarchy's own script installs and enables sshd, opens port 22 (rate limited) and authorizes a public key from GitHub or pasted in. Run it as your user, not with sudo:
+
+```bash
+omarchy-setup-security-sshd
+```
+
+It refuses to finish without a key, and once a key is authorized it **turns password login off** by writing `/etc/ssh/sshd_config.d/10-omarchy-hardening.conf`. Have the viewing machine's public key ready before you run it.
+
+**Plain Arch.** Enable `sshd.service` and allow port 22 in whatever firewall you run.
+
+From the other machine, tunnel over SSH and point any VNC viewer at the tunnel:
+
+```bash
+ssh -L 5900:127.0.0.1:5900 you@hyprland-host
+# then connect the viewer to 127.0.0.1:5900
+```
+
+To start it with the session on Omarchy 4, add to `~/.config/hypr/autostart.lua`:
+
+```lua
+o.launch_on_start("wayvnc 127.0.0.1 5900")
+```
+
+On plain Hyprland 0.55+, use `hl.exec_cmd("wayvnc 127.0.0.1 5900")` inside a `hl.on("hyprland.start", ...)` handler instead.
+
+**Verify.** `ss -ltn | grep 5900` shows wayvnc on `127.0.0.1:5900`. Through the SSH tunnel the viewer shows the desktop and mouse and keyboard work.
+
+Sources: <https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/252> · <https://bbs.archlinux.org/viewtopic.php?id=299925> · <https://github.com/any1/wayvnc> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/extra/virtual-gpu.md>
 
 ---
 
@@ -2004,6 +2355,128 @@ Sources: <https://wiki.hypr.land/0.54.0/FAQ/> · <https://wiki.hypr.land/Useful-
 
 ---
 
+## Replace xdotool in scripts that do nothing on Hyprland
+
+`xdotool-scripts-do-nothing-on-wayland` · severity: **medium** · frequency: **common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
+
+**Symptom.** My scripts and hotkey tools that use `xdotool type`, `xdotool key` or `xdotool click` do nothing on Hyprland. They only work when an X11 app is focused. Text expanders and macro tools built on xdotool are dead in the browser and the terminal.
+
+**Cause.** `xdotool` drives the X server through XTest, and under Wayland the only X server is XWayland, so its events only reach XWayland windows. Native Wayland apps need input injected through a Wayland protocol or the kernel. `wtype` types through the Wayland virtual-keyboard protocol with no root, and Omarchy 4 installs it by default (it is in `omarchy-base.packages`). `ydotool` writes to `/dev/uinput`, so it also handles the mouse, but needs its daemon and access to that device. Omarchy does not install `ydotool`, and an Omarchy migration removes the user from the `input` group unless `ydotool` or `xpadneo-dkms` was already installed when it ran.
+
+> **Audit corrected this record.** wtype is line 140 of /usr/share/omarchy/install/omarchy-base.packages and ydotool is in neither Omarchy package list. Migration /usr/share/omarchy/migrations/1787865477.sh removes the user from `input` unless xpadneo-dkms or ydotool is installed, as the cause says. ydotool 1.0.4 ships /usr/lib/systemd/user/ydotool.service and /usr/lib/udev/rules.d/80-uinput.rules setting `GROUP="input", MODE="0660"`, and its `click` and `mousemove -x -y` help output matches the commands. Omarchy's paste script uses `wtype -M shift -k Insert -m shift`. The Arch Wayland page lists wtype and ydotool (with the ydotool.service user unit). One omission matters for the danger: on this machine the user is not in `input`, yet `getfacl /dev/uinput` shows `user:techluddite:rw-`, granted by `TAG+="uaccess"` in /usr/lib/udev/rules.d/60-steam-input.rules from steam-devices. Anyone with Steam installed already has uinput access and should not add the keylogging-capable group. Added that check to the fix. Source defect: https://wiki.hypr.land/Configuring/Dispatchers/ returns 404 and dispatchers are not what the record relies on, so it is removed. Not exercised: I did not run wtype or ydotool.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** Membership of the `input` group gives every process you run raw read and write access to `/dev/input/event*`, so any of them can log keystrokes or inject input. Omarchy's migration removed that grant for this reason. Prefer `wtype` and add the group only if you need mouse automation.
+
+**Fix.**
+
+**Keyboard: use `wtype`.**
+
+```bash
+wtype 'hello world'                    # type text
+wtype -M ctrl -k v -m ctrl             # Ctrl+V
+wtype -M shift -k Insert -m shift      # Shift+Insert (what Omarchy itself uses)
+wtype -s 200 'after 200 ms'            # sleep before typing
+```
+
+Omarchy 4 installs `wtype` by default. On plain Arch install it first with `sudo pacman -S --needed wtype`.
+
+**Mouse: use `ydotool`.**
+
+```bash
+sudo pacman -S --needed ydotool
+systemctl --user enable --now ydotool.service
+ydotool click 0xC0                      # left click (down then up)
+ydotool mousemove -x 100 -y 50          # relative move
+ydotool type 'hello'
+```
+
+The package's udev rule makes `/dev/uinput` `root:input 0660`. If `journalctl --user -u ydotool` shows ydotoold cannot open `/dev/uinput`, check access first:
+
+```bash
+ls -l /dev/uinput
+getfacl /dev/uinput
+id -nG
+```
+
+If `getfacl` already lists `user:<you>:rw-`, you have access through a `uaccess` ACL (Steam's `steam-devices` package adds one) and need nothing more. Only otherwise add yourself to `input`, then log out and back in:
+
+```bash
+sudo usermod -aG input "$USER"
+```
+
+**Verify.** Focus a native Wayland window such as the terminal, run `sleep 2; wtype test` and switch focus within two seconds: `test` appears. For ydotool, `systemctl --user is-active ydotool` prints `active` and `ydotool click 0xC0` clicks.
+
+Sources: <https://wiki.archlinux.org/title/Wayland> · <https://github.com/atx/wtype>
+
+---
+
+## Get fcitx5 input into a Qt 6 app that ships its own Qt
+
+`qt6-bundled-app-no-ime-with-qt-im-module-fcitx` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `fcitx5`, `hyprland`, `omarchy`, `qt`, `wayland`
+
+**Symptom.** Fcitx5 works in kitty, Firefox, Chromium and every Qt app from the repos, but in one app that ships its own Qt libraries (an AppImage, or a vendor binary under `/opt`) Ctrl+Space does nothing and no candidate window ever appears. You cannot type Chinese, Japanese or Korean there at all. `fcitx5-diagnose` reports nothing wrong.
+
+**Cause.** Omarchy 4 sets `QT_IM_MODULE=fcitx` for the whole session in `/usr/lib/environment.d/10-omarchy-fcitx.conf`, which the `omarchy-settings` package installs. That tells Qt to load exactly one input context plugin, the fcitx one. Qt from the repos finds it because `fcitx5-qt` installs it into the system plugin directory. An app that bundles its own Qt only searches its own plugin directory, and if the vendor did not ship `libfcitx5platforminputcontextplugin.so`, Qt loads no input method at all. It does not fall back to the Wayland `text-input` protocol, which Hyprland 0.56 implements (text-input-v3) and which needs no plugin.
+
+Qt 6.7 added `QT_IM_MODULES` (plural), a semicolon-separated list that is tried in order. Qt's `QPlatformInputContextFactory::requested()` reads `QT_IM_MODULES` first and only looks at `QT_IM_MODULE` when the plural one is empty, so setting it lets a bundled Qt fall through to `wayland` while system Qt still gets fcitx. The `wayland` module only works when the app is itself running as a Wayland client. Omarchy sets `QT_QPA_PLATFORM=wayland;xcb`, so a bundled Qt that also lacks its Wayland platform plugin runs on XWayland, and there neither `wayland` nor a missing fcitx plugin helps. The fcitx project recommends `wayland;fcitx` for Qt 6.8.2 and later, because text-input-v3 had important fixes in the 6.8 series. Qt older than 6.7 ignores the plural variable.
+
+> **Audit corrected this record.** Confirmed /usr/lib/environment.d/10-omarchy-fcitx.conf sets QT_IM_MODULE=fcitx, but it is a packaged file owned by omarchy-settings 4.0.4-1, not a copy made at install. Qt 6.8 qplatforminputcontextfactory.cpp reads QT_IM_MODULES first and falls back to QT_IM_MODULE only when it is empty, as stated. The fcitx wiki states QT_IM_MODULES arrived in 6.7, recommends wayland;fcitx for Qt 6.8.2+, and that Qt below 6.7 only speaks text-input-v2/v4. Hyprland v0.56.2 source has TextInputV1, TextInputV3 and InputMethodV2 and no V2, so the Qt 5 caveat holds. The uwsm README (0.26.7 installed) confirms it sources ~/.config/uwsm/env.d/*, and 10-omarchy names that directory as preferred. Gap: the `wayland` IM module only works when the app itself runs on the Wayland platform. Omarchy sets QT_QPA_PLATFORM=wayland;xcb, and a bundled Qt without its Wayland platform plugin (common, per the fcitx wiki) silently runs on xcb, where this fix does nothing. The fix added no check for that, so I added one. Not exercised: an actual bundled-Qt app.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+1. Confirm the app bundles Qt and lacks the fcitx plugin (adjust the path):
+
+```bash
+find /opt/<app> -name 'libQt6Core.so*' -o -name 'libfcitx5platforminputcontextplugin*' -o -name 'libqwayland*'
+```
+
+A `libQt6Core.so` with no fcitx plugin beside it is this problem. The file name of `libQt6Core.so.6.x.y` gives the Qt version.
+
+2. Confirm the app runs as a Wayland client. Start it, then:
+
+```bash
+hyprctl clients -j | jq -r '.[] | "\(.class) xwayland=\(.xwayland)"'
+```
+
+If it shows `xwayland=true` (usually because no `libqwayland*` plugin was found in step 1), this fix cannot work. The app is on XWayland with no fcitx plugin, and the only fixes are a vendor build that ships the fcitx plugin or one that ships Qt's Wayland plugin.
+
+3. Try it for one launch first:
+
+```bash
+QT_IM_MODULES='wayland;fcitx' /opt/<app>/<binary>
+```
+
+4. Make it permanent. **Omarchy 4**: Omarchy's uwsm env file (`/usr/share/uwsm/env.d/10-omarchy`) names `~/.config/uwsm/env.d/` as the preferred place for user overrides, and uwsm sources every file in it:
+
+```bash
+mkdir -p ~/.config/uwsm/env.d
+printf '%s\n' "export QT_IM_MODULES='wayland;fcitx'" > ~/.config/uwsm/env.d/20-qt-im
+```
+
+Leave Omarchy's `QT_IM_MODULE=fcitx` alone. Qt 5 apps and Qt older than 6.7 still need it.
+
+**Plain Arch with uwsm**: the same file works. Without uwsm, add `QT_IM_MODULES=wayland;fcitx` to `~/.config/environment.d/qt-im.conf`.
+
+5. Log out and back in, because the variable must reach the systemd user environment before the launcher sees it.
+
+6. If the bundled Qt is between 6.7 and 6.8.1, fcitx recommends against text-input-v3 on it. Scope the override to that app with a desktop entry instead of the session file, and accept the known preedit bugs, or ask the vendor to ship the fcitx plugin.
+
+A bundled **Qt 5** app with no fcitx plugin is not fixed by this. Qt 5 has no text-input-v3 support and Hyprland does not implement text-input-v2.
+
+**Verify.** `systemctl --user show-environment | grep QT_IM_MODULES` prints `QT_IM_MODULES=wayland;fcitx` after logging back in. In the app, Ctrl+Space switches input method and a candidate window appears while typing.
+
+Sources: <https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland> · <https://wiki.archlinux.org/title/Fcitx5> · <https://github.com/qt/qtbase/blob/6.8/src/gui/kernel/qplatforminputcontextfactory.cpp> · <https://github.com/hyprwm/Hyprland/tree/v0.56.2/src/protocols>
+
+---
+
 ## Fix screen recording producing nothing on a hybrid-GPU external monitor
 
 `screen-recording-fails-hybrid-gpu-external-monitor` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `hyprland`, `intel`, `laptop`, `nvidia`, `omarchy`, `wayland`
@@ -2056,6 +2529,143 @@ That is the workaround confirmed in the issue. The 13.0 NVENC ceiling is permane
 **Verify.** A file appears in `~/Videos` with real content, and `gpu-screen-recorder --list-capture-options` output no longer needs to contain your external connector for the recording to work (the portal target replaces it).
 
 Sources: <https://github.com/basecamp/omarchy/issues/7184> · <https://github.com/basecamp/omarchy/issues/7530> · <https://github.com/basecamp/omarchy/issues/7640>
+
+---
+
+## Fix a Steam client window that stays black or flickers
+
+`steam-client-black-or-flickering-window` · severity: **medium** · frequency: **occasional** · applies to: `amd`, `arch`, `cachyos`, `endeavouros`, `hyprland`, `intel`, `laptop`, `manjaro`, `nvidia`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** Steam opens but the window is black, or it flickers and blinks and never loads the Store or Library. Menus and dropdowns may still work. Happens on a laptop with two GPUs, or on an Intel iGPU, under Hyprland.
+
+**Cause.** The Arch wiki documents two causes. On hybrid-graphics laptops Steam's desktop entry sets `PrefersNonDefaultGPU=true`, so a launcher that honours that key (GNOME Shell, KDE Plasma, or anything using switcheroo-control) starts Steam on the discrete GPU while the session runs on the integrated one, and on Wayland the client then flickers and fails to load pages. On some Intel iGPU systems only Steam's web views fail to render on Wayland, which is fixed by turning off GPU rendering in web views. On Omarchy 4 the first cause does not come from the desktop entry: Omarchy starts apps with `uwsm-app -- gtk-launch`, and gtk-launch (GLib/GTK 3) does not read `PrefersNonDefaultGPU`, nor is switcheroo-control installed, so the web view setting is the relevant fix there.
+
+> **Audit corrected this record.** The Arch wiki Steam/Troubleshooting page supports both causes: PrefersNonDefaultGPU in the desktop entry causing flicker on Wayland with dual graphics, and the GPU web view toggle for Intel. The Omarchy claim is wrong. Omarchy launches Steam and every menu app with `uwsm-app -- gtk-launch` (omarchy-install-gaming-steam, shell/services/AppLibrary.qml line 85). On this machine neither libgio-2.0 (glib2 2.88.3) nor gtk3 3.24.52 contains the string PrefersNonDefaultGPU, and switcheroo-control is not installed, so the key is ignored on stock Omarchy. The desktop-entry edit therefore cannot change anything there. Cause and fix rewritten with labelled branches. The installed steam.desktop does carry PrefersNonDefaultGPU=true (line 37). Not exercised on hybrid hardware. Second audit confirmed the corrected text: This record's current text already carries the 2026-10-04 correction, and that correction re-confirms here, so its finding stands: on Omarchy the desktop-entry edit does nothing. The Arch wiki Steam/Troubleshooting page (raw wikitext) has both sections: 'Steam flicker/blink with black screen not loading Store/Library' blames PrefersNonDefaultGPU in the desktop entry on Wayland with dual graphics and gives the user-copy edit and the terminal bypass, and 'Black main screen on Intel iGPUs' gives the Settings > Interface web-view toggle. Confirmed on this machine: /usr/share/omarchy/bin/omarchy-install-gaming-steam launches with `uwsm-app -- gtk-launch steam`, /usr/share/omarchy/shell/services/AppLibrary.qml line 85 launches every menu app through `uwsm-app -- gtk-launch`, `strings` finds PrefersNonDefaultGPU zero times in libgio-2.0.so.0.8800.3 and libgtk-3.so.0.2420.32 (while DBusActivatable is found, so the method works), switcheroo-control is not installed, and /usr/share/applications/steam.desktop line 37 is `PrefersNonDefaultGPU=true`. The branches are labelled correctly and the commands are safe. Not exercised on hybrid hardware.
+>
+> *The Cause above was rewritten on 2026-10-04 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Intel iGPU or Omarchy 4, black web views:** Steam > Settings > Interface, turn off **Enable GPU accelerated rendering in web views**, then restart Steam. If the window is too black to reach Settings, use the tray or the menu bar over the black area if they draw.
+
+**Plain Arch desktop whose launcher honours `PrefersNonDefaultGPU` (GNOME, KDE, or switcheroo-control installed), hybrid graphics:** stop the desktop entry asking for the discrete GPU. A user copy overrides the packaged one:
+
+```bash
+cp /usr/share/applications/steam.desktop ~/.local/share/applications/
+sed -i 's/^PrefersNonDefaultGPU=.*/PrefersNonDefaultGPU=false/' ~/.local/share/applications/steam.desktop
+grep PrefersNonDefaultGPU ~/.local/share/applications/steam.desktop
+```
+
+Quit Steam completely and launch it again from the app launcher. To test before editing anything, start it from a terminal, which bypasses the desktop entry:
+
+```bash
+steam &
+```
+
+On Omarchy 4 this edit changes nothing, because its launcher (`gtk-launch`) ignores the key.
+
+**Verify.** Steam's Store and Library pages load and the window stops flickering when launched from the app launcher.
+
+Sources: <https://wiki.archlinux.org/title/Steam/Troubleshooting>
+
+---
+
+## Fix a solid black Sunshine stream on NVIDIA under Hyprland
+
+`sunshine-moonlight-stream-black-nvidia-hyprland` · severity: **medium** · frequency: **occasional** · applies to: `arch`, `hyprland`, `nvidia`, `omarchy`, `wayland`
+
+**Symptom.** Streaming my Omarchy desktop with Sunshine to Moonlight shows a black screen, or black boxes over some windows (1Password's unlock field was the first report). The Sunshine log shows `Error: [wlgrab] Could not initialize display with the given hw device type.`, `Error: Couldn't scale frame: Invalid argument` and `Info: Encoder [nvenc] failed`. NVIDIA GPU. AMD and Intel machines stream fine.
+
+**Cause.** On NVIDIA, Hyprland allocates its output buffers in NVIDIA's tiled block-linear format. Sunshine's default Wayland capture path (`wlr`, wlr-export-dmabuf / wlr-screencopy) cannot read that layout back, so it falls back to software encoding of a corrupted frame that renders black. NVFBC, NVIDIA's own capture API, does not support Wayland. KMS capture reads the framebuffer from DRM directly and works, but it needs `cap_sys_admin` on the Sunshine binary. Diagnosed in omacom/omarchy#8998. `omarchy-install-service-sunshine` on 4.0.4-1 does not set `capture = kms`, and PR #9011 to do that for NVIDIA is still open. Omarchy's sunshine package already grants the capability itself: its install scriptlet runs `setcap cap_sys_admin,cap_sys_nice+p` on every install and upgrade. Hardware NVENC is a separate gap: it needs Sunshine built with CUDA, and omacom/omarchy-pkgs#228, which would build the x86_64 package with CUDA, is still open, so the stock Omarchy package may encode in software even once KMS capture works. Forcing `AQ_NO_MODIFIERS=1` makes things worse (`Fatal: Unable to find display or encoder during startup`).
+
+> **Audit corrected this record.** omacom/omarchy#8998 (open) supports the cause, the three log lines, the AQ_NO_MODIFIERS dead end and the KMS fix. PR #9011 is open and its diff only writes `capture = kms`. /usr/share/omarchy/bin/omarchy-install-service-sunshine on 4.0.4-1 sets no capture mode, runs `systemctl --user enable --now sunshine` and appends `o.launch_on_start("sunshine")`, confirmed locally. Two claims were wrong. First, Omarchy's own sunshine package (omacom/omarchy-pkgs pkgbuilds/sunshine/sunshine.install, every revision since 2026-05-23) runs `setcap cap_sys_admin,cap_sys_nice+p` in both post_install and post_upgrade, so the capability is already present and is reapplied on every update. The record's `setcap cap_sys_admin+p` therefore replaces the packaged set and silently drops cap_sys_nice, and its 're-run after every update' advice is wrong. Second, the verify line promised `h264_nvenc`, but the issue author's own update says the package also needs a CUDA build, omarchy-pkgs#228 (open) says the builder has no CUDA toolkit so the PKGBUILD's `_use_cuda=detect` compiles without CUDA. KMS capture fixes the black picture, NVENC may still be absent. Fix, cause, verify and danger rewritten. Not exercised: sunshine is not installed here and there is no NVIDIA GPU, and the duplicate-instance behaviour from the two launch paths is inferred from the installer, not observed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+> ⚠️ **Risk.** `cap_sys_admin` is close to full root for that binary, on a program that listens on the network. Omarchy's package already grants it, and KMS capture is what makes use of it. Keep the firewall rules Omarchy's installer scoped to private ranges and Tailscale, and do not expose Sunshine's ports to the internet.
+
+**Fix.**
+
+Check that the Sunshine binary has the capability KMS capture needs. Use `readlink -f` because `setcap` does not follow symlinks:
+
+```bash
+SUN="$(readlink -f "$(command -v sunshine)")"
+getcap "$SUN"
+```
+
+**Omarchy 4.** The `sunshine` package sets this itself on install and on every upgrade, so `getcap` should print `cap_sys_admin,cap_sys_nice=p`. Do not run `setcap` with a shorter list, because it replaces the whole set and drops `cap_sys_nice`.
+
+**Plain Arch, or `getcap` printed nothing.** Set the same capabilities the package scriptlet sets:
+
+```bash
+sudo setcap cap_sys_admin,cap_sys_nice+p "$SUN"
+```
+
+Switch capture to KMS, once:
+
+```bash
+mkdir -p ~/.config/sunshine
+grep -q '^capture' ~/.config/sunshine/sunshine.conf 2>/dev/null || echo 'capture = kms' >> ~/.config/sunshine/sunshine.conf
+grep '^capture' ~/.config/sunshine/sunshine.conf
+```
+
+**Omarchy 4.** `omarchy-install-service-sunshine` both enables the `sunshine` user service and adds `o.launch_on_start("sunshine")` to `~/.config/hypr/autostart.lua`, so two copies can start at login and the old one can keep the ports and the old config. Keep the service and remove the autostart line, then restart cleanly:
+
+```bash
+sed -i '/^o.launch_on_start("sunshine")$/d' ~/.config/hypr/autostart.lua
+pgrep -a sunshine
+pkill -x sunshine
+systemctl --user restart sunshine
+pgrep -a sunshine     # exactly one process
+```
+
+**Plain Arch.** Restart however you start it, for example `systemctl --user restart sunshine`.
+
+If `getcap` comes back empty after a Sunshine update (a self-built or AUR binary whose scriptlet did not run), repeat the `setcap` line.
+
+The picture should now stream. Hardware NVENC is a separate matter: it needs a Sunshine build with CUDA. On Omarchy that depends on omacom/omarchy-pkgs#228, which is still open, so a software encoder in the log is expected with the stock package.
+
+**Verify.** `journalctl --user -u sunshine -n 50` shows `Screencasting with KMS`, and Moonlight shows the desktop, not black. `Found H.264 encoder: h264_nvenc [nvenc]` appears only if your Sunshine build includes CUDA. With the stock Omarchy package a software encoder is expected until omacom/omarchy-pkgs#228 lands.
+
+Sources: <https://github.com/omacom/omarchy/issues/8998> · <https://github.com/omacom/omarchy/pull/9011> · <https://github.com/omacom/omarchy-pkgs/pull/228> · <https://github.com/omacom/omarchy-pkgs/blob/main/pkgbuilds/sunshine/sunshine.install> · <https://github.com/omacom/omarchy-pkgs/blob/main/pkgbuilds/sunshine/PKGBUILD>
+
+---
+
+## Recover screen sharing that stopped working in every app at once
+
+`screen-share-dead-in-every-app-picker-stuck` · severity: **medium** · frequency: **rare** · applies to: `arch`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** Screen sharing suddenly fails everywhere: Share in Meet, Discord or OBS does nothing and no picker appears. `journalctl --user -u xdg-desktop-portal` repeats `Failed to close session implementation: Timeout was reached`. It started after the monitor was powered off and the session was locked while something (often a remote-desktop client reconnecting) asked to share the screen.
+
+**Cause.** `xdg-desktop-portal-hyprland` runs the share picker synchronously, with no timeout, and is single-threaded. If a ScreenCast request needs the picker at a moment nobody can answer it, the picker process never exits and the whole portal stops serving every other client until it is restarted. The case observed in hyprwm/xdg-desktop-portal-hyprland#437 (xdph 1.4.1, Hyprland 0.56.2, open) is a monitor powered off, which on DisplayPort is a hot-unplug so Hyprland replaces the output with `FALLBACK`, combined with a locked session. A client's restore token still names the old output, so xdph discards it and prompts, and the picker cannot be seen or used. The report's author did not test a locked session with the monitor still on. The report used `hyprland-share-picker`. Omarchy 4 points `custom_picker_binary` at `hyprland-preview-share-picker`, which xdph launches the same way, so it is likely affected the same way, but that was not exercised.
+
+> **Audit corrected this record.** Read hyprwm/xdg-desktop-portal-hyprland#437 in full (open). It supports runSync with no timeout, the single-threaded wedge, the `Failed to close session implementation: Timeout was reached` log, the FALLBACK output and restore-token mechanism, and the custom_picker_binary workaround. Confirmed locally that xdg-desktop-portal-hyprland.service exists as a user unit, xdph is 1.4.1-2, and Omarchy's /usr/share/omarchy/config/hypr/xdph.conf sets `custom_picker_binary = hyprland-preview-share-picker` (package hyprland-preview-share-picker 0.2.1-1), and `pgrep -f share-picker` matches both picker names. One overstatement: the record presents a locked session OR no powered output as independent triggers. The issue observed only the combination, a monitor power-off that is a DisplayPort hot-unplug (not DPMS) with the session locked, and its author says explicitly that the locked-with-monitor-on case was not tested. Cause and symptom narrowed to what was observed. Fix and verify kept. Not exercised: no wedge was reproduced here.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Look for a picker that has outlived its request, kill it, and restart the portal backend:
+
+```bash
+pgrep -af share-picker
+pkill -f share-picker
+systemctl --user restart xdg-desktop-portal-hyprland
+```
+
+Then start the share again from the app.
+
+To stop it recurring, close or pause remote-desktop and other screencast clients (RustDesk, OBS with a portal source) before locking the screen or switching the monitor off. The issue also describes a `custom_picker_binary` wrapper that answers without a GUI when no output is connected, set in `~/.config/hypr/xdph.conf`, which is only worth building for an unattended machine.
+
+**Verify.** `pgrep -af share-picker` prints nothing before you start a share, and clicking Share now opens the picker.
+
+Sources: <https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/437>
 
 ---
 
@@ -2143,6 +2753,62 @@ busctl --user call org.freedesktop.portal.Desktop /org/freedesktop/portal/deskto
 Then open Nautilus or GNOME Text Editor. It should be dark, and should follow a live `gsettings set ... color-scheme` change without restarting.
 
 Sources: <https://wiki.archlinux.org/title/Dark_mode_switching> · <https://wiki.archlinux.org/title/XDG_Desktop_Portal> · <https://github.com/CachyOS/cachyos-niri-noctalia/issues/4> · <https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/>
+
+---
+
+## Get Neovim and tmux copies onto the Wayland clipboard
+
+`neovim-tmux-yank-not-reaching-system-clipboard-wayland` · severity: **low** · frequency: **very-common** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`
+
+**Symptom.** Yanking with `"+y` in Neovim gives `clipboard: No provider. Try ":checkhealth" or ":h clipboard".` Or it works in a plain terminal but not inside tmux or over SSH. Copying in tmux copy mode only fills tmux's own buffer and Ctrl+V in other apps pastes something older.
+
+**Cause.** Neovim has no clipboard of its own. It looks for a tool in priority order: `wl-copy`/`wl-paste` only if `$WAYLAND_DISPLAY` is set, then a `tmux` provider if `$TMUX` is set, then OSC 52 if the terminal's support is detected. Without `wl-clipboard`, or over SSH where `WAYLAND_DISPLAY` is missing and OSC 52 detection fails, there is no provider and `"+y` errors. Inside tmux Neovim does not error: with `WAYLAND_DISPLAY` missing from the tmux server's environment (a server started from SSH or by a systemd user unit) it uses the tmux provider, which stores the text in a tmux buffer, and on tmux 3.2+ asks tmux to pass it on to the terminal. That only reaches the system clipboard if tmux forwards it with OSC 52, which needs `set-clipboard` not `off` and a terminal tmux knows can take the clipboard sequence. tmux copy mode works the same way: text stays in tmux's buffers unless `set-clipboard` sends it out through OSC 52 or a `copy-pipe` command runs a copy tool. Omarchy 4 ships `wl-clipboard` and a tmux config with both `set -g set-clipboard on` and `set -as terminal-features ",*:clipboard"`, so on Omarchy this mostly appears over SSH or in a tmux server without the session environment.
+
+> **Audit corrected this record.** Neovim's provider.txt confirms wl-copy is used only when $WAYLAND_DISPLAY is set, that tmux can hide OSC 52 detection, and the `vim.g.clipboard = 'osc52'` form. But the same priority list puts a `tmux` provider (used when $TMUX is set) ahead of osc52, and runtime/autoload/provider/clipboard.vim copies with `tmux load-buffer -w -` on tmux 3.2+. So inside tmux Neovim never reports 'No provider': the yank goes to a tmux buffer and reaches the system clipboard only if tmux forwards it with OSC 52. The record's cause said the opposite and is rewritten. tmux.1 confirms `set-clipboard on|external|off` needs the terminal's Ms capability and that `copy-command` feeds a bare `copy-pipe`. Omarchy's /usr/share/omarchy/config/tmux/tmux.conf has `set -g set-clipboard on` (line 74) and also `set -as terminal-features ",*:clipboard"` (line 81), and the plain-Arch branch omitted that second line, without which tmux may not forward to a terminal whose terminfo lacks Ms. Confirmed nvim, tmux and wl-clipboard are in /usr/share/omarchy/install/omarchy-base.packages, tmux 3.7c and neovim 0.12.5 installed. Not exercised over SSH.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**Install the tool (plain Arch).** Omarchy already has it.
+
+```bash
+sudo pacman -S --needed wl-clipboard
+```
+
+Inside Neovim, `:checkhealth provider` names the clipboard tool it found (`wl-copy`, `tmux` or `osc52`). Check the environment where Neovim runs:
+
+```bash
+echo "$WAYLAND_DISPLAY"    # empty inside the tmux server or over SSH = no wl-copy provider
+```
+
+**When `WAYLAND_DISPLAY` cannot be set (SSH, detached tmux)**, use OSC 52 through the terminal. In `~/.config/nvim/init.lua`:
+
+```lua
+vim.g.clipboard = 'osc52'
+```
+
+**tmux on plain Arch** (tmux 3.2+). Either let OSC 52 through, as Omarchy's config does with both of these lines:
+
+```tmux
+set -g set-clipboard on
+set -as terminal-features ",*:clipboard"
+```
+
+or pipe copy mode into `wl-copy` explicitly:
+
+```tmux
+set -s copy-command 'wl-copy'
+bind -T copy-mode-vi y send -X copy-pipe-and-cancel
+```
+
+Reload with `tmux source-file ~/.config/tmux/tmux.conf` (or `~/.tmux.conf`). If the tmux server was started before you logged into Hyprland, `tmux kill-server` and start it again from a terminal inside the session, so the server and everything in it has `WAYLAND_DISPLAY`.
+
+**Verify.** Yank a line with `"+yy` in Neovim, then run `wl-paste` in another terminal on the desktop: the line prints. For tmux, copy in copy mode and paste with Ctrl+V into a browser.
+
+Sources: <https://wiki.archlinux.org/title/Neovim> · <https://raw.githubusercontent.com/neovim/neovim/master/runtime/doc/provider.txt> · <https://raw.githubusercontent.com/neovim/neovim/master/src/nvim/clipboard.c> · <https://raw.githubusercontent.com/tmux/tmux/master/tmux.1> · <https://raw.githubusercontent.com/neovim/neovim/master/runtime/autoload/provider/clipboard.vim>
 
 ---
 
@@ -2243,6 +2909,66 @@ Sources: <https://wiki.hypr.land/Hypr-Ecosystem/hyprcursor/> · <https://wiki.hy
 
 ---
 
+## Fix an Electron app stuck on XWayland because of an old flags file
+
+`electron-stale-flags-file-forces-xwayland` · severity: **low** · frequency: **common** · applies to: `arch`, `electron`, `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** VS Code, Obsidian, Signal or Vesktop is blurry on a fractionally scaled monitor while everything else is sharp, and `hyprctl clients` shows `xwayland: 1` for it. Omarchy already exports `ELECTRON_OZONE_PLATFORM_HINT=wayland`, so the app should be native. Exporting the variable again, or adding `--ozone-platform-hint=wayland` to a flags file, changes nothing. Sometimes the reverse: a flag you put in `~/.config/electron-flags.conf` used to work and silently stopped after an update.
+
+**Cause.** Electron 38 removed both the `ELECTRON_OZONE_PLATFORM_HINT` environment variable and the `--ozone-platform-hint` switch, and changed the default of `--ozone-platform` to `auto`, so Electron 38.2 and later run natively on Wayland whenever `XDG_SESSION_TYPE=wayland` with no help at all. On a current app the hint Omarchy exports is simply ignored. An app that is still on XWayland is therefore almost always being handed an explicit `--ozone-platform=x11`, and the usual source is a flags file written months ago as a workaround (this corpus's own `electron-app-no-window-ozone-wayland` record suggests exactly that line for one app).
+
+Arch's `electron*` wrapper decides which file to read in a way that is easy to trip over. `/usr/bin/electron43` reads `~/.config/electron43-flags.conf` if it exists and falls back to `~/.config/electron-flags.conf` only when the versioned file is absent. So one `--ozone-platform=x11` line in the shared file pushes every Arch-packaged Electron app without a versioned file onto XWayland, and creating a versioned file for one reason silently drops everything in the shared file. Some packages read their own file first: Obsidian's `/usr/bin/obsidian` reads `~/.config/obsidian/user-flags.conf`, `code` and `visual-studio-code-bin` read `~/.config/code-flags.conf`, the AUR `spotify` wrapper reads `~/.config/spotify-flags.conf`. Apps that bundle their own Electron (Discord, Slack) read none of these.
+
+> **Audit corrected this record.** Read /usr/bin/electron43 on this machine: it reads ~/.config/electron43-flags.conf and falls back to ~/.config/electron-flags.conf only when the versioned file is absent, one argv element per line via mapfile, exactly as the record says. /usr/bin/obsidian reads ~/.config/obsidian/user-flags.conf and execs electron43, so both files apply. Electron's breaking-changes.md (38.0) confirms ELECTRON_OZONE_PLATFORM_HINT removed and --ozone-platform defaulting to auto, and the Arch Electron wiki marks --ozone-platform-hint removed in 38 and the Wayland wiki says 38.2 uses Wayland by default. The Visual Studio Code wiki confirms code-flags.conf for code and visual-studio-code-bin. envs.lua does export ELECTRON_OZONE_PLATFORM_HINT=wayland. The one defect is the verify step: the wrapper execs /usr/lib/electron43/electron, so the process name is `electron`, and `ps -C electron43` matches nothing and would falsely reassure. Not exercised: launching an Electron app.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+1. Find out which apps are on XWayland and which Electron each one uses:
+
+```bash
+hyprctl clients -j | jq -r '.[] | select(.xwayland) | .class'
+pacman -Qi obsidian code signal-desktop 2>/dev/null | grep -E '^(Name|Depends On)'
+```
+
+A dependency like `electron43` means the app runs through `/usr/bin/electron43`.
+
+2. Look at every flags file that could be feeding it, including comments:
+
+```bash
+ls -l ~/.config/*-flags.conf ~/.config/*/user-flags.conf 2>/dev/null
+grep -Hn 'ozone' ~/.config/*-flags.conf ~/.config/*/user-flags.conf 2>/dev/null
+```
+
+3. Delete any `--ozone-platform=x11` line you no longer need, and delete `--ozone-platform-hint=...` lines too, since Electron 38 and later ignore them. If an app genuinely needs X11, keep the x11 line only in that app's own file, never in `~/.config/electron-flags.conf`.
+
+4. Remember the fallback rule. If `~/.config/electron43-flags.conf` exists, `~/.config/electron-flags.conf` is not read at all for Electron 43 apps. Copy any shared lines you still want into the versioned file:
+
+```bash
+cat ~/.config/electron-flags.conf >> ~/.config/electron43-flags.conf   # only if you want them there
+```
+
+The files take one flag per line. Lines are not split on spaces.
+
+5. For an Electron older than 38.2 (check with step 1), Wayland is not the default. Put the explicit switch in that app's flags file:
+
+```
+--ozone-platform=wayland
+```
+
+6. Quit the app completely (check `pgrep -a <name>`) and start it again. The platform is chosen at process start.
+
+**Omarchy 4 and plain Arch** behave the same here. The only Omarchy difference is that the hint variable is already exported in `/usr/share/omarchy/default/hypr/envs.lua`, which matters only for apps on Electron older than 38.
+
+**Verify.** Start the app from the launcher and run `hyprctl clients -j | jq -r '.[] | select(.class|test("obsidian";"i")) | .xwayland'` (substitute the class). It should print `false`. `pgrep -af -- '--ozone-platform=x11'` should print nothing for that app. The Arch wrapper execs `/usr/lib/electron43/electron`, so search by argument, not by the name `electron43`.
+
+Sources: <https://wiki.archlinux.org/title/Electron> · <https://wiki.archlinux.org/title/Wayland> · <https://wiki.archlinux.org/title/Visual_Studio_Code> · <https://github.com/electron/electron/blob/main/docs/breaking-changes.md> · <https://www.electronjs.org/blog/tech-talk-wayland>
+
+---
+
 ## Flatpak apps run under XWayland: blurry, wrongly scaled, deaf to session env vars
 
 `flatpak-app-silently-runs-under-xwayland` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `laptop`, `manjaro`, `omarchy`
@@ -2336,6 +3062,38 @@ flatpak install flathub com.github.tchx84.Flatseal
 **Verify.** `hyprctl clients | grep -A8 <class>` reports `xwayland: 0` for the Flatpak window, and the window is sharp at your display scale. `flatpak override --user --show <app-id>` lists the env entries you set.
 
 Sources: <https://wiki.archlinux.org/title/Flatpak> · <https://wiki.archlinux.org/title/Wayland> · <https://wiki.archlinux.org/title/Electron> · <https://docs.flatpak.org/en/latest/desktop-integration.html>
+
+---
+
+## Stop the mouse leaving a fullscreen game onto the other monitor
+
+`game-mouse-cursor-escapes-to-second-monitor` · severity: **low** · frequency: **common** · applies to: `arch`, `cachyos`, `desktop`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** In a fullscreen game on a dual-monitor setup, the mouse slides off the edge onto my second screen. Clicking there minimises focus or drops me out of the game. Some games lock the cursor fine, others never do.
+
+**Cause.** Locking the pointer is up to the game, through the Wayland pointer-constraints protocol or the X11 grab that XWayland translates. Some games, and many running under XWayland, never request or keep a lock. Hyprland can enforce one from its side with the `confine_pointer` window rule, which locks the cursor to the window.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Hyprland's own FAQ rule, which confines every fullscreen window that reports content type `game`. Add to `~/.config/hypr/hyprland.lua` (Hyprland 0.55+, Omarchy 4 and current Arch):
+
+```lua
+hl.window_rule({ match = { content = "game", fullscreen = true }, confine_pointer = true })
+```
+
+Many games do not report a content type, so also match by class (find it with `hyprctl clients`):
+
+```lua
+hl.window_rule({ match = { class = "^steam_app_.*", fullscreen = true }, confine_pointer = true })
+```
+
+Reload Hyprland from a keybind or with `hyprctl reload`, then restart the game.
+
+**Verify.** In the fullscreen game, push the mouse hard against the edge facing the second monitor: the cursor stays inside the game. Super+Tab or a workspace keybind still switches away.
+
+Sources: <https://wiki.hypr.land/FAQ/> · <https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/rules/window-rules.md>
 
 ---
 
@@ -2535,6 +3293,293 @@ modinfo v4l2loopback | head -3
 ```
 
 Sources: <https://wiki.archlinux.org/title/V4l2loopback> · <https://wiki.archlinux.org/title/Open_Broadcaster_Software> · <https://archlinux.org/packages/extra/any/v4l2loopback-dkms/> · <https://archlinux.org/packages/extra/any/v4l2loopback-utils/> · <https://github.com/umlaeute/v4l2loopback>
+
+---
+
+## Fix 'Command "-disable-gpu" not found' from the Obsidian CLI on Omarchy
+
+`obsidian-cli-fails-single-dash-disable-gpu` · severity: **low** · frequency: **common** · applies to: `electron`, `omarchy`
+
+**Symptom.** Every Obsidian command-line call fails on a stock Omarchy install. `obsidian --version` prints `Error: Command "-disable-gpu" not found. It may require a plugin to be enabled.` The desktop app itself opens normally.
+
+**Cause.** Omarchy seeds `~/.config/obsidian/user-flags.conf` from `/usr/share/omarchy/config/obsidian/user-flags.conf`, which on 4.0.4 and on the current `quattro` branch contains `-disable-gpu` with one dash and `--enable-wayland-ime`. Arch's `/usr/bin/obsidian` wrapper appends every non-comment line of that file to the command after `app.asar`, so the stray token reaches Obsidian's own argument handling, which treats a single-dash word as a CLI command and fails to find it. Chromium itself accepts both `--` and `-` as switch prefixes on Linux (`kSwitchPrefixes` in `base/command_line.cc`), so the GPU was most likely being disabled as intended. The harm is to Obsidian's CLI, not the renderer.
+
+> **Audit corrected this record.** Confirmed on this machine and on quattro: /usr/share/omarchy/config/obsidian/user-flags.conf contains `-disable-gpu` and `--enable-wayland-ime`, and ~/.config/obsidian/user-flags.conf is identical. /usr/bin/obsidian (obsidian 1.13.7-2) appends non-comment lines after app.asar and execs electron43. Chromium base/command_line.cc kSwitchPrefixes on POSIX is {"--", "-"}, as claimed. Issue 8538 is open and quotes the exact error. The defect: #9781 is an open issue, not a pull request (the GitHub API reports no pull_request), so "a fix proposed in #9781. Until it merges" describes something that does not exist. Fix text corrected to say so. Not exercised: running obsidian --version.
+>
+> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Correct the prefix in your copy:
+
+```bash
+sed -i 's/^-disable-gpu$/--disable-gpu/' ~/.config/obsidian/user-flags.conf
+cat ~/.config/obsidian/user-flags.conf
+```
+
+The file should now read:
+
+```
+# Obsidian reads this file through the Arch package wrapper.
+--disable-gpu
+--enable-wayland-ime
+```
+
+If you would rather have GPU acceleration, delete the `--disable-gpu` line instead. Omarchy ships it disabled on purpose, so watch for rendering problems if you do.
+
+This is reported upstream as omarchy#8538 and again in omarchy#9781. Both issues were open on 2026-10-05, and the `quattro` branch and 4.0.4 still ship the single-dash line, so a fresh install or a re-seeded config brings the typo back.
+
+**Plain Arch** does not ship this file. It applies only where Omarchy created it.
+
+**Verify.** `obsidian --version` prints a version instead of the error. `grep -n disable-gpu ~/.config/obsidian/user-flags.conf` shows `--disable-gpu` or nothing.
+
+Sources: <https://github.com/omacom/omarchy/issues/8538> · <https://github.com/omacom/omarchy/issues/9781> · <https://chromium.googlesource.com/chromium/src/+/refs/heads/main/base/command_line.cc>
+
+---
+
+## Fix Spotify drawing at double size or cut off on a 1x monitor
+
+`spotify-oversized-or-clipped-on-xwayland` · severity: **low** · frequency: **common** · applies to: `arch`, `hidpi`, `hyprland`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** Spotify opens with everything twice as large, or only the top-left quarter of its interface is drawn and the rest is cut off at the window edge. On a laptop with an external monitor it is right on one screen and wrong on the other. `hyprctl clients -j` shows `"xwayland": true` for it. A flag added to `~/.config/spotify-flags.conf` seems to have no effect.
+
+**Cause.** Spotify is a CEF (Chromium Embedded Framework) app and on Omarchy it runs under XWayland (issue omarchy#11175 shows its GPU process with `--ozone-platform=x11`). Omarchy sets `xwayland.force_zero_scaling = true` and seeds `~/.config/hypr/monitors.lua` with `local omarchy_gdk_scale = 2`, while the monitor scale is computed separately. When the monitor resolves to scale 1, the compositor does not scale XWayland clients and `GDK_SCALE=2` tells CEF to draw at 2x, so the UI is oversized, and reporters on omarchy#11175 also saw the surface allocated at 2x inside a 1x window, which clips it. XWayland has one global scale, so on mixed-DPI setups no value is right for every screen. Omarchy installs the `spotify` package from its own `omarchy` repository, which ships the AUR wrapper `/usr/bin/spotify`. That wrapper reads `~/.config/spotify-flags.conf` with `mapfile`, one argv element per line, so two flags on one line arrive as a single argument that Chromium ignores (omarchy#7153). Omarchy's Super+Shift+M runs `omarchy-launch-spotify`, which starts `/usr/bin/spotify` directly and does not read any `.desktop` file.
+
+> **Audit corrected this record.** Issues 11175 and 7153 support the mechanism: 11175's body and a comment from a 4.0.4-1 user describe GDK_SCALE=2 against a 1x monitor scale with force_zero_scaling, the top-left-quadrant clipping, and the `env -u GDK_SCALE spotify --force-device-scale-factor=1` desktop entry. 7153 documents the mapfile one-arg-per-line trap, and the AUR spotify.sh is byte-identical to /usr/bin/spotify here. monitors.lua does seed `local omarchy_gdk_scale = 2`. Two defects. First, Omarchy's Super+Shift+M binding runs omarchy-launch-spotify, which execs /usr/bin/spotify directly through uwsm-app and never reads a .desktop file, so both desktop-entry fixes do nothing for the main way Omarchy users open Spotify. Second, Spotify comes from the `omarchy` repository (pacman -Si shows Repository: omarchy, installed by omarchy-install-service-spotify via omarchy-pkg-add), not the AUR, though it carries the AUR wrapper. The Arch wiki also documents --force-device-scale-factor in spotify-flags.conf, which reaches every launch path. Not exercised: running Spotify.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Put flags in `~/.config/spotify-flags.conf`, one per line. That file is read by `/usr/bin/spotify` on every launch path, including Omarchy's Super+Shift+M (`omarchy-launch-spotify`), which bypasses desktop entries.
+
+**Option 1, run Spotify natively on Wayland** (per-monitor scaling, the better fix on mixed DPI), as tested on omarchy#11175:
+
+```bash
+printf '%s\n' '--ozone-platform=wayland' >> ~/.config/spotify-flags.conf
+```
+
+The Arch wiki notes that some Spotify builds also need `DISPLAY` unset to come up on Wayland. If it still starts on XWayland, test once from a terminal with `env -u DISPLAY spotify`. To make that stick for launcher starts, use a desktop entry:
+
+```bash
+cp /usr/share/applications/spotify.desktop ~/.local/share/applications/
+sed -i 's|^Exec=spotify|Exec=env -u DISPLAY spotify|' ~/.local/share/applications/spotify.desktop
+```
+
+That entry does not affect Super+Shift+M. For the keybinding, rebind it in `~/.config/hypr/bindings.lua` to run `env -u DISPLAY spotify` instead.
+
+On Wayland the window class changes from `Spotify` to `spotify`, so any of your own window rules that match the capitalised class need updating. Omarchy's `omarchy-launch-spotify` matches case-insensitively and is unaffected.
+
+**Option 2, stay on XWayland but stop the 2x.** Pin CEF's scale in the flags file, which covers every launch path:
+
+```bash
+printf '%s\n' '--force-device-scale-factor=1' >> ~/.config/spotify-flags.conf
+```
+
+Use the factor that matches your monitor scale. The tested fix on omarchy#11175 also strips `GDK_SCALE` for Spotify only. That cannot go in the flags file, so it needs a desktop entry (launcher starts only):
+
+```ini
+# ~/.local/share/applications/spotify.desktop, Exec line
+Exec=env -u GDK_SCALE spotify --force-device-scale-factor=1 --uri=%u
+```
+
+This keeps `GDK_SCALE=2` for GTK apps that want it.
+
+With `spotify-launcher` instead of the `spotify` package, flags go in `~/.config/spotify-launcher.conf` under `extra_arguments`, not in `spotify-flags.conf`.
+
+Quit Spotify fully (it keeps running in the tray) and start it again.
+
+**Verify.** Start Spotify with Super+Shift+M. `hyprctl clients -j | jq -r '.[] | select(.class|test("spotify";"i")) | "\(.xwayland) \(.size)"'` shows `false` for option 1. The whole interface fits the window in either option. `spotify` started from a terminal prints `User flags:` followed by your flags, each as a separate word.
+
+Sources: <https://github.com/omacom/omarchy/issues/11175> · <https://github.com/omacom/omarchy/issues/7153> · <https://wiki.archlinux.org/title/Spotify> · <https://aur.archlinux.org/cgit/aur.git/plain/spotify.sh?h=spotify>
+
+---
+
+## Fix JetBrains IDE popups that close or lose focus when the mouse moves
+
+`jetbrains-popups-close-or-lose-focus-hyprland` · severity: **low** · frequency: **occasional** · applies to: `arch`, `hyprland`, `java`, `jetbrains`, `omarchy`, `wayland`
+
+**Symptom.** In IntelliJ IDEA, Rider, GoLand or another JetBrains IDE on Hyprland, the Find in Files popup closes as soon as the mouse leaves it, or Go to Line loses keyboard focus unless the pointer is over it. Search Everywhere behaves differently from both. Hovering the main editor window no longer focuses it.
+
+**Cause.** Omarchy's default `input.follow_mouse` focuses whatever is under the pointer, and JetBrains popups are separate windows, so moving the mouse off a popup takes focus away and some popups close when they lose focus. Omarchy ships `/usr/share/omarchy/default/hypr/apps/jetbrains.lua` with `no_follow_mouse = true` for every `jetbrains-*` class to stop that, which also stops the main IDE window from taking focus on hover. Separately, IntelliJ-based IDEs 2026.1 and later run natively on Wayland by default (the launcher passes `-Dawt.toolkit.name=auto`, which becomes `WLToolkit` when a Wayland display is available), and in that mode some popups are no longer separate windows. Reports on omarchy#7454 disagree on which setting behaves better with current IDEs, and one reporter fixed their case by turning the Omarchy rule off. Confidence in which popup breaks under which combination is low. The two settings below are what can actually be changed.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+1. Check which toolkit the IDE uses: Help, About, Copy and Close, then paste. The text includes `Toolkit: sun.awt.wl.WLToolkit` (native Wayland) or the X toolkit. Or:
+
+```bash
+hyprctl clients -j | jq -r '.[] | select(.class|test("^jetbrains-")) | "\(.class) xwayland=\(.xwayland)"'
+```
+
+2. **If the IDE is on Wayland (2026.1 or later) and popups misbehave**, try turning Omarchy's rule off for it. Rules are processed top to bottom and the last match wins, so append to the bottom of `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.window_rule({ match = { class = "^(jetbrains-.*)$" }, no_follow_mouse = false })
+```
+
+Save, restart the IDE, and test the popups that failed.
+
+3. **If that is worse, or the IDE is older than 2026.1**, keep Omarchy's rule (remove the line above) and, if popups still break, move the IDE to X11, which JetBrains documents as the supported fallback. Help, Edit Custom VM Options, add:
+
+```
+-Dawt.toolkit.name=XToolkit
+```
+
+and restart the IDE. Under XWayland the gray-window and scaling records (`java-gray-window-nonreparenting`, `gdk-scale-mismatch-oversized-xwayland`) apply.
+
+4. To go the other way on an older IDE, `-Dawt.toolkit.name=WLToolkit` enables native Wayland manually. Other Java apps have no WLToolkit unless you run them on an OpenJDK Wakefield build, which the Arch wiki describes.
+
+If no combination works, report it to JetBrains YouTrack with the toolkit line from step 1.
+
+**Verify.** Open Find in Files (Ctrl+Shift+F), move the mouse to the editor and back, and type. The popup should stay open and keep its input. `hyprctl clients -j` shows the IDE's `xwayland` value matching the toolkit you chose.
+
+Sources: <https://github.com/omacom/omarchy/issues/7454> · <https://github.com/omacom/omarchy/pull/5183> · <https://blog.jetbrains.com/platform/2026/02/wayland-by-default-in-2026-1-eap/> · <https://wiki.hypr.land/Configuring/Window-Rules/> · <https://wiki.archlinux.org/title/Wayland>
+
+---
+
+## Fix LibreOffice scroll lag and wrong sizing on a second monitor
+
+`libreoffice-scroll-lag-or-wrong-scale-wayland` · severity: **low** · frequency: **occasional** · applies to: `arch`, `cachyos`, `endeavouros`, `hyprland`, `manjaro`, `omarchy`, `wayland`, `xwayland`
+
+**Symptom.** LibreOffice scrolls in jerks with big lag spikes when I scroll a document quickly. On a laptop plus external monitor with different scaling, the LibreOffice window is the wrong size on one of them or dialogs are oversized. Uncommenting `SAL_USE_VCLPLUGIN` in `/etc/profile.d/libreoffice-fresh.sh` as guides say changed nothing.
+
+**Cause.** Two separate problems. Scroll lag: the Arch wiki records lag spikes with LibreOffice's `qt6` VCL backend on Wayland, and LibreOffice bug 152911, scroll lag that some users also see with `gtk3`. On Hyprland LibreOffice does not pick qt6 by itself: its autodetection (`vcl/source/app/salplug.cxx`) prefers KDE backends only on Plasma and LXQt and otherwise tries `gtk3` first, so qt6 is in use only if someone set `SAL_USE_VCLPLUGIN=qt6`. Mixed scaling: per-monitor scaling with different factors is broken by LibreOffice bug 141578, and the wiki's workaround is to run it on XWayland. On Omarchy 4 XWayland is not a full fix, because `xwayland.force_zero_scaling = true` leaves XWayland apps unscaled by the compositor and GTK on X11 uses the single session-wide `GDK_SCALE` from `~/.config/hypr/monitors.lua`, so one global factor applies to every monitor. The `/etc/profile.d` route does nothing on Omarchy 4 because the session is started by UWSM, which does not source `/etc/profile.d` (stated in `/usr/share/uwsm/env.d/10-omarchy`, which sources `~/.config/uwsm/default` instead).
+
+> **Audit corrected this record.** The wiki claims are quoted correctly (qt6 lag spikes, gtk3 mostly stable, bug 141578, WAYLAND_DISPLAY= workaround) and the UWSM claim holds: /usr/share/uwsm/env.d/10-omarchy says UWSM does not source /etc/profile.d and sources ~/.config/uwsm/default. But LibreOffice's own salplug.cxx autodetect_plugin_list() only prefers kf5/kf6 on Plasma and LXQt and otherwise tries gtk3 first, so on Hyprland LibreOffice already runs gtk3 unless the user forced qt6. The record presents gtk3 as the fix for lag the default config cannot have, so a user already on gtk3 is told to change nothing useful. The same wiki page documents bug 152911, lag that persists on gtk3, worked around with GDK_BACKEND=x11, which the fix omitted. The XWayland branch also ignores Omarchy specifics: with xwayland.force_zero_scaling = true and GDK_SCALE seeded by ~/.config/hypr/monitors.lua, an XWayland LibreOffice gets one global scale, so on mixed monitors it is still wrong on one of them. The wrapper path is sound: /usr/bin/libreoffice is a symlink to soffice, desktop entries call `libreoffice`, and the session PATH has /usr/local/bin ahead of /usr/bin. Not exercised: launching LibreOffice, and whether GDK_SCALE fully governs gtk3 VCL scaling on X11 is not confirmed.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+**1. Check which backend LibreOffice is using.** Help > About shows a `VCL:` line.
+
+**2. Scroll lag with `VCL: qt6`: force the GTK3 backend.**
+
+Omarchy 4, in `~/.config/uwsm/default` (sourced at login by `/usr/share/uwsm/env.d/10-omarchy`):
+
+```bash
+export SAL_USE_VCLPLUGIN=gtk3
+```
+
+Plain Arch with a login shell or display manager that reads `/etc/profile.d`: uncomment the same line in `/etc/profile.d/libreoffice-fresh.sh` (or `libreoffice-still.sh`).
+
+Log out and back in either way. If something you set earlier forces qt6, remove it rather than stacking a second export.
+
+**3. Scroll lag with `VCL: gtk3` already (the Hyprland default):** this is LibreOffice bug 152911, and the wiki's workaround is running the GTK backend on X11. Test it:
+
+```bash
+GDK_BACKEND=x11 libreoffice
+```
+
+**4. Mixed-scale monitors: run LibreOffice on XWayland.** Test it:
+
+```bash
+WAYLAND_DISPLAY= libreoffice
+```
+
+On Omarchy 4 an XWayland window gets one scale on every monitor, taken from `GDK_SCALE` (set in `~/.config/hypr/monitors.lua`), because Omarchy turns on `xwayland.force_zero_scaling`. Pick the value for the monitor you use LibreOffice on most, for example `WAYLAND_DISPLAY= GDK_SCALE=1 libreoffice` for a 1x external screen. On plain Arch without `force_zero_scaling` the compositor scales the window instead, and it may look blurry on the higher-scale monitor.
+
+To apply it to every launch including the desktop entries, put a wrapper earlier in `PATH` than `/usr/bin`, calling the real binary by full path (add `GDK_SCALE=1` after `WAYLAND_DISPLAY=` if you chose a fixed scale):
+
+```bash
+sudo tee /usr/local/bin/libreoffice >/dev/null <<'EOF'
+#!/bin/sh
+exec env WAYLAND_DISPLAY= /usr/bin/libreoffice "$@"
+EOF
+sudo chmod 755 /usr/local/bin/libreoffice
+```
+
+Remove it with `sudo rm /usr/local/bin/libreoffice` once bug 141578 is fixed.
+
+**Verify.** Help > About shows the `VCL:` backend you chose after logging back in. Scrolling a long document is smooth. With the wrapper, `hyprctl clients` shows `xwayland: 1` for the LibreOffice window, and the interface is the right size on the monitor you tuned `GDK_SCALE` for.
+
+Sources: <https://wiki.archlinux.org/title/LibreOffice> · <https://raw.githubusercontent.com/LibreOffice/core/master/vcl/source/app/salplug.cxx>
+
+---
+
+## Get Omarchy's clipboard history recording text again
+
+`omarchy-clipboard-history-stops-recording-text` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** Things I copy as text stopped showing up in the clipboard manager (Super+Ctrl+V). Screenshots and copied images still appear, so the history is not empty, it just has none of my text from the last day or two. Copy and paste itself still works. Nothing in the logs.
+
+**Cause.** Omarchy's shell runs two `wl-paste --watch` watchers, one for text and one for `image/png`, each calling `/usr/share/omarchy/shell/plugins/clipboard/capture.sh` (Clipboard.qml lines 285 and 294). `wl-paste --watch` waits for its command to exit before handling the next clipboard event. On 4.0.4-1, capture.sh line 13 runs `wl-paste --list-types` with no timeout, before the `case` that hands the watcher's stdin payload to `emit_text`, so it runs on every text event. `wl-paste` blocks indefinitely when the clipboard owner disappears mid-transfer, so one bad copy leaves a `capture.sh text` process alive for days and every later text copy is dropped. Line 105 (`wl-paste --type text`, also unbounded) is only reached by the snapshot run the shell makes at start, not by the watchers. Reported as omacom/omarchy#9443 and fixed on the `quattro` branch on 2026-10-05 by PR #9488, which bounds both reads with `timeout 2s`. That fix is not in v4.0.4, the latest release at the time of checking.
+
+> **Audit corrected this record.** The problem and the pkill recovery hold, but two cause details are wrong. First, on 4.0.4-1 capture.sh dispatches `text` through the `case` at the end to emit_text, which reads the payload wl-paste --watch hands it on stdin. The only unbounded call on the watcher path is line 13, `wl-paste --list-types`, which runs before the case. Line 105 (`wl-paste --type text`) and the timeout-guarded line 99 are only reached by the argument-less snapshot run (Clipboard.qml currentProc), not by the watchers. Issue #9443 itself names line 13 as the call that runs for every invocation. Second, #9443 is no longer open: it was closed on 2026-10-05 by PR #9488 (commit b9e0ac4f, "Prevent clipboard capture hangs"), which wraps both reads in `timeout 2s` on quattro. The latest release is still v4.0.4 (2026-09-15), so installed systems keep the bug until the next release. Watcher command lines confirmed in Clipboard.qml lines 285 and 294 and in `ps` on this machine. capture.sh starts with `#!/bin/bash`, so the stuck child's argv begins `/bin/bash`, as the issue's ps output shows, and the anchored pkill pattern matches only children. Not exercised: no stuck process existed to kill.
+>
+> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+Find the stuck capture process. It is a `bash` child, not the `wl-paste` watcher:
+
+```bash
+ps -eo pid,etime,args | grep '[c]lipboard/capture.sh'
+# wl-paste --type text --watch .../clipboard/capture.sh text      <- watcher, leave it
+# /bin/bash .../shell/plugins/clipboard/capture.sh text            <- stuck, long ETIME
+```
+
+Kill only the `bash` children. The pattern is anchored on `/bin/bash` because the watcher's own command line also contains `capture.sh text`, and an unanchored `pkill -f` would kill the watcher too:
+
+```bash
+pkill -f '^/bin/bash .*/clipboard/capture.sh'
+```
+
+Text capture resumes immediately. No shell restart is needed.
+
+It can recur on 4.0.4 and earlier. The permanent fix (PR #9488, `timeout 2s` on both `wl-paste` reads) is merged upstream and arrives with the first release after v4.0.4 through `omarchy update`. Check whether your installed copy has it:
+
+```bash
+grep -n 'timeout 2s wl-paste --list-types' /usr/share/omarchy/shell/plugins/clipboard/capture.sh
+```
+
+No output means you still have the unbounded version.
+
+**Verify.** Copy some text, open Super+Ctrl+V, and the new entry is at the top. `ps -eo pid,etime,args | grep '[c]lipboard/capture.sh'` shows only the two `wl-paste` watchers.
+
+Sources: <https://github.com/omacom/omarchy/issues/9443>
+
+---
+
+## Paste an image from Omarchy's clipboard manager into a terminal app
+
+`omarchy-clipboard-manager-image-not-pasted-into-terminal` · severity: **low** · frequency: **occasional** · applies to: `hyprland`, `omarchy`, `wayland`
+
+**Symptom.** I open the clipboard manager (Super+Ctrl+V), pick a screenshot and press Enter. The overlay closes and nothing is pasted into my terminal (Claude Code, or another TUI that accepts images). Text entries paste fine, and the same image pastes fine into a browser. No error. Pressing Ctrl+V myself straight afterwards does paste the image.
+
+**Cause.** `/usr/share/omarchy/bin/omarchy-clipboard-paste-file` puts the image on the clipboard correctly with `wl-copy --type "$mime"`, then sends `wtype -M shift -k Insert -m shift` (line 33 on 4.0.4-1). Terminal emulators bind Shift+Insert to their own text-only paste, for example foot's default `clipboard-paste=Shift+Insert Control+Shift+v XF86Paste`. The terminal swallows the keystroke, finds no text flavour on the clipboard and writes nothing, so the program inside never sees a paste. Ctrl+V is not a terminal binding, so it reaches the program, which reads the image itself. Reported as omacom/omarchy#10526, open, and the fix belongs in the packaged script.
+
+> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+
+**Fix.**
+
+There is no user-side config for this, because the script is owned by the `omarchy` package and is rewritten on every update. Use the two-step workaround the issue confirmed:
+
+1. Super+Ctrl+V, select the image, press **Shift+Enter** (copy only, no synthetic keystroke). Plain Enter also stages the image correctly before its keystroke fails.
+2. In the terminal program, press its own image-paste key, which is **Ctrl+V** for Claude Code.
+
+Check the image really is staged:
+
+```bash
+wl-paste --list-types
+# image/png
+```
+
+Watch omacom/omarchy#10526 for the packaged fix, which proposes sending Ctrl+V for image entries.
+
+**Verify.** `wl-paste --list-types` shows `image/png` after Shift+Enter, and Ctrl+V in the terminal program inserts the image (Claude Code shows an `[Image #N]` chip).
+
+Sources: <https://github.com/omacom/omarchy/issues/10526>
 
 ---
 
