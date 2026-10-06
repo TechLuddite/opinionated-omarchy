@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Turn raw harvest-workflow output into the JSONL corpus.
 
-    python3 tools/ingest.py raw/harvest-result.json
+    python3 tools/ingest.py raw/harvest-result.json            # empty corpus only
+    python3 tools/ingest.py --replace raw/harvest-result.json  # discards the corpus
+
+To ADD a harvest to the existing corpus, use tools/merge_gapfill.py instead.
 
 Writes  data/problems.jsonl     one record per line (source of truth)
         data/categories.json     category key -> display label
@@ -34,9 +37,17 @@ def fingerprint(rec):
 
 
 def main():
-    if len(sys.argv) != 2:
+    args = [a for a in sys.argv[1:] if a != "--replace"]
+    if len(args) != 1:
         sys.exit(__doc__)
-    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    # O6, 2026-10-03: this path discards every correction, rejection and
+    # `cause_reconciled` stamp in the corpus it overwrites. Appending a harvest is
+    # merge_gapfill.py's job, so overwriting a corpus that exists takes an explicit flag.
+    target = ROOT / "data" / "problems.jsonl"
+    if "--replace" not in sys.argv and target.exists() and target.stat().st_size:
+        sys.exit(f"{target} already holds a corpus, and this would replace it. To append a "
+                 f"harvest: python3 tools/merge_gapfill.py {args[0]}. To really replace: --replace")
+    payload = json.loads(Path(args[0]).read_text(encoding="utf-8"))
 
     problems = payload.get("problems") or []
     if not problems:

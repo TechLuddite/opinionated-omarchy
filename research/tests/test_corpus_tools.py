@@ -208,6 +208,61 @@ class TestIngestReplacePath(unittest.TestCase):
         self.assertEqual(back[0]["checked_against"], "4.0.2-1 2026-09-16")
 
 
+    def test_ingest_refuses_to_overwrite_an_existing_corpus(self):
+        """O6: the replace path discards every correction, so it needs --replace."""
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "data").mkdir()
+            corpus.write_jsonl(Path(td) / "data" / "problems.jsonl", [a_full_record("old")])
+            with self.assertRaises(SystemExit):
+                self._run([a_full_record("new")], td)
+            self.assertEqual([r["slug"] for r in corpus.read_jsonl(Path(td) / "data" / "problems.jsonl")],
+                             ["old"])
+
+
+class TestHarvestExtendPath(unittest.TestCase):
+    """O6: a harvest-workflow result is APPENDED by merge_gapfill.py, never replaces."""
+
+    def _run(self, existing, payload, td):
+        jsonl = Path(td) / "problems.jsonl"
+        corpus.write_jsonl(jsonl, existing)
+        (Path(td) / "categories.json").write_text(
+            json.dumps({"omarchy-core": "Omarchy Core"}), encoding="utf-8")
+        pay = Path(td) / "payload.json"
+        pay.write_text(json.dumps(payload), encoding="utf-8")
+        with mock.patch.object(merge_gapfill, "JSONL", jsonl), \
+             mock.patch.object(sys, "argv", ["merge_gapfill.py", str(pay)]), \
+             mock.patch("sys.stdout"):
+            merge_gapfill.main()
+        cats = json.loads((Path(td) / "categories.json").read_text(encoding="utf-8"))
+        return [r for r in corpus.read_jsonl(jsonl)], cats
+
+    def test_existing_records_survive_and_a_colliding_slug_is_suffixed(self):
+        keep = a_full_record("same-slug")
+        new = dict(a_full_record("same-slug"), audit_status="ok", symptom="an unrelated symptom")
+        with tempfile.TemporaryDirectory() as td:
+            back, _ = self._run([keep], {"problems": [new], "rejected": []}, td)
+        self.assertEqual(back[0], keep)
+        self.assertEqual([r["slug"] for r in back], ["same-slug", "same-slug-2"])
+
+    def test_a_new_category_gets_its_label_and_existing_labels_stand(self):
+        new = dict(a_full_record("fresh"), category="new-cat", audit_status="unaudited")
+        payload = {"problems": [new], "categories": [
+            {"key": "new-cat", "label": "New Category"},
+            {"key": "omarchy-core", "label": "Renamed By Harvest"}]}
+        with tempfile.TemporaryDirectory() as td:
+            _, cats = self._run([], payload, td)
+        self.assertEqual(cats, {"omarchy-core": "Omarchy Core", "new-cat": "New Category"})
+
+    def test_a_record_without_audit_status_stops_the_merge(self):
+        new = a_full_record("unmarked")
+        del new["audit_status"]
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SystemExit):
+                self._run([a_full_record("old")], {"problems": [new]}, td)
+            self.assertEqual([r["slug"] for r in corpus.read_jsonl(Path(td) / "problems.jsonl")],
+                             ["old"])
+
+
 class TestMergeExtendPath(unittest.TestCase):
     """merge_gapfill.py EXTENDS the corpus in place, and applies audit verdicts."""
 

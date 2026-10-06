@@ -10,12 +10,29 @@ export const meta = {
 }
 
 // The corpus path, supplied by the caller. Pass it as the Workflow tool's `args`:
-//     Workflow({ scriptPath: "...", args: { root: "/abs/path/to/research" } })
+//     Workflow({ scriptPath: "...", args: { root: "/abs/path/to/research", today: "YYYY-MM-DD" } })
 // Every agent reads tools/reaudit-brief.md from it before writing anything.
 const ROOT = (typeof args === 'object' && args && args.root) || (() => {
   throw new Error("pass args { root: '/abs/path/to/research' } -- see the note above")
 })()
 const BRIEF = ROOT + '/tools/reaudit-brief.md'
+// The run date, for `cause_reconciled`. Argless `new Date()` throws inside a workflow
+// (it would break resume), and the merge below runs after every agent has finished, so a
+// date read there would lose the whole run at the last step. Pass it: args { today }.
+const TODAY = (args && args.today) || (() => {
+  throw new Error("pass args { today: 'YYYY-MM-DD' } as well as root")
+})()
+
+// O6 (2026-10-03): the corpus already holds 505 records, and a harvester that does not
+// know that re-harvests the same topics under new slugs. Every harvester reads what its
+// category already covers and returns only problems that are not there.
+const EXISTING = (c) =>
+  "### The corpus already exists: return only NEW problems\n" +
+  "Before searching, read `" + ROOT + "/data/problems.jsonl` (one JSON record per line) and list every " +
+  "record whose `category` is `" + c.key + "`, by `slug`, `title` and `symptom`. Do not return a record " +
+  "for a problem already covered there, even under different wording. A different root cause, or a " +
+  "symptom a user would not recognise as the same fault, counts as new. Spend the search on what is " +
+  "missing, not on re-deriving what is covered.\n\n"
 
 // O2 (2026-09-06): fifteen of fifteen `ok` records checked against what Omarchy 4
 // actually ships were wrong. The facts that catch them live in tools/reaudit-brief.md,
@@ -91,6 +108,10 @@ const AUDIT_SCHEMA = {
           corrected_symptom: { type: "string", description: "ONLY if the symptom quotes a file, path or message that cannot occur: the full replacement" },
           corrected_danger: { type: "string", description: "ONLY if the danger is wrong or overstated for Omarchy 4: the full replacement" },
           corrected_verify: { type: "string", description: "ONLY if the verify step names something that does not exist on Omarchy 4: the full replacement" },
+          corrected_title: { type: "string", description: "ONLY if the title is wrong or misleading: the full replacement" },
+          corrected_severity: { enum: ["critical", "high", "medium", "low"], description: "ONLY if the severity is wrong" },
+          corrected_frequency: { enum: ["very-common", "common", "occasional", "rare"], description: "ONLY if the frequency is wrong" },
+          sources_remove: { type: "array", items: { type: "string" }, description: "cited URLs that do not support the record or do not resolve" },
           sources: { type: "array", items: { type: "string" }, description: "every URL you actually retrieved and relied on for this verdict" },
           confidence: { enum: ["high", "medium", "low"] },
         },
@@ -121,12 +142,13 @@ const HARVEST_PROMPT = (c) =>
   "and other Arch-based distros (Arch, EndeavourOS, CachyOS, Manjaro) on desktops and laptops.\n\n" +
   "### Your category\n**" + c.label + "**\n" + c.focus + "\n\n" +
   OMARCHY4(BRIEF) +
+  EXISTING(c) +
   "### Task\n" +
   "Run SEVERAL WebSearch queries (at least 4-6 distinct ones, varying phrasing — use the words real users type, " +
   "including verbatim error strings) and WebFetch the highest-signal pages. Prioritize these sources:\n" +
   "- wiki.archlinux.org (authoritative — use it to get fixes exactly right)\n" +
   "- wiki.hypr.land / hyprland.org and github.com/hyprwm/Hyprland issues\n" +
-  "- github.com/basecamp/omarchy issues and discussions, learn.omacom.io\n" +
+  "- github.com/omacom/omarchy issues and discussions (renamed from basecamp/omarchy; GitHub search rejects the old name), omarchy.org/manual\n" +
   "- bbs.archlinux.org, forum.endeavouros.com, r/archlinux, r/hyprland, r/omarchy, r/linuxquestions\n\n" +
   "Extract **15-25 DISTINCT real problems**. Quality bar for every record:\n" +
   "1. It is a problem real users actually hit and report — not a hypothetical you invented.\n" +
@@ -160,8 +182,10 @@ const AUDIT_PROMPT = (c, batch) =>
   "it is dangerous without warning; the cited source does not plausibly exist or does not support it; " +
   "the 'problem' is fabricated or not a real reported issue; the fix is vague hand-waving.\n" +
   "- **corrected** if the problem is real but the fix is wrong or incomplete — supply `corrected_fix` with the right commands. " +
-  "If the cause, symptom, danger or verify is also wrong, supply `corrected_cause`, `corrected_symptom`, " +
-  "`corrected_danger` or `corrected_verify` as full replacements, and list the `sources` you relied on.\n" +
+  "If the cause, symptom, danger, verify or title is also wrong, supply `corrected_cause`, `corrected_symptom`, " +
+  "`corrected_danger`, `corrected_verify` or `corrected_title` as full replacements, and list the `sources` you relied on. " +
+  "A wrong severity or frequency goes in `corrected_severity` / `corrected_frequency`, and a cited URL that does not " +
+  "support the record goes in `sources_remove`. Never put a correction only in `reason`: it will not be applied.\n" +
   "- **ok** if it is accurate, current, and actionable.\n\n" +
   "Use WebSearch/WebFetch against wiki.archlinux.org and wiki.hypr.land to CHECK specifics: exact package names, " +
   "current option names, current file paths. Do not approve from memory alone for anything version-sensitive.\n" +
@@ -174,6 +198,7 @@ const GAPFILL_PROMPT = (c, missing) =>
   "A prior pass over this category missed these specific problems:\n" +
   missing.map(m => "- " + m).join("\n") + "\n\n" +
   OMARCHY4(BRIEF) +
+  EXISTING(c) +
   "Research and produce records for these (and any closely-related common problems you find), using the same standard:\n" +
   "concrete copy-pasteable fixes with real commands and file paths, real fetched source URLs, no invented citations.\n" +
   "Verify specifics against wiki.archlinux.org / wiki.hypr.land before writing the fix.\n\n" +
@@ -233,9 +258,12 @@ for (const r of results.filter(Boolean)) {
       // keep the sources the auditor relied on. A verdict with no replacement text is
       // still `corrected`: the note says what was wrong.
       const fixed = { ...p, category: r.c.key, audit_status: "corrected", audit_note: v.reason, audit_confidence: v.confidence || "medium" }
-      for (const f of ["fix", "cause", "symptom", "danger", "verify"]) if (v["corrected_" + f]) fixed[f] = v["corrected_" + f]
-      if (v.corrected_cause) fixed.cause_reconciled = new Date().toISOString().slice(0, 10)
+      for (const f of ["fix", "cause", "symptom", "danger", "verify", "title", "severity", "frequency"]) if (v["corrected_" + f]) fixed[f] = v["corrected_" + f]
+      if (v.corrected_cause) fixed.cause_reconciled = TODAY
       for (const u of v.sources || []) if (/^https?:\/\//.test(u) && !(fixed.sources || []).includes(u)) fixed.sources = [...(fixed.sources || []), u]
+      // Same rule as merge_gapfill.py: removals after the append, and never the last source.
+      const kept_sources = (fixed.sources || []).filter(u => !(v.sources_remove || []).includes(u))
+      if (kept_sources.length) fixed.sources = kept_sources
       kept.push(fixed)
       corrected++
     } else {

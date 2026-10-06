@@ -515,9 +515,12 @@ budget the audit as half the work rather than a formality. See [JOURNAL.md](JOUR
 
 Two ingest paths, and picking the wrong one destroys work:
 
-- `tools/ingest.py` **replaces** the corpus from a full harvest result.
+- `tools/ingest.py` **replaces** the corpus from a full harvest result. Since 2026-10-03
+  it refuses to overwrite a non-empty corpus without `--replace`.
 - `tools/merge_gapfill.py` **extends** it in place, and also applies audit verdicts to
-  records already in the corpus. Use this for incremental work.
+  records already in the corpus. Use this for incremental work, and for a
+  `harvest-workflow.js` result too: given a payload with top-level `problems` it appends
+  them, suffixes colliding slugs, and names likely duplicates without dropping them (O6).
 
 `merge_gapfill.py` has one behaviour worth knowing before you point it at anything: when a
 result carries an `audit` block for a category, **it walks every record in that category**,
@@ -890,6 +893,12 @@ missing file rather than at launch:
 Workflow({ scriptPath: "research/tools/audit-existing-workflow.js",
            args: { root: "/abs/path/to/research" } })
 ```
+
+`harvest-workflow.js` also needs `today: "YYYY-MM-DD"` in `args`. Argless `new Date()` throws
+inside a workflow, and until 2026-10-04 that call sat in the script's final merge step, so the
+next harvest would have died after its last agent finished. Since O6 every harvester reads the
+existing records in its category first and returns only problems not already covered, and the
+result goes through `merge_gapfill.py`, not `ingest.py`.
 
 **All three now open every agent prompt by reading `research/tools/reaudit-brief.md`** (O2,
 2026-09-06), so a harvester or auditor is held to what Omarchy 4 ships and not only to the

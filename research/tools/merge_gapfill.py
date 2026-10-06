@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Merge a gapfill-workflow result back into the JSONL corpus.
+"""Merge a gapfill-workflow or harvest-workflow result back into the JSONL corpus.
 
     python3 tools/merge_gapfill.py raw/gapfill-result.json
+    python3 tools/merge_gapfill.py raw/harvest-result.json
+
+A harvest-workflow result (top-level `problems`, no `results`) is appended with its
+workflow audit as it stands, see extend_from_harvest. Everything below describes the
+gapfill shape.
 
 Does two things:
   1. Applies the apps-services audit verdicts to records already in the corpus
@@ -173,10 +178,79 @@ def _apply_provenance(rec, v, stats):
     return rec
 
 
+def extend_from_harvest(payload):
+    """Append a harvest-workflow result to the corpus without touching what is there.
+
+    O6, 2026-10-03. harvest-workflow.js returns `{problems, rejected, stats, categories}`
+    with its own audit already applied to each record, and until now the only way in was
+    ingest.py, which REPLACES the corpus and would discard every correction and every
+    `cause_reconciled` stamp the audits have made. This path appends instead: existing
+    records come out byte-identical, a colliding slug is suffixed rather than dropped,
+    and a new record that looks like an existing one is named but kept, because a
+    re-harvest of a covered topic is the expected failure and only a reader can tell a
+    duplicate from a second framing of the same fault.
+    """
+    from ingest import fingerprint
+
+    problems = payload.get("problems") or []
+    if not problems:
+        sys.exit("no problems in payload; inspect the workflow journal before rerunning")
+    for p in problems:
+        # The workflow sets both on every record it keeps. A record missing either did
+        # not come through its merge step and must not blend in as audited.
+        if not p.get("category") or not p.get("audit_status"):
+            sys.exit(f"harvest record {p.get('slug')!r} has no category or audit_status; "
+                     f"this payload did not come from harvest-workflow.js")
+
+    existing = read_jsonl(JSONL)
+    by_slug = {r["slug"]: r for r in existing}
+    prints = [(fingerprint(r), r) for r in existing]
+    added, likely_dupes = [], []
+    for p in problems:
+        base, n = p["slug"], 2
+        while p["slug"] in by_slug:
+            p["slug"] = f"{base}-{n}"
+            n += 1
+        fp = fingerprint(p)
+        for fq, q in prints:
+            if fp and fq and len(fp & fq) / len(fp | fq) > 0.55:
+                likely_dupes.append((p["slug"], q["slug"]))
+        by_slug[p["slug"]] = p
+        added.append(p)
+
+    # A harvest may carry a category the corpus has never had. Give it a label here, or
+    # build_db.py emits a page titled with the bare key. Existing labels are never changed.
+    cats_path = JSONL.parent / "categories.json"
+    cats = json.loads(cats_path.read_text(encoding="utf-8")) if cats_path.exists() else {}
+    new_cats = {c["key"]: c["label"] for c in payload.get("categories") or []
+                if c["key"] not in cats and any(p["category"] == c["key"] for p in added)}
+    if new_cats:
+        cats.update(new_cats)
+        cats_path.write_text(json.dumps(cats, indent=2, ensure_ascii=False),
+                             encoding="utf-8", newline="\n")
+
+    merged = existing + added
+    write_jsonl(JSONL, merged)
+
+    print(f"corpus: {len(existing)} -> {len(merged)} records (+{len(added)} harvested, "
+          f"{len(payload.get('rejected') or [])} rejected by the workflow's audit)")
+    still = Counter(p.get("audit_status") for p in added)
+    print("  harvested audit status: " + ", ".join(f"{k}={v}" for k, v in sorted(still.items())))
+    if new_cats:
+        print("  new categories: " + ", ".join(sorted(new_cats)))
+    if likely_dupes:
+        print(f"  NOTE: {len(likely_dupes)} harvested records resemble existing ones (kept, review by hand):")
+        for new, old in likely_dupes[:20]:
+            print(f"    {new}  ~  {old}")
+    print("\nnext: python3 tools/build_db.py")
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    if "problems" in payload and "results" not in payload:
+        return extend_from_harvest(payload)
     results = payload.get("results") or []
     if not results:
         sys.exit("no results in payload; inspect the workflow journal before rerunning")
