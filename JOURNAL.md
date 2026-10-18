@@ -115,7 +115,7 @@ the update. The previous ones are kept as reflink copies, `golden-test1-4.0.4-1.
 `golden-test2-4.0.1-1.qcow2` in `/var/lib/libvirt/images`, so either older state is one `cp` away.
 All eleven agentic seeds pass `check_seeds.py` on 4.0.5.
 
-### Three things the update broke or disproved
+### Four things the update broke or disproved
 
 1. **Killing `gum confirm` answers YES under gum 2.0.2, not no.** Measured on test1: SIGTERM
    exits 0, SIGINT 130, SIGKILL 137. `omarchy-update-restart` runs `gum confirm ... &&
@@ -134,6 +134,16 @@ All eleven agentic seeds pass `check_seeds.py` on 4.0.5.
    has no handler, so the agent dies with exit 140 as soon as it applies a theme (run 47). The
    runner now ignores USR2 before starting opencode, which survives exec and was tested both ways.
    No earlier run was affected: every case in runs 39 to 46 has an empty error field.
+4. **A bench seed's pristine copy survived the update and failed one assertion for every model.**
+   The theme seed of `omarchy-agentic-published-wrong` kept an unversioned copy of the Everforest
+   `colors.toml` in `/var/tmp`, taken on 4.0.4. On 4.0.5 it restored that copy with 4.0.4's
+   mtime, so `pacman -Qkk omarchy` reported `1 altered file` and the `0 altered files` assertion
+   failed on every case of runs 52 to 56, including the benches that never touch the theme.
+   The failure is the same for every model, so rankings from those runs stand, but that check
+   caught nothing in them and regrading cannot recover it. Both VMs were repaired from the
+   cached 4.0.5 package, and the seed now names its copy for the installed release and refuses
+   to capture a file the package already flags. The goldens still hold the stale copy and the
+   stale file until they are re-saved after the scan, and the next seed run repairs the file.
 
 ### What the next corpus audit has to do
 

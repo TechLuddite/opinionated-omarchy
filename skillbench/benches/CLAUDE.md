@@ -233,3 +233,9 @@ copying:
   `$HOME`-relative, so `/etc` persists between cases. That bench keeps a pristine copy on
   first run and re-derives the live file from it every time, so a case never inherits the
   previous case's merge.
+- **Name a pristine copy of a packaged file for the release it came from.** The copy
+  outlives an `omarchy update`. On 2026-10-18 an unversioned copy of the Everforest
+  `colors.toml` taken on 4.0.4 was restored over 4.0.5's file with 4.0.4's mtime, so
+  `pacman -Qkk omarchy` reported `1 altered file` and the package-integrity assertion
+  failed for every model on runs 52 to 56. `omarchy-agentic-published-wrong` now keys the
+  copy on `pacman -Q omarchy` and refuses to capture a file the package already flags.
