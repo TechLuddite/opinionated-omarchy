@@ -112,11 +112,23 @@ tasks:
     seed: |
       set -euo pipefail
       P=/usr/share/omarchy/themes/everforest/colors.toml
-      K=/var/tmp/bench-everforest-colors.pristine
+      K=/var/tmp/bench-everforest-colors.$(pacman -Q omarchy | cut -d' ' -f2).pristine
       # /usr/share is outside $HOME so defaults.vm.restore cannot reach it. Keep a pristine
       # copy on first run and re-derive from it every case after, the same shape as
       # omarchy-agentic-root-config. A case must never inherit the previous case's edit.
-      if [ ! -f "$K" ]; then sudo cp -a "$P" "$K"; fi
+      # The copy is named for the installed release. An unversioned copy taken on 4.0.4
+      # survived the 4.0.5 update, carried 4.0.4's mtime back over the file, and made
+      # `pacman -Qkk omarchy` report 1 altered file on every case of every bench after it.
+      # So the copy is only taken from a file the package still vouches for. The output is
+      # captured first because under pipefail `grep -q` would SIGPIPE pacman and read false.
+      if [ ! -f "$K" ]; then
+        Q=$(pacman -Qkk omarchy 2>&1 || true)
+        if grep -qF "$P" <<<"$Q"; then
+          echo "seed: $P is already altered, refusing to capture it as pristine" >&2
+          exit 1
+        fi
+        sudo cp -a "$P" "$K"
+      fi
       sudo cp -a "$K" "$P"
       rm -rf ~/.config/omarchy/themes/everforest
     post:
