@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-10-05
+Last updated: 2026-10-18
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -46,6 +46,14 @@ Last updated: 2026-10-05
 >    2026-09-19 session, which also records that two of four review agents were stopped partway, so
 >    `shell/` and most of `bin/` are unreviewed.
 >
+> 1e. **The NEXT SESSION is upstream work (2026-10-18):** six problems, U1 to U6, as reports or PRs from
+>    `TechLuddite/omarchy`. Most already have an upstream thread. The list and the method are under
+>    "Next session" in the 2026-10-18 session.
+>
+> 1d. **The 4.0.5 re-check is OWED (2026-10-18).** Upstream shipped v4.0.5. Both test VMs run it, the
+>    workstation does not. Three fixes are now wrong and about nine problems are fixed upstream. The
+>    work list is the 2026-10-18 session, and the evidence is `research/raw/release-4.0.5-impact.md`.
+>
 > 1c. **The `security` category EXISTS as of 2026-09-18**, 16 records, all 16 corrected by
 >    audit. Tier 1 is done except NET1 (blocked at gate 1, this repository published the
 >    mechanism first) and NET2 (fails gate 1). **Tier 2 and 3 are untouched**, 23 topics in
@@ -84,6 +92,165 @@ Last updated: 2026-10-05
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-10-18: the test VMs move to 4.0.5, and the next audit has a work list
+
+Upstream shipped **v4.0.5 on 2026-10-18**. Both test VMs were updated to it the same day. The
+workstation was deliberately left at 4.0.4-1. One agent then read the whole v4.0.4...v4.0.5
+compare (43 commits, 201 files) against the corpus. Its report, with the patch line behind every
+claim, is `research/raw/release-4.0.5-impact.md`. **No
+verdict from it has been applied.** This entry is the work list for the audit that applies them.
+
+### What the VMs are now
+
+| | test1 | test2 |
+| --- | --- | --- |
+| omarchy | 4.0.4-1 to **4.0.5-1** | 4.0.1-1 to **4.0.5-1** |
+| kernel | 7.2.8-9-omarchy | 7.2.8-9-omarchy |
+| opencode | 1.18.31 to **2.0.32** | 2.0.32 |
+
+test2 had to be re-provisioned first, because it predated the `Defaults:techluddite !authenticate`
+fix and the update would have died at `sudo -v`. Both golden images were re-saved at 4.0.5 after
+the update. The previous ones are kept as reflink copies, `golden-test1-4.0.4-1.qcow2` and
+`golden-test2-4.0.1-1.qcow2` in `/var/lib/libvirt/images`, so either older state is one `cp` away.
+All eleven agentic seeds pass `check_seeds.py` on 4.0.5.
+
+### Three things the update broke or disproved
+
+1. **Killing `gum confirm` answers YES under gum 2.0.2, not no.** Measured on test1: SIGTERM
+   exits 0, SIGINT 130, SIGKILL 137. `omarchy-update-restart` runs `gum confirm ... &&
+   omarchy-system-reboot`, so a watcher that sent `kill` to the reboot prompt rebooted both VMs.
+   No harm resulted, because the kernel update needed the reboot anyway, but the advice in
+   `CLAUDE.md` to kill the `gum` process to decline is wrong for this gum. Use `kill -INT`.
+   The orphan prompt did not fire: `pacman.log` shows the only removals were `cups-pdf` and
+   `cups-browsed` on test2, each by a migration with `--noconfirm`.
+2. **opencode 2.0 removed `--dir`.** `opencode run --dir` exits 1 with `Unrecognized flag: --dir`,
+   which floored both cases of run 50 in under 3 seconds. The runner now does `cd "$HOME"` and
+   passes `--standalone`, so each case gets a private server rather than 2.0's shared background
+   service. Run 51 confirmed it end to end. Agentic runs before 50 used opencode 1.18 and runs
+   from 51 use 2.0, so do not compare them directly.
+3. **`omarchy-theme-set` kills a headless opencode.** It calls `omarchy-restart-opencode`, which
+   runs `killall -SIGUSR2 opencode` so an interactive session reloads its theme. `opencode run`
+   has no handler, so the agent dies with exit 140 as soon as it applies a theme (run 47). The
+   runner now ignores USR2 before starting opencode, which survives exec and was tested both ways.
+   No earlier run was affected: every case in runs 39 to 46 has an empty error field.
+
+### What the next corpus audit has to do
+
+Hold these against **4.0.5-1 on a test VM, not the workstation**, which is still 4.0.4-1. The
+brief is `research/tools/reaudit-brief.md` as usual, but an auditor told to check "this
+workstation" will check the wrong release. Every verdict here is `status: "recheck"` with
+`checked_against` set, so a `corrected` record keeps its status and its audit note.
+
+**Fixes that are now wrong.** Do these first, because a reader following them today loses
+something.
+
+- `ignorepkg-holdpkg-blocking-upgrade`: the hook inserts `IgnorePkg` above `[core]`, and `[omarchy]`
+  now comes first, so the line lands inside `[omarchy]` and pacman ignores it with a warning.
+  Confirmed with `pacman-conf` on the v4.0.5 template. Insert into `[options]` instead.
+- `omarchy-update-overwrites-pacman-conf`: the update's own migration rewrites `/etc/pacman.conf`
+  and overwrites `/etc/pacman.conf.bak`, the backup the fix diffs against. An existing copy of the
+  custom-repo hook still targets `[core]`, so custom repositories now rank below `[omarchy]`.
+  Confirmed on test2.
+- `webapp-launchers-broken-after-browser-change`: 4.0.5 routes links through
+  `omarchy-browser.desktop`, so `xdg-settings get` and `set` behave differently from what the fix
+  expects. Likely, not run. `xdg-settings` in a test VM session confirms it.
+
+**Problems 4.0.5 fixed.** These records should say "fixed in 4.0.5" and keep the workaround for
+older installs. Confirmed from the patch: `nvidia-env-forced-on-igpu-primary-hybrid-laptop`,
+`omarchy-windows-vm-launch-silent-setgid-chmod`, `bar-gone-after-update-shell-restart-race`,
+`nvidia-utils-installed-on-amd-intel-only-system`, and the display-panel sentence of
+`hyprctl-keyword-monitor-non-legacy-parser`. Likely, from the 7.2.8-9 kernel recipe and the mirror:
+`linux-omarchy-intel-iommu-default-on-boot-failures`, `waydroid-no-binder-on-linux-omarchy-kernel`,
+`waydroid-rust-binder-no-such-process-bad-bindgen-build` and
+`linux-omarchy-7-2-5-hdmi-audio-underruns`. `waydroid init` on a VM settles the two Waydroid records.
+The HDMI one needs affected Intel hardware.
+
+**Claims that no longer hold.**
+
+- The keyring is no longer reinstalled on every update (`--needed`, #15034):
+  `archlinux-keyring-outdated-blocks-every-upgrade`, `signature-unknown-trust-keyring-out-of-date`.
+- Quickshell now comes from `[omarchy]`, not Arch `extra`, confirmed on test2:
+  `omarchy-shell-quickshell-undefined-symbol-qt-private-api`.
+- NVIDIA variables are now set only when the NVIDIA card drives the display:
+  `vaapi-init-failed-screen-recording`.
+- The Hermes wrapper is retired: `mise-stubs-gone-after-clearing-local-bin`,
+  `mise-wrappers-print-status-line-to-stdout`.
+- `omarchy-remove-security-sshd-edits-root-authorized-keys`: its firewall sentences change with
+  #13048. The keys-path defect it records is unchanged.
+- Seven kernel records quote 7.2.5-3 as current or hardcode its paths:
+  `linux-omarchy-7-2-5-amdgpu-display-regression`, `linux-omarchy-cs4208-mac-speakers-silent`,
+  `bluetooth-headset-hfp-hard-freeze-kernel-7`, `linux-omarchy-hard-reset-at-boot`,
+  `touchpad-falls-back-to-ps2-generic-mouse`,
+  `out-of-tree-module-on-linux-omarchy-wrong-source-or-headers` and
+  `kernel-migration-1789325478-no-limine-boot-entry`. Whether each regression is fixed is open.
+
+**Needs a closer look.** Sections 1 CHECK and 5 of the report: lock recovery under #15020, stale
+line references after #12538, the sshd firewall change against a LAN-scoped rule, Ghostty and other
+names now resolving to `[omarchy]`, the ESP and the new UKI migration, and the Neovim SSH clipboard
+provider. The one with real risk is **provider order**: with `[omarchy]` first, a plain `pacman -S
+steam` likely resolves `lib32-vulkan-driver` to Omarchy's `nvidia-580xx` packages. That touches
+`steam-proton-lib32-graphics-missing`, `nvidia-utils-installed-on-amd-intel-only-system` and
+`package-conflict-and-provider-prompts-during-upgrade`. It is likely from the databases, and a dry
+run on a VM confirms it.
+
+**A recheck stamp only:** `stalled-lock-latch-suspends-unlocked` and `shell-plugins-run-unsandboxed`.
+
+**New records worth harvesting.** Fourteen candidates are in section 3 of the report. The two that
+matter most:
+
+- Six new migrations exit 1 on purpose and stay pending, which holds back every later migration.
+- One migration runs a full `-Syu` inside the migration step.
+
+The three release-note security items (#11336, #10379, #11495) have no record yet. They pass gate 1
+because upstream published them, and their mitigation is `omarchy update` to 4.0.5.
+
+**Outside the corpus.** The vendored `omarchy/` is byte-identical to the v4.0.5 tag, so the
++29.3 pt baseline still describes the released skill. The vendored `diagnose-crash/SKILL.md` is
+not: it matches `quattro` HEAD and tells an agent to run `omarchy-crash-mute`, which no release
+ships. That predates 4.0.5.
+
+### Next session: the upstream work list
+
+The next session works these upstream, as a report where someone else must fix it and as a pull
+request from the fork `TechLuddite/omarchy` where we can. **Searched for duplicates on 2026-10-18**
+with `gh search issues` and `gh search prs` against `omacom/omarchy`. Most already have a thread,
+so the useful contribution is usually evidence or a tested review, not a new issue.
+
+| | Problem | Existing thread | Likely contribution |
+| --- | --- | --- | --- |
+| U1 | `omarchy-theme-set` kills a headless `opencode run` with SIGUSR2 (exit 140) | #8002 open, #8389 closed, PRs #8004 and #14640 open | Test #14640 against opencode 2.0.32, which arrived with 4.0.5 after the PR was written, then comment with the result |
+| U2 | `omarchy update -y` still hangs on the orphan and reboot prompts on 4.0.5 | #8780 and #8986 open, PRs #8824 and #9511 open | Confirm both scripts are unchanged in 4.0.5 (they are, read on test2), test the PRs on a VM, comment |
+| U3 | `gum confirm` exits 0 on SIGTERM under gum 2.0.2, so `gum confirm ... && omarchy-system-reboot` reboots when the prompt is terminated | none found in `charmbracelet/gum` or `omacom/omarchy` | Read gum's signal handling, reproduce on plain gum, report to gum. Test on a VM whether logging out at the reboot prompt reboots the machine, which would make it an Omarchy issue as well |
+| U4 | With `[omarchy]` first, virtual providers resolve to `nvidia-580xx` on machines with no NVIDIA card | none found | New issue on `omacom/omarchy`, citing #14551. Before writing, list which `omarchy-pkg-add` callers depend on `vulkan-driver` or `opengl-driver`, because `omarchy-pkg-add` passes `--noconfirm` |
+| U5 | Migration 1791403252 overwrites `/etc/pacman.conf.bak`, the only backup | PR #7998 (timestamped backups) and PR #15017 open | Comment on #7998 that 4.0.5's migration hits the same single-backup problem |
+| U6 | A user's existing custom-repo hook still inserts above `[core]`, so custom repositories now rank below `[omarchy]` | none found | Report against #14551, or a PR that migrates the user's copy of the sample |
+
+**Evidence already in hand.** U1 is run 47 and the exit-140 test in this entry. U3 is the measured
+exit codes above. U4 is `pacman -Sp --noconfirm steam` on test2 at 4.0.5-1, which listed
+`nvidia-580xx-utils` and `lib32-nvidia-580xx-utils` from `pkgs.omarchy.org`. U5 and U6 are in
+`research/raw/release-4.0.5-impact.md`, items 10 and 12.
+
+**How to work them, from what went wrong last time.** Read the 2026-09-14/15 session before writing
+anything. Three of four drafts were materially wrong before review. Every draft goes through an
+adversarial review by an agent told that the draft is wrong until each claim survives, with the
+claim most likely to be false named in the prompt, and then a second review by a different model.
+Say in each post which models drafted and reviewed it. Reproduce on a test VM at 4.0.5-1, never on
+the workstation. Anything with a security angle goes through HackerOne
+(<https://hackerone.com/omarchy>), not a public issue. None of U1 to U6 looks like one, and that
+judgement belongs in the review prompt so the reviewer can overturn it. The operator posts. A draft
+is not a post.
+
+**Not upstream work, but owed.** The vendored `diagnose-crash/SKILL.md` tells agents to run
+`omarchy-crash-mute`, which no release ships. Decide whether to re-vendor from the v4.0.5 tag. That
+moves the bundle sha and starts a new bench series. `pacman-file-exists-in-filesystem-omarchy` was
+due to expire at the next Omarchy release (2026-09-14/15 item 4), and that release is 4.0.5.
+
+### Not covered
+
+The Hermes and OpenClaw installer bodies were not read. The October Arch snapshot (systemd 262,
+mkinitcpio 42.2, Qt 6.12, linux 7.2.11) was not checked record by record, and about 47 records
+cite older Arch versions.
 
 ## Session of 2026-10-04/05: the corpus grows to 790, and the second audit still found 64% wrong
 

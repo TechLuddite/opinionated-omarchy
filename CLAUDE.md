@@ -3,6 +3,11 @@
 Orientation for an agent picking this project up. For current status and what's
 outstanding, read [JOURNAL.md](JOURNAL.md).
 
+**This file is due to move.** As of 2026-10-18 the operator's public projects are moving
+project documentation out of agent context files and into a standard docs folder. Until that
+happens, keep this file current as usual. Do not start the move unprompted, and note that the
+repo-root `docs/` is the generated public site, so the destination is not that folder.
+
 ## What this project is
 
 A working directory for **Omarchy Linux** agent skills and supporting research. Omarchy
@@ -147,7 +152,10 @@ Mind the version skew, and mind that **an installed version is not the current o
 (2026-09-08) while this workstation sat at **4.0.2-1** with a pacman sync database dated
 2026-09-05, so two releases had come and gone unseen and two records asserted behaviour
 4.0.3 had already changed. The workstation was updated that evening and read **4.0.4-1** on
-2026-09-19, and test1 was brought to 4.0.4-1 the same day. Read the installed version
+2026-09-19, and test1 was brought to 4.0.4-1 the same day. Upstream shipped **v4.0.5** on
+2026-10-18 and **both VMs were updated to 4.0.5-1 that day**, while the workstation was
+deliberately left at 4.0.4-1. For any 4.0.5 question the workstation is now the stale machine,
+so check against a VM. Read the installed version
 from pacman, never from `/usr/share/omarchy/version`, which says `4.0.0.alpha` everywhere
 and is branding. Read the *current* version from upstream, because the sync database is
 only as fresh as the last update:
@@ -205,7 +213,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | test1 `4.0.4-1`, test2 `4.0.1-1`, measured 2026-09-19 (workstation `4.0.4-1`, upstream `v4.0.4`) |
+| Version | test1 and test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 (workstation `4.0.4-1`, upstream `v4.0.5`) |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |
@@ -246,6 +254,10 @@ Measured, with a marker file to prove the reset was real: reset 1 s, boot to ssh
 full cycle about 30 s, against *minutes* for a rebuild from the 5.9 GB ISO. The VM must be
 **shut off** for both save and reset; a copy from a running domain is only crash-consistent.
 `virsh shutdown` (ACPI) is ignored by these VMs; use `ssh <vm> 'sudo systemctl poweroff'`.
+
+Before re-saving a golden after an upgrade, keep the old one as a reflink copy named for its
+release, which costs no space and leaves the previous state one `cp` away. The 2026-10-18 update
+kept `golden-test1-4.0.4-1.qcow2` and `golden-test2-4.0.1-1.qcow2` that way.
 
 ### The host firewall has to allow the VM bridge
 
@@ -300,8 +312,13 @@ asking "Ready to update?". The `-y` flag is the script's own unattended path: it
   supplies a pty, so the guard passes.
 - `omarchy-update-restart` asks "Linux kernel has been updated. Reboot?", with no guard at all.
 
-Killing the `gum` process answers no and the run carries on. By then the packages are
-already installed. Find the prompt with `ps -o pid,cmd --ppid <pid of the step>`.
+**Decline with `kill -INT`, never a plain `kill`.** Under gum 2.0.2 a SIGTERM makes `gum
+confirm` exit 0, which is yes. Measured on 2026-10-18: TERM 0, INT 130, HUP 129, KILL 137.
+`omarchy-update-restart` runs `gum confirm "$1" && omarchy-system-reboot`, so a watcher that
+sent SIGTERM rebooted both VMs. An earlier revision of this file said killing the process
+answers no, which was wrong for this gum. After a decline the run carries on, and by then the
+packages are already installed. Find the prompt with `ps -o pid,cmd --ppid <pid of the step>`.
+Upstream already tracks both hangs as #8780 and #8986, with PRs #8824 and #9511 open.
 
 Two more traps, both found on 2026-09-18:
 
@@ -359,7 +376,7 @@ context?** It has **two lanes**, and a bench declares which with `lane:`.
 
 ```sh
 cd skillbench && docker compose up -d --build     # http://127.0.0.1:8878
-./tests/run.sh                                    # 64 unit tests
+./tests/run.sh                                    # 67 unit tests, run in the container
 ```
 
 Read [skillbench/README.md](skillbench/README.md) before changing it. The things that are
@@ -368,16 +385,22 @@ load-bearing:
 - **The chat lane grades what a model *says*.** Tasks ask for commands; checks look for
   the right tool and the trap avoided. A real ceiling, not an oversight.
 - **The agentic lane can drive `pi` OR `opencode`.** `params.agent: "opencode"` runs
-  `opencode run --format json`, which finally gives turns, tokens and cost per case. Four
+  `opencode run --format json`, which finally gives turns, tokens and cost per case. Six
   traps, each of which makes every case score the do-nothing floor while the transcript
   shows correct behaviour. The worst is that **opencode auto-rejects any tool call outside
   its working directory and records no error on the case**, so a refused agent is
   indistinguishable from one that gave up; it voided runs 43 to 46 and forced a published
-  retraction. Then: `--dir "$HOME"` is required; `HOME` must NOT be relocated to control skills, or the task loses the config
+  retraction. Then: `$HOME` must be the working directory. opencode 1.x took `--dir "$HOME"`, and opencode
+  2.0, which arrived with Omarchy 4.0.5, removed the flag and exits 1 on it, so the runner now
+  does `cd "$HOME" && opencode run --standalone` (run 50 floored on the old form). Also,
+  `omarchy-theme-set` runs `killall -SIGUSR2 opencode` and that kills `opencode run` with exit
+  140, so the runner ignores USR2 first (upstream #8002, PRs #8004 and #14640). And `HOME` must NOT be relocated to control skills, or the task loses the config
   it edits; and the skill arm must be built by rewriting `~/.agents/skills`, because Omarchy
   symlinks its own skills there on every install so **a stock machine has no bare
   condition**. See [skillbench/ZEN.md](skillbench/ZEN.md). Models come from `opencode-go/`,
-  which is subscription-covered and free at the margin, not `opencode/`, which bills.
+  which is subscription-covered and free at the margin, not `opencode/`, which bills. Local
+  models run as `ollama/<tag>`: the runner writes an Ollama provider pointing at the host
+  across the bridge and sets `limit.context` from the tag's `num_ctx`.
 - **The agentic lane grades what an agent *does*.** It runs `pi` on a real test VM, lets
   it act, then asserts on the machine via each task's `post:` block. Concurrency there is
   the size of the VM pool, not `SB_CONCURRENCY`, because a case owns the machine it runs
@@ -445,8 +468,13 @@ not in this repo, so they are easy to lose:
 systemctl show ollama -p Environment      # OLLAMA_CONTEXT_LENGTH, KV cache type, ...
 ```
 
-- **`OLLAMA_CONTEXT_LENGTH=32768`** is the number that matters, and it is a *server* cap
-  applied to every model. Ollama's own default is 4096. `pi --list-models` on a VM
+- **`OLLAMA_CONTEXT_LENGTH=32768`** is the number that matters, and it is a *server* default
+  applied to every model whose tag sets no `num_ctx`. A tag built with `PARAMETER num_ctx`
+  overrides it, which is the only way to get a larger window through `/v1`. Size such a tag
+  until `/api/ps` shows 100% on GPU: on 2026-10-18 the 24B to 30B tags spilled 6 to 11% at 72K
+  to 85K and fit at 56K to 64K, so the bench uses `devstral-small-2:24b-64k`,
+  `mistral-small3.2:24b-64k`, `qwen3-coder:30b-56k` and `qwen3.8:27b-64k`. gemma4's runner
+  misreports its size in `/api/ps`, so read `nvidia-smi` for it. Ollama's own default is 4096. `pi --list-models` on a VM
   cheerfully reports `128K`; that is pi's client-side belief and it is **cosmetic**,
   because pi talks OpenAI-compat (`/v1`), which has no way to set `num_ctx`. Trust the
   server, not the client. At 32K the `omarchy` skill body (~3.1k tokens) is about 10% of
@@ -649,6 +677,13 @@ against primary sources during the research and repeatedly caught stale advice.
 - **`pacman -Sy <pkg>` alone is a partial upgrade** and a classic way to break a system.
   Always `-Syu`. Treat any fix containing bare `-Sy` as a defect.
 - The Omarchy menu is **Super+Space**; Super+Alt+Space is the Apps menu.
+- **Omarchy 4.0.5 puts `[omarchy]` above `[core]` in `/etc/pacman.conf`** (#14551), and its
+  migration overwrites `/etc/pacman.conf.bak` while doing it. Three consequences, all found on
+  2026-10-18. Anything that inserts text "above `[core]`" now lands inside `[omarchy]`, where
+  `IgnorePkg` is ignored with a warning. Names in both repositories, Quickshell and Ghostty among
+  them, now resolve to Omarchy's builds. And virtual providers resolve to `[omarchy]` first:
+  `pacman -Sp --noconfirm steam` on test2, which has no NVIDIA hardware, picks
+  `nvidia-580xx-utils` and `lib32-nvidia-580xx-utils`.
 - **`hyprctl dispatch` takes Lua now, not a bare dispatcher name.** `hyprctl dispatch exec
   foo` fails on 0.56 with `')' expected near 'foo'`; the input is evaluated as
   `hl.dispatch(<your text>)`. Correct forms are `hl.dsp.exec_cmd("foo")` and
