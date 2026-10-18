@@ -50,6 +50,15 @@ Last updated: 2026-10-18
 >    `TechLuddite/omarchy`. Most already have an upstream thread. The list and the method are under
 >    "Next session" in the 2026-10-18 session.
 >
+> 1f. **The local-model ranking is OWED (2026-10-18).** The 10-model opencode scan finished: runs 52
+>    (published-wrong), 53 (stale-advice) and 55 (deep-triage control), 3 repeats each. Run 54 is a
+>    duplicate of 53 and run 56 a partial duplicate of 55, both started by a stray launch loop and
+>    run concurrently with their twins, so their timings are contaminated. Rank fix rate and harm
+>    separately, and leave out the `0 altered files` assertion, which failed for every model (item 4
+>    under "Four things the update broke"). Then `export_results.py`, and update `MODELS.md` if the
+>    result is cited. Token counts are empty on every case: the runner does not yet parse them from
+>    the opencode event stream that each case stores.
+>
 > 1d. **The 4.0.5 re-check is OWED (2026-10-18).** Upstream shipped v4.0.5. Both test VMs run it, the
 >    workstation does not. Three fixes are now wrong and about nine problems are fixed upstream. The
 >    work list is the 2026-10-18 session, and the evidence is `research/raw/release-4.0.5-impact.md`.
@@ -142,8 +151,9 @@ All eleven agentic seeds pass `check_seeds.py` on 4.0.5.
    The failure is the same for every model, so rankings from those runs stand, but that check
    caught nothing in them and regrading cannot recover it. Both VMs were repaired from the
    cached 4.0.5 package, and the seed now names its copy for the installed release and refuses
-   to capture a file the package already flags. The goldens still hold the stale copy and the
-   stale file until they are re-saved after the scan, and the next seed run repairs the file.
+   to capture a file the package already flags. Neither golden held the altered file. The VMs
+   picked it up from the first seed run after reset. test2's golden still held the unversioned
+   copy, which the new seed ignores, and it was removed and the golden re-saved at 13:36 PDT.
 
 ### What the next corpus audit has to do
 
