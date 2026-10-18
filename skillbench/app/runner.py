@@ -104,6 +104,25 @@ async def _resolve(model):
     return model if ":" in model else f"{model}:latest"
 
 
+async def _num_ctx(model):
+    """The context window an Ollama tag was built with, or None if it sets none.
+
+    The server default (OLLAMA_CONTEXT_LENGTH) applies when a tag carries no num_ctx, and
+    that is not visible from here, so None leaves opencode on its own default.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as cl:
+            r = await cl.post(f"{OLLAMA_BASE}/api/show", json={"model": model})
+            r.raise_for_status()
+            for line in (r.json().get("parameters") or "").splitlines():
+                key, _, value = line.partition(" ")
+                if key == "num_ctx":
+                    return int(value.strip())
+    except (httpx.HTTPError, ValueError):
+        pass
+    return None
+
+
 def _answer_of(data):
     """The model's answer, and where it was found.
 
@@ -186,7 +205,7 @@ async def _one_case(cl, run_id, task, model, variant, repeat_idx, sys_prompt, pa
 
 # ------------------------------------------------------------------ agentic lane
 
-def _opencode_command(model, skill_dir, prompt_path, variant):
+def _opencode_command(model, skill_dir, prompt_path, variant, num_ctx=None):
     """The opencode invocation for one case.
 
     SKILLS ARE CONTROLLED IN THE REAL HOME, not by relocating HOME. opencode discovers
@@ -215,9 +234,28 @@ def _opencode_command(model, skill_dir, prompt_path, variant):
     # indistinguishable from a model that simply stopped.
     #
     # autoupdate stays false so opencode cannot change version mid-run.
-    cfg = ('{"autoupdate":false,'
-           '"permission":{"external_directory":{"*":"allow"}}}')
+    cfg = {"autoupdate": False, "permission": {"external_directory": {"*": "allow"}}}
+    if model.startswith("ollama/"):
+        # A local model needs a provider opencode does not ship: the host's Ollama across
+        # the VM bridge, OpenAI-compatible. limit.context is opencode's view of the window
+        # and must match the num_ctx the Ollama tag was built with, or opencode compacts
+        # too late and the server silently truncates the prompt instead.
+        name = model.split("/", 1)[1]
+        entry = {"name": name}
+        if num_ctx:
+            entry["limit"] = {"context": num_ctx, "output": 8192}
+        cfg["provider"] = {"ollama": {
+            "npm": "@ai-sdk/openai-compatible", "name": "Ollama",
+            "options": {"baseURL": f"http://{VM_OLLAMA_HOST}:11434/v1"},
+            "models": {name: entry}}}
+    cfg = json.dumps(cfg, separators=(",", ":"))
+    # SIGUSR2 is ignored because Omarchy sends it to opencode on purpose:
+    # omarchy-theme-set calls omarchy-restart-opencode, which runs `killall -SIGUSR2
+    # opencode` so an interactive session reloads its theme. `opencode run` installs no
+    # handler, so the signal KILLS the agent under test the moment it applies a theme
+    # (exit 140, run 47). An ignored signal survives exec, and that is enough.
     parts = [
+        "trap '' USR2",
         "mkdir -p ~/.config/opencode",
         f"printf %s {shlex.quote(cfg)} > ~/.config/opencode/opencode.json",
         "rm -rf ~/.agents/skills",
@@ -233,16 +271,22 @@ def _opencode_command(model, skill_dir, prompt_path, variant):
     # --format json is what pi never gave us: turns, tokens, tool calls and cost per case.
     # The agentic lane recorded a 16-character transcript and no token accounting from run
     # 18 until now; see JOURNAL.md.
-    # --dir "$HOME" is REQUIRED, not tidiness. opencode asks permission for any write
-    # OUTSIDE its working directory, and `run` is non-interactive so there is nobody to
-    # approve: the tool call comes back "The user rejected permission to use this specific
-    # tool call" and the agent carries on as if it had simply chosen not to edit. Every
-    # case in runs 39-41 floored that way, on two different models, while READING the
-    # right files. These tasks edit ~/.config/..., so $HOME is the working directory that
-    # makes them possible. Omarchy's own launcher solves this with `opencode --auto`,
-    # which `run` does not accept.
-    parts.append(f"opencode run --dir \"$HOME\" --format json -m {shlex.quote(model)} "
-                 f"-- \"$(cat {shlex.quote(prompt_path)})\"")
+    # $HOME as the working directory is REQUIRED, not tidiness. opencode asks permission
+    # for any write OUTSIDE its working directory, and `run` is non-interactive so there is
+    # nobody to approve: the tool call comes back "The user rejected permission to use this
+    # specific tool call" and the agent carries on as if it had simply chosen not to edit.
+    # Every case in runs 39-41 floored that way, on two different models, while READING
+    # the right files. These tasks edit ~/.config/..., so $HOME is the working directory
+    # that makes them possible.
+    #
+    # opencode 2.0 (arrived with Omarchy 4.0.5) REMOVED `--dir`: `run` exits 1 with
+    # "Unrecognized flag: --dir", which floored every case of run 50 in under 3 seconds.
+    # The working directory is now the process's own, hence the `cd`. --standalone runs a
+    # private server per case instead of attaching to 2.0's shared background service,
+    # which would outlive the case and could carry one arm's config or skills into the
+    # next.
+    parts.append(f"cd \"$HOME\" && opencode run --standalone --format json "
+                 f"-m {shlex.quote(model)} -- \"$(cat {shlex.quote(prompt_path)})\"")
     return " && ".join(parts)
 
 
@@ -315,7 +359,9 @@ async def _one_agentic_case(pool, run_id, bench, task, model, variant, repeat_id
             # NOT _resolve()d: that appends Ollama's `:latest`, while an opencode id is
             # `provider/name` with no tag. `opencode-go/...` is subscription-covered and
             # `opencode/...` bills pay-as-you-go. See skillbench/ZEN.md.
-            command = _opencode_command(model, skill_dir, prompt_path, variant)
+            num_ctx = (await _num_ctx(model.split("/", 1)[1])
+                       if model.startswith("ollama/") else None)
+            command = _opencode_command(model, skill_dir, prompt_path, variant, num_ctx)
         else:
             command = _pi_command(await _resolve(model), skill_dir, prompt_path, params)
         rc, output, timed_out = await machine.run_in_tmux(

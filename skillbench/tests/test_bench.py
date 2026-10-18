@@ -562,17 +562,56 @@ def test_opencode_model_ids_keep_their_provider_prefix():
     assert ":latest" not in cmd
 
 
+def _opencode_cfg(cmd):
+    import json, shlex
+    for tok in shlex.split(cmd.split(" && ")[2]):
+        if tok.startswith("{"):
+            return json.loads(tok)
+    raise AssertionError("no opencode.json written")
+
+
+def test_opencode_local_model_gets_the_hosts_ollama_and_its_window():
+    """opencode ships no Ollama provider, so a local id resolves to nothing without one.
+    limit.context must be the tag's num_ctx, not opencode's default."""
+    from app import runner
+    cmd = runner._opencode_command("ollama/qwen3-coder:30b-56k", None, "/r/w/p.txt",
+                                   "none", 57344)
+    ollama = _opencode_cfg(cmd)["provider"]["ollama"]
+    assert ollama["options"]["baseURL"] == f"http://{runner.VM_OLLAMA_HOST}:11434/v1"
+    assert ollama["models"]["qwen3-coder:30b-56k"]["limit"]["context"] == 57344
+    assert "-m ollama/qwen3-coder:30b-56k" in cmd
+
+
+def test_opencode_survives_omarchy_theme_set():
+    """omarchy-theme-set runs `killall -SIGUSR2 opencode`, which kills `opencode run`."""
+    from app import runner
+    cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/p.txt", "none")
+    assert cmd.startswith("trap '' USR2 && ")
+
+
+def test_opencode_cloud_model_gets_no_local_provider():
+    from app import runner
+    cfg = _opencode_cfg(runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/p.txt",
+                                                 "none"))
+    assert "provider" not in cfg
+    assert cfg["permission"]["external_directory"] == {"*": "allow"}
+
+
 def test_opencode_runs_with_home_as_its_working_directory():
-    """Without --dir "$HOME" the agent cannot edit anything it is asked to edit.
+    """Without $HOME as its working directory the agent cannot edit anything it is asked to.
 
     opencode requires approval for writes outside its working directory, and `run` is
     non-interactive, so the call returns "The user rejected permission to use this specific
     tool call" and the agent continues as though it chose not to act. Runs 39, 40 and 41
     all floored that way, on two models, while reading exactly the right files.
+
+    opencode 2.0 removed `--dir` and exits 1 on it (run 50), so the directory comes from
+    `cd`, and the flag must not come back.
     """
     from app import runner
     cmd = runner._opencode_command("opencode-go/glm-5.3", None, "/r/w/p.txt", "none")
-    assert '--dir "$HOME"' in cmd
+    assert 'cd "$HOME" && opencode run --standalone ' in cmd
+    assert "--dir" not in cmd
 
 
 # ------------------------------------------------- the published results page
