@@ -13,7 +13,10 @@
 set -euo pipefail
 CONF_DIR="$HOME/.local/share/opinionated-omarchy"
 
-for N in "${@:-1 2}"; do
+VMS=("$@")
+(( ${#VMS[@]} )) || VMS=(1 2)
+
+for N in "${VMS[@]}"; do
   vv="$CONF_DIR/test$N.vv"
   [[ -f $vv ]] || { echo "no connection file at $vv" >&2; exit 1; }
   if ! sudo virsh domstate "opinionated-omarchy-test$N" 2>/dev/null | grep -q running; then
