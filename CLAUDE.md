@@ -155,7 +155,9 @@ Mind the version skew, and mind that **an installed version is not the current o
 2026-09-19, and test1 was brought to 4.0.4-1 the same day. Upstream shipped **v4.0.5** on
 2026-10-18 and **both VMs were updated to 4.0.5-1 that day**, while the workstation was
 deliberately left at 4.0.4-1. For any 4.0.5 question the workstation is now the stale machine,
-so check against a VM. Read the installed version
+so check against a VM. Upstream then shipped **v4.0.6** on 2026-10-19, a small release (OpenClaw,
+the console font in the initramfs, lock-screen recovery, four migrations) that touches no pacman,
+Vulkan or gaming file. Neither VM has it yet. Read the installed version
 from pacman, never from `/usr/share/omarchy/version`, which says `4.0.0.alpha` everywhere
 and is branding. Read the *current* version from upstream, because the sync database is
 only as fresh as the last update:
@@ -213,7 +215,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | test1 and test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 (workstation `4.0.4-1`, upstream `v4.0.5`) |
+| Version | test1 and test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 (workstation `4.0.4-1`, upstream `v4.0.6` since 2026-10-19) |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |
@@ -316,7 +318,9 @@ asking "Ready to update?". The `-y` flag is the script's own unattended path: it
 confirm` exit 0, which is yes. Measured on 2026-10-18: TERM 0, INT 130, HUP 129, KILL 137.
 `omarchy-update-restart` runs `gum confirm "$1" && omarchy-system-reboot`, so a watcher that
 sent SIGTERM rebooted both VMs. An earlier revision of this file said killing the process
-answers no, which was wrong for this gum. After a decline the run carries on, and by then the
+answers no, which was wrong for this gum. We reported it to gum as charmbracelet/gum #1172 on
+2026-10-19, and v4.0.6 still ships the same line, so keep using INT until a gum release fixes it.
+After a decline the run carries on, and by then the
 packages are already installed. Find the prompt with `ps -o pid,cmd --ppid <pid of the step>`.
 Upstream already tracks both hangs as #8780 and #8986, with PRs #8824 and #9511 open.
 
@@ -393,8 +397,11 @@ load-bearing:
   retraction. Then: `$HOME` must be the working directory. opencode 1.x took `--dir "$HOME"`, and opencode
   2.0, which arrived with Omarchy 4.0.5, removed the flag and exits 1 on it, so the runner now
   does `cd "$HOME" && opencode run --standalone` (run 50 floored on the old form). Also,
-  `omarchy-theme-set` runs `killall -SIGUSR2 opencode` and that kills `opencode run` with exit
-  140, so the runner ignores USR2 first (upstream #8002, PRs #8004 and #14640). And `HOME` must NOT be relocated to control skills, or the task loses the config
+  `omarchy-theme-set` runs `killall -SIGUSR2 opencode`, and on opencode 1.x that killed `opencode run`
+  with exit 140, so the runner ignores USR2 first (upstream #8002, PRs #8004, #14640 and #15350).
+  opencode 2.0.32 from Omarchy's mise install runs as `opencode.exe`, which the `killall` misses
+  (tested 2026-10-19). Keep the trap anyway, because Arch's `/usr/bin/opencode` 2.0.32 is still
+  named `opencode` and still dies. And `HOME` must NOT be relocated to control skills, or the task loses the config
   it edits; and the skill arm must be built by rewriting `~/.agents/skills`, because Omarchy
   symlinks its own skills there on every install so **a stock machine has no bare
   condition**. See [skillbench/ZEN.md](skillbench/ZEN.md). Models come from `opencode-go/`,
@@ -877,6 +884,66 @@ the copyright ranges reproducing Departure Mono's OFL notice, and numeric ranges
 - The corpus is research, not a warranty. Anything touching pacman, the bootloader,
   initramfs, or partitions deserves a confirmation against the cited source before it
   runs as root.
+
+## Contributing upstream
+
+The operator set this bar on 2026-10-19: **post only what adds something new and valuable to
+upstream.** That means a fact the maintainers or other users do not already have, and one that
+could help many people. Being first, or having something interesting to say, is not enough.
+Sometimes our evidence earns a new issue or a PR. More often it earns a comment on someone else's
+thread. Often it earns nothing upstream, and the right home for it is the corpus. Decide this before
+drafting, and write the decision down either way. A finding we chose not to post goes in the
+journal with the reason, so nobody re-derives it later.
+
+Ask three questions of every candidate:
+
+- **Is it new?** Read the existing thread in full, including bot reviews and comments on merged PRs.
+  If someone already posted the fact, ours adds nothing unless it changes a conclusion.
+- **Who does it help?** Count the users who would ever hit it. Something that bites only a user who
+  activated an optional hook and then switched channel is a corpus record, not an issue.
+- **Does it change what a maintainer does?** Good contributions include a reproduction on a release
+  they have not tested, a control that isolates the cause, a tested review of an open PR, or a
+  correction to a wrong claim in a thread. Agreement, a "+1" or a restatement are not.
+
+**Check upstream fresh every time, immediately before drafting.** The tracker moves daily, and a
+check from the previous session is stale. The 2026-10-19 re-check, one day after the previous one,
+found one item fixed and three with new threads. The check covers:
+
+```sh
+gh search issues "<terms>" --repo omacom/omarchy --limit 10        # issues AND PRs, open and closed
+gh api repos/omacom/omarchy/issues/<n> --jq '.state,.updated_at'    # every thread we already cite
+gh api "repos/omacom/omarchy/contents/<path>?ref=quattro"           # is it already fixed on the branch?
+gh api repos/omacom/omarchy/compare/<fix-sha>...<release-tag>       # and has that fix shipped?
+```
+
+The last two matter because the shipped release and `quattro` diverge. A bug can be fixed upstream
+and still be live on every machine running the release. For a bug like that we post nothing, and the
+corpus says which release will fix it.
+
+Then follow the method in the 2026-09-14/15 journal session. Reproduce on a test VM, never the
+workstation. Run two independent adversarial reviews on different models, with the claim most likely
+to be false named in the prompt. Name the drafting and reviewing models in the post. Send anything
+with a security angle through HackerOne, not a public issue. **The operator decides what is posted.
+A draft is not a post.** An agent posts only when the operator says so for that item, from the
+TechLuddite account, signed "Posted by <model> on behalf of TechLuddite" with one line on how it was
+reproduced and reviewed. That is how gum #1172 and the 580xx comment on #12392 went out on 2026-10-19.
+Re-run the duplicate search immediately before posting. `writeups/upstream/` is in this public
+repository, so a draft committed there is public before the operator has decided to post it. Commit
+it only after it has been posted, or withheld on purpose like `05-WITHHELD.md`.
+
+Reviewers outside Claude, as run on 2026-10-19. Each gets the draft, the literal test output, and
+the claims most likely to be false:
+
+- **Grok** (`grok -m grok-4.7 --reasoning-effort medium --prompt-file <f>`), run headless in an
+  empty directory holding a copy of the draft. Allow only read-only `gh` and file reads with
+  `--allow "Bash(gh api *)"` and the like, and deny `Edit`, `Write` and shell chaining (`;`, `&&`,
+  `>`, `$(`, `-X`, `-f`). `--always-approve` is refused by Claude Code's auto-mode classifier.
+- **GPT** through Codex (`codex exec -m gpt-6-astra -c model_reasoning_effort=medium -s read-only
+  --skip-git-repo-check -o <out> "<prompt>" < /dev/null`). The classifier also refuses a Codex
+  sandbox with network, so fetch the cited source at its tags into the directory first and run it
+  offline. Without `< /dev/null` Codex waits on stdin until the timeout. Build the prompt in a file,
+  never with `sed` over text containing `#`, which once sent it an empty prompt.
+- **Claude models** through the Agent tool with `model` set, which can use `gh` directly.
 
 ## Keeping the published results honest
 

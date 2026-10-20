@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -46,9 +46,16 @@ Last updated: 2026-10-18
 >    2026-09-19 session, which also records that two of four review agents were stopped partway, so
 >    `shell/` and most of `bin/` are unreviewed.
 >
-> 1e. **The NEXT SESSION is upstream work (2026-10-18):** six problems, U1 to U6, as reports or PRs from
->    `TechLuddite/omarchy`. Most already have an upstream thread. The list and the method are under
->    "Next session" in the 2026-10-18 session.
+> 1e. **The upstream round U1 to U6 is DONE (2026-10-19).** Two posts went out, both from the
+>    TechLuddite account at the operator's instruction: U3 as charmbracelet/gum #1172 (`gum confirm`
+>    exits 0 on SIGTERM) and U4 as a comment on omacom/omarchy #12392 (since 4.0.5 the wrong pick is
+>    `nvidia-580xx-utils`). U1, U5 and U6 did not clear the new bar in `CLAUDE.md` "Contributing
+>    upstream", and U2 is already fixed on `quattro`. Each verdict and its evidence is under "Outcome
+>    so far" in the 2026-10-18 session. Watch #1172 and #12392 for replies.
+>
+> **Next session, in order:** 1f (the ranking, no VM needed), then 1d (bring both VMs to v4.0.6
+> first, which shipped 2026-10-19, saving the 4.0.5 goldens as reflink copies), then the 1g spike.
+> Both VMs are shut off.
 >
 > 1f. **The local-model ranking is OWED (2026-10-18).** The 10-model opencode scan finished: runs 52
 >    (published-wrong), 53 (stale-advice) and 55 (deep-triage control), 3 repeats each. Run 54 is a
@@ -59,8 +66,22 @@ Last updated: 2026-10-18
 >    result is cited. Token counts are empty on every case: the runner does not yet parse them from
 >    the opencode event stream that each case stores.
 >
+> 1g. **The agentic lane gets a harness that plays the human, now that U1 to U6 are done (decided 2026-10-19).**
+>    Today the runner starts `opencode run` headless in a tmux window over ssh, with nobody present.
+>    Under H1 the harness types the prompt into an interactive opencode or pi session on the VM's
+>    desktop through QEMU input injection (`virsh send-key` or QMP `input-send-event`, with a
+>    usb-tablet for absolute pointer), answers the agent's prompts as a user would, and takes
+>    `virsh screenshot` frames for a visual grader that sits beside STATE rather than replacing it.
+>    The agent under test stays a CLI agent. H2, where the agent itself drives the desktop, was
+>    rejected because the skill is written for an agent with a shell. Both VMs must run at once and
+>    be watchable live through `tools/view-test-vms.sh`, whose windows only watch while the harness
+>    injects below the guest. The read-only mirror at `tools/provision-bench-vm.sh:176` cannot take
+>    input, so H1 needs its own interactive terminal. Start with a spike: `omarchy-agentic-config`,
+>    one model, headless against H1 on test1, then both VMs.
+>
 > 1d. **The 4.0.5 re-check is OWED (2026-10-18).** Upstream shipped v4.0.5. Both test VMs run it, the
->    workstation does not. Three fixes are now wrong and about nine problems are fixed upstream. The
+>    workstation does not. v4.0.6 followed on 2026-10-19 and touches no pacman, Vulkan or gaming file,
+>    so the work list stands, but hold records against v4.0.6. Three fixes are now wrong and about nine problems are fixed upstream. The
 >    work list is the 2026-10-18 session, and the evidence is `research/raw/release-4.0.5-impact.md`.
 >
 > 1c. **The `security` category EXISTS as of 2026-09-18**, 16 records, all 16 corrected by
@@ -246,10 +267,109 @@ so the useful contribution is usually evidence or a tested review, not a new iss
 | U5 | Migration 1791403252 overwrites `/etc/pacman.conf.bak`, the only backup | PR #7998 (timestamped backups) and PR #15017 open | Comment on #7998 that 4.0.5's migration hits the same single-backup problem |
 | U6 | A user's existing custom-repo hook still inserts above `[core]`, so custom repositories now rank below `[omarchy]` | none found | Report against #14551, or a PR that migrates the user's copy of the sample |
 
+**Re-checked on 2026-10-19**, a day after v4.0.5, because the tracker moves fast. Four rows changed:
+
+- **U2 is fixed on `quattro` and drops off the list.** #14428 (`402128b6a`, merged 2026-10-07) makes
+  `omarchy-update` call `omarchy-update-orphan-pkgs -y`, and `quattro`'s `omarchy-update-restart`
+  prints a message under `OMARCHY_UPDATE_UNATTENDED=1` instead of calling `gum confirm`. Neither
+  change is in v4.0.5: the release diverges from `402128b6a` (152 ahead, 727 behind), so 4.0.5 still
+  hangs. #13356 was closed as a duplicate of #8780 on 2026-10-13. Nothing to post. The two hangs
+  stay in this file until a release ships the fix.
+- **U4 has a thread: #12392** (opened 2026-09-18), `nvidia-utils` as the default Vulkan provider on
+  AMD and Intel machines, with #14427 (virtio, zed) and #8856 (closed) beside it. A 2026-10-18
+  comment there already shows `pacman -Sp --noconfirm vulkan-driver` picking `nvidia-utils` on
+  4.0.5-1. What we add is that on 4.0.5 with `[omarchy]` first the pick becomes the legacy
+  `nvidia-580xx-utils` build from `pkgs.omarchy.org` (test2, no NVIDIA hardware). The contribution
+  is a comment on #12392, not a new issue.
+- **U6 was raised in review before the merge.** On 2026-10-08 a reviewer on #14551 pointed out that
+  the migration demotes a custom repo the user had placed above `[core]`. It merged the same day
+  without a change. Our case is the other path: a user who had already activated the old
+  `add-custom-repo.sample` keeps a hook that inserts above `[core]`, while `quattro`'s sample at
+  `config/omarchy/hooks/pre-refresh-pacman.d/add-custom-repo.sample` now inserts above `[omarchy]`.
+  The contribution is a new issue citing that review comment.
+- **U1 has two competing PRs.** A 2026-10-16 bot review on #14640 notes that #8004 fixes both
+  halves of #8002 and #14640 only the headless half. `bin/omarchy-restart-opencode` is unchanged
+  on `quattro`. Testing both PRs against opencode 2.0.32 is now the useful comment.
+
+U3 still has no thread (gum's latest release is v2.0.2, 2026-09-24) and U5 is unchanged:
+`quattro`'s migration still runs `sudo cp -a /etc/pacman.conf /etc/pacman.conf.bak` at line 22, and
+#7998 is open.
+
 **Evidence already in hand.** U1 is run 47 and the exit-140 test in this entry. U3 is the measured
 exit codes above. U4 is `pacman -Sp --noconfirm steam` on test2 at 4.0.5-1, which listed
 `nvidia-580xx-utils` and `lib32-nvidia-580xx-utils` from `pkgs.omarchy.org`. U5 and U6 are in
 `research/raw/release-4.0.5-impact.md`, items 10 and 12.
+
+**Outcome so far (2026-10-19).** The bar for posting is now in `CLAUDE.md` under "Contributing
+upstream". In short, post only what is new and could help many people.
+
+- **U4 is drafted and reviewed** (Opus and Sonnet, independently), as a comment on #12392. It is
+  waiting for the operator. A control run on test2, with `[omarchy]` moved back to its 4.0.4
+  position, shows #14551 changed the pick from `nvidia-utils` 615 to `nvidia-580xx-utils` 580. The
+  draft is not committed here, because `writeups/upstream/` is public. Rewritten late on 2026-10-19
+  after a fresh check: @Azonnali's 2026-10-18 comment now proposes (1) installing lib32 vendor
+  drivers in `vulkan.sh` and (2) a cleanup migration for `nvidia-utils` and `lib32-nvidia-utils`,
+  scoped to machines bitten before the 2026-09-19 steam fix. Nobody in the thread mentions 580xx, so
+  the comment now carries only that delta: a widened migration needs the 580xx names. Re-run on test2
+  against a copied `--dbpath` with fresh databases, the pick is unchanged. With both vendor drivers
+  recorded as installed (`-S --dbonly`), steam resolves with no NVIDIA package, and with the 64-bit
+  driver alone it still pulls `lib32-nvidia-580xx-utils`. v4.0.6 touches no pacman, Vulkan or gaming
+  file. Reviewed by Claude Fable 5.1 and GPT-6 Astra at medium effort: no factual error. Both
+  narrowed the claims about which packages a bitten machine carries and how the migration is scoped.
+  **Posted on 2026-10-19** as
+  https://github.com/omacom/omarchy/issues/12392#issuecomment-6282898451, from the TechLuddite
+  account at the operator's instruction, signed as posted by Claude Opus 5.5 on their behalf.
+- **U6 is not worth posting.** It was simulated on test2 against copies of `pacman.conf`, read with
+  `pacman-conf --repo-list`. The 4.0.5 migration keeps a custom `Include` above `[omarchy]`, because
+  the old sample's line sits in the `[options]` region, which the migration's awk keeps at the top.
+  The review concern on #14551 applies to a literal `[custom]` section, not to the sample. Demotion
+  happens later. On the next `omarchy refresh pacman`, a user's activated copy of the 4.0.4 sample
+  inserts above `[core]`, which now sits below `[omarchy]`, so the order becomes `omarchy customrepo
+  core`. On `quattro` only `omarchy-channel-set` and `omarchy-reinstall-pkgs` call refresh, so it
+  reaches only users who activated the hook and then switch channel or reinstall. That is a corpus
+  record, not an issue. If an `IgnorePkg` sits in the included file above its section header, it
+  lands in `[omarchy]` and pacman warns that it is not recognized. I constructed that case myself and
+  have not seen it in the wild.
+- **U1 is not worth posting.** Tested on test2. opencode 2.0.32 from Omarchy's mise install runs as
+  `opencode.exe`, for the TUI, its worker and headless runs alike. So `killall -SIGUSR2 opencode`
+  matches nothing, and a theme switch no longer kills a headless run on a stock 4.0.5 machine. A bot
+  review on #8004 had already posted that on 2026-10-16, which the first draft missed and both
+  reviewers caught. Two facts were new, and neither reaches many users. First, Arch's
+  `extra/opencode` 2.0.32-1 installs `/usr/bin/opencode`, whose process is named `opencode`, and the
+  stock script still killed a headless run with exit 140. That only matters if a user runs that
+  binary ahead of Omarchy's mise wrapper. Second, the `SigCgt` filter in both PRs loops over
+  `pgrep -x opencode`, so on the mise build `omarchy restart opencode` signals nothing. With the name
+  fixed, a plain `killall` killed the TUI's worker, which respawned, and killed a headless run with
+  exit 140. The filter signalled only the TUI's main process (`SigCgt 000000012c005eff`, worker and
+  headless `00000001240046fa`). mise picks `npm:@opencode/cli` for 2.x only from mise 2026.10.9
+  (registry `opencode.toml`), and 4.0.5 ships `mise-bin` 2026.10.12. Older mise resolves `latest` to
+  `aqua:anomalyco/opencode` v1.19.3, named `opencode` (read from the registry, not run). Run 47's
+  exit 140 was opencode 1.18. The runner's `trap '' USR2` is now insurance rather than a fix. Keep it.
+- **U3 is drafted and reviewed**, as a new issue on `charmbracelet/gum`. It is waiting for the
+  operator. No existing report was found in gum or bubbletea. Tested on test2 with gum 2.0.2:
+  `confirm` exits 0 on SIGTERM (1 with `--default=false`, 130 on SIGINT, 129 on SIGHUP), while
+  `choose`, `input`, `write` and `filter` exit 1. From the source, bubbletea maps SIGTERM to a
+  graceful `QuitMsg` (bubbletea #412), and `confirm` is the one command that never checks whether
+  anyone answered. Its model already sets `quitting` on each explicit answer, which is the fix the
+  draft suggests. The Omarchy half of U3, whether logging out at the reboot prompt reboots, was not
+  tested. `quattro` no longer reaches that prompt under `-y`. Re-checked late on 2026-10-19, after
+  v4.0.6 shipped: still no thread in gum or bubbletea, gum is still at v2.0.2, and v4.0.6 ships the
+  same `gum confirm "$1" && { omarchy-system-reboot; exit 0; }` line, so the draft now cites both
+  releases. Two neighbours are not duplicates. gum PR #1161 (open) adds a countdown to `confirm` and
+  sets `quitting` on timeout, which leaves the suggested fix intact. bubbletea #1849 (open) is about a
+  second signal during shutdown leaving the terminal raw, not the exit code. A third review, Grok 4.7
+  at medium effort, confirmed every claim against source and caught one real defect: a plain
+  `quitting` check after `Run` would make `--timeout` exit as aborted, because a timeout also leaves
+  `quitting` false. The fix suggestion now spells out the order, and the expected code reads "1 or 130".
+  Fourth and fifth reviews of the final text, Claude Fable 5.1 and GPT-6 Astra (Astra offline in a
+  read-only Codex sandbox over source fetched at the cited tags), found no factual error. Changes
+  taken: exact wording of `confirm`'s error handling, PR #1161 described as needing integration
+  rather than "still holds", "I" made "we", and the methods line limited to what was run. **Posted on
+  2026-10-19 as charmbracelet/gum #1172**, from the TechLuddite account at the operator's instruction,
+  signed as posted by Claude Opus 5.5 on their behalf.
+- **U5 is not worth posting.** The 4.0.5 migration's single `.bak` has already run on every machine
+  that will run it, so a comment cannot help anyone who has it. #7998 covers the refresh path, and
+  widening it to migrations is a new request with no reported loss behind it.
 
 **How to work them, from what went wrong last time.** Read the 2026-09-14/15 session before writing
 anything. Three of four drafts were materially wrong before review. Every draft goes through an
@@ -258,8 +378,9 @@ claim most likely to be false named in the prompt, and then a second review by a
 Say in each post which models drafted and reviewed it. Reproduce on a test VM at 4.0.5-1, never on
 the workstation. Anything with a security angle goes through HackerOne
 (<https://hackerone.com/omarchy>), not a public issue. None of U1 to U6 looks like one, and that
-judgement belongs in the review prompt so the reviewer can overturn it. The operator posts. A draft
-is not a post.
+judgement belongs in the review prompt so the reviewer can overturn it. The operator decides what is
+posted, and a draft is not a post. On 2026-10-19 the operator had the agent post U3 and U4 itself,
+and `CLAUDE.md` now records that rule and how to run the Grok and GPT reviewers.
 
 **Not upstream work, but owed.** The vendored `diagnose-crash/SKILL.md` tells agents to run
 `omarchy-crash-mute`, which no release ships. Decide whether to re-vendor from the v4.0.5 tag. That
