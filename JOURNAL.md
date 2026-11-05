@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-10-19
+Last updated: 2026-11-05
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -52,6 +52,11 @@ Last updated: 2026-10-19
 >    `nvidia-580xx-utils`). U1, U5 and U6 did not clear the new bar in `CLAUDE.md` "Contributing
 >    upstream", and U2 is already fixed on `quattro`. Each verdict and its evidence is under "Outcome
 >    so far" in the 2026-10-18 session. Watch #1172 and #12392 for replies.
+>
+> 1h. **v4.5.0 runs on test1 (2026-11-05)**, and #17705 blocks none of the operator's machines,
+>    because stable takes `extra` from a snapshot that still has hyprland 0.56.2-4. Two comments went
+>    upstream, on #17705 and #17525, and a tested migration was withheld. test1 is not clean. See the
+>    2026-11-05 session.
 >
 > **Next session, in order:** 1f (the ranking, no VM needed), then 1d (bring both VMs to v4.0.6
 > first, which shipped 2026-10-19, saving the 4.0.5 goldens as reflink copies), then the 1g spike.
@@ -122,6 +127,119 @@ Last updated: 2026-10-19
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-11-05: v4.5.0 on test1, the stable blocker that was not one, and two comments upstream
+
+Upstream shipped **v4.5.0 on 2026-11-05** (05:36 UTC). Earlier that day a Claude session on nexus1
+judged the operator's three machines not ready to update, on the strength of #17705: stable's
+`omarchy-hyprland-titlebars 0.2.2-2` requires `hyprland=0.56.2`, the report says `extra` now has
+0.57.1-1, and migration `1791403310.sh` then fails partway through the update. That judgement
+assumed a stable machine takes `extra` from live Arch. It does not, and the update went through
+cleanly on test1 twice.
+
+### What test1 did
+
+test1 went from **4.0.5-1 to 4.5.0-3** with `omarchy update -y`, on stable, and exited 0. Migration
+`1791403310.sh` installed `omarchy-hyprland-titlebars 0.2.2-2` next to `hyprland 0.56.2-4`. The
+kernel moved to `7.2.15-1-omarchy`, and after a reboot Hyprland and the shell came back with no
+failed units and the session unlocked. The pre-update disk was kept as a reflink copy,
+`/var/lib/libvirt/images/pre-4.5.0-test1-4.0.5-1.qcow2`, and the second run restored it first, with
+the same result: exit 0, 100 migrations, the same package pair. test2 was not touched and is still
+4.0.5-1. Neither golden image changed.
+
+The reason is the stable mirror. The omarchy-mirror README says it "serves the Arch snapshot the
+current Omarchy release was tested against" and that "stable never syncs from upstream itself".
+The `extra.db` readings on 2026-11-05:
+
+| Mirror | hyprland |
+| --- | --- |
+| `stable-mirror.omarchy.org` (stable) | 0.56.2-4 |
+| `stable-mirror.omarchy.cn` (stable, cn region profile) | 0.56.2-4 |
+| `rc-mirror.omarchy.org` (rc) | 0.56.2-4 |
+| `mirror.omarchy.org` (edge) | 0.57.1-1 |
+| `geo.mirror.pkgbuild.com` (Arch) | 0.57.1-1 |
+
+**None of the operator's machines is blocked by #17705.** The desktop (ohmy-omarchy, 4.0.5-1), the
+laptop (windows-laptop, 4.0.6-1) and nexus1 (4.0.6-1) all have only the `stable-mirror.omarchy.org`
+line in `/etc/pacman.d/mirrorlist`, and each sync database lists `extra/hyprland 0.56.2-4`. None of
+them was updated in this session. The NVIDIA freeze reported in #17635 on kernel 7.2.15 is
+untested here, because the VMs have no NVIDIA GPU, and it is the main risk for the desktop's 3090.
+
+### One trap, again
+
+The second run hung at `Remove 3 orphaned packages?`. The watcher that declines `gum confirm` with
+SIGINT had been written to the VM after the disk image was captured, so restoring the image deleted
+it and nothing answered. v4.5.0's `omarchy-update` passes `-y` to `omarchy-update-orphan-pkgs`, but
+the process running the update is still the 4.0.5 script, which omits it, so the hop from 4.0.5
+still hits #8780. `kill -INT` on the prompt let the run finish. Install the watcher after any reset.
+
+### The packages an update does not install
+
+#17525 reports that an update never installs packages added to the default set after the install.
+That is confirmed: nothing in `omarchy-update` compares the machine against `omarchy-pkg-defaults`.
+Between v4.0.5 and v4.5.0, 24 names were added to `install/omarchy-base.packages`, and v4.5.0
+migrations name 22 of them. On test1 after the update, `pacman -T $(omarchy-pkg-defaults)` reported
+two of 162 defaults missing, and neither is an oversight:
+
+- `fcitx5-table-extra` arrived with the Cangjie preset in #15508, which says "Existing installs get
+  the package on demand from `omarchy setup input cangjie5`." That command installs it. The Input
+  Methods picker installs nothing and refuses with `Install fcitx5-table-extra to use Hong Kong
+  (Cangjie)`, because it runs without a terminal for `sudo`.
+- `superwhisper-bin` was added for fresh installs in #14625 ("Existing users’ backend choices remain
+  unchanged"). Migration `1793667581.sh` from #17407 installs it only when Superwhisper is already the
+  selected backend. test1 has no backend configured.
+
+This session's first report got the second one wrong. It counted `superwhisper-bin` as a gap, and a
+prototype installed it. The prototype, `omarchy-pkg-reconcile` in the session's scratch folder,
+installs what `pacman -T` reports missing, skips any name `pacman.log` shows was removed and the
+preinstalls when `preinstalls-removed` exists, and installs one package per transaction so one bad
+dependency costs one package. Greptile's review of #15913 also caught a defect it shared: `pacman -T
+… || true` treats a failed query as nothing missing. That is fixed in the scratch copy.
+
+### What went upstream, and what did not
+
+Both posts went out from the TechLuddite account at the operator's instruction, after a fresh
+duplicate search and two rounds of adversarial review by Grok 4.7 and GPT-6 Astra:
+
+- **A comment on #17705** (`writeups/upstream/10-comment-on-17705-stable-mirror.md`):
+  the two clean runs, the mirror readings, and the commands that would show how the reporter's
+  machine got 0.57.1-1. The first draft said the reporter's mirrorlist was the cause. Both reviewers
+  showed that was one route among several, including earlier time on edge, an interrupted channel
+  switch and a hand install. Grok added the fact that changes the advice: the update upgrades with
+  `pacman -Syu`, which never downgrades, so a machine that already has 0.57.1-1 keeps failing after
+  its mirror is fixed.
+- **A comment on #17525** (`writeups/upstream/11-comment-on-17525-new-defaults.md`):
+  the route each package has onto an older install, the stable result, and that the reporter's
+  broader question stays open for a maintainer. Both reviewers rejected the draft's claim that both
+  gaps looked intended, and its closing question, which pulled in the picker issue the report had
+  ruled out of scope.
+
+**Withheld: a migration that installs `fcitx5-table-extra`.** It was written and tested on test1.
+Without it `typing_setup.py add cangjie5` exits 1. With it the package installs and the same command
+exits 0. A rerun with the package present makes no pacman transaction, and five migration-scanning
+upstream tests pass with and without it. It was not opened as a PR because it reverses the decision
+#15508 records, reinstalls the package for anyone who removed it, works against the opt-in proposal
+in #17148, and helps only someone who picks Cangjie from the picker, who is already told which
+package to install. It sits uncommitted on a local branch in the scratch clone. Reopen it only if a
+maintainer says on #17525 that older installs should get the full default set.
+
+**Withheld: the general reconciliation step.** Some defaults depend on a choice the user made, as
+`superwhisper-bin` shows, #17148 moves the other way, and #15913 already covers provides-aware
+filtering for `omarchy-reinstall-pkgs`. The `pacman.log` removal check is the only new part, and on
+its own it does not clear the bar in `CLAUDE.md` "Contributing upstream".
+
+### Outstanding
+
+1. Watch #17705 and #17525 for replies, and #17705 for a titlebars 0.3.x build on stable.
+2. test1 is not clean. It runs 4.5.0-3 with the withheld migration in
+   `/usr/share/omarchy/migrations/1793854933.sh`, `fcitx5-table-extra` installed and `cangjie5` in
+   its Fcitx profile. Reset it from a golden or from the pre-update copy before benching on it.
+3. The test VM table in `CLAUDE.md` is stale: test1 is 4.5.0-3 on `7.2.15-1-omarchy`, and upstream
+   is v4.5.0.
+4. The 4.0.5 re-check in 1d now has to be held against v4.5.0, a feature release. Nobody has read
+   the v4.0.6...v4.5.0 compare against the corpus yet.
+5. When the fleet updates, snapshot first and check that each machine boots before starting the
+   next. The desktop is the one exposed to #17635.
 
 ## Session of 2026-10-18: the test VMs move to 4.0.5, and the next audit has a work list
 
