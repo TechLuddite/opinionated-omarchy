@@ -215,7 +215,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | test1 and test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 (workstation `4.0.4-1`, upstream `v4.0.6` since 2026-10-19) |
+| Version | test1 `4.5.0-3`, kernel `7.2.15-1-omarchy`, opencode `2.2.5` from mise, measured 2026-11-05. test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 and not updated since. Workstation `4.0.5-1`, upstream `v4.5.0` since 2026-11-05 |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |
