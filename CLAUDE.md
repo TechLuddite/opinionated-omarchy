@@ -153,11 +153,13 @@ Mind the version skew, and mind that **an installed version is not the current o
 2026-09-05, so two releases had come and gone unseen and two records asserted behaviour
 4.0.3 had already changed. The workstation was updated that evening and read **4.0.4-1** on
 2026-09-19, and test1 was brought to 4.0.4-1 the same day. Upstream shipped **v4.0.5** on
-2026-10-18 and **both VMs were updated to 4.0.5-1 that day**, while the workstation was
-deliberately left at 4.0.4-1. For any 4.0.5 question the workstation is now the stale machine,
-so check against a VM. Upstream then shipped **v4.0.6** on 2026-10-19, a small release (OpenClaw,
-the console font in the initramfs, lock-screen recovery, four migrations) that touches no pacman,
-Vulkan or gaming file. Neither VM has it yet. Read the installed version
+2026-10-18 and **both VMs were updated to 4.0.5-1 that day**. The workstation was updated to
+4.0.5-1 later the same day, at 13:44 local time by its `pacman.log`, although this file said until
+2026-11-05 that it had been left at 4.0.4-1. Upstream then shipped **v4.0.6** on 2026-10-19, a
+small release (OpenClaw, the console font in the initramfs, lock-screen recovery, four migrations)
+that touches no pacman, Vulkan or gaming file, and neither VM nor the workstation ever ran it.
+Upstream shipped **v4.5.0** on 2026-11-05, and **test1 was updated to 4.5.0-3 that day**, while
+test2 and the workstation stay at 4.0.5-1. For any 4.5 question, check against test1. Read the installed version
 from pacman, never from `/usr/share/omarchy/version`, which says `4.0.0.alpha` everywhere
 and is branding. Read the *current* version from upstream, because the sync database is
 only as fresh as the last update:

@@ -234,8 +234,9 @@ its own it does not clear the bar in `CLAUDE.md` "Contributing upstream".
 2. test1 is not clean. It runs 4.5.0-3 with the withheld migration in
    `/usr/share/omarchy/migrations/1793854933.sh`, `fcitx5-table-extra` installed and `cangjie5` in
    its Fcitx profile. Reset it from a golden or from the pre-update copy before benching on it.
-3. The test VM table in `CLAUDE.md` is stale: test1 is 4.5.0-3 on `7.2.15-1-omarchy`, and upstream
-   is v4.5.0.
+3. The test VM table and the version paragraph in `CLAUDE.md` were brought to v4.5.0 the same
+   day, after a reboot put test1 on `7.2.15-1-omarchy`. The paragraph had also been wrong since
+   2026-10-18 about the workstation, which runs 4.0.5-1, not 4.0.4-1.
 4. The 4.0.5 re-check in 1d now has to be held against v4.5.0, a feature release. Nobody has read
    the v4.0.6...v4.5.0 compare against the corpus yet.
 5. When the fleet updates, snapshot first and check that each machine boots before starting the
