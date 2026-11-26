@@ -557,40 +557,51 @@ Sources: <https://github.com/basecamp/omarchy/issues/7115> · <https://github.co
 
 `theme-set-hangs-with-brave-origin-running` · severity: **high** · frequency: **occasional** · applies to: `arch`, `hyprland`, `omarchy`, `omarchy-4`, `wayland`
 
-**Symptom.** `omarchy theme set <any-theme>` never returns. Or `omarchy update` hangs inside a migration, for example `1787481315` ("Re-stage the current theme so an installed theme's code is dropped"), never writes that migration's marker file, so every later `omarchy update` re-runs it and hangs again. `pgrep -af -- '--refresh-platform-policy'` shows a stray browser refresh, most often `/usr/bin/brave --refresh-platform-policy --no-startup-window`.
+**Symptom.** `omarchy theme set <any-theme>` typed in a terminal never returns. On Omarchy 4.5.0 a switch from the theme picker or the menu does return, and the wallpaper, bar and terminals change, but GTK, VS Code and the other app retints never land, user `theme-set` hooks never run, and every later switch queues behind the stuck one. Or `omarchy update` hangs inside a migration that re-applies the theme, for example `1787481315` ("Re-stage the current theme so an installed theme's code is dropped"), never writes that migration's marker file, so every later `omarchy update` re-runs it and hangs again. `pgrep -af -- '--refresh-platform-policy'` shows a stray browser refresh, most often `/opt/brave-bin/brave ... --refresh-platform-policy --no-startup-window`.
 
-**Cause.** `omarchy-theme-set-browser` calls the browser refresh in the foreground with nothing bounding it. Confirmed unchanged in omarchy 4.0.2-1 and on the `quattro` branch, in `/usr/bin/omarchy-theme-set-browser`:
+**Cause.** `omarchy-theme-set-browser` launches a policy refresh in every browser it believes is running and waits for each one with nothing bounding it. A refresh that never exits holds the theme change open forever.
+
+Omarchy 4.5.0 (`/usr/bin/omarchy-theme-set-browser` on 4.5.0-3, identical on the `quattro` branch as of 2026-11-09) finds running browsers from one `ps -eo comm=,args=` read and refreshes them in parallel:
 
 ```bash
-refresh_running_browser() {
-  local process="$1"
-  local command="$2"
-  local pgrep_args="${3:--x}"
+for browser in chromium:chromium "chrome:$chrome" msedge:microsoft-edge-stable brave:brave; do
+  [[ -n ${running_names[${browser%%:*}]:-} ]] && omarchy-cmd-present "${browser#*:}" && browsers_to_refresh+=("${browser#*:}")
+done
+...
+for command in "${browsers_to_refresh[@]}"; do
+  "$command" --refresh-platform-policy --no-startup-window &>/dev/null &
+  refresh_pids+=("$!")
+done
 
-  if omarchy-cmd-present "$command" && pgrep $pgrep_args "$process" >/dev/null; then
-    "$command" --refresh-platform-policy --no-startup-window &>/dev/null
-  fi
-}
+for pid in "${refresh_pids[@]}"; do
+  wait "$pid"
+done
 ```
 
-`omarchy-theme-set` runs that script as one of its 14 `post_theme_commands` through `run_parallel`, whose `wait` has no timeout, so a refresh that does not return holds the theme change open forever.
+Omarchy 4.0.x had the same defect in a `refresh_running_browser` function guarded by `pgrep -x brave`, with the refresh in the foreground.
 
-There are two ways in. The first is a detection mix-up: the plain-Brave branch is guarded by `pgrep -x brave`, and brave-origin's processes are all named plain `brave`, so with brave-origin running and Brave not running the guard passes and the script launches the other binary, `/usr/bin/brave` from `brave-bin`. With `--no-startup-window` that instance has no window to close and never exits. The second is a refresh that is slow even when detection is right, which is not Brave-specific: a correctly detected Chromium was measured at 68 seconds.
+There are two ways in. The first is a detection mix-up: plain Brave counts as running when any process is named `brave`, and brave-origin's processes are all named plain `brave`. So with `brave-bin` and `brave-origin-bin` both installed and only Brave Origin running, the script launches `/opt/brave-bin/brave` from `brave-bin`. With `--no-startup-window` that instance has no window to close and never exits. Brave Origin itself is detected correctly, by its `/opt/brave-origin-bin/` path. The second is a refresh that is slow even when detection is right, which is not Brave-specific: a correctly detected Chromium was measured at 68 seconds.
 
-`omarchy update` is caught because migration `1787481315` ("Re-stage the current theme so an installed theme's code is dropped") calls `omarchy-theme-refresh`, which calls `omarchy-theme-set`. `omarchy-migrate` writes a migration's marker only once the script exits, so a hung migration stays pending and every later `omarchy update` re-runs it. `omarchy-theme-set-keyboard-f16` fails the same way for a different reason: it calls `qmk_hid` with no bound and blocks on a QMK or VIA keyboard such as a Keychron K8 Pro.
+New in 4.5.0, the script exits before any refresh when every existing managed `color.json` already holds the canonical policy for the theme's color, so the hang needs a color change. Re-applying the current theme usually skips it.
 
-> **Audit corrected this record.** Read `/usr/bin/omarchy-theme-set-browser`, `/usr/bin/omarchy-theme-set`, `/usr/bin/omarchy-theme-refresh`, `/usr/bin/omarchy-migrate`, `/usr/bin/omarchy-update` and `/usr/share/omarchy/migrations/1787481315.sh` on this workstation at omarchy 4.0.2-1, and fetched `bin/omarchy-theme-set-browser` from `omacom/omarchy` at `quattro`. The mechanism holds: `refresh_running_browser brave brave` still guards on `pgrep -x brave`, the refresh call is still in the foreground with no timeout, `run_parallel`'s `wait` still has none, and migration `1787481315` still calls `omarchy-theme-refresh`, so a hang there leaves the marker unwritten. Issue 8158 supports every claim in the record, including the `pgrep -x brave` false positive across brave-origin and the suggested `refresh_running_browser /opt/brave-bin/ brave -f`. Issue 8243 supports the Keychron K8 Pro hang in `omarchy-theme-set-keyboard-f16`, and I confirmed that script calls `qmk_hid` with no bound. Issue 8212, which the record did not use, adds that a correctly detected Chromium took 68 seconds and that a bound needs `timeout -k`, so the defect is wider than the Brave detection mix-up and the cause now says so. Three things were wrong or misleading and are rewritten. The `danger` claimed a Ctrl+C risks a partial upgrade, but `omarchy-update` runs `omarchy-migrate` after `omarchy-update-system-pkgs` has completed the `pacman -Syu` and no pacman hook calls the theme scripts, so at the hang point there is no transaction to interrupt. The recovery command `pkill -f 'brave --refresh-platform-policy --no-startup-window'` is unanchored and matches the command line of the shell it is typed in, which I confirmed here with `pgrep -af`, so it is replaced with an anchored `pgrep` and a kill by PID. Paths are moved to the installed 4.0.2-1 form, and the fix now notes that `/usr/share/omarchy/bin/omarchy-theme-set-browser` is a symlink to `/usr/bin/omarchy-theme-set-browser` and that `sed -i` on the symlink path would replace it. Not exercised: neither `brave-bin` nor `brave-origin-bin` is installed here, so the hanging refresh itself was never reproduced and that part rests on issue 8158. The basecamp URLs redirect but the repository is now `omacom/omarchy`, so the citations are moved to the canonical name.
+How the hang spreads differs by release. On 4.5.0, `omarchy-theme-set` runs the browser step in its `other_theme_commands` batch under `run_parallel`, whose `wait` has no timeout. That batch holds `omarchy-theme-set-retint.lock` and runs `omarchy-hook theme-set` only after it finishes, so a stuck refresh blocks user hooks and every later switch's batch, which waits in `flock 8`. A switch from a terminal, or one with `OMARCHY_THEME_WAIT=1`, waits for the batch and never returns. A switch from the picker or menu runs the batch detached, so it returns and the stall is silent. On 4.0.x the browser step was one of the `post_theme_commands` and every `omarchy theme set` waited on it.
+
+`omarchy update` is caught because migration `1787481315` calls `omarchy-theme-refresh`, which on 4.5.0 runs `omarchy-theme-set` with `OMARCHY_THEME_WAIT=1` and so waits for the browser step. `omarchy-migrate` writes a migration's marker only once the script exits, so a hung migration stays pending and every later `omarchy update` re-runs it. `omarchy-theme-set-keyboard-f16` was reported to fail the same way on 4.0.x for a different reason: it called `qmk_hid` with no bound and blocked on a QMK or VIA keyboard such as a Keychron K8 Pro. That script was not re-checked on 4.5.0, where the batch runs `omarchy-theme-set-keyboard`.
+
+> **Audit corrected this record.** Read `/usr/bin/omarchy-theme-set-browser`, `/usr/bin/omarchy-theme-set`, `/usr/bin/omarchy-theme-refresh`, `/usr/bin/omarchy-migrate`, `/usr/bin/omarchy-update` and `/usr/share/omarchy/migrations/1787481315.sh` on this workstation at omarchy 4.0.2-1, and fetched `bin/omarchy-theme-set-browser` from `omacom/omarchy` at `quattro`. The mechanism holds: `refresh_running_browser brave brave` still guards on `pgrep -x brave`, the refresh call is still in the foreground with no timeout, `run_parallel`'s `wait` still has none, and migration `1787481315` still calls `omarchy-theme-refresh`, so a hang there leaves the marker unwritten. Issue 8158 supports every claim in the record, including the `pgrep -x brave` false positive across brave-origin and the suggested `refresh_running_browser /opt/brave-bin/ brave -f`. Issue 8243 supports the Keychron K8 Pro hang in `omarchy-theme-set-keyboard-f16`, and I confirmed that script calls `qmk_hid` with no bound. Issue 8212, which the record did not use, adds that a correctly detected Chromium took 68 seconds and that a bound needs `timeout -k`, so the defect is wider than the Brave detection mix-up and the cause now says so. Three things were wrong or misleading and are rewritten. The `danger` claimed a Ctrl+C risks a partial upgrade, but `omarchy-update` runs `omarchy-migrate` after `omarchy-update-system-pkgs` has completed the `pacman -Syu` and no pacman hook calls the theme scripts, so at the hang point there is no transaction to interrupt. The recovery command `pkill -f 'brave --refresh-platform-policy --no-startup-window'` is unanchored and matches the command line of the shell it is typed in, which I confirmed here with `pgrep -af`, so it is replaced with an anchored `pgrep` and a kill by PID. Paths are moved to the installed 4.0.2-1 form, and the fix now notes that `/usr/share/omarchy/bin/omarchy-theme-set-browser` is a symlink to `/usr/bin/omarchy-theme-set-browser` and that `sed -i` on the symlink path would replace it. Not exercised: neither `brave-bin` nor `brave-origin-bin` is installed here, so the hanging refresh itself was never reproduced and that part rests on issue 8158. The basecamp URLs redirect but the repository is now `omacom/omarchy`, so the citations are moved to the canonical name. Re-checked against omarchy 4.5.0-3 2026-11-09: Re-checked against omarchy 4.5.0-3 on this workstation (`/usr/bin/omarchy-theme-set-browser`, `/usr/bin/omarchy-theme-set`, `/usr/bin/omarchy-theme-refresh`, `/usr/share/omarchy/migrations/1787481315.sh`) and `bin/omarchy-theme-set-browser` on `quattro` via gh api, which is identical to the installed file. The impact read holds. `refresh_running_browser` is gone, so the record's 4.0.x `sed` matches nothing and is a silent no-op. The bug is still present, confirmed from source: plain Brave is detected through `running_names[brave]` from `ps -eo comm=`, the refresh children are waited on with no timeout, and PR 14658, which would match on the executable, is still open and unmerged. Issue 16365 (opened against 4.5.0-3, updated 2026-11-05) reproduces the hang with brave-bin and brave-origin-bin 1.98.63, shows the stray process as `/opt/brave-bin/brave`, and reports nine later theme-set batches blocked in `flock 8` on the retint lock with user hooks never run. That matches what `omarchy-theme-set` lines 44 to 56 and 555 to 630 show: `run_parallel` waits unbounded, `apply_other_theme_commands` holds the lock across it and runs `omarchy-hook theme-set` only afterwards, and the batch is detached unless stdin is a tty or `OMARCHY_THEME_WAIT=1`, which `omarchy-theme-refresh` sets. The record's recovery pattern `^/usr/bin/brave --refresh-platform-policy` would likely miss the `/opt/brave-bin/brave` process both 8158's bot comment and 16365 show, so it now matches either path. The new canonical `color.json` early exit means the hang needs a color change, so a re-stage of the unchanged theme by migration 1787481315 usually skips it. The 4.5.0 `sed` was applied to a copy of the installed script in the scratchpad: it changed exactly the three intended lines and `bash -n` passed. It was not applied to the real file. Not exercised: neither Brave package is installed here, so the hang, the comm name of brave-origin processes and the patched detection rest on issues 8158 and 16365. `omarchy-theme-set-keyboard-f16` was not re-checked on 4.5.0, and the cause now says so. Issue 8212 is closed as completed but the code it describes is unchanged, so it stays as a source for the 68 second Chromium measurement.
 >
-> *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
 > ⚠️ **Risk.** A migration that hangs never records its marker, so that migration and every one behind it stay pending and re-run on the next `omarchy update`. `omarchy-update` runs `omarchy-migrate` after `omarchy-update-system-pkgs` has finished its `pacman -Syu`, so interrupting the hang does not risk a partial upgrade, but it does abandon the rest of the update: the `post-update` hook, AUR packages, mise, and the orphan prune. Kill the stray browser process and let the update continue rather than pressing Ctrl+C. Any edit to `/usr/bin/omarchy-theme-set-browser` is reverted by the next `omarchy update`, because that file is owned by the `omarchy` package.
 
 **Fix.**
 
-Find the stray refresh process and kill it by PID. Anchor the pattern at the start of the command line, because an unanchored `pkill -f` also matches the shell you typed it in and the terminal running the update:
+Find the stray refresh process and kill it by PID. The batch then carries on, runs the hooks and releases the lock. Anchor the pattern at the start of the command line, because an unanchored `pkill -f` also matches the shell you typed it in and the terminal running the update:
 
 ```bash
-pgrep -af -- '^/usr/bin/brave --refresh-platform-policy'
+pgrep -af -- '^(/usr/bin|/opt/brave-bin)/brave .*--refresh-platform-policy'
 kill <pid>
 ```
 
@@ -609,26 +620,41 @@ pkill -f -- '^/opt/brave-origin-bin/'
 omarchy update
 ```
 
-Or patch the guard to match on the binary path the way the brave-origin branch already does. The file to edit is `/usr/bin/omarchy-theme-set-browser`. `/usr/share/omarchy/bin/omarchy-theme-set-browser` is only a symlink to it, and `sed -i` on that path would replace the symlink with a regular file instead of patching the script:
+Or patch the detection to match plain Brave on its binary path, the way the brave-origin line already does. The file to edit is `/usr/bin/omarchy-theme-set-browser`. `/usr/share/omarchy/bin/omarchy-theme-set-browser` is only a symlink to it, and `sed -i` on that path would replace the symlink with a regular file instead of patching the script.
+
+Omarchy 4.5.0. This drops `brave:brave` from the name-based loop, adds a path check for `/opt/brave-bin/`, and bounds every refresh:
+
+```bash
+sudo sed -i \
+  -e 's| msedge:microsoft-edge-stable brave:brave; do$| msedge:microsoft-edge-stable; do|' \
+  -e '\|^\[\[ \$running_args == \*"/opt/brave-origin-bin/"\* \]\]|i [[ $running_args == *"/opt/brave-bin/"* ]] \&\& omarchy-cmd-present brave \&\& browsers_to_refresh+=(brave)' \
+  -e 's|^  "\$command" --refresh-platform-policy --no-startup-window &>/dev/null &$|  timeout -k 1 10 "$command" --refresh-platform-policy --no-startup-window \&>/dev/null \&|' \
+  /usr/bin/omarchy-theme-set-browser
+grep -n 'brave\|timeout' /usr/bin/omarchy-theme-set-browser
+```
+
+The `grep` should show the loop without `brave:brave`, the new `/opt/brave-bin/` line above the brave-origin line, and `timeout -k 1 10` on the refresh. The path check is a substring of all command lines, so a process that only mentions `/opt/brave-bin/` in its arguments also counts. Open PR 14658 matches on each process's executable instead.
+
+Omarchy 4.0.x, where detection was a function call:
 
 ```bash
 sudo sed -i 's|^refresh_running_browser brave brave$|refresh_running_browser /opt/brave-bin/ brave -f|' \
   /usr/bin/omarchy-theme-set-browser
 ```
 
-That fixes the detection mix-up and nothing else. To bound every browser refresh, including a correctly detected one that is merely slow, change the call inside `refresh_running_browser` to:
+That fixes the detection mix-up and nothing else. To bound every refresh on 4.0.x, change the call inside `refresh_running_browser` to:
 
 ```bash
 timeout -k 1 10 "$command" --refresh-platform-policy --no-startup-window &>/dev/null
 ```
 
-The `-k` is what makes it a bound. Plain `timeout` sends SIGTERM and then waits for a child that ignores it. The policy is read at the browser's next launch anyway, so abandoning the live refresh costs nothing.
+The 4.0.x `sed` matches no line on 4.5.0, exits 0 and changes nothing, so do not reuse it after upgrading. The `-k` is what makes the timeout a bound. Plain `timeout` sends SIGTERM and then waits for a child that ignores it. The policy is read at the browser's next launch anyway, so abandoning the live refresh costs nothing.
 
-If the machine has a QMK or VIA keyboard such as a Keychron K8 Pro and the hang is in `omarchy-theme-set-keyboard-f16` instead, unplug the keyboard and retry.
+If the machine has a QMK or VIA keyboard such as a Keychron K8 Pro and the hang is in the keyboard step instead, unplug the keyboard and retry.
 
-**Verify.** `omarchy theme set tokyo-night` completes in a few seconds. `omarchy update` runs the pending migration through to completion and writes its marker, so a second `omarchy update` does not re-run it.
+**Verify.** `omarchy theme set tokyo-night` typed in a terminal completes in a few seconds, and on 4.5.0 `pgrep -af -- '--refresh-platform-policy'` prints nothing afterwards. `omarchy update` runs the pending migration through to completion and writes its marker, so a second `omarchy update` does not re-run it.
 
-Sources: <https://github.com/omacom/omarchy/issues/8158> · <https://github.com/omacom/omarchy/issues/8212> · <https://github.com/omacom/omarchy/issues/8243>
+Sources: <https://github.com/omacom/omarchy/issues/8158> · <https://github.com/omacom/omarchy/issues/8212> · <https://github.com/omacom/omarchy/issues/8243> · <https://github.com/omacom/omarchy/issues/16365> · <https://github.com/omacom/omarchy/pull/14658>
 
 ---
 
@@ -3889,27 +3915,56 @@ Sources: <https://github.com/omacom/omarchy/issues/14191>
 
 `transparent-bar-text-keeps-previous-theme-color` · severity: **low** · frequency: **occasional** · applies to: `bar`, `omarchy`, `quickshell`, `theming`
 
-**Symptom.** I run the bar transparent (`omarchy bar transparent true`). After switching themes, everything changes except the bar's text and icons, which keep the old theme's color. Going from a light theme to a dark one leaves dark text on a dark wallpaper, nearly unreadable. Double-clicking the bar twice (transparency off, then on) fixes it immediately.
+**Symptom.** I run the bar transparent (`omarchy bar background none` on Omarchy 4.5.0, `omarchy bar transparent true` on 4.0.x). After switching themes, everything changes except the bar's text and icons, which keep the old theme's color. Going from a light theme to a dark one leaves dark text on a dark wallpaper, nearly unreadable. Taking the bar out of transparency and back fixes it immediately. On 4.0.x that was two double-clicks on the bar. On 4.5.0 a double-click steps the background none, glassy, opaque and around, so it takes three double-clicks to get back to a transparent bar.
 
-**Cause.** In a transparent bar, the shell samples the wallpaper with `omarchy-bar-text-color` (ImageMagick, about 0.5 s on a large wallpaper) to choose a readable foreground. `refreshTransparentForeground()` in `/usr/share/omarchy/shell/plugins/bar/Bar.qml` returns early when a sample is already running (line 1061 on 4.0.4-1), and nothing re-arms the request. A theme switch fires once when `current/theme` is swapped, still with the old palette. It fires again when the new palette arrives over IPC, which lands while the first sample is running and is dropped. The bar keeps the color computed for the old palette.
+**Cause.** In a transparent bar, the shell samples the wallpaper with `omarchy-bar-text-color` (ImageMagick, about 0.5 s on a large wallpaper) to choose a readable foreground. `refreshTransparentForeground()` in `/usr/share/omarchy/shell/plugins/bar/Bar.qml` returns early when a sample is already running, and nothing re-arms the request. That is line 1513 on 4.5.0-3 (`if (!requestedTransparent || transparentForegroundProc.running) return`) and line 1061 on 4.0.4-1. A theme switch fires once when `current/theme` is swapped, still with the old palette. It fires again when the new palette arrives over IPC, which lands while the first sample is running and is dropped. The bar keeps the color computed for the old palette.
 
-> **Audit corrected this record.** Bar.qml on 4.0.4-1: line 1061 is `if (!requestedTransparent || transparentForegroundProc.running) return`, and the Process has no onExited re-arm, so the cause is right and matches issue #10289 (open, with the /proc trace showing only the old palette sampled). `omarchy bar transparent <true|false>` exists in omarchy-bar and writes .bar.transparent to ~/.config/omarchy/shell.json via jq -S, and setRequestedTransparency(false then true) schedules a fresh sample, so the manual workaround is sound. The hook needs two fixes. omarchy-theme-set calls `omarchy-hook theme-set` synchronously (line 341) before the theme-switcher preload, so the hook's 3 s of sleep delays every theme switch. It should run in the background. And the `grep '"transparent": *true'` guard matches any `transparent` key in shell.json, not only the bar's, so it is replaced with `jq -e '.bar.transparent == true'`, which reads the exact key omarchy-bar writes.
+Only a fully transparent bar samples the wallpaper. On 4.5.0 the bar's look is `.bar.background` in `~/.config/omarchy/shell.json`, one of `opaque`, `glassy` or `none`, and only `none` sets `requestedTransparent`. A `glassy` bar uses the theme foreground and is not affected. A shell.json written before 4.5.0 may still carry `.bar.transparent: true` with no `background` key, which the bar reads as `none` until the next `omarchy bar background` or `omarchy bar transparent` write deletes it.
+
+> **Audit corrected this record.** Bar.qml on 4.0.4-1: line 1061 is `if (!requestedTransparent || transparentForegroundProc.running) return`, and the Process has no onExited re-arm, so the cause is right and matches issue #10289 (open, with the /proc trace showing only the old palette sampled). `omarchy bar transparent <true|false>` exists in omarchy-bar and writes .bar.transparent to ~/.config/omarchy/shell.json via jq -S, and setRequestedTransparency(false then true) schedules a fresh sample, so the manual workaround is sound. The hook needs two fixes. omarchy-theme-set calls `omarchy-hook theme-set` synchronously (line 341) before the theme-switcher preload, so the hook's 3 s of sleep delays every theme switch. It should run in the background. And the `grep '"transparent": *true'` guard matches any `transparent` key in shell.json, not only the bar's, so it is replaced with `jq -e '.bar.transparent == true'`, which reads the exact key omarchy-bar writes. Re-checked against omarchy 4.5.0-3 2026-11-09: Re-checked against omarchy 4.5.0-3 on this workstation and the upstream clone at tag v4.5.0, whose `shell/plugins/bar/Bar.qml` is byte-identical to the installed file. The bug is still present, confirmed from source: line 1513 is `if (!requestedTransparent || transparentForegroundProc.running) return`, the `transparentForegroundProc` Process has no `onExited` handler, and the same line is unchanged on the clone's `quattro` HEAD (cbd0029fd). Issue 10289 is still open. What changed is the config key, from #14991 (commit a98e55eb, first in v4.5.0-rc2): `/usr/bin/omarchy-bar` now writes `.bar.background = $background | del(.bar.transparent)` on every `background` or `transparent` command, `transparent true` and `false` are aliases for `background none` and `opaque`, and the shipped default is `"background": "opaque"`. So the 4.0.x hook's `jq -e '.bar.transparent == true'` guard fails after the first such write and the hook becomes a no-op, which the impact read stated slightly too strongly as failing always: a shell.json that still carries the legacy key and has never been rewritten still passes it. Which values mean transparent was the claim most likely to be wrong, and it was. `applyBarConfig()` at line 799 calls `setRequestedTransparency(look === "none")`, so only `none` samples the wallpaper and `glassy` uses the theme foreground, so the impact read's suggestion to also match `glassy` is wrong and would also turn a glassy bar into a clear one. The 4.5.0 hook therefore guards on `omarchy bar background` printing `none`, which `current_background()` also derives from the legacy key. Also stale: double-click now runs `omarchy-bar background cycle` (Bar.qml line 1047 and the `onDoubleClicked` at 2552), so the double-click workaround takes three clicks. `omarchy-theme-set` still calls `omarchy-hook theme-set` synchronously (line 603), now after the detached retint batch, so backgrounding the hook's work still holds. None to opaque and back does not touch the `bar-glassy.lua` toggle, so `sync_glass` triggers no Hyprland reload. Not exercised: no bar or theme command was run, per instructions, so the race and the workaround were not reproduced on 4.5.0. Both 4.0.x and 4.5.0 forms are kept and labelled.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
 
-> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
 **Fix.**
 
-After a theme switch, force a fresh sample by turning transparency off and on:
+After a theme switch, force a fresh sample by taking the bar out of transparency and back.
+
+Omarchy 4.5.0:
+
+```bash
+omarchy bar background opaque && sleep 1 && omarchy bar background none
+```
+
+Omarchy 4.0.x:
 
 ```bash
 omarchy bar transparent false && sleep 1 && omarchy bar transparent true
 ```
 
-Or double-click an empty part of the bar twice, which the reporter verified. Turning transparency off resets the text to the theme foreground, and turning it on schedules a new sample after the palette and wallpaper have settled.
+On 4.5.0 the `transparent` form still works, because `omarchy bar transparent true` and `false` are kept as aliases for `background none` and `background opaque`. Double-clicking an empty part of the bar also works: twice on 4.0.x, three times on 4.5.0, where each double-click steps the background none, glassy, opaque. Leaving transparency resets the text to the theme foreground, and returning to it schedules a new sample after the palette and wallpaper have settled.
 
-To do it on every switch, add a theme-set hook. `omarchy theme set` waits for its hooks, so the hook puts its work in the background rather than holding up the switch:
+To do it on every switch, add a theme-set hook. `omarchy-theme-set` waits for its hooks, so the hook puts its work in the background rather than holding up the switch.
+
+Omarchy 4.5.0. The guard asks `omarchy bar background`, which prints the current look and also reads a pre-4.5.0 `.bar.transparent: true` as `none`:
+
+```bash
+mkdir -p ~/.config/omarchy/hooks/theme-set.d
+cat > ~/.config/omarchy/hooks/theme-set.d/50-bar-resample.sh <<'EOF'
+#!/bin/bash
+[[ $(omarchy bar background 2>/dev/null) == none ]] || exit 0
+(
+  sleep 2
+  omarchy bar background opaque
+  sleep 1
+  omarchy bar background none
+) >/dev/null 2>&1 &
+EOF
+chmod +x ~/.config/omarchy/hooks/theme-set.d/50-bar-resample.sh
+```
+
+Omarchy 4.0.x, where `omarchy bar transparent` writes `.bar.transparent`:
 
 ```bash
 mkdir -p ~/.config/omarchy/hooks/theme-set.d
@@ -3926,11 +3981,13 @@ EOF
 chmod +x ~/.config/omarchy/hooks/theme-set.d/50-bar-resample.sh
 ```
 
-The `jq` test reads `.bar.transparent`, the key `omarchy bar transparent` writes. The real fix, a pending flag re-run from `onExited`, is proposed in the issue and is not in 4.0.4-1.
+Replace the 4.0.x hook after upgrading to 4.5.0. Its `jq` guard stops matching as soon as anything runs `omarchy bar background` or `omarchy bar transparent`, because those now write `.bar.background` and delete `.bar.transparent`, and from then on the hook exits at the guard and does nothing. Do not check for `glassy` in the guard: a glassy bar does not sample the wallpaper, and cycling it through `none` would lose the glassy setting.
 
-**Verify.** Switch from `rose-pine` to `tokyo-night` with transparency on, run the command, and the bar text turns light within a second or two.
+The real fix, a pending flag re-run from `onExited`, is proposed in issue 10289 and is not in 4.5.0-3.
 
-Sources: <https://github.com/omacom/omarchy/issues/10289>
+**Verify.** With the bar transparent, switch from `rose-pine` to `tokyo-night`, run the command for your release, and the bar text turns light within a second or two. On 4.5.0, `omarchy bar background` prints `none` afterwards.
+
+Sources: <https://github.com/omacom/omarchy/issues/10289> · <https://github.com/omacom/omarchy/pull/14991>
 
 ---
 

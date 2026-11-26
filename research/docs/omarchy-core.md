@@ -1390,11 +1390,13 @@ Four distinct triggers, with four different fixes. Tell them apart from the jour
 3. **The lockscreen `qFatal` after the quickshell 0.3.1 / Qt 6.11.2 update** (issue #8647).
 4. **Broken user code the shell loads.** A third-party plugin under `~/.config/omarchy/plugins`, which runs unsandboxed inside `omarchy-shell`, or a broken template under `~/.config/omarchy/themed`. `omarchy-theme-set-templates` globs the user template directory before the shipped one and lets the user copy win, so a bad `shell.toml.tpl` there writes a broken generated `shell.toml` into the staged theme that the shell then loads. Resetting `shell.json` does not touch it.
 
-> **Audit corrected this record.** Re-read /usr/share/omarchy/bin/omarchy-launch-shell, omarchy-restart-shell, omarchy-refresh-config, omarchy-theme-set-templates and omarchy-update-restart on this workstation at omarchy 4.0.2-1, quickshell 0.3.1-1, hyprland 0.56.2-1, and re-read omacom/omarchy issues 7380 and 8647 in full. The first-pass audit note still holds on the supervisor: the budget is exactly `if (( ++attempts > 5 ))` inside a `SECONDS - window_started > 60` window, both logger lines are verbatim, and the shell really is `systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell"`. Confirmed on this machine that the journal tag is live and current: `journalctl --user -t omarchy-shell` returns Quickshell's own WARN output, and `hyprctl layers` shows the `omarchy-bar` namespace the verify step names. Four things the note missed. First, `omarchy-restart-shell` on 4.0.2-1 no longer only refuses on a locked session: when `omarchy-hyprland-session-locked` is true but `omarchy-shell lock status` reports neither `.secure` nor `.requested`, it sets `relock=1`, restarts the shell, and then calls `relock_session()`, which requests a lock and polls up to 30 seconds, so the record's own step 2 can deliberately lock a session the reader is recovering over ssh or on a headless machine, and Omarchy 4's lock cannot be released headlessly. Second, `~/.cache/quickshell/crashes` does not exist on this machine at all, and the launcher's own comment says the Wayland-fatal path leaves through `_exit()` raising no signal and therefore writing no crash report, so for the record's own lead trigger that directory is empty by design. Third, the record bisects plugins and `shell.json` but has no branch for a broken theme or template: `omarchy-theme-set-templates` globs `$HOME/.config/omarchy/themed/*.tpl` before the shipped templates and user templates win, so a broken user template writes a broken generated `shell.toml` into the staged theme that the shell then loads, and `omarchy-refresh-config omarchy/shell.json` does not touch it. Fourth, two supervisor exits are unmentioned and both change what the reader sees: `compositor_alive || exit 0` takes three `hyprctl -j monitors` tries and then exits silently with no journal line at all, and the 60 second window resets `attempts=0`, so a shell dying slower than once a minute flaps forever and never logs the give-up line. Also cross-referenced: trigger (1) and trigger (3) are the version-mismatch case already covered by `omarchy-shell-quickshell-undefined-symbol-qt-private-api`, whose fix is `omarchy update` rather than the reboot at step 6, and issue 7380's own body says it self-heals in about a second, so it only produces this record's symptom when it fires six times inside a minute. NOT exercised: nothing was restarted, no theme command was run, no unit was touched, and `/etc/sudoers.d/` is unreadable unprivileged so the passwordless rules were not inspected. The 22 shipped themes and the helper scripts were listed, not executed.
+> **Audit corrected this record.** Re-read /usr/share/omarchy/bin/omarchy-launch-shell, omarchy-restart-shell, omarchy-refresh-config, omarchy-theme-set-templates and omarchy-update-restart on this workstation at omarchy 4.0.2-1, quickshell 0.3.1-1, hyprland 0.56.2-1, and re-read omacom/omarchy issues 7380 and 8647 in full. The first-pass audit note still holds on the supervisor: the budget is exactly `if (( ++attempts > 5 ))` inside a `SECONDS - window_started > 60` window, both logger lines are verbatim, and the shell really is `systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell"`. Confirmed on this machine that the journal tag is live and current: `journalctl --user -t omarchy-shell` returns Quickshell's own WARN output, and `hyprctl layers` shows the `omarchy-bar` namespace the verify step names. Four things the note missed. First, `omarchy-restart-shell` on 4.0.2-1 no longer only refuses on a locked session: when `omarchy-hyprland-session-locked` is true but `omarchy-shell lock status` reports neither `.secure` nor `.requested`, it sets `relock=1`, restarts the shell, and then calls `relock_session()`, which requests a lock and polls up to 30 seconds, so the record's own step 2 can deliberately lock a session the reader is recovering over ssh or on a headless machine, and Omarchy 4's lock cannot be released headlessly. Second, `~/.cache/quickshell/crashes` does not exist on this machine at all, and the launcher's own comment says the Wayland-fatal path leaves through `_exit()` raising no signal and therefore writing no crash report, so for the record's own lead trigger that directory is empty by design. Third, the record bisects plugins and `shell.json` but has no branch for a broken theme or template: `omarchy-theme-set-templates` globs `$HOME/.config/omarchy/themed/*.tpl` before the shipped templates and user templates win, so a broken user template writes a broken generated `shell.toml` into the staged theme that the shell then loads, and `omarchy-refresh-config omarchy/shell.json` does not touch it. Fourth, two supervisor exits are unmentioned and both change what the reader sees: `compositor_alive || exit 0` takes three `hyprctl -j monitors` tries and then exits silently with no journal line at all, and the 60 second window resets `attempts=0`, so a shell dying slower than once a minute flaps forever and never logs the give-up line. Also cross-referenced: trigger (1) and trigger (3) are the version-mismatch case already covered by `omarchy-shell-quickshell-undefined-symbol-qt-private-api`, whose fix is `omarchy update` rather than the reboot at step 6, and issue 7380's own body says it self-heals in about a second, so it only produces this record's symptom when it fires six times inside a minute. NOT exercised: nothing was restarted, no theme command was run, no unit was touched, and `/etc/sudoers.d/` is unreadable unprivileged so the passwordless rules were not inspected. The 22 shipped themes and the helper scripts were listed, not executed. Re-checked against omarchy 4.5.0-3 2026-11-09: Held against omarchy 4.5.0-3 and quickshell 0.3.2.r7.g2b4501a-1 on this workstation, with `git diff v4.0.2 v4.5.0` over the scripts the record names. One defect: step 7's `omarchy-system-reboot` does not exist on 4.5.0-3 (`command -v` finds nothing, deleted by PR #15231, commit 4bf51ed1). Replaced with `omarchy system reboot`, which the dispatcher in `bin/omarchy` resolves to `omarchy-system-reboot` on 4.0.4 and to `omarchy-system reboot` on 4.5.0 (read, not run). Everything else held. `omarchy-launch-shell` still has `compositor_alive || exit 0`, the 60 second window reset, `++attempts > 5` and both logger lines verbatim, and still runs `systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell"`. `omarchy-restart-shell` still sets `relock=1` when `omarchy-hyprland-session-locked` is true and the lock status is neither secure nor requested, then polls `relock_session` for 30 seconds, so the danger stands and only its version range was widened. It still reads `OMARCHY_PATH` from `systemctl --user show-environment` and derives `HYPRLAND_INSTANCE_SIGNATURE` itself. `omarchy-theme-set-templates` still globs `$USER_TEMPLATES_DIR/*.tpl` before the shipped templates (line 435), the plugin path is still `~/.config/omarchy/plugins` (`shell/services/PluginRegistry.qml` line 11), and the menu still has Update > Process > Shell and Update > Hardware. Upstream #7380 was closed on 2026-09-21 as a duplicate of #6628, not as fixed, so trigger 2 still stands. #8647 is still open. NOT exercised: nothing was restarted, reloaded or rebooted.
 >
 > *The Cause above was rewritten on 2026-09-13 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** **`omarchy-restart-shell` can lock the session on you.** On 4.0.2-1 it only refuses when a locker is alive and reports the lock secure or in progress:
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
+
+> ⚠️ **Risk.** **`omarchy-restart-shell` can lock the session on you.** From 4.0.2-1 through 4.5.0-3 it only refuses when a locker is alive and reports the lock secure or in progress:
 
 ```
 Refusing to restart Omarchy shell while the session is locked.
@@ -1456,8 +1458,9 @@ omarchy-restart-trackpad
 
 # 7. If quickshell/Qt were upgraded under the running session and step 2 did
 #    not hold, reboot. The shell cannot be made consistent with a half-swapped
-#    QML tree.
-omarchy-system-reboot
+#    QML tree. This form works on 4.0.x and 4.5.0. omarchy-system-reboot
+#    is the 4.0.x script and is gone in 4.5.0, where it is omarchy-system reboot.
+omarchy system reboot
 ```
 
 Move `plugins.off` and `themed.off` back once you know which one it was.
@@ -1466,7 +1469,7 @@ No graphical session left at all? Switch to a TTY with `Ctrl+Alt+F2`, log in, an
 
 **Verify.** `omarchy-shell shell ping` returns. `hyprctl layers | grep omarchy-bar` shows the layer. `journalctl --user -b -t omarchy-shell` stops emitting "relaunching" lines.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-restart> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-audio> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-wifi> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-bluetooth> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/7380> · <https://github.com/basecamp/omarchy/issues/8647> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-templates> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-refresh-config> · <https://github.com/omacom/omarchy/issues/7380> · <https://github.com/omacom/omarchy/issues/8647> · <https://github.com/omacom/omarchy/issues/7106>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-update-restart> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-audio> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-wifi> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-restart-bluetooth> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/7380> · <https://github.com/basecamp/omarchy/issues/8647> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-launch-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-restart-shell> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-theme-set-templates> · <https://raw.githubusercontent.com/omacom/omarchy/quattro/bin/omarchy-refresh-config> · <https://github.com/omacom/omarchy/issues/7380> · <https://github.com/omacom/omarchy/issues/8647> · <https://github.com/omacom/omarchy/issues/7106> · <https://github.com/omacom/omarchy/pull/15231> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-system>
 
 ---
 
@@ -1926,22 +1929,36 @@ Sources: <https://github.com/basecamp/omarchy/issues/3877> · <https://raw.githu
 
 A related report: Setup > Direct Boot itself fails with `Error: No Omarchy UKI found in /boot/EFI/Linux/` even though `sudo ls /boot/EFI/Linux/` clearly shows `omarchy_linux.efi`.
 
-**Cause.** `omarchy-setup-direct-boot` creates a firmware boot entry with `efibootmgr --create --label Omarchy --loader '\EFI\Linux\<uki>.efi'`, and efibootmgr places new entries at the head of `BootOrder`. The firmware then loads the unified kernel image directly and Limine never runs. Limine is what renders the snapshot entries that `limine-snapper-sync` writes into `/boot/limine.conf`. The confirmation prompt says as much: "Setup direct boot (so snapshot booting must be done via bios)?". Some users reach the same state a different way, by setting `timeout: 0` in `/boot/limine.conf` (Omarchy ships it commented out as `#timeout: 3`, so Limine's own 5s default applies). Separately, the script refuses to run at all on some machines, and these are the current reasons: it hard-exits when `/sys/class/dmi/id/bios_vendor` matches *american megatrends* ("may not safely support custom EFI entries") or *apple*, when not booted UEFI, or when `efibootmgr` is not functional. `Error: No Omarchy UKI found in /boot/EFI/Linux/` means the probe `sudo find /boot/EFI/Linux/ -name 'omarchy*.efi'` matched nothing: the ESP is not mounted at /boot, or the install boots a separate kernel+initramfs rather than a UKI, or the UKI is not named `omarchy*.efi`. This is **not** a sudo/permissions problem: the script's find already runs under sudo, and the beta bug that did have that symptom (issue #6651) is fixed and closed.
+On Omarchy 4.5.0 the menu is hidden without Direct Boot too. Migration 1791898365 sets Limine to wait 1 second in quiet mode, so the screen goes from the vendor logo to Omarchy with no menu unless a key is pressed while Limine starts.
 
-> **Audit corrected this record.** The main mechanism is correct and well sourced: `bin/omarchy-setup-direct-boot` does `efibootmgr --create --disk --part --label "Omarchy" --loader "\\EFI\\Linux\\$uki_file"` (efibootmgr prepends new entries to BootOrder), the confirm prompt is verbatim "Setup direct boot (so snapshot booting must be done via bios)?", re-running detects the entry and offers "Disable direct boot (remove Omarchy EFI entry)?" then `efibootmgr --bootnum "$boot_num" --delete-bootnum`, and `default/limine/limine.conf` really ships `#timeout: 3` commented out (Limine's own default of 5s then applies, as the record says). ArchWiki's Limine page confirms limine-snapper-sync is the thing that writes snapshot entries and that running `limine-snapper-sync` by hand is a documented check step. But the second half of the cause is factually wrong against current upstream: the script's probe is `uki_file=$(sudo find /boot/EFI/Linux/ -name "omarchy*.efi" -printf "%f\n" 2>/dev/null | head -1)`. It already runs under sudo, so "the script's find runs without sudo" is not true, and the cited issue #6651 ("Quattro, beta 1: Setup -> Direct boot reports Error: No Omarchy UKI found") is CLOSED, i.e. fixed. Telling readers "the file is there, the script just cannot see it" sends them chasing a bug that no longer exists. The record also misses the reason Direct Boot most visibly refuses to run today: the script hard-exits on `american megatrends` and `apple` BIOS vendors before it ever looks for a UKI, and the record's manual `efibootmgr --create` fallback walks straight past that deliberate safety check with no warning.
+**Cause.** `omarchy-setup-direct-boot` creates a firmware boot entry with `efibootmgr --create --label Omarchy --loader '\EFI\Linux\<uki>.efi'`, and efibootmgr places new entries at the head of `BootOrder`. The firmware then loads the unified kernel image directly and Limine never runs. Limine is what renders the snapshot entries that `limine-snapper-sync` writes into `/boot/limine.conf`. The confirmation prompt says as much: "Setup direct boot (so snapshot booting must be done via bios)?".
+
+Without Direct Boot the menu can still be hidden, and how depends on the release. On Omarchy 4.0.4 to 4.0.6 the shipped template has `#timeout: 3` commented out, so Limine's own default applies and the menu is drawn on every boot (the 4.5.0 release notes describe it as about six seconds). Some users hide it themselves with `timeout: 0`, which boots instantly with no menu. On Omarchy 4.5.0 the template ships `timeout: 1` and `quiet: yes`, and migration `1791898365.sh` applies the same to existing installs: it turns a `#timeout:` line into `timeout: 1`, or inserts `timeout: 1` when there is no timeout line, and it adds `quiet: yes` wherever no `quiet:` line exists. An uncommented timeout the user set is kept. Limine's CONFIG.md says that in quiet mode the timeout still runs and any key pressed during it reveals the menu. So on 4.5.0 the menu exists but stays hidden unless you tap a key in that one second. `omarchy-refresh-limine` copies the shipped template over `/boot/limine.conf` (keeping the old one as `/boot/limine.conf.bak`), which puts `timeout: 1` and `quiet: yes` back. The migration's comment still names a "System > Reboot to Boot Menu" item, but PR #15795 removed that item before v4.5.0 shipped, and v4.5.0's `omarchy-system` takes only `logout`, `reboot` and `shutdown`.
+
+Separately, the script refuses to run at all on some machines. These are the current reasons: it hard-exits when `/sys/class/dmi/id/bios_vendor` matches *american megatrends* ("may not safely support custom EFI entries") or *apple*, when not booted UEFI, or when `efibootmgr` is not functional, and on 4.5.0 also on Apple Silicon (`omarchy-hw-aarch64-apple`), where the menu item is hidden. `Error: No Omarchy UKI found in /boot/EFI/Linux/` means the probe `sudo find /boot/EFI/Linux/ -name 'omarchy*.efi'` matched nothing: the ESP is not mounted at /boot, or the install boots a separate kernel+initramfs rather than a UKI, or the UKI is not named `omarchy*.efi`. This is **not** a sudo/permissions problem: the script's find already runs under sudo, and the beta bug that did have that symptom (issue #6651) is fixed and closed.
+
+> **Audit corrected this record.** The main mechanism is correct and well sourced: `bin/omarchy-setup-direct-boot` does `efibootmgr --create --disk --part --label "Omarchy" --loader "\\EFI\\Linux\\$uki_file"` (efibootmgr prepends new entries to BootOrder), the confirm prompt is verbatim "Setup direct boot (so snapshot booting must be done via bios)?", re-running detects the entry and offers "Disable direct boot (remove Omarchy EFI entry)?" then `efibootmgr --bootnum "$boot_num" --delete-bootnum`, and `default/limine/limine.conf` really ships `#timeout: 3` commented out (Limine's own default of 5s then applies, as the record says). ArchWiki's Limine page confirms limine-snapper-sync is the thing that writes snapshot entries and that running `limine-snapper-sync` by hand is a documented check step. But the second half of the cause is factually wrong against current upstream: the script's probe is `uki_file=$(sudo find /boot/EFI/Linux/ -name "omarchy*.efi" -printf "%f\n" 2>/dev/null | head -1)`. It already runs under sudo, so "the script's find runs without sudo" is not true, and the cited issue #6651 ("Quattro, beta 1: Setup -> Direct boot reports Error: No Omarchy UKI found") is CLOSED, i.e. fixed. Telling readers "the file is there, the script just cannot see it" sends them chasing a bug that no longer exists. The record also misses the reason Direct Boot most visibly refuses to run today: the script hard-exits on `american megatrends` and `apple` BIOS vendors before it ever looks for a UKI, and the record's manual `efibootmgr --create` fallback walks straight past that deliberate safety check with no warning. Re-checked against omarchy 4.5.0-3 2026-11-09: Rechecked against omarchy 4.5.0-3 on this workstation and the v4.5.0 tag of the upstream clone. The release-impact claim holds: `default/limine/limine.conf` lines 2 and 3 are `timeout: 1` and `quiet: yes`, `/usr/share/omarchy/migrations/1791898365.sh` sets `timeout: 1` only where no uncommented timeout exists and adds `quiet: yes` wherever no quiet line exists, and this workstation's migration marker for it is dated 2026-11-05. `/boot/limine.conf` itself could not be read, because the ESP is mounted fmask=0077 and sudo was not used, so the live file's values are inferred from the migration having run. How to reach the menu: the v4.5.0 release notes say to keep tapping any key, the down arrow works, and to set `timeout: 5` for a longer wait that updates leave alone. Limine's CONFIG.md (v12.x branch, limine 12.9.4-1 installed) says quiet mode keeps the timeout and any key reveals the menu, so `timeout: 5` without `quiet: no` still shows no menu by default, and the fix now says so. The migration comment's "System > Reboot to Boot Menu" is stale: PR #15301 added it, PR #15795 removed it on 2026-10-18 before v4.5.0, and v4.5.0's `bin/omarchy-system` has no `reboot-boot-menu`, so the impact report's mention of that item should not be relied on. `systemctl reboot --boot-loader-menu=` is documented in Limine's CONFIG.md through `LoaderConfigTimeoutOneShot`, and this machine's `LoaderFeatures` efivar reads 0x200f, which likely includes the one-shot timeout bit, but it was not exercised. `omarchy-setup-direct-boot` at v4.5.0 keeps the efibootmgr call, the sudo find probe and the AMI and Apple vendor refusals, adds an Apple Silicon refusal, and takes its prompts from `directBoot.setup` and `directBoot.disable`, whose English strings are unchanged. The old claim of a 5s Limine default is no longer stated in CONFIG.md, so it was replaced with the release notes' description. Not exercised: no reboot, no firmware menu, no edit to limine.conf.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
+
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
 > ⚠️ **Risk.** Never delete an EFI boot entry you have not identified. `efibootmgr --delete-bootnum` on the wrong `Boot####` can leave the machine with nothing bootable. Confirm a Limine/Arch entry exists in `efibootmgr` output *before* rebooting after a deletion. If in doubt, reorder with `--bootorder` instead of deleting. `omarchy-setup-direct-boot` deliberately refuses to run on American Megatrends and Apple firmware because they mishandle custom EFI entries. Do not work around that by creating the entry by hand on those machines. Also remember a snapshot restore recovers `/` but not `/home`, so `~/.config` stays as-is after a rollback.
 
 **Fix.**
 
 ```bash
-# Right now, to reach a snapshot once: use the firmware's one-time boot menu
-#   (F12 / F8 / F9 / Esc, vendor-specific) and pick the Limine/Arch/disk entry
-#   rather than the "Omarchy" entry.
+# Reach the menu once.
+#   Direct Boot on, any release: use the firmware's one-time boot menu
+#     (F12 / F8 / F9 / Esc, vendor-specific) and pick the Limine/Arch/disk entry
+#     rather than the "Omarchy" entry.
+#   Omarchy 4.5.0, Direct Boot off: keep tapping any key (the down arrow works)
+#     from power-on until the menu appears. If Omarchy starts first, restart and try again.
+#   Omarchy 4.5.0, Direct Boot off, from the running system: ask for the menu on the
+#     next boot only. Limine documents support for this request.
+systemctl reboot --boot-loader-menu=30
 
-# Permanent: run the same menu item again - it detects the entry and offers removal
+# Permanent: run the same menu item again; it detects the entry and offers removal
 omarchy-setup-direct-boot            # menu: Setup > Direct Boot
 
 # Or by hand
@@ -1949,11 +1966,29 @@ sudo efibootmgr                      # note BootOrder and the Boot#### of "Omarc
 sudo efibootmgr --bootnum 0003 --delete-bootnum      # remove it
 sudo efibootmgr --bootorder 0001,0003                # or just demote it
 
-# Make sure Limine still has a visible menu and current snapshot entries
-sudo grep -n '^ *#\?timeout' /boot/limine.conf
-#   commented out  -> Limine's own default (5s) applies
-#   timeout: 0     -> menu is skipped; change it to 'timeout: 3'
+# See what Limine is set to do
+sudo grep -n -E '^ *#?(timeout|quiet):' /boot/limine.conf
+```
+
+Omarchy 4.0.4 to 4.0.6:
+
+```bash
+#   timeout commented out -> Limine's own default applies and the menu shows
+#   timeout: 0            -> menu is skipped; change it to 'timeout: 3'
 sudo sed -i 's/^timeout: 0$/timeout: 3/' /boot/limine.conf
+```
+
+Omarchy 4.5.0, after migration 1791898365 the file has `timeout: 1` and `quiet: yes`. The release notes' own advice is to set `timeout: 5`, which later updates leave alone. That alone still draws no menu unless you press a key, so turn quiet mode off as well if you want the menu on every boot:
+
+```bash
+sudo sed -i -E 's/^timeout: (0|1)$/timeout: 5/; s/^quiet: yes$/quiet: no/' /boot/limine.conf
+```
+
+The migration only adds `quiet: yes` where no `quiet:` line exists, so `quiet: no` stays. Running `omarchy-refresh-limine` restores the template's `timeout: 1` and `quiet: yes`, so apply this again after it.
+
+Then, on every release, make sure the snapshot entries are current:
+
+```bash
 sudo limine-snapper-sync
 sudo limine-snapper-list             # the entries that should appear in the menu
 sudo snapper -c root list
@@ -1979,9 +2014,9 @@ sudo ls -l /boot/EFI/Linux/          # need a file matching omarchy*.efi
 
 If the listing is empty or the kernel is a separate vmlinuz + initramfs rather than a UKI, there is nothing for direct boot to point at, so configure a UKI first (`limine-mkinitcpio-hook` / `limine-update`) instead of creating the entry by hand.
 
-**Verify.** `sudo efibootmgr` no longer shows "Omarchy" first in `BootOrder`. Rebooting shows the "Omarchy Bootloader" menu. Snapshot entries with dates and the Omarchy version in the bottom-left corner are listed.
+**Verify.** `sudo efibootmgr` no longer shows "Omarchy" first in `BootOrder`. On 4.0.4 to 4.0.6, rebooting shows the "Omarchy Bootloader" menu. On 4.5.0, tapping a key at power-on shows it, and with `quiet: no` it shows on every boot. Snapshot entries with dates and the Omarchy version in the bottom-left corner are listed.
 
-Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-setup-direct-boot> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/limine/limine.conf> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-refresh-limine> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/6651> · <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots>
+Sources: <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-setup-direct-boot> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/limine/limine.conf> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/bin/omarchy-refresh-limine> · <https://raw.githubusercontent.com/basecamp/omarchy/quattro/default/omarchy/omarchy-menu.jsonc> · <https://github.com/basecamp/omarchy/issues/6651> · <https://learn.omacom.io/2/the-omarchy-manual/101/system-snapshots> · <https://github.com/omacom/omarchy/blob/v4.5.0/migrations/1791898365.sh> · <https://github.com/omacom/omarchy/blob/v4.5.0/default/limine/limine.conf> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-setup-direct-boot> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-refresh-limine> · <https://github.com/omacom/omarchy/blob/v4.5.0/manual/47-system-snapshots.md> · <https://github.com/omacom/omarchy/pull/15301> · <https://github.com/omacom/omarchy/pull/15795> · <https://raw.githubusercontent.com/limine-bootloader/limine/v12.x/CONFIG.md> · <https://omarchy.org/news/2026/11/omarchy-4-5>
 
 ---
 
@@ -4212,42 +4247,65 @@ Orphan system packages
 <nothing more>
 ```
 
-or it got further and stops after a kernel or Hyprland upgrade. `/tmp/omarchy-update.log` ends in a box drawing asking `Remove N orphaned package(s)?` or `Linux kernel has been updated. Reboot?`. Keystrokes sent to the process are echoed back rather than answering.
+or it got further and stops after a kernel or Hyprland upgrade. `/tmp/omarchy-update.log` ends in a box drawing asking `Remove N orphaned package(s)?` or `Linux kernel has been updated. Reboot?`. On the update that moves a machine from 4.0.x to 4.5.0 the orphan box reads `Remove N orphaned packages?` instead. Keystrokes sent to the process are echoed back rather than answering.
 
-**Cause.** `-y` sets `OMARCHY_UPDATE_UNATTENDED=1`, documented in `omarchy-update` as a promise not to ask anything, but two steps on 4.0.4-1 ignore it. `omarchy-update-orphan-pkgs` decides interactivity only from `[[ ! -t 0 || ! -t 1 ]]`, and `omarchy-update` re-executes itself under `script -qefc ... /tmp/omarchy-update.log`, which supplies a pty, so the guard passes and `gum confirm` waits forever. `omarchy-update-restart`'s `confirm_reboot()` on 4.0.4-1 is a bare `gum confirm "$1"` with no unattended check at all. Both confirmed by reading the scripts on this workstation. By the time either prompt appears the package transaction has already completed, so the system is fine and only the tail of the update (log analysis, status, shell restart) is waiting.
+**Cause.** `-y` sets `OMARCHY_UPDATE_UNATTENDED=1`, documented in `omarchy-update` as a promise not to ask anything. Which steps break that promise depends on the release.
 
-> **Audit corrected this record.** Read on 4.0.4-1: omarchy-update re-execs under `script -qefc ... /tmp/omarchy-update.log`, exports OMARCHY_UPDATE_UNATTENDED=1 for -y, and runs orphan-pkgs before update-restart. omarchy-update-orphan-pkgs guards only on `[[ ! -t 0 || ! -t 1 ]]` and uses `gum confirm --default=false "Remove N orphaned package(s)?"`, handling a non-zero answer with `Keeping orphaned packages.`. omarchy-update-restart has a bare `confirm_reboot` and three prompts with exactly the strings the pkill patterns use, and it has no set -e, so a killed gum falls through. quattro's confirm_reboot prints `Run omarchy-system-reboot when ready.` under OMARCHY_UPDATE_UNATTENDED, and quattro's orphan step still has the tty-only guard. Issues #13356, #8986 and #13416 support all of this. One inaccuracy: the fix says to expect one prompt on a run that upgrades the kernel or Hyprland, but a 'no' to the kernel prompt falls through to the Hyprland check, so a run upgrading both asks twice (#13416 shows both lines). That sentence corrected. No update was run.
+**4.0.4, 4.0.5 and 4.0.6.** Two steps ignore it. `omarchy-update-orphan-pkgs` decides interactivity only from `[[ ! -t 0 || ! -t 1 ]]`, and `omarchy-update` re-executes itself under `script -qefc ... /tmp/omarchy-update.log`, which supplies a pty, so the guard passes and `gum confirm` waits forever. `omarchy-update-restart`'s `confirm_reboot()` is a bare `gum confirm "$1"` with no unattended check at all.
+
+**4.5.0.** Both are fixed. `omarchy-update` line 108 calls `omarchy-update-orphan-pkgs -y`, and with `-y` that script skips both the tty guard and the prompt and removes every orphan through `omarchy-pkg-drop` (PR #14428). `confirm_reboot()` prints `<message> Run omarchy-system reboot when ready.` instead of asking when `OMARCHY_UPDATE_UNATTENDED=1` (commit 35b318ed). Since PR #17251, `-y` exports the variable only when the caller has not set it, so a caller that sets `OMARCHY_UPDATE_UNATTENDED=0`, as `omarchy-channel-set` does, still gets the reboot prompt on purpose.
+
+**The update that installs 4.5.0.** The 4.0.x `omarchy-update` that started the run keeps running, while the steps it calls by name are now the 4.5.0 files. It calls the new `omarchy-update-orphan-pkgs` without `-y`, so that still asks, in the new wording `Remove N orphaned packages?` and with `--affirmative` and `--negative` on the `gum` command line. The reboot step it calls is the 4.5.0 one and does not ask. Seen on two test VMs on 2026-11-08 and 2026-11-09. The next update runs 4.5.0's own script and asks nothing.
+
+By the time either prompt appears the package transaction has already completed, so the system is fine and only the tail of the update (log analysis, status, shell restart) is waiting.
+
+> **Audit corrected this record.** Read on 4.0.4-1: omarchy-update re-execs under `script -qefc ... /tmp/omarchy-update.log`, exports OMARCHY_UPDATE_UNATTENDED=1 for -y, and runs orphan-pkgs before update-restart. omarchy-update-orphan-pkgs guards only on `[[ ! -t 0 || ! -t 1 ]]` and uses `gum confirm --default=false "Remove N orphaned package(s)?"`, handling a non-zero answer with `Keeping orphaned packages.`. omarchy-update-restart has a bare `confirm_reboot` and three prompts with exactly the strings the pkill patterns use, and it has no set -e, so a killed gum falls through. quattro's confirm_reboot prints `Run omarchy-system-reboot when ready.` under OMARCHY_UPDATE_UNATTENDED, and quattro's orphan step still has the tty-only guard. Issues #13356, #8986 and #13416 support all of this. One inaccuracy: the fix says to expect one prompt on a run that upgrades the kernel or Hyprland, but a 'no' to the kernel prompt falls through to the Hyprland check, so a run upgrading both asks twice (#13416 shows both lines). That sentence corrected. No update was run. Re-checked against omarchy 4.5.0-3 2026-11-09: Held against omarchy 4.5.0-3 and gum 2.0.2-1 on this workstation and the v4.0.4 to v4.5.0 tags of a local omacom/omarchy clone. The record's main fix was dangerous: it said killing the `gum` answers no and used plain `pkill -f`, which sends SIGTERM. This repository measured on 2026-10-18 that SIGTERM makes gum 2.0.2's `gum confirm` exit 0 (yes) and SIGINT 130, so on 4.0.x that fix removed the orphans and rebooted the machine. Not re-measured here. Replaced with `pkill -INT -f`. On 4.5.0 both hangs are fixed, confirmed from the scripts: `omarchy-update` line 108 runs `omarchy-update-orphan-pkgs -y`, whose lines 17 and 23 skip the tty guard and `gum confirm` under `-y`, and `confirm_reboot()` in `omarchy-update-restart` lines 15 to 21 echoes instead of asking when `OMARCHY_UPDATE_UNATTENDED=1`. All three reboot prompts go through `confirm_reboot`, and `omarchy-update` exports 1 under `-y` unless the caller set the variable, so the claim that 4.5.0 never prompts under `-y` holds except for a caller that sets `OMARCHY_UPDATE_UNATTENDED=0`, which `omarchy-channel-set` does on purpose. No other step `omarchy-update` calls has a `gum confirm` (grep over `omarchy-update-*`, `omarchy-restart-*`, `omarchy-migrate`, `omarchy-hook`, `omarchy-pkg-drop`). The 4.0.x to 4.5.0 hop still asks at the orphan step, as seen on two VMs on 2026-11-08 and 2026-11-09, because the 4.0.x script calls the new orphan step without `-y`. Its `gum` command line carries `--affirmative` and `--negative`, so the old pattern `gum confirm --default=false Remove` misses it and was widened to `gum confirm.* orphaned package`. `omarchy-system-reboot` is gone on 4.5.0 (PR #15231), so the reboot advice uses `omarchy system reboot`, which resolves on both releases (read in `bin/omarchy`, not run). The danger was rewritten because 4.5.0 now runs `pacman -Rns --noconfirm` over every orphan on each update. Upstream #13356 closed 2026-10-13, #8780 and #8986 are still open although the code is fixed in 4.5.0. NOT exercised: no update, gum prompt, kill or reboot was run.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
 
-> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
-> ⚠️ **Risk.** Removing orphans with `pacman -Rns` can remove build dependencies or tools you installed as dependencies and still use. Read the list before answering yes.
+> ⚠️ **Risk.** **SIGTERM answers yes.** Under gum 2.0.2 a plain `kill` or `pkill` on a waiting `gum confirm` makes it exit 0. On the orphan prompt that removes the orphans, and on a reboot prompt it reboots the machine. Measured on 2026-10-18, when a SIGTERM watcher rebooted both test VMs. Send SIGINT with `kill -INT` or `pkill -INT`.
+
+**4.5.0 removes orphans on every update without asking**, interactive or `-y`, with `pacman -Rns --noconfirm` through `omarchy-pkg-drop`. That can remove build dependencies or tools you installed as dependencies and still use, and `-n` deletes their `.pacsave` backups. Mark anything you want to keep before updating:
+
+```bash
+pacman -Qtdq                          # what the next update will remove
+sudo pacman -D --asexplicit <pkg>     # keep this one
+```
+
+On 4.0.x the orphan step asks, so read the list before answering yes.
 
 **Fix.**
 
-From another shell, find the waiting `gum` and kill it. Killing it answers no and the update carries on to the next step:
+**On 4.5.0 and later** there is nothing to unstick: after the sudo password, `omarchy update -y` asks nothing. It now removes every orphan without asking, so read the danger field.
+
+**On 4.0.4 to 4.0.6, and on the one update that moves a machine to 4.5.0,** find the waiting `gum` from another shell and send it SIGINT. Under gum 2.0.2 SIGINT makes `gum confirm` exit 130, which both scripts treat as no, and the update carries on to the next step. Never use a plain `kill` or `pkill`, which send SIGTERM: that makes `gum confirm` exit 0, which is yes, so it removes the orphans or reboots the machine.
 
 ```bash
 pgrep -af 'gum confirm'
-pkill -f 'gum confirm --default=false Remove'          # the orphan prompt
-pkill -f 'gum confirm Linux kernel has been updated'   # reboot prompt after a kernel upgrade
-pkill -f 'gum confirm Hyprland has been updated'       # reboot prompt after a Hyprland upgrade
-pkill -f 'gum confirm Updates require reboot'          # reboot prompt from the reboot-required marker
+pkill -INT -f 'gum confirm.* orphaned package'               # the orphan prompt, both wordings
+pkill -INT -f 'gum confirm Linux kernel has been updated'     # 4.0.x reboot prompt after a kernel upgrade
+pkill -INT -f 'gum confirm Hyprland has been updated'         # 4.0.x reboot prompt after a Hyprland upgrade
+pkill -INT -f 'gum confirm Updates require reboot'            # 4.0.x reboot prompt from the reboot-required marker
 ```
 
-To avoid the orphan prompt on unattended runs, review and clear orphans beforehand in an interactive terminal:
+To avoid the orphan prompt on unattended 4.0.x runs, review and clear orphans beforehand in an interactive terminal:
 
 ```bash
 pacman -Qtdq
 omarchy-update-orphan-pkgs      # asks, then runs sudo pacman -Rns on the list
 ```
 
-There is no flag that skips the reboot prompts on 4.0.4-1. On `quattro`, `confirm_reboot` already prints `Run omarchy-system-reboot when ready.` instead of asking when `-y` is used, so that half goes away with a later release. Until then, expect to kill one reboot prompt for each condition that applies. A run that upgrades both the kernel and Hyprland asks twice, because answering no to the kernel prompt falls through to the Hyprland check. Reboot when convenient afterwards.
+There is no flag that skips the reboot prompts on 4.0.x. Expect to answer one reboot prompt for each condition that applies. A run that upgrades both the kernel and Hyprland asks twice, because answering no to the kernel prompt falls through to the Hyprland check. Reboot when convenient afterwards. This form works on 4.0.x and on 4.5.0, where the old `omarchy-system-reboot` no longer exists:
 
-**Verify.** The update prints its final status and `Restarting shell`, the process exits, and `pgrep -af 'omarchy-update|gum confirm'` returns nothing.
+```bash
+omarchy system reboot
+```
 
-Sources: <https://github.com/omacom/omarchy/issues/13356> · <https://github.com/omacom/omarchy/issues/13416> · <https://github.com/omacom/omarchy/issues/8986>
+**Verify.** The process exits, `pgrep -af 'omarchy-update|gum confirm'` returns nothing, and `/tmp/omarchy-update.log` shows `Restarting shell` with no `Something went wrong during the update!` banner after it.
+
+Sources: <https://github.com/omacom/omarchy/issues/13356> · <https://github.com/omacom/omarchy/issues/13416> · <https://github.com/omacom/omarchy/issues/8986> · <https://github.com/omacom/omarchy/pull/14428> · <https://github.com/omacom/omarchy/pull/17251> · <https://github.com/omacom/omarchy/pull/15231> · <https://github.com/omacom/omarchy/issues/8780> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-update> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-update-orphan-pkgs> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-update-restart>
 
 ---
 
@@ -4571,20 +4629,32 @@ Sources: <https://github.com/omacom/omarchy/issues/6995> · <https://github.com/
 
 `channel-switch-skips-reboot-offer` · severity: **low** · frequency: **occasional** · applies to: `edge-channel`, `omarchy`, `omarchy-update`
 
-**Symptom.** Switching channel from the Omarchy menu (Update > Channel, or `omarchy-channel-set edge` / `stable` / `rc`) finishes without the usual "Reboot now?" choice, even though the switch replaced the kernel or Hyprland. The last lines are plain text instead of a prompt:
+**Symptom.** Switching channel from the Omarchy menu (Update > Channel, or `omarchy-channel-set edge` / `stable` / `rc`) finishes without the usual "Reboot now?" choice, even though the switch replaced the kernel or Hyprland. The last lines are plain text instead of a prompt. Builds from before 2026-10-13 print the old command name, later ones print the 4.5.0 form:
 
 ```
 Linux kernel has been updated. Reboot? Run omarchy-system-reboot when ready.
 Hyprland has been updated. Reboot? Run omarchy-system-reboot when ready.
 ```
 
+```
+Linux kernel has been updated. Reboot? Run omarchy-system reboot when ready.
+Updates require reboot. Ready? Run omarchy-system reboot when ready.
+```
+
 The user closes the terminal, keeps working on a kernel whose modules are gone, and things like USB devices, VPN modules or a new monitor stop working until the next reboot.
 
-**Cause.** `omarchy-channel-set` ends by handing off to `omarchy-update -y` (line 99 of `/usr/bin/omarchy-channel-set` on 4.0.4-1). `-y` sets `OMARCHY_UPDATE_UNATTENDED=1`. On builds from the `quattro` branch (the `edge` and `dev` channels at the time of upstream #13416), `confirm_reboot()` in `omarchy-update-restart` checks exactly that variable and prints the fallback text instead of calling `gum confirm`. The switch is launched into a real floating terminal with a person watching, so the variable suppresses the one question that mattered.
+**Cause.** `omarchy-channel-set` installs the new channel's packages with `pacman -S` and then hands off to that new package's `omarchy-update -y`. `-y` exports `OMARCHY_UPDATE_UNATTENDED`, and from commit 35b318ed (2026-09-06, first released in 4.5.0-rc1) `confirm_reboot()` in `omarchy-update-restart` prints the fallback text instead of calling `gum confirm` when that variable is 1. The switch runs in a real floating terminal with a person watching, so the variable suppresses the one question that mattered (upstream #13416, still open).
 
-On the stable 4.0.4-1 package `confirm_reboot()` does not check the variable, so the reboot prompt still appears after a channel switch there. The fault therefore shows when switching to or between edge builds, or once a stable release picks up the `quattro` change.
+Whether you see the fault depends on two scripts from two releases: the `omarchy-channel-set` that is running, which is the one installed before the switch, and the `omarchy-update` it hands off to, which is the one the switch installed.
 
-> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+- **Started from 4.0.4, 4.0.5 or 4.0.6, landing on 4.0.x.** No fault. 4.0.x `confirm_reboot()` is a bare `gum confirm` that never checks the variable.
+- **Started from 4.0.x, landing on 4.5.0 or a newer edge build.** The fault shows. The old `omarchy-channel-set` ends in a plain `omarchy-update -y` and sets nothing, so the new `omarchy-update` exports `OMARCHY_UPDATE_UNATTENDED=1` and the new `confirm_reboot()` prints instead of asking. This is now the common case, because any switch run on a 4.0.x machine pulls 4.5.0.
+- **Started from 4.5.0, landing on 4.5.0 or later.** Fixed by PR #17251 (commit 901850b9, 2026-11-01, first released in v4.5.0). `omarchy-channel-set` line 179 is `OMARCHY_UPDATE_UNATTENDED=0 "$OMARCHY_PATH/bin/omarchy-update" -y`, and `omarchy-update` line 77 keeps a caller's value (`export OMARCHY_UPDATE_UNATTENDED=${OMARCHY_UPDATE_UNATTENDED:-1}`), so the reboot prompt appears.
+- **Edge builds and 4.5.0 release candidates from before 2026-11-01** (rc1 to rc3 included) export `OMARCHY_UPDATE_UNATTENDED=1` unconditionally, so a switch that lands on one of those shows the fault whatever started it.
+
+The fallback text names `omarchy-system-reboot` on builds before commit 4bf51ed1 (PR #15231, 2026-10-13) and `omarchy-system reboot` after it, because that commit deleted `omarchy-system-reboot`.
+
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
 **Fix.**
 
@@ -4597,17 +4667,19 @@ ls ~/.local/state/omarchy/reboot-required 2>/dev/null && echo 'reboot marker set
 readlink /proc/$(pgrep -x Hyprland)/exe   # ends in (deleted) if Hyprland was replaced
 ```
 
-If the running kernel has no directory under `/usr/lib/modules/`, the marker exists, or Hyprland shows `(deleted)`, save your work and reboot:
+If the running kernel has no directory under `/usr/lib/modules/`, the marker exists, or Hyprland shows `(deleted)`, save your work and reboot. This form works on 4.0.x and on 4.5.0, so it does not matter which release the switch left you on:
 
 ```sh
-omarchy-system-reboot
+omarchy system reboot
 ```
+
+The script behind it differs by release. On 4.0.x it is `omarchy-system-reboot`. On 4.5.0 that script no longer exists and the command is `omarchy-system reboot`, which `omarchy reboot` also reaches.
 
 Switching to or from `dev` always sets the marker (`omarchy-state set reboot-required` in `omarchy-channel-set`), so always reboot after those two.
 
 **Verify.** After the reboot, `uname -r` matches a directory in `/usr/lib/modules/`, `~/.local/state/omarchy/reboot-required` is gone, and `omarchy-channel-current` reports the channel you chose.
 
-Sources: <https://github.com/omacom/omarchy/issues/13416> · <https://github.com/omacom/omarchy/issues/8986> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-restart>
+Sources: <https://github.com/omacom/omarchy/issues/13416> · <https://github.com/omacom/omarchy/issues/8986> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-update-restart> · <https://github.com/omacom/omarchy/pull/17251> · <https://github.com/omacom/omarchy/pull/15231> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-channel-set> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-update> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-update-restart> · <https://github.com/omacom/omarchy/blob/v4.0.6/bin/omarchy-channel-set>
 
 ---
 
