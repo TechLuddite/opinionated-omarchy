@@ -158,8 +158,11 @@ Mind the version skew, and mind that **an installed version is not the current o
 2026-11-05 that it had been left at 4.0.4-1. Upstream then shipped **v4.0.6** on 2026-10-19, a
 small release (OpenClaw, the console font in the initramfs, lock-screen recovery, four migrations)
 that touches no pacman, Vulkan or gaming file, and neither VM nor the workstation ever ran it.
-Upstream shipped **v4.5.0** on 2026-11-05, and **test1 was updated to 4.5.0-3 that day**, while
-test2 and the workstation stay at 4.0.5-1. For any 4.5 question, check against test1. Read the installed version
+Upstream shipped **v4.5.0** on 2026-11-05, and **test1 was updated to 4.5.0-3 that day**. The
+workstation followed at 06:28 local time by its `pacman.log`, was rebooted onto `7.2.15-1-omarchy`
+at 06:34, and still read 4.5.0-3 on 2026-11-08, although the journal and this file said until then
+that it had stayed at 4.0.5-1. Only test2 is still at 4.0.5-1. For a 4.5 question, read files and
+package metadata on the workstation, and run anything that changes state on test1. Read the installed version
 from pacman, never from `/usr/share/omarchy/version`, which says `4.0.0.alpha` everywhere
 and is branding. Read the *current* version from upstream, because the sync database is
 only as fresh as the last update:
@@ -217,7 +220,7 @@ lock trap under "Domain facts".
 | | |
 | --- | --- |
 | Domains | `opinionated-omarchy-test1`, `opinionated-omarchy-test2` |
-| Version | test1 `4.5.0-3`, kernel `7.2.15-1-omarchy`, opencode `2.2.5` from mise, measured 2026-11-05. test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 and not updated since. Workstation `4.0.5-1`, upstream `v4.5.0` since 2026-11-05 |
+| Version | test1 `4.5.0-3`, kernel `7.2.15-1-omarchy`, opencode `2.2.5` from mise, measured 2026-11-05. test2 `4.0.5-1`, kernel `7.2.8-9-omarchy`, opencode `2.0.32`, measured 2026-10-18 and not updated since. Workstation `4.5.0-3`, kernel `7.2.15-1-omarchy`, since 2026-11-05. Upstream `v4.5.0` since 2026-11-05 |
 | Spec | 4 GiB RAM, 4 vCPU, 60 GiB btrfs on virtio, UEFI (Limine needs an ESP) |
 | Network | libvirt `default` NAT, `virbr0`, 192.168.122.0/24, DHCP |
 | Console | VNC on `127.0.0.1:5901` / `:5902` |

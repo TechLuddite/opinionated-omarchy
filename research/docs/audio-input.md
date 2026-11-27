@@ -1687,15 +1687,15 @@ Sources: <https://wiki.archlinux.org/title/PipeWire> · <https://wiki.archlinux.
 
 `altgr-dead-grp-alts-toggle` · severity: **medium** · frequency: **common** · applies to: `desktop`, `hyprland`, `laptop`, `omarchy`, `wayland`
 
-**Symptom.** AltGr does nothing on a Polish, German, Czech, Norwegian or other AltGr layout. On Norwegian `~ @ $ \ { } [ ] |` cannot be typed, on Polish `ą ć ę ł ń ó ś ź ż` are gone. Often started right after the Quattro (Omarchy 4) upgrade, or after uncommenting the multi-layout example in `~/.config/hypr/input.lua`. Compose on Caps Lock still works.
+**Symptom.** AltGr does nothing on a Polish, German, Czech, Norwegian or other AltGr layout. On Norwegian `~ @ $ \ { } [ ] |` cannot be typed, on Polish `ą ć ę ł ń ó ś ź ż` are gone. Often started right after the Quattro (Omarchy 4) upgrade, or after uncommenting the multi-layout example in `~/.config/hypr/input.lua`. Compose still works (Caps Lock on Omarchy 4.0.x, Shift + Caps Lock on Omarchy 4.5).
 
-**Cause.** The XKB option `grp:alts_toggle` (switch layout with Left Alt + Right Alt) redefines `<RALT>` as `Alt_R` + `ISO_Next_Group`, so Right Alt is no longer `ISO_Level3_Shift` and every level-3 character becomes unreachable. Omarchy 4 applies it in three places: the shipped user template `~/.config/hypr/input.lua` suggests `kb_options = "compose:caps,shift:both_capslock_cancel,grp:alts_toggle"`, the packaged `/usr/share/omarchy/default/hypr/input.lua` appends `,grp:alts_toggle` whenever it prepends `us,` for a non-Latin layout, and the Quattro migration rewrote some users' existing `grp:alt_shift_toggle` into `grp:alts_toggle`. On a single-layout keyboard there is no second group, so the only effect is losing AltGr. Confirmed on 4.0.4 with `xkbcli compile-keymap`.
+**Cause.** The XKB option `grp:alts_toggle` (switch layout with Left Alt + Right Alt) redefines `<RALT>` as `Alt_R` + `ISO_Next_Group`, so Right Alt is no longer `ISO_Level3_Shift` and every level-3 character becomes unreachable. Omarchy 4 applies it in three places. The user template suggests it: on a fresh Omarchy 4.5 install `/usr/share/omarchy/config/hypr/input.lua` (copied to `~/.config/hypr/input.lua`) suggests `kb_options = "omarchy:shift_caps_compose,grp:alts_toggle"`, and a machine upgraded from 4.0.x keeps its old copy, which suggests `compose:caps,shift:both_capslock_cancel,grp:alts_toggle`, because the only migration that refreshes that file, `1781485962.sh`, matches one fixed sha of an earlier template. The packaged `/usr/share/omarchy/default/hypr/input.lua` appends `,grp:alts_toggle` whenever it prepends `us,` for a non-Latin layout, and on 4.5 also whenever any entry of the selected layout list is non-Latin. And the Quattro migration rewrote some users' existing `grp:alt_shift_toggle` into `grp:alts_toggle`. On a single-layout keyboard there is no second group, so the only effect is losing AltGr. Confirmed on 4.0.4 and on 4.5.0 with `xkbcli compile-keymap`.
 
-> **Audit corrected this record.** Cause and fix hold. Issue #9111 (open) body and comments state that grp:alts_toggle redefines <RALT> as Alt_R plus ISO_Next_Group, document the Norwegian single-layout case from the Quattro upgrade, and the pl,dk case from the shipped template, with grp:alt_altgr_toggle as the drop-in. Confirmed on this workstation: the user template ~/.config/hypr/input.lua (identical to /usr/share/omarchy/config/hypr/input.lua) suggests `compose:caps,shift:both_capslock_cancel,grp:alts_toggle`, the packaged default/hypr/input.lua appends `,grp:alts_toggle` in the non-Latin branch, and the quattro tree still has both. `xkbcli compile-keymap --layout pl,dk` shows <RALT> = Alt_R, ISO_Next_Group with grp:alts_toggle and ISO_Level3_Shift, ISO_Next_Group with grp:alt_altgr_toggle and with grp:alt_shift_toggle. evdev.lst lists grp:alt_altgr_toggle as "Both Alts together; AltGr alone chooses third level". `hyprctl getoption input:kb_options -j` returns a `str` key, so the jq diagnostic works, and jq 1.8.2 is installed. PR #9139, which preserves user kb_options across the upgrade, is still open, so the migration claim is current. The one defect is a source: #7255 is about the migration leaving kb_options untouched and trapping Caps Lock ON, it says nothing about AltGr or grp:alts_toggle, so it does not support this record. Not exercised: typing AltGr characters after a reload.
+> **Audit corrected this record.** Cause and fix hold. Issue #9111 (open) body and comments state that grp:alts_toggle redefines <RALT> as Alt_R plus ISO_Next_Group, document the Norwegian single-layout case from the Quattro upgrade, and the pl,dk case from the shipped template, with grp:alt_altgr_toggle as the drop-in. Confirmed on this workstation: the user template ~/.config/hypr/input.lua (identical to /usr/share/omarchy/config/hypr/input.lua) suggests `compose:caps,shift:both_capslock_cancel,grp:alts_toggle`, the packaged default/hypr/input.lua appends `,grp:alts_toggle` in the non-Latin branch, and the quattro tree still has both. `xkbcli compile-keymap --layout pl,dk` shows <RALT> = Alt_R, ISO_Next_Group with grp:alts_toggle and ISO_Level3_Shift, ISO_Next_Group with grp:alt_altgr_toggle and with grp:alt_shift_toggle. evdev.lst lists grp:alt_altgr_toggle as "Both Alts together; AltGr alone chooses third level". `hyprctl getoption input:kb_options -j` returns a `str` key, so the jq diagnostic works, and jq 1.8.2 is installed. PR #9139, which preserves user kb_options across the upgrade, is still open, so the migration claim is current. The one defect is a source: #7255 is about the migration leaving kb_options untouched and trapping Caps Lock ON, it says nothing about AltGr or grp:alts_toggle, so it does not support this record. Not exercised: typing AltGr characters after a reload. Re-checked against omarchy 4.5.0-3 2026-11-09: Rechecked on 4.5.0 because #14939 (commit 1b5222be) changed the default `kb_options` to `omarchy:shift_caps_compose`, and the fix pasted the old `compose:caps,shift:both_capslock_cancel`. Confirmed on this workstation (omarchy 4.5.0-3, omarchy-settings 4.5.0-3, hyprland 0.56.2-4, libxkbcommon 1.13.2-1): `/usr/share/omarchy/default/hypr/input.lua:18` sets `omarchy:shift_caps_compose`, `hyprctl getoption input:kb_options` prints it, and the option is defined in `/etc/xkb/rules/evdev` and `/etc/xkb/symbols/omarchy`, both owned by omarchy-settings 4.5.0-3. The claim most likely to be false held at the keymap level: `xkbcli compile-keymap --layout pl,dk --options 'compose:caps,shift:both_capslock_cancel'` prints `modifier_map Lock { <LFSH> };` and gives `<LFSH>` the level-2 keysym `Caps_Lock`, while `omarchy:shift_caps_compose` prints `modifier_map Lock { <CAPS> };` and a plain `Shift_L`. The XWayland latch itself was not reproduced, and rests on that modifier map plus the sibling record `xwayland-left-shift-latches-kb-options`. Replace versus append: the 4.5 template's first two lines say uncommented settings replace Omarchy's defaults, and the default file builds its own string by concatenation before a single `hl.config` call, so a user `kb_options` replaces the whole string, including any `grp:alts_toggle` the default appended. That is from the files, not a live test. The AltGr mechanism still holds on 4.5: with `omarchy:shift_caps_compose,grp:alts_toggle` `<RALT>` is `Alt_R, ISO_Next_Group`, with `grp:alt_altgr_toggle` and `grp:alt_shift_toggle` it is `ISO_Level3_Shift, ISO_Next_Group`, and the default still appends `grp:alts_toggle` at lines 51 and 59. New on 4.5: the packaged template suggests `omarchy:shift_caps_compose,grp:alts_toggle`, but this upgraded workstation's `~/.config/hypr/input.lua` still carries the 4.0.x comment `compose:caps,shift:both_capslock_cancel,grp:alts_toggle`, because migration 1781485962.sh only replaces a file matching one fixed sha. Plain-Arch branch: with only `/usr/share/X11/xkb` on the include path, libxkbcommon reports `[XKB-595] Unrecognized RMLVO option "omarchy:shift_caps_compose" was ignored`, so the Omarchy string is a no-op there and the plain-Arch example now uses no Omarchy option. Cause, fix, symptom and verify were updated, with the 4.0.x branch kept and labelled. Not exercised: no reload, keyword or eval was run and no AltGr character was typed.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
 
-> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
 **Fix.**
 
@@ -1707,18 +1707,37 @@ xkbcli compile-keymap --layout pl --options "$(hyprctl getoption input:kb_option
 # broken: symbols[1]= [ Alt_R, ISO_Next_Group ]
 ```
 
-**Single layout (no switching needed):** drop the `grp:` option entirely in `~/.config/hypr/input.lua`:
+A `kb_options` line in `~/.config/hypr/input.lua` replaces Omarchy's whole default string, it does not add to it. So the line you write has to repeat the Caps Lock and compose option your release uses. Check the release with `pacman -Q omarchy`.
+
+**Omarchy 4.5 and newer.** The default is `omarchy:shift_caps_compose`: Caps Lock is Caps Lock, Shift + Caps Lock is compose. Do not paste the 4.0.x string below on 4.5. It turns Caps Lock back into compose and puts Left Shift back in the `Lock` modifier map, which is the XWayland Left Shift latch that 4.5 removed.
+
+Single layout (no switching needed), drop the `grp:` option entirely:
 
 ```lua
 hl.config({
   input = {
     kb_layout = "no",
-    kb_options = "compose:caps,shift:both_capslock_cancel",
+    kb_options = "omarchy:shift_caps_compose",
   },
 })
 ```
 
-**Two or more layouts, keep the Left Alt + Right Alt chord:** use `grp:alt_altgr_toggle`, which keeps Right Alt as AltGr when pressed alone:
+Two or more layouts, keep the Left Alt + Right Alt chord with `grp:alt_altgr_toggle`, which keeps Right Alt as AltGr when pressed alone:
+
+```lua
+hl.config({
+  input = {
+    kb_layout = "pl,dk",
+    kb_options = "omarchy:shift_caps_compose,grp:alt_altgr_toggle",
+  },
+})
+```
+
+Or switch with Alt+Shift, which also leaves AltGr alone: `grp:alt_shift_toggle`.
+
+If you upgraded from 4.0.x, the commented example in your own `~/.config/hypr/input.lua` still reads `compose:caps,shift:both_capslock_cancel,grp:alts_toggle`. Do not uncomment it as it stands. The 4.5 template is `/usr/share/omarchy/config/hypr/input.lua`.
+
+**Omarchy 4.0.x.** The default is `compose:caps,shift:both_capslock_cancel`, so repeat that instead:
 
 ```lua
 hl.config({
@@ -1729,18 +1748,29 @@ hl.config({
 })
 ```
 
-Or switch with Alt+Shift, which also leaves AltGr alone: `grp:alt_shift_toggle`.
+For a single layout on 4.0.x use `kb_options = "compose:caps,shift:both_capslock_cancel"`.
+
+Apply on either release:
 
 ```bash
 hyprctl reload
 systemctl --user restart omarchy-fcitx5.service
 ```
 
-**Plain Arch + Hyprland:** same fix in `~/.config/hypr/hyprland.lua`. Any `grp:alts_toggle` there costs you AltGr.
+**Plain Arch + Hyprland:** same fix in `~/.config/hypr/hyprland.lua`. Any `grp:alts_toggle` there costs you AltGr. `omarchy:shift_caps_compose` does not exist there, because Omarchy defines it in `/etc/xkb` (owned by `omarchy-settings`), so use a stock option such as `compose:caps` or `compose:ralt`, or none:
 
-**Verify.** `xkbcli compile-keymap --layout pl,dk --options 'compose:caps,shift:both_capslock_cancel,grp:alt_altgr_toggle' | grep -A3 'key <RALT>'` shows `ISO_Level3_Shift` (checked on this workstation). In an app, Right Alt + A types `ą` on Polish.
+```lua
+hl.config({
+  input = {
+    kb_layout = "pl,dk",
+    kb_options = "grp:alt_altgr_toggle",
+  },
+})
+```
 
-Sources: <https://github.com/omacom/omarchy/issues/9111>
+**Verify.** On Omarchy 4.5, `xkbcli compile-keymap --layout pl,dk --options 'omarchy:shift_caps_compose,grp:alt_altgr_toggle' | grep -A3 'key <RALT>'` shows `ISO_Level3_Shift`, and the same output has `modifier_map Lock { <CAPS> };` (checked on this workstation at 4.5.0-3). On 4.0.x the same check with `'compose:caps,shift:both_capslock_cancel,grp:alt_altgr_toggle'` shows `ISO_Level3_Shift`. In an app, Right Alt + A types `ą` on Polish.
+
+Sources: <https://github.com/omacom/omarchy/issues/9111> · <https://github.com/omacom/omarchy/pull/14939>
 
 ---
 

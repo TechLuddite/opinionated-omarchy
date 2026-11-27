@@ -1057,21 +1057,60 @@ Sources: <https://github.com/basecamp/omarchy/pull/161> · <https://github.com/h
 
 **Symptom.** I pin workspaces 1-5 to the external `DP-1` and 6-10 to the laptop panel. If I boot or log in undocked, every workspace is created on the laptop screen. Then I dock, the external monitor lights up, and workspaces 1-5 stay on the laptop. They never migrate back. Same thing after a monitor sleeps and wakes. Persistent workspaces also stop being persistent, and after a reboot my monitors sometimes come back as `DP-2`/`HDMI-A-3` instead of `DP-1`/`HDMI-A-1`, so the rules don't match at all any more.
 
-**Cause.** A workspace rule's `monitor` field is applied when the workspace is *created*, not continuously. If the named output does not exist at that moment, Hyprland creates the workspace on whatever monitor is available, and nothing moves it later when the output appears. There is no rule condition that matches monitor state: the feature request for one, hyprwm/Hyprland #7049 ("Window/Workspace Rules to Match Monitors States"), was closed as *not planned*, so this is settled behaviour rather than a pending fix. Connector names are a separate, compounding hazard. DRM connector numbering is not stable across boots or across cable/port changes, so a rule pinned to `DP-1` can silently match nothing after a reboot. This is why the wiki documents the `desc:` prefix. (Hyprland #5464 is the frequently-cited report of workspaces landing on the wrong screen, but note it was closed as not-planned during the issues→discussions migration and the reporter's specific case turned out to involve a config syntax error, so treat it as a symptom report rather than a root-cause analysis.)
+**Cause.** A workspace rule's `monitor` field is applied when the workspace is *created*, not continuously. If the named output does not exist at that moment, Hyprland creates the workspace on whatever monitor is available, and no rule moves it later when the output appears. There is no rule condition that matches monitor state: the feature request for one, hyprwm/Hyprland #7049 ("Window/Workspace Rules to Match Monitors States"), was closed as *not planned*, so this is settled behaviour rather than a pending fix. Hyprland 0.56.2 does return one case on its own: a workspace that was moved off a monitor because that monitor was removed goes back when an output with the same connector name is added again (`m_lastMonitor` in `src/output/Monitor.cpp`). It does not return a workspace that was created while the output was absent, and it does not return anything when the monitor comes back under a different connector name. Connector names are a separate, compounding hazard. DRM connector numbering is not stable across boots or across cable/port changes, so a rule pinned to `DP-1` can silently match nothing after a reboot. This is why the wiki documents the `desc:` prefix. (Hyprland #5464 is the frequently-cited report of workspaces landing on the wrong screen, but note it was closed as not-planned during the issues→discussions migration and the reporter's specific case turned out to involve a config syntax error, so treat it as a symptom report rather than a root-cause analysis.)
 
-> **Audit corrected this record.** The behaviour described is real and the fix is mechanically sound. `hl.workspace_rule` accepts `monitor`, `default` and `persistent` per the wiki. The Monitor param for dispatchers explicitly accepts `desc:` and a description. `hl.dsp.workspace.move({ workspace?, monitor })` and `hl.dsp.workspace.swap_monitors({ monitor1, monitor2 })` are both documented. The `socat -U - UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock | while read -r line` pattern and the `monitoradded` event are copied correctly from the IPC page's own bash example. `hyprctl dispatch 'hl.dsp....'` is a real invocation form (Omarchy's own `omarchy-hyprland-monitor-clamshell` uses `hyprctl dispatch "hl.dsp.dpms({ action = \"$action\", monitor = \"$INTERNAL\" })"`). `o.launch_on_start` is real (`default/hypr/helpers.lua:118`), and socat is in `extra` so `pacman -S --needed socat` is correct and the Omarchy ALPM guard only blocks `-S` combined with `-u`. Two citation errors in the cause, though. (1) #7049 is **closed as not_planned**, not "still open". (2) The #5464 characterisation is wrong: the reporter did *not* find connector names shifting between boots. A commenter merely remarked in passing that "ports changing is normal". The reporter's problem persisted after switching to `desc:` and the thread ended on a config syntax error (`default=true` instead of `default:true`), with vaxerski closing it as part of the issues→discussions migration. A reader who trusts "the rules were matching nothing" as the documented root cause is being misled about what that ticket shows.
+On Omarchy 4.5.0 and later the numbering itself changed. `default/hypr/monitor-workspaces.lua` (#15655) gives each physical monitor its own block of ten workspace ids, the laptop panel 1 to 10 and other monitors 11 to 20, 21 to 30 and so on, keyed by make, model and serial rather than connector. It reconciles on Hyprland start, on config reload, on monitor added and one second after monitor removed. A rule that pins global workspaces 1 to 5 to an external monitor names ids that belong to the laptop's block, so the user's rules and Omarchy's reconcile pull the same workspaces in opposite directions.
+
+> **Audit corrected this record.** The behaviour described is real and the fix is mechanically sound. `hl.workspace_rule` accepts `monitor`, `default` and `persistent` per the wiki. The Monitor param for dispatchers explicitly accepts `desc:` and a description. `hl.dsp.workspace.move({ workspace?, monitor })` and `hl.dsp.workspace.swap_monitors({ monitor1, monitor2 })` are both documented. The `socat -U - UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock | while read -r line` pattern and the `monitoradded` event are copied correctly from the IPC page's own bash example. `hyprctl dispatch 'hl.dsp....'` is a real invocation form (Omarchy's own `omarchy-hyprland-monitor-clamshell` uses `hyprctl dispatch "hl.dsp.dpms({ action = \"$action\", monitor = \"$INTERNAL\" })"`). `o.launch_on_start` is real (`default/hypr/helpers.lua:118`), and socat is in `extra` so `pacman -S --needed socat` is correct and the Omarchy ALPM guard only blocks `-S` combined with `-u`. Two citation errors in the cause, though. (1) #7049 is **closed as not_planned**, not "still open". (2) The #5464 characterisation is wrong: the reporter did *not* find connector names shifting between boots. A commenter merely remarked in passing that "ports changing is normal". The reporter's problem persisted after switching to `desc:` and the thread ended on a config syntax error (`default=true` instead of `default:true`), with vaxerski closing it as part of the issues→discussions migration. A reader who trusts "the rules were matching nothing" as the documented root cause is being misled about what that ticket shows. Re-checked against omarchy 4.5.0-3 2026-11-09: Rechecked against omarchy 4.5.0-3 on this workstation (Hyprland 0.56.2-4) and the upstream clone at v4.5.0 and quattro. Confirmed from the installed tree: `/usr/share/omarchy/default/hypr/omarchy.lua` line 8 requires `default.hypr.monitor-workspaces` outside the `omarchy_default_bindings` guard, the installed file is byte-identical to v4.5.0, and neither v4.5.0 nor quattro (2026-11-09) has any setting that disables it. PR #15655 comments and open issue #17759 ask for one. Confirmed in code: the laptop panel is sorted first and takes block 0 (ids 1 to 10), blocks persist in `~/.local/state/omarchy/monitor-workspaces` keyed by description, and `M.reconcile()` runs on `hyprland.start`, `config.reloaded`, `monitor.added` and a one-second timer after `monitor.removed`. Its `place()` moves a workspace with windows to the monitor owning its block when a monitor was just added, and otherwise renumbers it into the block of the monitor it sits on, and `own_views()` switches a monitor showing another block's id to its own. The conflict with the record's pins of 1 to 5 to an external monitor is INFERRED FROM CODE and was not run: no dock, replug or reload was exercised, and this workstation has one monitor (HDMI-A-1, block 0, read with `hyprctl monitors -j` and the state file). Issue #17759, filed by a user on 4.5.0-3, reports that global workspace rules no longer express the new numbering, which supports the inference. The release-impact claim that reconcile moves workspaces back on replug holds for workspaces that had windows and were evacuated by an unplug (`restore()` and `merged`), with the open defects in #16328 and #18121. Separately, the record's existing fix was defective on every release: it said "Steps 1-3 are correct as written" while the steps themselves were lost when an earlier corrected_fix replaced the whole field, so the listener, `restore` and `EXT`/`LAP` were undefined. The 4.0.x branch restores them from `research/raw/gapfill-result.json` with the earlier refinements merged in. The cause also said nothing moves a workspace back, but Hyprland v0.56.2 `src/output/Monitor.cpp` returns workspaces to a re-added output with the same connector name via `m_lastMonitor`, so that sentence is narrowed. Bindings `Super + Shift + Alt + Arrow` for move-to-monitor were confirmed in `default/hypr/bindings/tiling.lua` lines 40 to 43 and in `hyprctl binds -j`. Nothing was dispatched, reloaded or edited.
 >
-> *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
 
-> ⚠️ **Risk.** `hl.dsp.workspace.move` will happily move a workspace to a monitor that is disabled or mirrored, which hides its windows. Guard the script against firing while only one monitor exists (the `monitoradded` trigger already does this in practice, but a manual run undocked will pile everything onto the laptop panel).
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
+
+> ⚠️ **Risk.** On Omarchy 4.5.0 and later, do not run the 4.0.x rules or listener: they name ids in the laptop panel's block, and Omarchy's reconcile and the listener move the same workspaces back and forth on every monitor event, so windows jump screens. On 4.0.x and bare Hyprland, `hl.dsp.workspace.move` will move a workspace to a monitor that is disabled or mirrored, which hides its windows. A manual run of the listener's `restore` while undocked piles everything onto the laptop panel.
 
 **Fix.**
 
-Steps 1-3 are correct as written. Keep the `desc:` monitor rules, the `hypr-restore-workspaces` socat listener, and the one-shot `hl.dsp.workspace.move` repair. Three refinements:
+Which branch applies depends on the installed release. Read it from pacman, not from `/usr/share/omarchy/version`:
 
-**Trim the duplicate rules in Step 1.** The loop already emits a rule for workspaces 1 and 6, and the two `default = true` lines below re-declare them. Merge instead, so there is exactly one rule per workspace and exactly one default per monitor:
+```bash
+pacman -Q omarchy
+```
+
+**Omarchy 4.5.0 and later: remove the global-number pins and use per-monitor workspaces.**
+
+Omarchy now does what this record's 4.0.x listener did. `default/hypr/omarchy.lua` line 8 loads `default.hypr.monitor-workspaces` on every install, outside the `omarchy_default_bindings` guard, and no setting turns it off in 4.5.0 or on `quattro` as of 2026-11-09. Each monitor owns a block of ten ids, keyed by make, model and serial, and the assignment is kept in a state file, so a dock that renames connectors does not move a monitor's block:
+
+```bash
+cat ~/.local/state/omarchy/monitor-workspaces    # block <tab> connector <tab> identity
+```
+
+`Super + 1` to `Super + 0` go to the focused monitor's own workspaces 1 to 10, and each monitor's bar shows its own block. When a monitor is unplugged, its workspaces that hold windows join the block of the screen they land on, and go back under their old numbers when that monitor returns.
+
+The 4.0.x rules and listener below fight this. Delete the `hl.workspace_rule` loops that name `1` to `10` from `~/.config/hypr/monitors.lua` (or wherever you added them), remove `o.launch_on_start("hypr-restore-workspaces")` from `~/.config/hypr/autostart.lua`, and log out and back in so the old listener is gone.
+
+On a laptop, workspaces you make on the panel belong to the panel. To put one on the external monitor, focus it and press `Super + Shift + Alt + Arrow` toward that monitor. It joins the external's block, under the same slot number if that one is free, and stays there.
+
+Known gaps, open upstream as of 2026-11-09: a monitor that drops out for a second or two can come back with its workspaces shifted to the next free numbers (#16328, PR #16349 open), a sleeping DisplayPort monitor can be replaced by Hyprland's `FALLBACK` output in the state file (PR #17213 open), and a named workspace bound to a monitor is replaced in view by an empty numbered one on every reload or reconnect (#18121). Users who want global numbering back are asking for an option in #17759.
+
+**Omarchy 4.0.x and bare Hyprland: pin by description and re-home with a listener.**
+
+Step 1. Stop binding to connector names that move. Get the stable description string:
+
+```bash
+hyprctl monitors -j | jq -r '.[] | "\(.name)\t\(.description)"'
+```
+
+Use the description without the trailing `(portname)`, with a `desc:` prefix, in both the monitor rule and the workspace rules. One rule per workspace and one default per monitor:
 
 ```lua
+-- ~/.config/hypr/monitors.lua
+local EXT = "desc:Dell Inc. DELL U2723QE 8CJ3XX3"
+local LAP = "desc:Chimei Innolux Corporation 0x150C"
+
+hl.monitor({ output = EXT, mode = "3840x2160@60", position = "0x0",  scale = 1.5 })
+hl.monitor({ output = LAP, mode = "preferred",    position = "auto", scale = 1.6 })
+
 for i = 1, 5 do
   hl.workspace_rule({ workspace = tostring(i), monitor = EXT, persistent = true, default = (i == 1) })
 end
@@ -1080,28 +1119,79 @@ for i = 6, 10 do
 end
 ```
 
-**Verify the description string round-trips before relying on it.** A `desc:` value with a typo fails silently exactly like a stale connector name:
+Check that the description string round-trips. A `desc:` value with a typo fails silently exactly like a stale connector name:
 
 ```bash
-hyprctl monitors -j | jq -r '.[] | "\(.name)\t\(.description)"'
 hyprctl dispatch 'hl.dsp.focus({ monitor = "desc:Dell Inc. DELL U2723QE 8CJ3XX3" })'
 ```
 
-If focus does not move, the string is wrong. Remember to drop the trailing `(DP-1)`.
+If focus does not move, the string is wrong.
 
-**Also handle `monitorremoved`.** The listener only re-homes on `monitoradded`, so a monitor that sleeps and wakes without emitting an add event leaves workspaces stranded. Widen the case:
+Step 2. Move workspaces home when a monitor appears or goes. Install `socat`, then create `~/.local/bin/hypr-restore-workspaces`:
 
 ```bash
+sudo pacman -S --needed socat
+```
+
+```bash
+#!/bin/bash
+# ~/.local/bin/hypr-restore-workspaces
+# Re-home workspaces to their monitors whenever an output is added or removed.
+
+EXT='desc:Dell Inc. DELL U2723QE 8CJ3XX3'
+LAP='desc:Chimei Innolux Corporation 0x150C'
+
+restore() {
+  for ws in 1 2 3 4 5; do
+    hyprctl dispatch "hl.dsp.workspace.move({ workspace = \"$ws\", monitor = \"$EXT\" })" >/dev/null
+  done
+  for ws in 6 7 8 9 10; do
+    hyprctl dispatch "hl.dsp.workspace.move({ workspace = \"$ws\", monitor = \"$LAP\" })" >/dev/null
+  done
+}
+
 handle() {
   case $1 in
     monitoradded*|monitorremoved*) sleep 1; restore ;;
   esac
 }
+
+socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" \
+  | while read -r line; do handle "$line"; done
 ```
 
-**Verify.** Undock, log in, dock again. `hyprctl workspaces -j | jq -r '.[] | "\(.id) -> \(.monitor)"'` should show workspaces 1-5 on the external and 6-10 on the laptop within a second or two of the monitor coming up.
+```bash
+chmod +x ~/.local/bin/hypr-restore-workspaces
+```
 
-Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Workspace-Rules.md> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Dispatchers.md> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/IPC/_index.md> · <https://github.com/hyprwm/Hyprland/issues/5464> · <https://github.com/hyprwm/Hyprland/issues/7049> · <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/>
+Start it with the session. On Omarchy 4.0.x add to `~/.config/hypr/autostart.lua`:
+
+```lua
+o.launch_on_start("hypr-restore-workspaces")
+```
+
+On bare Hyprland, start it from your own autostart in `hyprland.lua`.
+
+Step 3. One-shot repair, any time things land wrong:
+
+```bash
+hyprctl dispatch 'hl.dsp.workspace.move({ workspace = "3", monitor = "desc:Dell Inc. DELL U2723QE 8CJ3XX3" })'
+```
+
+`hl.dsp.workspace.swap_monitors({ monitor1 = "DP-1", monitor2 = "eDP-1" })` swaps the two monitors' current workspaces in one call if you only need to un-cross them.
+
+**Verify.** On Omarchy 4.5.0 and later: undock, log in, dock again, then run
+
+```bash
+cat ~/.local/state/omarchy/monitor-workspaces
+hyprctl workspaces -j | jq -r '.[] | "\(.id) -> \(.monitor) windows=\(.windows)"'
+```
+
+The laptop panel's line in the state file carries block `0` and the external its own block (`1` on first sight). Workspaces 1 to 10 sit on the panel and 11 to 20 on the external, and the same ids come back after another unplug and replug.
+
+On Omarchy 4.0.x and bare Hyprland: undock, log in, dock again. `hyprctl workspaces -j | jq -r '.[] | "\(.id) -> \(.monitor)"'` should show workspaces 1 to 5 on the external and 6 to 10 on the laptop within a second or two of the monitor coming up.
+
+Sources: <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Workspace-Rules.md> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/Configuring/Basics/Dispatchers.md> · <https://raw.githubusercontent.com/hyprwm/hyprland-wiki/main/content/IPC/_index.md> · <https://github.com/hyprwm/Hyprland/issues/5464> · <https://github.com/hyprwm/Hyprland/issues/7049> · <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/> · <https://github.com/omacom/omarchy/pull/15655> · <https://github.com/omacom/omarchy/blob/v4.5.0/default/hypr/monitor-workspaces.lua> · <https://github.com/omacom/omarchy/blob/v4.5.0/default/hypr/omarchy.lua> · <https://github.com/omacom/omarchy/issues/17759> · <https://github.com/omacom/omarchy/issues/16328> · <https://github.com/omacom/omarchy/issues/18121> · <https://github.com/omacom/omarchy/pull/16349> · <https://github.com/omacom/omarchy/pull/17213> · <https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/output/Monitor.cpp>
 
 ---
 
@@ -2768,21 +2858,25 @@ Sources: <https://github.com/omacom/omarchy/issues/8931> · <https://github.com/
 
 **Cause.** Omarchy starts hyprsunset as a bare background process, `setsid uwsm-app -- hyprsunset &`, from `omarchy-toggle-nightlight` and from the shell's night light service, with no restart policy. If it dies, for example when an output disappears while it is binding to it, nothing restarts it for the rest of the session. A freshly started hyprsunset applies its default (about 6000K, or the `identity = true` profile in Omarchy's `hyprsunset.conf`), and hyprsunset profiles fire only at their clock time, not the most recent one that has passed. So even a restart leaves the screen neutral until the next scheduled change. Both issues are open against 4.0.4-1.
 
-> **Audit corrected this record.** Issues #8161 and #12334 are open and support the cause: both launch paths (bin/omarchy-toggle-nightlight and the shell's nightlight Service.qml) start hyprsunset with setsid uwsm-app and pgrep -x, unchanged on quattro today, and a fresh hyprsunset comes back neutral. /usr/lib/systemd/user/hyprsunset.service from hyprsunset 0.4.0-3 has Restart=on-failure and PartOf=graphical-session.target as stated. Two defects. The verify step uses pkill -x hyprsunset to prove the restart, but pkill sends SIGTERM, which systemd counts as a clean exit, so Restart=on-failure does not restart it and a correctly working setup fails the check. Second, omarchy restart hyprsunset and omarchy refresh hyprsunset both run omarchy-restart-app, which is pkill -x followed by a bare setsid uwsm-app launch, so either one silently replaces the supervised instance with an unsupervised one until the next login, which the fix does not warn about. The fix also never stops an instance the toggle already started before enabling the unit. Separately, with a running but neutral hyprsunset the toggle picks its target from the reported temperature, so whether one press warms the screen was not confirmed. The corrected fix uses hyprctl hyprsunset temperature 4000, which sets it directly. Nothing was started, killed or enabled on this machine.
+> **Audit corrected this record.** Issues #8161 and #12334 are open and support the cause: both launch paths (bin/omarchy-toggle-nightlight and the shell's nightlight Service.qml) start hyprsunset with setsid uwsm-app and pgrep -x, unchanged on quattro today, and a fresh hyprsunset comes back neutral. /usr/lib/systemd/user/hyprsunset.service from hyprsunset 0.4.0-3 has Restart=on-failure and PartOf=graphical-session.target as stated. Two defects. The verify step uses pkill -x hyprsunset to prove the restart, but pkill sends SIGTERM, which systemd counts as a clean exit, so Restart=on-failure does not restart it and a correctly working setup fails the check. Second, omarchy restart hyprsunset and omarchy refresh hyprsunset both run omarchy-restart-app, which is pkill -x followed by a bare setsid uwsm-app launch, so either one silently replaces the supervised instance with an unsupervised one until the next login, which the fix does not warn about. The fix also never stops an instance the toggle already started before enabling the unit. Separately, with a running but neutral hyprsunset the toggle picks its target from the reported temperature, so whether one press warms the screen was not confirmed. The corrected fix uses hyprctl hyprsunset temperature 4000, which sets it directly. Nothing was started, killed or enabled on this machine. Re-checked against omarchy 4.5.0-3 2026-11-09: Rechecked against omarchy 4.5.0-3 on this workstation and the upstream clone at v4.0.5, v4.0.6, v4.5.0 and quattro. Confirmed: commit 5264cbbd (#16072, in v4.5.0-rc1 and later) removed `o.bind_toggle("SUPER + CTRL + N", "Toggle nightlight", "nightlight")`, and `/usr/share/omarchy/default/hypr/bindings/utilities.lua` line 118 now binds `SUPER + CTRL + N` to the Network panel. `hyprctl binds -j` on this machine lists Super+Ctrl+N as "Network" and no bind whose description or argument mentions night light or hyprsunset, so on 4.5.0 no key toggles it. v4.0.5 and v4.0.6 still bind Super+Ctrl+N to night light, so the 4.0.x branch is kept and labelled. The toggle menu is `SUPER + CTRL + O` (utilities.lua line 5, also in `hyprctl binds -j`), and `default/omarchy/omarchy-menu.jsonc` line 133 shows **Nightlight On** whenever `omarchy-toggle-nightlight --status` is not enabled, which is the state after hyprsunset dies. The rest of the record holds on 4.5.0: `bin/omarchy-toggle-nightlight` and `shell/plugins/services/nightlight/Service.qml` still launch with `setsid uwsm-app -- hyprsunset` and `pgrep -x`, `/usr/lib/systemd/user/hyprsunset.service` (hyprsunset 0.4.0-3) still has `Restart=on-failure`, `omarchy-restart-hyprsunset` still calls `omarchy-restart-app`, which is `pkill -x` then a bare `setsid uwsm-app` launch, and #8161 and #12334 are still open. One open point from the previous audit is answered from code: since v4.0.5 the toggle targets 4000K whenever the reported temperature is 6000K or more, so one press warms a running neutral hyprsunset. That was read, not run. Nothing was toggled, started, killed or enabled.
 >
 > *The Cause above was not rewritten and may still contain the error described. The Fix below is the corrected version.*
 
-> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
 **Fix.**
 
-**Get the warmth back now:** press Super+Ctrl+N, or run:
+**Get the warmth back now.**
+
+On Omarchy 4.5.0 and later no key toggles night light (#16072 moved `Super + Ctrl + N` to the Network panel). Open the toggle menu with `Super + Ctrl + O` and pick **Nightlight On**, or run:
 
 ```bash
 omarchy toggle nightlight
 ```
 
-With no hyprsunset running, the toggle starts one and retries until 4000K sticks.
+On Omarchy 4.0.x, press `Super + Ctrl + N` or run the same command.
+
+With no hyprsunset running, the toggle starts one and retries until 4000K sticks. On 4.5.0 the toggle also sends 4000K whenever hyprsunset reports 6000K or more, so one press warms a running but neutral instance too.
 
 **Have it restart on its own.** The `hyprsunset` package ships a supervised user unit, `/usr/lib/systemd/user/hyprsunset.service`, with `Restart=on-failure` and `PartOf=graphical-session.target`. Stop any instance the toggle already started, then enable the unit:
 
@@ -2791,7 +2885,7 @@ pkill -x hyprsunset
 systemctl --user enable --now hyprsunset.service
 ```
 
-Omarchy's toggle finds the running process with `pgrep` and drives it through `hyprctl hyprsunset`, so the keybinding keeps working. If you added `o.launch_on_start("hyprsunset")` to `~/.config/hypr/autostart.lua` for a schedule, remove that line, or you will run two instances.
+Omarchy's toggle finds the running process with `pgrep` and drives it through `hyprctl hyprsunset`, so the toggle menu, the command and (on 4.0.x) the keybinding keep working. If you added `o.launch_on_start("hyprsunset")` to `~/.config/hypr/autostart.lua` for a schedule, remove that line, or you will run two instances.
 
 Once the unit owns hyprsunset, restart it with `systemctl --user restart hyprsunset`. Do not use `omarchy restart hyprsunset` or `omarchy refresh hyprsunset`: both kill it with `pkill` and start a bare copy outside the unit, and systemd treats that kill as a clean exit, so supervision is gone until you log in again.
 
@@ -2803,7 +2897,7 @@ hyprctl hyprsunset temperature 4000
 
 **Verify.** `systemctl --user is-active hyprsunset` prints `active`. Simulate a crash with `systemctl --user kill --signal=SIGKILL hyprsunset.service`, wait a few seconds, and `systemctl --user is-active hyprsunset` prints `active` again with a new PID from `pgrep -x hyprsunset`. Do not test with `pkill -x hyprsunset`: SIGTERM is a clean exit and `Restart=on-failure` correctly leaves it stopped. `hyprctl hyprsunset temperature` answers instead of failing to connect.
 
-Sources: <https://github.com/omacom/omarchy/issues/8161> · <https://github.com/omacom/omarchy/issues/12334> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-nightlight> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/nightlight/Service.qml>
+Sources: <https://github.com/omacom/omarchy/issues/8161> · <https://github.com/omacom/omarchy/issues/12334> · <https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-toggle-nightlight> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/services/nightlight/Service.qml> · <https://github.com/omacom/omarchy/commit/5264cbbd139624b4d3e840cb66fc4ce8f256d14d> · <https://github.com/omacom/omarchy/blob/v4.5.0/default/hypr/bindings/utilities.lua> · <https://github.com/omacom/omarchy/blob/v4.5.0/default/omarchy/omarchy-menu.jsonc> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-toggle-nightlight>
 
 ---
 

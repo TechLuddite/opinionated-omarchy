@@ -63,7 +63,8 @@ Score a paired run with `skillbench/tools/lift_test.py`, which reports the
 difference-in-differences and its p-value rather than two percentages to eyeball.
 
 The bar to clear is on the record. `omarchy/SKILL.md` (the upstream skill, byte-identical
-to what the lab benched, and on 2026-10-18 still byte-identical to the v4.0.5 release) lifts Omarchy-specific tasks **+29.3 pt** while moving the
+to what the lab benched, and on 2026-10-18 still byte-identical to the v4.0.5 release, but no longer to v4.5.0, whose
+`SKILL.md` drops the "When This Skill MUST Be Used" section and rewrites the description) lifts Omarchy-specific tasks **+29.3 pt** while moving the
 general-Linux controls **−2.3 pt** ([research/bench/](../research/bench/)). A corpus-backed
 skill that cannot beat that is not worth shipping, and the bench will say so.
 

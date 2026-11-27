@@ -1,6 +1,6 @@
 # Journal: handoff
 
-Last updated: 2026-11-05
+Last updated: 2026-11-09
 
 > ## START HERE: the next session is about getting back on track
 >
@@ -58,9 +58,13 @@ Last updated: 2026-11-05
 >    upstream, on #17705 and #17525, and a tested migration was withheld. test1 is not clean. See the
 >    2026-11-05 session.
 >
-> **Next session, in order:** 1f (the ranking, no VM needed), then 1d (bring both VMs to v4.0.6
-> first, which shipped 2026-10-19, saving the 4.0.5 goldens as reflink copies), then the 1g spike.
-> Both VMs are shut off.
+> 1i. **Every machine runs v4.5.0 as of 2026-11-09**, and the 16 records whose fixes v4.5.0 made
+>    wrong are rechecked. About 60 more records are fixed upstream or carry stale claims, and they
+>    are listed in `research/raw/release-4.5.0-impact.md`. See the 2026-11-08/09 session.
+>
+> **Next session, in order:** the rest of 1i (the FIXED-UPSTREAM and CLAIM-STALE items of the
+> 4.5.0 impact report, which supersedes 1d), then 1f (the ranking, no VM needed), then the 1g spike.
+> Both VMs are shut off at 4.5.0-3 goldens.
 >
 > 1f. **The local-model ranking is OWED (2026-10-18).** The 10-model opencode scan finished: runs 52
 >    (published-wrong), 53 (stale-advice) and 55 (deep-triage control), 3 repeats each. Run 54 is a
@@ -127,6 +131,86 @@ Last updated: 2026-11-05
 > **State of the record:** every figure on the seven published pages was recomputed on
 > 2026-09-06 and reproduces from the repo. Trust the pages as of that date; recompute
 > before quoting anything newer.
+
+## Session of 2026-11-08/09: the fleet moves to v4.5.0, and 16 fixes are rechecked against it
+
+The workstation had been on **4.5.0-3** since 2026-11-05 at 06:28 local time by its `pacman.log`,
+rebooted onto `7.2.15-1-omarchy` at 06:34, while this file and `CLAUDE.md` said it was still 4.0.5-1.
+Both now say 4.5.0-3. It has run since then on the RTX 3090 with `nvidia-open-dkms` 615.78.08 and no
+NVRM errors in the journal for the boot, so the #17635 freeze has not shown up here. #17635 has no
+comments, and "it works here" adds nothing upstream, so nothing was posted.
+
+### The VMs
+
+Both VMs were reset to their 4.0.5 goldens and taken to **4.5.0-3** with `omarchy update -y`, kernel
+`7.2.15-1-omarchy`, opencode 2.2.6 from mise. Both hit `Remove 3 orphaned packages?` on the hop,
+because the update that runs is still the 4.0.5 script, and a watcher declined it with `kill -INT`.
+After a reboot each had no failed units, Hyprland up, `pacman -Qkk omarchy` at 0 altered files and
+`/readyz` at `ready:true`. All eleven agentic seeds pass `check_seeds.py` on test1, 3 cycles each.
+The seed run left bench files on test1, so test1 was reset and updated a second time before its
+golden was saved. Kept as reflink copies in `/var/lib/libvirt/images`: `golden-test1-4.0.5-1.qcow2`,
+`golden-test2-4.0.5-1.qcow2`, `test1-4.5.0-3-withheld-cangjie-2026-11-05.qcow2` (the 2026-11-05 test1
+with the withheld migration) and `test2-pre-reset-2026-10-25.qcow2`.
+
+One trap: a waiter that polls with `pgrep -f "omarchy update"` over ssh matches its own command line
+and never exits. Match `pgrep -x omarchy-update` instead.
+
+### The impact read, and what was applied
+
+Two read-only agents read the v4.0.5...v4.5.0 diff against the corpus, one for packages, update,
+migrations and kernel, one for the shell, Hyprland, theming, displays and input. The report is
+`research/raw/release-4.5.0-impact.md`. It also re-checks every open item of the 4.0.5 report, so
+it replaces 1d. `git log v4.0.5..v4.5.0` lists 1,205 commits because v4.0.x is a release branch cut
+from `quattro` on 2026-08-14, so the agents worked from the file diff instead.
+
+Four headline claims were checked by hand on the workstation: `omarchy-system-reboot` is gone
+(replaced by `omarchy-system reboot`), `default/hypr/input.lua:18` defaults `kb_options` to
+`omarchy:shift_caps_compose`, `bin/omarchy-update:108` runs `omarchy-update-orphan-pkgs -y` on every
+update so orphans are removed without asking, and migration `1791898365.sh` sets Limine to
+`timeout: 1` with `quiet: yes`.
+
+The FIX-NOW-WRONG group, 16 records, was then re-audited by seven agents with
+`research/tools/reaudit-brief.md`, two or three related records each, read-only against the
+workstation. All 16 are `recheck` verdicts with `checked_against: "omarchy 4.5.0-3 2026-11-09"`, each
+keeping a labelled branch for 4.0.x. The payload is `research/raw/release-4.5.0-recheck-payload.json`.
+It was dry-run on a copy first: exactly those 16 records changed, no `audit_status` moved, and the
+lint and tests passed. The auditors overturned or narrowed the impact report four times:
+
+- `transparent-bar-text-keeps-previous-theme-color`: only `.bar.background == "none"` samples the
+  wallpaper, so the new guard must not match `glassy`.
+- `captive-portal-login-page-never-opens`: an override that sets only `uri=` inherits Omarchy's empty
+  `response=`, and NetworkManager then reports a portal on every network. The fix sets both.
+- `channel-switch-skips-reboot-offer`: #17251 fixes it only when the switch starts on 4.5.0. A switch
+  started on 4.0.x still skips the reboot offer.
+- `omarchy-update-overwrites-pacman-conf`: `omarchy update` on 4.5.0 does not rewrite
+  `/etc/pacman.conf` on x86. `omarchy refresh pacman` still drops custom sections.
+
+Two older defects surfaced on the way. `update-y-hangs-orphan-or-reboot-prompt` told readers to
+`pkill` gum, which sends SIGTERM and so answers yes under gum 2.0.2. And
+`workspace-monitor-binding-lost-on-hotplug` said "Steps 1-3 are correct as written" about steps an
+earlier `corrected_fix` had deleted, now restored from `research/raw/gapfill-result.json`.
+
+### Also found
+
+- The vendored `omarchy/` still matches v4.0.5. v4.5.0's `SKILL.md` drops the "When This Skill MUST Be
+  Used" section and adds `o.rebind`. `diagnose-crash/SKILL.md` now matches v4.5.0, which ships
+  `omarchy-crash-mute`, so the 2026-10-18 debt about it is closed. Re-vendoring `omarchy/` moves the
+  bundle sha and starts a new bench series, which is the operator's decision.
+- The `writing-and-responding` skill that `CLAUDE.md` "Writing" points at is not on this machine:
+  `~/.grok/skills` does not exist and `~/.claude/skills` has no link to it.
+- #17705 was closed on 2026-11-07 as fixed in 4.6.0, which has not shipped. #17525, #12392 and gum
+  #1172 need nothing from us. A contributor on #1172 said on 2026-10-20 that they would work on a fix.
+- This workstation's `~/.config` copy of `add-custom-repo.sample` is dated 2026-08-14 and still inserts
+  above `[core]`. Not changed.
+
+### Outstanding
+
+1. The FIXED-UPSTREAM, CLAIM-STALE and CHECK groups of the impact report, about 60 records, plus
+   `lock-screen-polkit-rejects-password-non-us-layout` and `sddm-greeter-us-layout-after-logout`,
+   which cite `/etc/vconsole.conf` while 4.5.0 adds `~/.config/omarchy/keyboard-layouts`.
+2. The NEW-RECORD-CANDIDATES groups, 20 topics, including unprompted orphan removal and the
+   Motorcomm YT6801 migration that exits 1 until a reboot.
+3. Re-vendoring `omarchy/`, for the operator.
 
 ## Session of 2026-11-05: v4.5.0 on test1, the stable blocker that was not one, and two comments upstream
 

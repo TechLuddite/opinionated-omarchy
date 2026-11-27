@@ -2151,29 +2151,37 @@ Sources: <https://github.com/basecamp/omarchy/issues/6992>
 
 `captive-portal-login-page-never-opens` · severity: **medium** · frequency: **common** · applies to: `arch`, `hyprland`, `laptop`, `networkmanager`, `omarchy`, `wayland`
 
-**Symptom.** You join hotel, train, airport or cafe Wi-Fi. The bar shows Wi-Fi connected, but nothing loads and no login page ever appears, unlike on a phone, macOS or GNOME. `nmcli networking connectivity check` prints `portal` or `limited`. On builds whose network panel has an "Open Captive Portal" button under a "SIGN-IN REQUIRED" heading (the `quattro` branch, not 4.0.4), clicking it can open a plain text page from `ping.archlinux.org` instead of the portal's login form.
+**Symptom.** You join hotel, train, airport or cafe Wi-Fi. The bar shows Wi-Fi connected, but nothing loads. `nmcli networking connectivity check` prints `portal` or `limited`. On Omarchy 4.0.4 to 4.0.6 no login page ever appears and nothing on the desktop says that sign-in is needed, unlike on a phone, macOS or GNOME. On 4.5.0 the network icon in the bar is highlighted with the tooltip "Sign in to this network", and the network panel shows "Sign-in required" and a "Sign into network" button (the release notes call it "Open Captive Portal"), but no login page opens until you click it. On a portal that only intercepts the probe URLs phones and other desktops use, the button can still fail to reach the login form.
 
-**Cause.** Omarchy 4.0.4, the current release, ships no captive portal handler at all. NetworkManager does detect the portal: Arch's `networkmanager` package configures `/usr/lib/NetworkManager/conf.d/20-connectivity.conf` with `uri=http://ping.archlinux.org/nm-check.txt`, and when that probe is intercepted NetworkManager sets its connectivity state to `portal`. Nothing in the Omarchy shell or in a dispatcher script reacts to that state by opening a browser, so you are expected to know to browse to a plain HTTP site yourself (upstream issue #9610).
+**Cause.** Omarchy 4.0.4 to 4.0.6 ship no captive portal handler. NetworkManager does detect the portal: Arch's `networkmanager` package ships `/usr/lib/NetworkManager/conf.d/20-connectivity.conf` with `uri=http://ping.archlinux.org/nm-check.txt`, and when that probe is intercepted NetworkManager sets its connectivity state to `portal`. Nothing in the 4.0.x shell or in a dispatcher script reacts to that state, so you are expected to know to browse to a plain HTTP site yourself (upstream issue #9610).
 
-The `quattro` branch adds an "Open Captive Portal" button to the network panel (its tooltip reads "Sign in to this network"), but `shell/plugins/panels/network/Model.js` hardcodes `captivePortalUrl = "http://ping.archlinux.org/nm-check.txt"`. Issue #11961 reports that many portals only intercept the probe URLs that phones and desktop OSes use, so the button can load Arch's check file instead of the login page.
+Omarchy 4.5.0 adds a handler (PR #16186). `omarchy-settings` installs `/etc/NetworkManager/conf.d/omarchy-connectivity.conf`, which sets `uri=http://ping.omacom.io/nm-check.txt` and an empty `response=`. Its comment gives the reason: archlinux.org is HSTS-preloaded, so a browser forces the Arch URL to HTTPS, where no portal can intercept it. The network panel's `shell/plugins/panels/network/Model.js` holds the same URL as `captivePortalUrl`, and the button passes it to `omarchy-network-captive-portal`, which opens it in a floating web-app window and waits until NetworkManager reports `full`. The panel only signals the `portal` state. It opens nothing until you click. Issue #11961, still open, reports that some portals intercept only the probe URLs phones and desktop OSes use, and the button still opens one fixed URL.
 
 A second, independent cause stops the portal from loading even when you do open a browser: `omarchy dns Cloudflare` (the default) pins DNS so the portal's own DNS hijack never sees your queries. That one is covered by the record `captive-portal-never-loads-forced-dns`.
 
-> **Audit corrected this record.** Confirmed on this workstation (4.0.4-1, upstream latest v4.0.4) that nothing under /usr/share/omarchy mentions captive, portal or nm-check, so 4.0.4 has no handler, and /usr/lib/NetworkManager/conf.d/20-connectivity.conf sets uri=http://ping.archlinux.org/nm-check.txt. On quattro, shell/plugins/panels/network/Model.js line 41 hardcodes captivePortalUrl to that URL and Panel.qml opens it through omarchy-launch-browser. The record names the wrong control: the panel button is labelled "Open Captive Portal" (Panel.qml line 1368), under a "SIGN-IN REQUIRED" heading, and "Sign in to this network" is only a tooltip text (line 1082). Issue #11961 uses the tooltip wording, so symptom and cause are corrected to the real label. NetworkManager's polkit policy gives org.freedesktop.NetworkManager.reload auth_admin_keep with no wheel rule, so the unprivileged `nmcli general reload conf` would stop for authentication, and the fix now runs it with sudo. The nmcli monitor string "Connectivity is now '%s'" was confirmed in src/nmcli/general.c and is wrapped in _(), so LC_ALL=C is right. The Arch wiki gives exactly the nmcheck.gnome.org example and the /etc override of the same file name. Issue #9610 supports the neverssl.com workaround, the IPv6 blackhole note and the user service shape. Not exercised: no portal was available to test the watcher.
+> **Audit corrected this record.** Confirmed on this workstation (4.0.4-1, upstream latest v4.0.4) that nothing under /usr/share/omarchy mentions captive, portal or nm-check, so 4.0.4 has no handler, and /usr/lib/NetworkManager/conf.d/20-connectivity.conf sets uri=http://ping.archlinux.org/nm-check.txt. On quattro, shell/plugins/panels/network/Model.js line 41 hardcodes captivePortalUrl to that URL and Panel.qml opens it through omarchy-launch-browser. The record names the wrong control: the panel button is labelled "Open Captive Portal" (Panel.qml line 1368), under a "SIGN-IN REQUIRED" heading, and "Sign in to this network" is only a tooltip text (line 1082). Issue #11961 uses the tooltip wording, so symptom and cause are corrected to the real label. NetworkManager's polkit policy gives org.freedesktop.NetworkManager.reload auth_admin_keep with no wheel rule, so the unprivileged `nmcli general reload conf` would stop for authentication, and the fix now runs it with sudo. The nmcli monitor string "Connectivity is now '%s'" was confirmed in src/nmcli/general.c and is wrapped in _(), so LC_ALL=C is right. The Arch wiki gives exactly the nmcheck.gnome.org example and the /etc override of the same file name. Issue #9610 supports the neverssl.com workaround, the IPv6 blackhole note and the user service shape. Not exercised: no portal was available to test the watcher. Re-checked against omarchy 4.5.0-3 2026-11-09: Rechecked against omarchy 4.5.0-3 on this workstation and the v4.5.0 tag of the upstream clone. The release-impact claim holds and was confirmed, not inferred: `omarchy-connectivity.conf` (owned by omarchy-settings 4.5.0-3) sets `uri=http://ping.omacom.io/nm-check.txt` and `response=`, and `NetworkManager --print-config` (read-only, networkmanager 1.58.1-2) lists the `/etc` files in name order and shows the omacom uri in effect. To test the record's own step without touching `/etc`, `NetworkManager --print-config --config-dir=<scratch copy>` was run with the record's `20-connectivity.conf` added, and the omacom uri still won, while the same content as `zz-connectivity.conf` won. NetworkManager.conf(5) says conf.d files are read in order with later files overriding. A new defect was found in the obvious fix: an override with only `uri=` inherits the empty `response=`, and `src/core/nm-connectivity.c` at 1.58.1 returns PORTAL ("unexpected short response") for a 200 with a body when the expected response is empty. `curl` showed nmcheck.gnome.org answers 200 with the body `NetworkManager is online` and no `X-NetworkManager-Status` header, so a uri-only override would report portal everywhere. This was read from source and endpoint headers, not exercised on a live NetworkManager. The 4.5.0 panel (Panel.qml, Model.js, identical to `/usr/share/omarchy`) shows the English label "Sign into network", status "Sign-in required" and tooltip "Sign in to this network", and opens nothing on its own, so the watcher service is not redundant. The old cause sentence about `quattro` hardcoding ping.archlinux.org described a branch state that never shipped in a release (v4.0.4 to v4.0.6 have no `captivePortalUrl`), so it was replaced. `omarchy dns` with no argument still prints the provider at v4.5.0. Issues #9610 and #11961 are both still open. Not exercised: no captive portal was available, and `omarchy-network-captive-portal` was read, not run.
 >
-> *The Cause above was rewritten on 2026-10-05 to match this note. The Fix was corrected by the audit itself.*
+> *The Cause above was rewritten on 2026-11-09 to match this note. The Fix was corrected by the audit itself.*
 
-> *Checked against Omarchy omarchy 4.0.4-1 on 2026-10-05.*
+> *Checked against Omarchy omarchy 4.5.0-3 on 2026-11-09.*
 
-> ⚠️ **Risk.** Switching to `omarchy dns DHCP` sends DNS in plaintext to whatever resolver the portal network hands out, which on a hostile network can log or rewrite lookups. Switch back with `omarchy dns Cloudflare` once you are through.
+> ⚠️ **Risk.** Switching to `omarchy dns DHCP` sends DNS in plaintext to whatever resolver the portal network hands out, which on a hostile network can log or rewrite lookups. Switch back with `omarchy dns Cloudflare` once you are through. On Omarchy 4.5.0, a `[connectivity]` override that sets `uri=` to an endpoint answering with a body, and has no `response=` line, inherits Omarchy's empty `response=` and makes NetworkManager report `portal` on every network. NetworkManager.conf(5) says a device without full connectivity also gets +20000 added to its default-route metric. Check with `NetworkManager --print-config` and delete the override to undo it.
 
 **Fix.**
 
-Immediate workaround. Open a plain HTTP page, which a portal must intercept to redirect you:
+Immediate workaround, every release. Open a plain HTTP page, which a portal must intercept to redirect you:
 
 ```bash
 xdg-open http://neverssl.com/
 ```
+
+On Omarchy 4.5.0, try the network panel first: click the highlighted network icon in the bar and press "Sign into network". This is the command the button runs, if you want it from a terminal:
+
+```bash
+omarchy-network-captive-portal http://ping.omacom.io/nm-check.txt
+```
+
+It opens a floating window, pauses a Tailscale exit node while you sign in, and closes the window once NetworkManager reports `full`. If the window stays blank, close it and use the `neverssl.com` step above. Omarchy 4.0.4 to 4.0.6 have no button and no such command.
 
 If that still loads nothing, check DNS first, because a pinned resolver blocks the redirect:
 
@@ -2189,7 +2197,9 @@ nmcli connection modify "<SSID>" ipv6.method disabled
 nmcli connection up "<SSID>"
 ```
 
-Optional, so NetworkManager detects more portals correctly. Point its check at a URL portals commonly recognise. This is the example the Arch wiki gives:
+Optional, so NetworkManager detects more portals correctly. Point its check at a URL portals commonly recognise. The URL is the example the Arch wiki gives. The file name you need depends on the release.
+
+Omarchy 4.0.4 to 4.0.6, and plain Arch. A file in `/etc` with the packaged name replaces `/usr/lib/NetworkManager/conf.d/20-connectivity.conf`:
 
 ```bash
 sudo tee /etc/NetworkManager/conf.d/20-connectivity.conf >/dev/null <<'EOF'
@@ -2199,9 +2209,21 @@ EOF
 sudo nmcli general reload conf
 ```
 
-The file name matches the packaged one under `/usr/lib/NetworkManager/conf.d/`, so the copy in `/etc` replaces it. Note that the panel button on `quattro` ignores this setting and keeps opening its hardcoded URL.
+Omarchy 4.5.0. That file has no effect, because NetworkManager reads `conf.d` files in file-name order with later files winning, and Omarchy's `/etc/NetworkManager/conf.d/omarchy-connectivity.conf` sorts after `20-connectivity.conf`. Use a name that sorts after Omarchy's, and set `response=` as well. Omarchy's file sets an empty `response=`, an override that sets only `uri=` inherits it, and with an empty response NetworkManager judges the GNOME endpoint's `NetworkManager is online` reply to be a portal on every network:
 
-Optional, to open the login page automatically. A user service that watches NetworkManager and opens a browser when connectivity becomes `portal`. It runs in the graphical session so `xdg-open` has a display:
+```bash
+sudo tee /etc/NetworkManager/conf.d/zz-connectivity.conf >/dev/null <<'EOF'
+[connectivity]
+uri=http://nmcheck.gnome.org/check_network_status.txt
+response=NetworkManager is online
+EOF
+NetworkManager --print-config | grep -A3 '^\[connectivity\]'   # must show both lines above
+sudo nmcli general reload conf
+```
+
+`NetworkManager --print-config` only reads the files and needs no root. Remove `zz-connectivity.conf` to go back to Omarchy's endpoint. The 4.5.0 panel button ignores this setting and keeps opening `ping.omacom.io`.
+
+Optional, to open the login page automatically. No release opens it by itself: 4.5.0 marks the bar icon and the panel but waits for a click. A user service that watches NetworkManager and opens a browser when connectivity becomes `portal`. It runs in the graphical session so `xdg-open` has a display:
 
 ```bash
 mkdir -p ~/.local/bin ~/.config/systemd/user
@@ -2236,17 +2258,20 @@ systemctl --user daemon-reload
 systemctl --user enable --now captive-portal-watch.service
 ```
 
+On 4.5.0 you can replace `xdg-open http://neverssl.com/` in the script with `omarchy-network-captive-portal http://ping.omacom.io/nm-check.txt` to get the floating window that closes itself.
+
 `LC_ALL=C` matters because nmcli translates the message under a non-English locale. The service only fires when NetworkManager's own check reports `portal`. Portals that silently drop traffic instead of redirecting report `limited` and still need the manual `neverssl.com` step.
 
 **Verify.** ```bash
 nmcli networking connectivity check     # portal before login, full after
+NetworkManager --print-config | grep -A3 '^\[connectivity\]'   # the uri and response in effect
 systemctl --user status captive-portal-watch.service
 resolvectl dns                          # on a portal, the Wi-Fi link should list the network's DNS server
 ```
 
 After signing in, `curl -sI http://neverssl.com/` returns `200` from neverssl itself rather than a redirect.
 
-Sources: <https://github.com/omacom/omarchy/issues/9610> · <https://github.com/omacom/omarchy/issues/11961> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Model.js> · <https://wiki.archlinux.org/title/NetworkManager> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/nmcli/general.c> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml>
+Sources: <https://github.com/omacom/omarchy/issues/9610> · <https://github.com/omacom/omarchy/issues/11961> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Model.js> · <https://wiki.archlinux.org/title/NetworkManager> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/src/nmcli/general.c> · <https://github.com/omacom/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml> · <https://github.com/omacom/omarchy/blob/v4.5.0/etc/NetworkManager/conf.d/omarchy-connectivity.conf> · <https://github.com/omacom/omarchy/blob/v4.5.0/bin/omarchy-network-captive-portal> · <https://github.com/omacom/omarchy/blob/v4.5.0/shell/plugins/panels/network/Panel.qml> · <https://github.com/omacom/omarchy/pull/16186> · <https://networkmanager.dev/docs/api/latest/NetworkManager.conf.html> · <https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/raw/1.58.1/src/core/nm-connectivity.c> · <https://omarchy.org/news/2026/11/omarchy-4-5>
 
 ---
 
