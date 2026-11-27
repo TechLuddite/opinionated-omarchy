@@ -1,0 +1,9 @@
+{
+  "accepted": [
+    {
+      "rule": "S2.credential-files",
+      "path": "CLAUDE.md",
+      "reason": "The test VM section names the workstation SSH key path that reaches the NAT-only test VMs. It documents the lab and asks an agent to read no key."
+    }
+  ]
+}
